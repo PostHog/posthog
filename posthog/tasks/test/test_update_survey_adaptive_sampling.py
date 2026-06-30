@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from posthog.models import FeatureFlag
 from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 

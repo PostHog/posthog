@@ -45,6 +45,7 @@ use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
+use rstest::rstest;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -88,90 +89,90 @@ fn create_test_geoip_service() -> GeoIpClient {
         .expect("Failed to create GeoIpService for testing")
 }
 
-#[test]
-fn test_geoip_enabled_with_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let mut person_props = HashMap::new();
-    person_props.insert("name".to_string(), Value::String("John".to_string()));
-
-    let result = properties::get_person_property_overrides(
-        false,
-        Some(person_props),
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
-        &geoip_service,
-    );
-
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert!(result.len() > 1);
-    assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
-    assert!(result.contains_key("$geoip_country_name"));
+enum GeoipExpected {
+    /// GeoIP resolves and merges with the supplied person props (name + country keys).
+    NameAndCountry,
+    /// GeoIP is off, so only the supplied person prop survives.
+    NameOnly,
+    /// GeoIP resolves with no person props (country keys only).
+    CountryOnly,
+    /// Nothing to override.
+    None,
 }
 
-#[test]
-fn test_geoip_enabled_without_person_properties() {
+#[rstest]
+// GeoIP on, public IP, with person props → name preserved + geoip merged
+#[case(
+    false,
+    true,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::NameAndCountry
+)]
+// GeoIP on, public IP, no person props → geoip only
+#[case(
+    false,
+    false,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::CountryOnly
+)]
+// GeoIP off, public IP, with person props → only the person prop survives
+#[case(
+    true,
+    true,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::NameOnly
+)]
+// GeoIP off, public IP, no person props → nothing
+#[case(
+    true,
+    false,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::None
+)]
+// GeoIP on, loopback IP → GeoIP is on but resolves nothing
+#[case(
+    false,
+    false,
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    GeoipExpected::None
+)]
+fn test_geoip_person_property_overrides(
+    #[case] geoip_disabled: bool,
+    #[case] with_name: bool,
+    #[case] ip: IpAddr,
+    #[case] expected: GeoipExpected,
+) {
     let geoip_service = create_test_geoip_service();
+    let name = Value::String("John".to_string());
+
+    let person_properties = with_name.then(|| HashMap::from([("name".to_string(), name.clone())]));
 
     let result = properties::get_person_property_overrides(
-        false,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
+        geoip_disabled,
+        person_properties,
+        &ip,
         &geoip_service,
     );
 
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert!(!result.is_empty());
-    assert!(result.contains_key("$geoip_country_name"));
-}
-
-#[test]
-fn test_geoip_disabled_with_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let mut person_props = HashMap::new();
-    person_props.insert("name".to_string(), Value::String("John".to_string()));
-
-    let result = properties::get_person_property_overrides(
-        true,
-        Some(person_props),
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-        &geoip_service,
-    );
-
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert_eq!(result.len(), 1);
-    assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
-}
-
-#[test]
-fn test_geoip_disabled_without_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let result = properties::get_person_property_overrides(
-        true,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-        &geoip_service,
-    );
-
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_geoip_enabled_local_ip() {
-    let geoip_service = create_test_geoip_service();
-
-    let result = properties::get_person_property_overrides(
-        true,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        &geoip_service,
-    );
-
-    assert!(result.is_none());
+    match expected {
+        GeoipExpected::NameAndCountry => {
+            let result = result.expect("expected property overrides");
+            assert!(result.len() > 1);
+            assert_eq!(result.get("name"), Some(&name));
+            assert!(result.contains_key("$geoip_country_name"));
+        }
+        GeoipExpected::NameOnly => {
+            let result = result.expect("expected property overrides");
+            assert_eq!(result.len(), 1);
+            assert_eq!(result.get("name"), Some(&name));
+        }
+        GeoipExpected::CountryOnly => {
+            let result = result.expect("expected property overrides");
+            assert!(!result.is_empty());
+            assert!(result.contains_key("$geoip_country_name"));
+        }
+        GeoipExpected::None => assert!(result.is_none()),
+    }
 }
 
 #[tokio::test]
@@ -199,6 +200,7 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -279,6 +281,7 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -331,6 +334,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -349,7 +353,7 @@ fn test_decode_request() {
     let result = decoding::decode_request(&headers, body, &meta);
 
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -451,7 +455,7 @@ fn test_decode_request_form_urlencoded() {
 
     let result = decoding::decode_request(&headers, body, &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -479,7 +483,7 @@ fn test_decode_form_data_kludges() {
 
         if should_succeed {
             assert!(result.is_ok(), "Failed to decode: {input}");
-            let request = result.unwrap();
+            let (request, _decoded) = result.unwrap();
             if input.contains("bio") {
                 // Verify we can handle newlines in the decoded JSON
                 let person_properties = request.person_properties.unwrap();
@@ -512,7 +516,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, None, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -539,7 +543,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -606,7 +610,7 @@ fn test_decode_form_data_real_world_payload() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
 
     assert!(result.is_ok(), "Failed to decode real world payload");
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
 
     // Verify key fields from the decoded request
     assert_eq!(request.token, Some("sTMFPsFhdP1Ssg".to_string()));
@@ -667,6 +671,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -749,6 +754,7 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -797,6 +803,7 @@ async fn test_evaluate_feature_flags_details() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -818,6 +825,7 @@ async fn test_evaluate_feature_flags_details() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -902,6 +910,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -979,6 +988,7 @@ async fn test_long_distinct_id() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: long_id,
         device_id: None,
         feature_flags: feature_flag_list,
@@ -1089,7 +1099,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1098,7 +1108,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1110,7 +1120,7 @@ fn test_decode_request_content_types() {
     );
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1118,7 +1128,7 @@ fn test_decode_request_content_types() {
     let headers = HeaderMap::new();
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1589,6 +1599,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run sequential (threshold = 100, well above 4 flags)
     let sequential_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: seq_flag_list,
@@ -1619,6 +1630,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run parallel (threshold = 1, forces rayon+oneshot for any batch >= 1)
     let parallel_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: par_flag_list,
@@ -1702,6 +1714,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_disabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_disabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list.clone(),
@@ -1738,6 +1751,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_enabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_enabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id,
         device_id: None,
         feature_flags: feature_flag_list,

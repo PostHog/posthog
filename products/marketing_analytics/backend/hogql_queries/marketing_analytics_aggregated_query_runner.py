@@ -156,6 +156,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             query_type="marketing_analytics_aggregated_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -251,27 +252,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
             select=tuple_columns,
             select_from=join_expr,
         )
-
-    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
-        """Extract and filter select columns - same as table query runner"""
-        if self.query.select:
-            # Create a mapping of column names to their AST expressions
-            column_mapping: dict[str, ast.Expr] = {}
-            for col in query.select:
-                if isinstance(col, ast.Alias):
-                    column_mapping[col.alias] = col
-                else:
-                    column_mapping[str(col)] = col
-
-            # Filter to only include requested columns
-            filtered_select: list[ast.Expr] = []
-            for requested_col in self.query.select:
-                if requested_col in column_mapping:
-                    filtered_select.append(column_mapping[requested_col])
-            return filtered_select
-        else:
-            # If no specific columns requested, use all columns
-            return query.select if query.select else []
 
     def _transform_results_to_dict(
         self, results: list, columns: list, has_comparison: bool

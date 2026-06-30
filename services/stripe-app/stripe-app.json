@@ -128,6 +128,5 @@
         "https://app.posthog.com/integrations/stripe/callback"
     ],
     "distribution_type": "public",
-    "stripe_api_access_type": "oauth",
-    "sandbox_install_compatible": true
+    "stripe_api_access_type": "oauth"
 }

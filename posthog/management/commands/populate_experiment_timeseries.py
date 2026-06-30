@@ -8,8 +8,7 @@ from django.utils import timezone
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 
 
@@ -129,10 +128,8 @@ class Command(BaseCommand):
                     metric=metric_obj,
                 )
 
-                # Use query_to_utc as the override end date for the query runner
-                query_runner = ExperimentQueryRunner(
-                    query=experiment_query, team=experiment.team, override_end_date=query_to_utc
-                )
+                # Evaluate the experiment as of query_to_utc (clamped to end_date inside the runner)
+                query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, as_of=query_to_utc)
                 result = query_runner._calculate()
                 result_data = result.model_dump()
 

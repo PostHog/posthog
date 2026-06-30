@@ -5,12 +5,47 @@ import {
     AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
+    FunnelsAlertConfig,
+    HogQLAlertConfig,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
-export type AlertConfig = TrendsAlertConfig
+export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig
+
+export const isTrendsAlertConfig = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
+    config?.type === 'TrendsAlertConfig'
+
+export const isHogQLAlertConfig = (config: AlertConfig | null | undefined): config is HogQLAlertConfig =>
+    config?.type === 'HogQLAlertConfig'
+
+export const isFunnelsAlertConfig = (config: AlertConfig | null | undefined): config is FunnelsAlertConfig =>
+    config?.type === 'FunnelsAlertConfig'
+
+/** SQL alert in any-row mode: every result row is checked (one entity per row), which changes
+ * row labeling and history rendering versus the single-value modes. */
+export const isAnyRowHogQLConfig = (config: AlertConfig | null | undefined): boolean =>
+    isHogQLAlertConfig(config) && config.evaluation === 'any_row'
+
+// Capability helpers — read at call sites instead of bare `isTrendsAlertConfig`/`isHogQLAlertConfig`
+// checks, so the intent ("does this alert kind support X") is explicit. Kept separate even where
+// they coincide today (all trends-only) because the capabilities are independent and may diverge.
+
+/** Trends alerts evaluate a time-bucketed series, so they can check the current (incomplete)
+ * interval. SQL and funnel alerts evaluate whatever the query returns — no partial interval.
+ * Type guard so call sites can read the trends-only `check_ongoing_interval` after the check. */
+export const supportsOngoingInterval = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
+    isTrendsAlertConfig(config)
+
+/** Trends and funnel alerts evaluate over the insight's time window/interval; SQL alerts own their
+ * own window inside the query, so there's no interval to echo in the UI. */
+export const supportsTimeWindow = (config: AlertConfig | null | undefined): boolean => !isHogQLAlertConfig(config)
+
+/** Anomaly detection needs a time series to score: trends, or SQL in last/first-row mode (an
+ * any-row SQL alert's rows are unrelated entities, not a time axis, so there's nothing to score). */
+export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): boolean =>
+    isTrendsAlertConfig(config) || (isHogQLAlertConfig(config) && !isAnyRowHogQLConfig(config))
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
@@ -84,7 +119,7 @@ export type InvestigationVerdict = 'true_positive' | 'false_positive' | 'inconcl
 export interface AlertCheck {
     id: string
     created_at: string
-    calculated_value: number
+    calculated_value: number | null
     state: AlertState
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null

@@ -49,7 +49,7 @@ class TeamScopedRootMixin(RootTeamMixin):
     # infer that the parent's narrower manager is intentionally being
     # widened, so the assignment looks incompatible. The override is the
     # whole point of this mixin.
-    objects = TeamScopedManager()  # type: ignore[assignment]
+    objects = TeamScopedManager()  # type: ignore[assignment, misc]
 
     class Meta:
         abstract = True

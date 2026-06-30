@@ -22,6 +22,7 @@ HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.scroll_depth",
     "products.web_analytics.backend.temporal.health_checks.authorized_urls",
     "products.web_analytics.backend.temporal.health_checks.reverse_proxy",
+    "products.web_analytics.backend.temporal.health_checks.partial_proxy",
     "products.web_analytics.backend.temporal.health_checks.web_vitals",
 ]
 

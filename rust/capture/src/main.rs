@@ -130,7 +130,7 @@ async fn main() {
         .expect("could not bind port");
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
 
-    let components = setup::build_components(config, handles).await;
+    let components = setup::build_components(config, std::env::vars().collect(), handles).await;
 
     serve(listener, components).await;
 

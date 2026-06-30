@@ -1,17 +1,32 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isOperatorDate } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isOperatorDate } from 'lib/utils/operators'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
@@ -24,6 +39,7 @@ import {
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -45,17 +61,29 @@ import {
     PropertyType,
 } from '~/types'
 
+import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
-    tabId?: string
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
 
+export type CohortEditTab = 'overview' | 'history'
+
+const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
+
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
-    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+    cohort.pending_version != null &&
+    (cohort.version == null || cohort.pending_version !== cohort.version) &&
+    // A pending version that never catches up because every attempt failed is not pending, it's
+    // failed. Without this, `version` stays stuck behind `pending_version` forever (it only advances
+    // on success), so the cohort would show "pending" indefinitely and mask the calculation error.
+    // A genuine in-progress retry still flips `is_calculating`, which keeps the calculating banner up.
+    !cohort.errors_calculating
 
 const hasFilterCriteria = (cohort: CohortType): boolean =>
     Array.isArray(cohort.filters?.properties?.values) && cohort.filters.properties.values.length > 0
@@ -69,20 +97,10 @@ const inferStaticCohortMode = (cohort: CohortType): StaticCohortMode =>
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => {
-        if (props.id === 'new' || !props.id) {
-            if (props.tabId == null) {
-                return 'new'
-            }
-            return `new-${props.tabId}`
-        }
-        if (props.tabId == null) {
-            return props.id
-        }
-        return `${props.id}-${props.tabId}`
-    }),
+    key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
         logic: [cohortsModel],
     })),
@@ -118,6 +136,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         resetPersonsToCreateStaticCohort: true,
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
+        setActiveTab: (tab: CohortEditTab) => ({ tab }),
     }),
 
     reducers(({ props }) => ({
@@ -286,6 +305,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setStaticCohortMode: (_, { mode }) => mode,
             },
         ],
+        activeTab: [
+            'overview' as CohortEditTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     })),
 
     selectors({
@@ -356,7 +381,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key }) => ({
+    loaders(({ actions, values, key, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -463,6 +488,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (existingCohort.id === 'new') {
+                        tryShowMCPHint('cohorts.create', {
+                            derivedPrompt: cohort.name ? `Build a cohort called ${cohort.name}` : undefined,
+                        })
+                    }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()
                     }
@@ -566,6 +596,31 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        usedIn: [
+            null as CohortUsedInResponseApi | null,
+            {
+                loadUsedIn: async () => {
+                    // On mount `values.cohort` is still NEW_COHORT (fetchCohort hasn't resolved),
+                    // so fall back to the id from props.
+                    const id = values.cohort.id !== 'new' ? values.cohort.id : props.id
+                    if (!id || id === 'new') {
+                        return null
+                    }
+                    try {
+                        return await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
+                    } catch (error) {
+                        // A 404 just means the endpoint isn't deployed yet (deploy skew) or the
+                        // cohort is gone; neither is worth reporting.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            posthog.captureException(error, { feature: 'cohort-used-in' })
+                        }
+                        // Keep any previously loaded value so a failed refresh doesn't blank the banner.
+                        return values.usedIn
+                    }
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
@@ -620,9 +675,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
-                        const newCohort = await api.cohorts.get(cohort.id)
-                        breakpoint()
-                        actions.checkIfFinishedCalculating(newCohort)
+                        try {
+                            const newCohort = await api.cohorts.get(cohort.id)
+                            // breakpoint() throws to abort once the logic unmounts. Because this runs
+                            // in a detached setTimeout callback (not the listener body), that throw
+                            // would otherwise surface as an unhandled rejection — keep it contained.
+                            breakpoint()
+                            actions.checkIfFinishedCalculating(newCohort)
+                        } catch (e: any) {
+                            if (!isBreakpoint(e)) {
+                                throw e
+                            }
+                            // Poll superseded or logic unmounted — stop quietly.
+                        }
                     }, 1000)
                 )
             } else {
@@ -653,11 +718,39 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const { tab: _, ...restHash } = router.values.hashParams
+            const nextHash = values.activeTab === 'overview' ? restHash : { ...restHash, tab: values.activeTab }
+            return [router.values.location.pathname, router.values.searchParams, nextHash, { replace: true }]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/cohorts/:id': (_, __, { tab }) => {
+            const next = isCohortEditTab(tab) ? tab : 'overview'
+            if (values.activeTab !== next) {
+                actions.setActiveTab(next)
+            }
+        },
+    })),
+
+    afterMount(({ actions, props, values }) => {
         if (!props.id || props.id === 'new') {
             actions.setCohort(NEW_COHORT)
+            // Tabs aren't shown for new cohorts; clear any stale `#tab=…` hash so the URL reflects reality
+            // and reset the in-memory tab so the Overview content (the only thing rendered for new cohorts)
+            // is actually visible — otherwise the user lands on a blank page.
+            if (router.values.hashParams.tab) {
+                const { tab: _, ...restHash } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, restHash)
+            }
+            if (values.activeTab !== 'overview') {
+                actions.setActiveTab('overview')
+            }
         } else {
             actions.fetchCohort(props.id)
+            actions.loadUsedIn()
         }
     }),
     beforeUnmount(({ values }) => {

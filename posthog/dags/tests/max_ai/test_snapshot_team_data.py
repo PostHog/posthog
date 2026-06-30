@@ -13,7 +13,8 @@ from posthog.schema import (
     TeamTaxonomyItem,
 )
 
-from posthog.models import GroupTypeMapping, Organization, Project, Team
+from posthog.models import Organization, Project, Team
+from posthog.test.persons import create_group_type_mapping
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.posthog_ai.dags.snapshot_team_data import (
@@ -322,7 +323,7 @@ def test_snapshot_actors_property_taxonomy_dumps_with_group_type_mapping(
     mock_check_dump_exists.return_value = False
 
     # Create a GroupTypeMapping for the team
-    GroupTypeMapping.objects.create(
+    create_group_type_mapping(
         team=team,
         project=team.project,
         group_type="organization",

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -46,3 +48,59 @@ def create_missing_capability_submission(
     team: Team, created_by: User | None, submission: contracts.CreateMissingCapabilitySubmission
 ) -> contracts.Submission:
     return _to_submission(logic.create_missing_capability_submission(team, created_by, submission))
+
+
+def list_mcp_sessions(
+    team: Team,
+    limit: int,
+    offset: int,
+    search: str = "",
+    order_by: str = "",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> contracts.MCPSessionsPage:
+    return logic.list_mcp_sessions(
+        team, limit=limit, offset=offset, search=search, order_by=order_by, date_from=date_from, date_to=date_to
+    )
+
+
+def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
+    return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from)
+
+
+def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
+    """Generate (or return the cached) intent summary for an MCP session.
+
+    Shared entry point for the UI's on-demand button and any future caller
+    (e.g. clustering). Persists the result to ``MCPSession.intent``. ``date_from``
+    bounds the event scan to keep older sessions summarisable (same bound as
+    ``list_mcp_tool_calls``).
+    """
+    return logic.generate_session_intent(team, session_id=session_id, date_from=date_from)
+
+
+def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
+    return logic.get_intent_cluster_snapshot(team)
+
+
+def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
+    """Kick off the intent cluster recompute Celery task.
+
+    Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status.
+    """
+    # Imports here to avoid loading Celery at module import time.
+    from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+    from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
+
+    # Flip to COMPUTING before enqueuing so the 202 response and any
+    # immediate poll see consistent state. The task re-asserts COMPUTING
+    # on pickup; both writes are idempotent.
+    MCPIntentClusterSnapshot.objects.update_or_create(
+        team=team,
+        defaults={
+            "status": MCPIntentClusterSnapshot.Status.COMPUTING,
+            "error_message": "",
+            "last_computed_by": user,
+        },
+    )
+    compute_intent_clusters.delay(team.id, user.id if user else None)

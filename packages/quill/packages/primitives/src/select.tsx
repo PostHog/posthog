@@ -1,3 +1,5 @@
+import './select.css'
+
 import { Select as SelectPrimitive } from '@base-ui/react/select'
 import { ChevronDownIcon, ChevronUpIcon, CheckIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,16 +7,19 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menu-label'
-import './select.css'
 
 const Select = SelectPrimitive.Root
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props): React.ReactElement {
-    return <SelectPrimitive.Group data-slot="select-group" className={cn('quill-select__group', className)} {...props} />
+    return (
+        <SelectPrimitive.Group data-slot="select-group" className={cn('quill-select__group', className)} {...props} />
+    )
 }
 
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props): React.ReactElement {
-    return <SelectPrimitive.Value data-slot="select-value" className={cn('quill-select__value', className)} {...props} />
+    return (
+        <SelectPrimitive.Value data-slot="select-value" className={cn('quill-select__value', className)} {...props} />
+    )
 }
 
 function SelectTrigger({
@@ -75,7 +80,9 @@ function SelectContent({
                     {...props}
                 >
                     <SelectScrollUpButton className="quill-select__scroll-button flex items-center justify-center" />
-                    <SelectPrimitive.List className="scroll-mask-y-4 scroll-py-4">{children}</SelectPrimitive.List>
+                    <SelectPrimitive.List className="quill-select__list scroll-mask-y-4 scroll-py-4">
+                        {children}
+                    </SelectPrimitive.List>
                     <SelectScrollDownButton />
                 </SelectPrimitive.Popup>
             </SelectPrimitive.Positioner>
@@ -84,7 +91,9 @@ function SelectContent({
 }
 
 function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props): React.ReactElement {
-    return <SelectPrimitive.GroupLabel data-slot="select-label" className={className} render={<MenuLabel />} {...props} />
+    return (
+        <SelectPrimitive.GroupLabel data-slot="select-label" className={className} render={<MenuLabel />} {...props} />
+    )
 }
 
 function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props): React.ReactElement {
@@ -110,7 +119,13 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
 }
 
 function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Props): React.ReactElement {
-    return <SelectPrimitive.Separator data-slot="select-separator" className={cn('quill-select__separator', className)} {...props} />
+    return (
+        <SelectPrimitive.Separator
+            data-slot="select-separator"
+            className={cn('quill-select__separator', className)}
+            {...props}
+        />
+    )
 }
 
 function SelectScrollUpButton({
@@ -121,7 +136,7 @@ function SelectScrollUpButton({
         <SelectPrimitive.ScrollUpArrow
             data-slot="select-scroll-up-button"
             className={cn('quill-select__scroll-button quill-select__scroll-button--up', className)}
-            render={<Button variant="outline" size="icon-sm"/>}
+            render={<Button variant="outline" size="icon-sm" />}
             {...props}
         >
             <ChevronUpIcon />
@@ -137,7 +152,7 @@ function SelectScrollDownButton({
         <SelectPrimitive.ScrollDownArrow
             data-slot="select-scroll-down-button"
             className={cn('quill-select__scroll-button quill-select__scroll-button--down', className)}
-            render={<Button variant="outline" size="icon-sm"/>}
+            render={<Button variant="outline" size="icon-sm" />}
             {...props}
         >
             <ChevronDownIcon />

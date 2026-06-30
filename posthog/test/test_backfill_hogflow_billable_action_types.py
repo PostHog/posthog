@@ -4,7 +4,8 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from posthog.models import User
-from posthog.models.hog_flow import HogFlow
+
+from products.workflows.backend.models.hog_flow import HogFlow
 
 
 class BackfillHogFlowBillableActionTypesTest(TestCase):

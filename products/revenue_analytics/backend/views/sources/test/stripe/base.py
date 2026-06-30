@@ -12,19 +12,16 @@ from unittest.mock import Mock
 
 from posthog.schema import CurrencyCode
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-from products.revenue_analytics.backend.views.core import SourceHandle
-from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 
 
 def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] = None):

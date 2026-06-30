@@ -1,8 +1,8 @@
-import { TeamManager } from '~/utils/team-manager'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { RedisPool } from '../../types'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { logger } from '../../utils/logger'
 
 // subset of resources that we care about in this service
 export type QuotaResource =
@@ -12,6 +12,7 @@ export type QuotaResource =
     | 'workflow_destinations_dispatched'
     | 'logs_mb_ingested'
     | 'metrics_mb_ingested'
+    | 'traces_mb_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 

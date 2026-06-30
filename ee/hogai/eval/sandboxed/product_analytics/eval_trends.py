@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from posthog.schema import (
     AssistantEventMultipleBreakdownFilterType,
     AssistantGenericMultipleBreakdownFilter,
@@ -51,7 +49,6 @@ def _trends_case(
     )
 
 
-@pytest.mark.django_db
 async def eval_trends(sandboxed_demo_data, pytestconfig, posthog_client):
     cases = [
         _trends_case(

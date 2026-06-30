@@ -8,10 +8,10 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
-from posthog.models import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.utils.types import AssistantState
 
@@ -165,6 +165,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "metrics_count": 0,
             "secondary_metrics_count": 0,
             "has_description": False,
+            "has_conclusion_comment": False,
             "variant_count": 2,
             "created_at": ANY,
             "creation_mode": "new",
@@ -211,7 +212,8 @@ class TestCreateExperimentTool(APIBaseTest):
             {"key": "control", "name": "Control", "rollout_percentage": 50},
             {"key": "test", "name": "Test", "rollout_percentage": 50},
         ]
-        assert experiment.parameters["minimum_detectable_effect"] == 30
+        assert "minimum_detectable_effect" not in experiment.parameters
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 30}
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []
 

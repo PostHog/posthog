@@ -3,9 +3,9 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -47,7 +47,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                     type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewEarlyAccessFeature"
                         keybind={[keyBinds.new]}
                         intent="New early access feature"
@@ -63,7 +63,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                         >
                             New feature
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
 
@@ -76,6 +76,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 className="my-0"
+                mcpSurfaceKey="early_access_features.create"
             />
             {!shouldShowEmptyState && (
                 <>

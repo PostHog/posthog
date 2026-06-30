@@ -7,13 +7,16 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -323,7 +326,7 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
-// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/insights/utils/breakdowns.py
 export const NOT_IN_COHORT_ID = 2 ** 52
 
 export function getCohortNameFromId(
@@ -331,7 +334,7 @@ export function getCohortNameFromId(
     cohorts: CohortType[] | null | undefined
 ): string {
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-    if (cohortId === 'all' || cohortId === 0) {
+    if (cohortId === 'all' || cohortId === 0 || cohortId === '0') {
         return 'All Users'
     }
 
@@ -339,7 +342,18 @@ export function getCohortNameFromId(
         return 'Not in cohort'
     }
 
-    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+    const cohortName = cohorts?.filter((c) => c.id == cohortId)[0]?.name
+    if (cohortName) {
+        return cohortName
+    }
+
+    // The cohorts list may not be loaded yet (or the cohort was deleted). Fall back to a
+    // human-readable label rather than leaking a bare numeric id into pills/axis labels.
+    // Keep in sync with BreakdownTag's `Cohort ${id}` convention.
+    if (cohortId == null || cohortId === '') {
+        return ''
+    }
+    return `Cohort ${cohortId}`
 }
 
 export function formatBreakdownLabel(
@@ -348,11 +362,22 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex?: number,
-    itemLabel?: string
+    itemLabel?: string,
+    truncateLabel: boolean = true
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .map((v, index) =>
+                formatBreakdownLabel(
+                    v,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index,
+                    undefined,
+                    truncateLabel
+                )
+            )
             .join('::')
     }
 
@@ -365,14 +390,18 @@ export function formatBreakdownLabel(
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
@@ -437,7 +466,7 @@ export function formatBreakdownLabel(
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 
-        if (label.length > 200) {
+        if (truncateLabel && label.length > 200) {
             return label.slice(0, 200) + '…'
         }
         return label
@@ -548,7 +577,7 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew({ query }) : undefined
 }
 
-export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyType }): string {
     const breakdown_value =
         Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
             ? dataset.breakdown_value[0]
@@ -829,7 +858,7 @@ export const getOverrideWarningPropsForButton = (
 }
 
 /** Checks for breakdown features that are unsupported by trend insights with a
- * data warehouse series. */
+ * data warehouse series. Mirrors backend `ValidateDataWarehouseBreakdown`. */
 export const hasUnsupportedBreakdownForDataWarehouseTrends = (
     filtersOverride: DashboardFilter | TileFilters | null | undefined
 ): boolean => {
@@ -839,10 +868,16 @@ export const hasUnsupportedBreakdownForDataWarehouseTrends = (
         return false
     }
 
+    const supportedTypes = new Set(['data_warehouse', 'hogql'])
+
+    if (breakdownFilter.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedTypes.has(b.type))
+    }
+
     return !!(
-        breakdownFilter.breakdowns?.length ||
-        breakdownFilter.breakdown_type !== 'data_warehouse' ||
         !breakdownFilter.breakdown ||
-        Array.isArray(breakdownFilter.breakdown)
+        Array.isArray(breakdownFilter.breakdown) ||
+        !breakdownFilter.breakdown_type ||
+        !supportedTypes.has(breakdownFilter.breakdown_type)
     )
 }

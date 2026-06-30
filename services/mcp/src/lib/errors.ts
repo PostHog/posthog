@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
-import { getPostHogClient } from '@/lib/analytics'
+import { getPostHogClient } from '@/lib/posthog'
+import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
@@ -117,6 +118,107 @@ export class PostHogValidationError extends Error {
         this.url = options.url
         this.method = options.method
     }
+}
+
+/**
+ * Thrown when MCP-side schema validation rejects a tool call's input before
+ * any handler runs (the exec `call` path). The message is pre-formatted by
+ * `formatInputValidationError` and already names the offending field(s), so
+ * `handleToolError` returns it verbatim — capturing it as an exception would
+ * mint a per-tool error tracking issue for every agent slip-up, the same
+ * noise problem the 4xx short-circuit exists to prevent.
+ */
+export class ToolInputValidationError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ToolInputValidationError'
+    }
+}
+
+export interface PostHogApiErrorOptions {
+    status: number
+    statusText: string
+    body: string
+    url: string
+    method: string
+    message?: string
+}
+
+/**
+ * Thrown when the PostHog API rejects a request with a non-success status that
+ * isn't already handled by a more specific subclass (PostHogPermissionError,
+ * PostHogValidationError). Carries the status code so callers can distinguish
+ * recoverable agent-input errors (4xx) from genuine service failures (5xx).
+ *
+ * Background: an LLM agent passing a placeholder UUID to an MCP tool produced
+ * a 404, and `handleToolError` captured it as a PostHog exception fingerprinted
+ * by tool name — creating a brand-new error tracking issue per tool every time
+ * an agent fumbled a parameter. Keying off `status` here lets `handleToolError`
+ * short-circuit 4xx without losing visibility into real 5xx failures.
+ */
+export class PostHogApiError extends Error {
+    public readonly status: number
+    public readonly statusText: string
+    public readonly body: string
+    public readonly url: string
+    public readonly method: string
+
+    constructor(options: PostHogApiErrorOptions) {
+        super(options.message ?? buildDefaultApiErrorMessage(options))
+        this.name = 'PostHogApiError'
+        this.status = options.status
+        this.statusText = options.statusText
+        this.body = options.body
+        this.url = options.url
+        this.method = options.method
+    }
+}
+
+function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
+    return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+}
+
+export interface PostHogRateLimitErrorOptions {
+    body: string
+    url: string
+    method: string
+    retryAfterSeconds: number | null
+}
+
+/**
+ * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
+ * MCP server: sleeping here keeps the client's request open and lets pending
+ * work pile up behind it, so the rate limit is surfaced immediately with the
+ * server's Retry-After hint and the client decides when to retry.
+ */
+export class PostHogRateLimitError extends PostHogApiError {
+    public readonly retryAfterSeconds: number | null
+
+    constructor(options: PostHogRateLimitErrorOptions) {
+        const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
+        super({
+            status: 429,
+            statusText: 'Too Many Requests',
+            body: options.body,
+            url: options.url,
+            method: options.method,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+        })
+        this.name = 'PostHogRateLimitError'
+        this.retryAfterSeconds = options.retryAfterSeconds
+    }
+}
+
+/**
+ * Parses a Retry-After header into whole seconds. Returns null for missing
+ * headers, HTTP-date values, and bogus negatives.
+ */
+export function parseRetryAfterSeconds(header: string | null): number | null {
+    if (!header) {
+        return null
+    }
+    const seconds = Number.parseInt(header, 10)
+    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
 }
 
 export interface PostHogPermissionErrorOptions {
@@ -259,6 +361,25 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
 }
 
 /**
+ * Walks `Error.cause` chains to find a wrapped PostHogApiError or
+ * PostHogValidationError. Tool-level wrappers (e.g. `throw new Error("Failed
+ * to X: ...", { cause })`) hide the underlying typed error, so callers must
+ * unwrap before classifying the failure.
+ */
+export function findRecoverableApiError(error: unknown): PostHogApiError | PostHogValidationError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogApiError || current instanceof PostHogValidationError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
+}
+
+/**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
  * object, with `isError` set to true, _not_ as an MCP protocol-level error
@@ -287,6 +408,46 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
                 },
             ],
             isError: true,
+        }
+    }
+
+    // Recoverable: input rejected by the tool's schema before any handler ran —
+    // an agent slip-up, not a bug. The message already names the offending
+    // field(s); skip exception capture like the API 4xx branch below.
+    if (error instanceof ToolInputValidationError) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Error: [${toolName}]: ${error.message}`,
+                },
+            ],
+            isError: true,
+        }
+    }
+
+    // Recoverable: 4xx responses from the PostHog API (and validation errors)
+    // are agent-input failures — the LLM passed a bad id, a stale UUID, or a
+    // value the serializer rejected. Returning the typed error message to the
+    // LLM lets it self-correct on the next turn. Capturing these as exceptions
+    // — fingerprinted by tool name — would create a fresh error tracking issue
+    // for every agent slip-up. Reserve `captureException` for 5xx and
+    // unexpected non-HTTP errors, which are genuinely actionable for engineers.
+    const recoverableApiError = findRecoverableApiError(error)
+    if (recoverableApiError) {
+        const isFourXx =
+            recoverableApiError instanceof PostHogValidationError ||
+            (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
+        if (isFourXx) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                    },
+                ],
+                isError: true,
+            }
         }
     }
 
@@ -343,11 +504,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         // Never let observability break the request.
     }
 
+    // A 5xx returns an opaque server body the agent can't act on. When the
+    // failed endpoint has a known recovery path (e.g. a logs query that scanned
+    // too much data), append a short "here's how to recover" footer so the agent
+    // narrows and retries instead of re-issuing the same failing call.
+    // `recoverableApiError` was unwrapped from any `cause` chain above; only 5xx
+    // reach here (4xx short-circuited earlier).
+    const recoveryHint =
+        recoverableApiError instanceof PostHogApiError
+            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            : undefined
+
     return {
         content: [
             {
                 type: 'text',
-                text: `Error: [${mcpError.tool}]: ${mcpError.message}`,
+                text: `Error: [${mcpError.tool}]: ${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
             },
         ],
         isError: true,

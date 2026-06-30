@@ -4,9 +4,10 @@ from urllib.parse import urlparse
 
 from django.template import Context, Engine
 
-import tiktoken
 import structlog
 from tiktoken.model import MODEL_TO_ENCODING
+
+from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
 
@@ -154,9 +155,9 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     if not strings:
         return 0
     if model not in MODEL_TO_ENCODING:
-        # If the model aren't supported yet - default to o3 as it should be similar to other thinking models
-        model = "o3"
-    encoding = tiktoken.encoding_for_model(model)
+        # Unknown model name: use the standard LLM token counter (o200k / gpt-4o family).
+        model = LLM_TOKEN_COUNT_PROXY_MODEL
+    encoding = get_tiktoken_encoding_for_model(model)
     total_tokens = 0
     for string in strings:
         if string:

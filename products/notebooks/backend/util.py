@@ -13,6 +13,45 @@ QUERY_NODE_TYPE = "ph-query"
 # QuerySchema kind that points at a saved insight by its short_id.
 SAVED_INSIGHT_NODE_KIND = "SavedInsightNode"
 
+# Keep in sync with `SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES` in
+# `frontend/src/scenes/notebooks/Nodes/sharedNodeSupport.tsx`.
+SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES: frozenset[str] = frozenset(
+    {
+        "ph-image",
+        "ph-latex",
+        "ph-embed",
+        "ph-query",
+    }
+)
+
+
+def filter_notebook_content_for_sharing(content: Any) -> Any:
+    """Return a copy of a notebook's ProseMirror document with unsupported widget nodes redacted.
+
+    Any ``ph-*`` node not in :data:`SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES` has its ``attrs`` and
+    child ``content`` stripped. The original ``type`` is preserved so the frontend's allow-list
+    check still renders ``UnsupportedNodePlaceholder`` without leaking the original attrs to
+    anonymous viewers. Built-in ProseMirror nodes pass through unchanged.
+    """
+    if not isinstance(content, dict):
+        return content
+
+    node_type = content.get("type")
+    if (
+        isinstance(node_type, str)
+        and node_type.startswith("ph-")
+        and node_type not in SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES
+    ):
+        return {"type": node_type}
+
+    filtered: dict[str, Any] = {k: v for k, v in content.items() if k != "content"}
+    children = content.get("content")
+    if isinstance(children, list):
+        filtered["content"] = [filter_notebook_content_for_sharing(child) for child in children]
+    elif "content" in content:
+        filtered["content"] = children
+    return filtered
+
 
 def _coerce_query_attr(raw: Any) -> dict | None:
     """Resolve a notebook ph-query node's `query` attribute to a dict.

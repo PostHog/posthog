@@ -32,8 +32,10 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     insert_person_to_ch,
 )
 
+pytestmark = pytest.mark.persons_db_direct
 
-@pytest.mark.django_db(transaction=True)
+
+@pytest.mark.django_db
 class TestFindOrphanedPersons:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -121,7 +123,7 @@ class TestFindOrphanedPersons:
         assert len(result.orphaned_persons) == 2
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestLookupPgDistinctIds:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -245,7 +247,7 @@ class TestLookupPgDistinctIds:
         assert len(result.persons_not_found) == 0
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestSyncDistinctIdsToCh:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -357,7 +359,7 @@ class TestSyncDistinctIdsToCh:
         assert str(ch_did2["person_id"]) == person_uuid
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestMarkChOnlyOrphansDeleted:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -449,7 +451,7 @@ class TestMarkChOnlyOrphansDeleted:
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEndToEndOrphanCategories:
     """Test the complete flow of finding and categorizing all orphan types."""
 

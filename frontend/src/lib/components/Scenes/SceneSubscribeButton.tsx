@@ -46,7 +46,9 @@ export function SceneSubscribeButton({
     return (
         <ButtonPrimitive
             menuItem
-            onClick={() => push(urlForSubscriptions({ insightShortId: insight?.short_id, dashboardId }))}
+            onClick={() => {
+                push(urlForSubscriptions({ insightShortId: insight?.short_id, dashboardId }))
+            }}
             data-attr={`${dataAttrKey}-subscribe-dropdown-menu-item`}
             disabledReasons={disabledReasons}
         >

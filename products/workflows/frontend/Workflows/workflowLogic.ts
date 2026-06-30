@@ -1,13 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -49,7 +50,6 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
-    tabId?: string
     templateId?: string
     editTemplateId?: string
 }
@@ -103,6 +103,10 @@ export const NEW_WORKFLOW: HogFlow = {
     updated_at: '',
 }
 
+// Step types that depend on person data and so cannot run for person-less (row-scoped)
+// data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
+export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -135,10 +139,9 @@ export function sanitizeWorkflow(
 
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
-    props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
+    props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) =>
-            `workflow-${props.id || 'new'}-${props.tabId || 'default'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -176,6 +179,10 @@ export const workflowLogic = kea<workflowLogicType>([
         }),
         discardChanges: true,
         duplicate: true,
+        autoSaveWorkflow: true,
+        markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
+        setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
+        clearAutoSavePending: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -332,6 +339,38 @@ export const workflowLogic = kea<workflowLogicType>([
                 setSchedules: () => ({ picker: false, natural_language: false }),
             },
         ],
+        isAutoSave: [
+            false as boolean,
+            {
+                markAutoSave: (_, { isAutoSave }) => isAutoSave,
+                submitWorkflow: () => false,
+                saveWorkflowPartial: () => false,
+            },
+        ],
+        lastSavedAt: [
+            null as string | null,
+            {
+                saveWorkflowSuccess: () => dayjs().toISOString(),
+                loadWorkflowSuccess: (_, { originalWorkflow }) => originalWorkflow?.updated_at ?? null,
+            },
+        ],
+        isAutoSavePending: [
+            false as boolean,
+            {
+                autoSaveWorkflow: () => true,
+                clearAutoSavePending: () => false,
+                saveWorkflowSuccess: () => false,
+                saveWorkflowFailure: () => false,
+                resetWorkflow: () => false,
+                setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
+            },
+        ],
+        autoSaveEnabled: [
+            true as boolean,
+            {
+                setAutoSaveEnabled: (_, { enabled }) => enabled,
+            },
+        ],
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
@@ -406,13 +445,31 @@ export const workflowLogic = kea<workflowLogicType>([
                 hogFunctionTemplatesByIdLoading,
                 scheduleStartsAt
             ): Record<string, HogFlowActionValidationResult | null> => {
+                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
+                // step types make no sense without a person, so we block them at save time.
+                const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
+                const isRowScopedTrigger =
+                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+
                 return workflow.actions.reduce(
                     (acc, action) => {
                         const result: HogFlowActionValidationResult = {
                             valid: true,
                             schema: null,
                             errors: {},
+                            warnings: {},
                         }
+
+                        if (isRowScopedTrigger && PERSON_DEPENDENT_ACTION_TYPES.has(action.type)) {
+                            result.valid = false
+                            result.errors = {
+                                _action:
+                                    'This step relies on person data, which is not available for data warehouse table triggers',
+                            }
+                            acc[action.id] = result
+                            return acc
+                        }
+
                         const schemaValidation = HogFlowActionSchema.safeParse(action)
 
                         if (!schemaValidation.success) {
@@ -437,9 +494,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.email
-                                    ? 'From is required'
-                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
+                                from: !emailValue?.from?.integrationId
+                                    ? 'Choose who to send this email from'
+                                    : undefined,
                                 to: !emailValue?.to?.email
                                     ? 'To is required'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -465,6 +522,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (!template) {
                                 result.valid = false
                                 result.errors = {
+                                    ...result.errors,
                                     // This is a special case for the template_id field which might need to go to a generic error message
                                     _template_id: 'Template not found',
                                 }
@@ -473,8 +531,11 @@ export const workflowLogic = kea<workflowLogicType>([
                                     action.config.inputs,
                                     template.inputs_schema ?? []
                                 )
-                                result.valid = configValidation.valid
-                                result.errors = configValidation.errors
+                                // Merge so the type-specific block above (e.g. function_email's
+                                // stricter `from` check) is not clobbered by the generic validator.
+                                result.valid = result.valid && configValidation.valid
+                                result.errors = { ...configValidation.errors, ...result.errors }
+                                result.warnings = { ...result.warnings, ...configValidation.warnings }
                             }
                         }
 
@@ -537,6 +598,14 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        // Warehouse-triggered workflows are person-less ("row-scoped"): no person data is available,
+        // so person-dependent steps and person-aware exit conditions are blocked (see the serializer
+        // for the authoritative enforcement).
+        isRowScopedTrigger: [
+            (s) => [s.triggerAction],
+            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+        ],
+
         workflowSanitized: [
             (s) => [s.workflow, s.hogFunctionTemplatesById],
             (workflow, hogFunctionTemplatesById): HogFlow => {
@@ -590,48 +659,58 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
-            // Save pending schedule changes
-            const workflowId = originalWorkflow.id
-            const pendingSchedule = values.pendingSchedule
-            const existingScheduleId = values.currentSchedule?.id
-            const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+            const isAutoSave = values.isAutoSave
 
-            if (hasScheduleChanges) {
-                try {
-                    if (pendingSchedule === null && existingScheduleId) {
-                        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                    } else if (pendingSchedule !== null && existingScheduleId) {
-                        await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
-                    } else if (pendingSchedule !== null) {
-                        await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+            if (!isAutoSave) {
+                // Save pending schedule changes (only on manual save)
+                const workflowId = originalWorkflow.id
+                const pendingSchedule = values.pendingSchedule
+                const existingScheduleId = values.currentSchedule?.id
+                const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+
+                if (hasScheduleChanges) {
+                    try {
+                        if (pendingSchedule === null && existingScheduleId) {
+                            await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                        } else if (pendingSchedule !== null && existingScheduleId) {
+                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                        } else if (pendingSchedule !== null) {
+                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                        }
+
+                        if (pendingSchedule !== null) {
+                            posthog.capture('workflows schedule saved', {
+                                workflow_id: workflowId,
+                                configured_via_picker: values.scheduleConfigSources.picker,
+                                configured_via_natural_language: values.scheduleConfigSources.natural_language,
+                            })
+                        }
+
+                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                        actions.setSchedules(schedules)
+                    } catch (e) {
+                        console.error('Failed to save schedule', e)
+                        lemonToast.error('Workflow saved, but schedule could not be updated')
                     }
+                }
 
-                    if (pendingSchedule !== null) {
-                        posthog.capture('workflows schedule saved', {
-                            workflow_id: workflowId,
-                            configured_via_picker: values.scheduleConfigSources.picker,
-                            configured_via_natural_language: values.scheduleConfigSources.natural_language,
-                        })
-                    }
+                lemonToast.success('Workflow saved')
 
-                    const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
-                    actions.setSchedules(schedules)
-                } catch (e) {
-                    console.error('Failed to save schedule', e)
-                    lemonToast.error('Workflow saved, but schedule could not be updated')
+                if (props.id === 'new') {
+                    tryShowMCPHint('workflows.create')
+                }
+
+                if (props.id === 'new' && originalWorkflow.id) {
+                    router.actions.replace(
+                        urls.workflow(
+                            originalWorkflow.id,
+                            workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
+                        )
+                    )
                 }
             }
 
             const tasksToMarkAsCompleted: SetupTaskId[] = []
-            lemonToast.success('Workflow saved')
-            if (props.id === 'new' && originalWorkflow.id) {
-                router.actions.replace(
-                    urls.workflow(
-                        originalWorkflow.id,
-                        workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
-                    )
-                )
-            }
 
             // Mark workflow creation task as completed everytime it's saved for completeness
             tasksToMarkAsCompleted.push(SetupTaskId.CreateFirstWorkflow)
@@ -667,6 +746,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.resetWorkflow(originalWorkflow)
+            actions.markAutoSave(false)
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {
@@ -687,6 +767,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         setWorkflowInfo: async ({ workflow }) => {
             actions.setWorkflowValues(workflow)
+            actions.autoSaveWorkflow()
         },
         setWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
@@ -702,6 +783,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.setWorkflowValues(changes)
+            actions.autoSaveWorkflow()
         },
         partialSetWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
@@ -714,6 +796,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowAction: async ({ actionId, action }) => {
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
+            actions.autoSaveWorkflow()
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
             // Helper method - Replaces all edges related to the action with the new edges
@@ -721,6 +804,35 @@ export const workflowLogic = kea<workflowLogicType>([
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
+            actions.autoSaveWorkflow()
+        },
+        setWorkflowValue: () => {
+            actions.autoSaveWorkflow()
+        },
+        setAutoSaveEnabled: ({ enabled }) => {
+            if (enabled && values.workflowChanged) {
+                actions.autoSaveWorkflow()
+            }
+        },
+        autoSaveWorkflow: async (_, breakpoint) => {
+            await breakpoint(3000)
+
+            const shouldSkip =
+                !values.autoSaveEnabled ||
+                !props.id ||
+                props.id === 'new' ||
+                !!props.editTemplateId ||
+                values.workflow.status === 'active' ||
+                !values.workflowChanged ||
+                values.workflowHasErrors
+
+            if (shouldSkip) {
+                actions.clearAutoSavePending()
+                return
+            }
+
+            actions.markAutoSave(true)
+            actions.saveWorkflow(values.workflow)
         },
         duplicate: async () => {
             const workflow = values.originalWorkflow
@@ -804,4 +916,27 @@ export const workflowLogic = kea<workflowLogicType>([
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
     }),
+    beforeUnload((logic) => ({
+        enabled: (newLocation) => {
+            if (!logic.props.id || logic.props.id === 'new') {
+                return false
+            }
+            if (logic.props.editTemplateId) {
+                return false
+            }
+            if (!logic.values.hasUnsavedChanges) {
+                return false
+            }
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave workflow?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (logic.values.originalWorkflow) {
+                logic.actions.resetWorkflow(logic.values.originalWorkflow)
+            }
+        },
+    })),
 ])

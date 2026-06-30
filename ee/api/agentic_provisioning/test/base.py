@@ -2,15 +2,11 @@ import json
 import time
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 
-from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -20,25 +16,9 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
-_RSA_KEY = _generate_rsa_key()
-
-
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
@@ -59,6 +39,9 @@ class ProvisioningTestBase(APIBaseTest):
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
                 "provisioning_can_issue_deep_links": True,
+                # The test app stands in for the grandfathered legacy Stripe app, which is
+                # the one app that still mints a provisioned PAT.
+                "provisioning_issues_personal_api_key": True,
             },
         )
 
@@ -73,8 +56,12 @@ class ProvisioningTestBase(APIBaseTest):
         body: bytes
         if content_type == "application/json":
             body = json.dumps(data or {}).encode()
+        elif isinstance(data, bytes):
+            body = data
+        elif data is not None:
+            body = urlencode(data).encode()
         else:
-            body = data if isinstance(data, bytes) else b""
+            body = b""
         sig = self._sign_body(body)
         return self.client.post(
             url,
@@ -117,7 +104,7 @@ class ProvisioningTestBase(APIBaseTest):
             **kwargs,
         )
 
-    def _get_bearer_token(self) -> str:
+    def _request_bearer_token(self):
         code = f"test_code_{id(self)}"
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
@@ -134,10 +121,12 @@ class ProvisioningTestBase(APIBaseTest):
         body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
         ts = int(time.time())
         sig = compute_signature(HMAC_SECRET, ts, body)
-        res = self.client.post(
+        return self.client.post(
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
             headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
-        return res.json()["access_token"]
+
+    def _get_bearer_token(self) -> str:
+        return self._request_bearer_token().json()["access_token"]

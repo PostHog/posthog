@@ -1,9 +1,14 @@
+from datetime import datetime
 from typing import Any, cast
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.db.models import QuerySet
+from django.utils.dateparse import parse_datetime
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -11,16 +16,30 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
+    MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionIntentSerializer,
+    MCPSessionSerializer,
+    MCPToolCallSerializer,
 )
+
+
+def _parse_detail_date_from(raw: str | None) -> datetime | None:
+    """Parse the optional session-start bound for detail queries (an absolute ISO timestamp).
+
+    Returns None on missing or unparseable input so the logic layer falls back to its default
+    lookback rather than 400-ing — the bound is only a scan-pruning hint, never a filter.
+    """
+    return parse_datetime(raw) if raw else None
 
 
 class MCPAnalyticsPagination(LimitOffsetPagination):
@@ -28,12 +47,40 @@ class MCPAnalyticsPagination(LimitOffsetPagination):
     max_limit = 500
 
 
-@extend_schema(tags=["mcp_analytics"])
+class MCPSessionPagination(LimitOffsetPagination):
+    """Returns ``{results, has_next}`` instead of a count-based envelope. The list is an
+    on-the-fly ClickHouse aggregate with no cheap total, so ``has_next`` comes from the
+    logic layer over-fetching one row rather than a count query.
+    """
+
+    default_limit = 100
+    max_limit = 500
+
+    def get_paginated_response(self, data: Any, *, has_next: bool = False) -> Response:
+        return Response({"results": data, "has_next": has_next})
+
+    def get_paginated_response_schema(self, schema: dict) -> dict:
+        return {
+            "type": "object",
+            "required": ["results", "has_next"],
+            "properties": {
+                "results": schema,
+                "has_next": {
+                    "type": "boolean",
+                    "description": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+                },
+            },
+        }
+
+
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
-    # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    # Alpha product: gated behind the mcp-analytics feature flag at the API layer (matching
+    # the UI flag) rather than hidden behind a staff-only lock. create -> write, list -> read
+    # map to the default scope actions.
+    scope_object = "mcp_analytics"
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 
@@ -101,6 +148,198 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
+
+
+class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPSessionSerializer
+    scope_object = "mcp_analytics"
+    # tool_calls is a detail GET (read); generate_intent is a POST that computes + persists the
+    # intent summary, so it maps to the write scope. The default read/write action lists don't
+    # cover custom @action names, so APIScopePermission would otherwise reject token access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls"]
+    scope_object_write_actions = ["generate_intent"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
+    pagination_class = MCPSessionPagination
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Sessions live in ClickHouse, not a Django model, but GenericViewSet still needs a
+        # queryset for its plumbing. The model is arbitrary — we borrow MCPAnalyticsSubmission
+        # (a plain manager) so .none() can't trip a team-scoped manager's guard.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_list",
+        description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+            ),
+            OpenApiParameter(
+                name="order_by",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Sort column. Allowed: session_id, session_start, session_end, "
+                    "duration_seconds, tool_call_count, mcp_client_name, distinct_id. "
+                    "Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
+                ),
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Start of the window to aggregate sessions over. PostHog date string — relative "
+                    "(e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'."
+                ),
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+            ),
+        ],
+        responses={200: MCPSessionSerializer(many=True)},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Instantiate the concrete class (not self.pagination_class()) so the typed
+        # get_paginated_response(has_next=...) is visible to the type checker.
+        paginator = MCPSessionPagination()
+        limit = paginator.get_limit(request) or paginator.default_limit
+        offset = paginator.get_offset(request)
+        search = request.query_params.get("search", "")
+        order_by = request.query_params.get("order_by", "")
+        date_from = request.query_params.get("date_from") or None
+        date_to = request.query_params.get("date_to") or None
+        page = api.list_mcp_sessions(
+            self.team,
+            limit=limit,
+            offset=offset,
+            search=search,
+            order_by=order_by,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        serializer = self.get_serializer(page.results, many=True)
+        return paginator.get_paginated_response(serializer.data, has_next=page.has_next)
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_tool_calls",
+        description="List all $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the event scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
+        responses={200: MCPToolCallSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tool_calls")
+    def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
+        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""), date_from=date_from)
+        serializer = MCPToolCallSerializer(tool_calls, many=True)
+        # has_next is always false: this returns the whole (capped) call list, not a page.
+        # The field exists because the viewset's paginator shapes the response schema.
+        return Response({"results": serializer.data, "has_next": False})
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_generate_intent",
+        description=(
+            "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its "
+            "recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return "
+            "the stored summary."
+        ),
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the intent scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
+        responses={200: MCPSessionIntentSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="generate_intent")
+    def generate_intent(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        session_id = str(pk or "")
+        if not session_id:
+            return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
+        try:
+            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=date_from)
+        except contracts.IntentGenerationUnavailable:
+            return Response(
+                {"detail": "Intent generation is unavailable (LLM not configured)."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        serializer = MCPSessionIntentSerializer({"session_id": session_id, "intent": intent})
+        return Response(serializer.data)
+
+
+class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPIntentClusterSnapshotSerializer
+    scope_object = "mcp_analytics"
+    # recompute is a POST that kicks off the async clustering task (a state change), so it maps to
+    # the write scope; the snapshot read stays on the read scope.
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["recompute"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
+    pagination_class = None
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Snapshots are read directly via the facade; this satisfies GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_retrieve",
+        description=(
+            "Return the most recent intent cluster snapshot for the current project. "
+            "Returns an empty IDLE snapshot when no clustering run has happened yet."
+        ),
+        responses={200: MCPIntentClusterSnapshotSerializer},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data)
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_recompute",
+        description=(
+            "Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the "
+            "background; poll the GET endpoint for progress (status transitions to 'idle' or 'error')."
+        ),
+        request=None,
+        responses={202: MCPIntentClusterSnapshotSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="recompute")
+    def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):

@@ -41,7 +41,7 @@ export const getGroupsListUrl = (projectId: string, params: GroupsListParams) =>
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -54,10 +54,10 @@ export const getGroupsListUrl = (projectId: string, params: GroupsListParams) =>
 
 /**
  * List all groups of a specific group type. You must pass ?group_type_index= in the URL.
-To get a list of valid group types, call /api/:project_id/groups_types/.
-
-Uses forward-only keyset pagination via the `cursor` parameter.
-The `previous` field in the response envelope is always null.
+ * To get a list of valid group types, call /api/:project_id/groups_types/.
+ *
+ * Uses forward-only keyset pagination via the `cursor` parameter.
+ * The `previous` field in the response envelope is always null.
  */
 export const groupsList = async (
     projectId: string,
@@ -92,7 +92,7 @@ export const getGroupsActivityRetrieveUrl = (projectId: string, params: GroupsAc
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -119,7 +119,7 @@ export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: Grou
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -149,7 +149,7 @@ export const getGroupsFindRetrieveUrl = (projectId: string, params: GroupsFindRe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -198,7 +198,7 @@ export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRel
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -225,7 +225,7 @@ export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: Grou
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

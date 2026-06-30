@@ -32,7 +32,7 @@ pub mod writer;
 use anyhow::Result;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3SdkClient;
-use common_metrics::inc;
+use common_metrics::{histogram, inc};
 use common_redis::Client as RedisClient;
 #[cfg(all(test, feature = "mock-client"))]
 use common_s3::MockS3Client;
@@ -44,7 +44,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::fmt::{self, Display};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::debug;
@@ -54,6 +54,14 @@ pub const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
 /// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
 const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
+
+/// Per-tier latency histogram for the Redis read inside `get_typed_with_source`.
+/// Labels: `namespace`, `value`, `outcome` (hit | miss | timeout | error).
+pub const HYPERCACHE_REDIS_OP_MS: &str = "posthog_hypercache_redis_op_ms";
+
+/// Per-tier latency histogram for the S3 read inside `get_typed_with_source`.
+/// Labels: `namespace`, `value`, `outcome` (hit | miss | timeout | error).
+pub const HYPERCACHE_S3_OP_MS: &str = "posthog_hypercache_s3_op_ms";
 
 /// Tombstone metric for tracking "impossible" failures that should never happen in production.
 /// This is duplicated from feature_flags::metrics::consts::TOMBSTONE_COUNTER because hypercache
@@ -477,12 +485,28 @@ impl HyperCacheReader {
         let mut infra_error: Option<HyperCacheError> = None;
 
         // Try Redis first
-        match timeout(
+        let redis_start = Instant::now();
+        let redis_result = timeout(
             self.config.redis_timeout,
             self.try_get_typed_from_redis::<T>(&redis_cache_key),
         )
-        .await
-        {
+        .await;
+        let redis_outcome = match &redis_result {
+            Ok(Ok(_)) => "hit",
+            Ok(Err(HyperCacheError::CacheMiss)) => "miss",
+            Ok(Err(_)) => "error",
+            Err(_) => "timeout",
+        };
+        histogram(
+            HYPERCACHE_REDIS_OP_MS,
+            &[
+                ("namespace".to_string(), self.config.namespace.clone()),
+                ("value".to_string(), self.config.object_name.clone()),
+                ("outcome".to_string(), redis_outcome.to_string()),
+            ],
+            redis_start.elapsed().as_secs_f64() * 1000.0,
+        );
+        match redis_result {
             Ok(Ok(Some(data))) => {
                 debug!(
                     cache_key = %redis_cache_key,
@@ -551,12 +575,28 @@ impl HyperCacheReader {
 
         // Try S3 fallback
         let s3_cache_key = self.config.get_s3_cache_key(key);
-        match timeout(
+        let s3_start = Instant::now();
+        let s3_result = timeout(
             self.config.s3_timeout,
             self.try_get_typed_from_s3::<T>(&s3_cache_key),
         )
-        .await
-        {
+        .await;
+        let s3_outcome = match &s3_result {
+            Ok(Ok(_)) => "hit",
+            Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => "miss",
+            Ok(Err(_)) => "error",
+            Err(_) => "timeout",
+        };
+        histogram(
+            HYPERCACHE_S3_OP_MS,
+            &[
+                ("namespace".to_string(), self.config.namespace.clone()),
+                ("value".to_string(), self.config.object_name.clone()),
+                ("outcome".to_string(), s3_outcome.to_string()),
+            ],
+            s3_start.elapsed().as_secs_f64() * 1000.0,
+        );
+        match s3_result {
             Ok(Ok(data)) => {
                 debug!(
                     cache_key = %s3_cache_key,

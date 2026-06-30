@@ -3,10 +3,11 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 
 class UserPermissions:
@@ -225,10 +226,13 @@ class UserTeamPermissions:
             for ac in access_controls
         )
 
-        # Check role-based access before returning any member level
+        # Role-backed project AccessControl rows only take effect if the organization has
+        # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
+        # project access settings page (and as resource-level role overrides).
+        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
-        if user_roles:
+        if user_roles and role_based_access_supported:
             role_has_admin_access = any(
                 ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
                 for ac in access_controls
@@ -372,3 +376,16 @@ class UserPermissionsSerializerMixin:
         if "user_permissions" in self.context:
             return self.context["user_permissions"]
         return self.context["view"].user_permissions
+
+
+def user_is_team_admin(user: User, team: Team | int) -> bool:
+    team_obj: Team
+    if isinstance(team, int):
+        try:
+            team_obj = Team.objects.get(id=team)
+        except Team.DoesNotExist:
+            return False
+    else:
+        team_obj = team
+    level = UserPermissions(user).team(team_obj).effective_membership_level
+    return level is not None and level >= OrganizationMembership.Level.ADMIN

@@ -62,9 +62,7 @@ class TestCreateExperiment(APIBaseTest):
         result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
 
         assert result.name == "Test Experiment"
-
-        # Verify feature flag has correct variants
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         flag = FeatureFlag.objects.get(id=result.feature_flag_id)
         assert len(flag.variants) == 2

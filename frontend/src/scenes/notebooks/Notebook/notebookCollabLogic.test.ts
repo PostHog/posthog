@@ -136,7 +136,7 @@ describe('notebookCollabLogic', () => {
             expect(tr.docChanged).toBe(true)
         })
 
-        it('swallows errors from malformed steps instead of throwing', () => {
+        it('throws on malformed steps so the caller can surface the conflict modal', () => {
             const editor = createMockEditor(0)
 
             expect(() =>
@@ -145,7 +145,7 @@ describe('notebookCollabLogic', () => {
                     clientId: REMOTE_CLIENT_ID,
                     version: 1,
                 })
-            ).not.toThrow()
+            ).toThrow()
             expect(editor.view.dispatch).not.toHaveBeenCalled()
         })
     })

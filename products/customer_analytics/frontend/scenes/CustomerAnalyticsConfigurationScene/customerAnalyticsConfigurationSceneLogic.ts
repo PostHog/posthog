@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
@@ -14,6 +14,7 @@ export type ConfigurationSceneTabType =
     | 'group-analytics'
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-accounts'
 
 export interface CustomerAnalyticsConfigurationSceneLogicProps {
     initialTab?: ConfigurationSceneTabType
@@ -49,11 +50,14 @@ export const customerAnalyticsConfigurationSceneLogic = kea<customerAnalyticsCon
 
     selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.tab],
+            (tab): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
-                    path: urls.customerAnalytics(),
+                    path:
+                        tab === 'customer-analytics-accounts'
+                            ? urls.customerAnalyticsAccounts()
+                            : urls.customerAnalytics(),
                     name: 'Customer analytics',
                     iconType: 'cohort',
                 },
@@ -78,4 +82,13 @@ export const customerAnalyticsConfigurationSceneLogic = kea<customerAnalyticsCon
             ]
         },
     }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.customerAnalyticsConfiguration()]: (_, searchParams) => {
+            const tab = searchParams.tab as ConfigurationSceneTabType | undefined
+            if (tab && tab !== values.tab) {
+                actions.setTab(tab)
+            }
+        },
+    })),
 ])

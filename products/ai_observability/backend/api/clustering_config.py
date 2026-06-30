@@ -1,0 +1,93 @@
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.documentation import _FallbackSerializer
+from posthog.api.monitoring import monitor
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+
+from ..models.clustering_config import ClusteringConfig
+from .metrics import llma_track_latency
+
+
+@extend_schema_serializer(many=False)
+class ClusteringConfigSerializer(serializers.ModelSerializer):
+    event_filters = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+    )
+
+    class Meta:
+        model = ClusteringConfig
+        fields = [
+            "event_filters",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ClusteringConfigSetEventFiltersSerializer(serializers.Serializer):
+    event_filters = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.",
+    )
+
+
+class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Team-level clustering configuration (event filters for automated pipelines)."""
+
+    scope_object = "llm_analytics"
+    serializer_class = _FallbackSerializer
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: ClusteringConfigSerializer})
+    @llma_track_latency("llma_clustering_config_list")
+    @monitor(feature=None, endpoint="llma_clustering_config_list", method="GET")
+    def list(self, request: Request, **kwargs) -> Response:
+        config, _ = ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+        serializer = ClusteringConfigSerializer(config)
+        return Response(serializer.data)
+
+    @extend_schema(request=ClusteringConfigSetEventFiltersSerializer, responses={200: ClusteringConfigSerializer})
+    @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
+    @llma_track_latency("llma_clustering_config_set_event_filters")
+    @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")
+    def set_event_filters(self, request: Request, **kwargs) -> Response:
+        event_filters = request.data.get("event_filters")
+
+        if event_filters is None:
+            return Response(
+                {"detail": "event_filters is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(event_filters, list):
+            return Response(
+                {"detail": "event_filters must be a list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        config, _ = ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+        config.event_filters = event_filters
+        config.save(update_fields=["event_filters", "updated_at"])
+
+        report_user_action(
+            request.user,
+            "llma clustering config event filters set",
+            {
+                "filter_count": len(event_filters),
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+        serializer = ClusteringConfigSerializer(config)
+        return Response(serializer.data)

@@ -1,3 +1,4 @@
+import gc
 import os
 
 # Django Imports
@@ -16,9 +17,9 @@ os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
 # Get a structlog logger for asgi.py's own messages
 logger = structlog.get_logger(__name__)
 
-# NOTE: OTel and continuous profiling init is deferred to first request via
-# _ensure_post_fork_init() below. Both start background threads (OTel's
-# BatchSpanProcessor, Pyroscope's native profiler) that cannot survive
+# NOTE: OTel, continuous profiling, and the web-memory sampler init are deferred to first
+# request via _ensure_post_fork_init() below. They start background threads (OTel's
+# BatchSpanProcessor, Pyroscope's native profiler, the sampler's loop) that cannot survive
 # fork(). Nginx Unit loads this module in a "prototype" process and then
 # forks workers from it — the forked children inherit dead thread state and
 # corrupted mutexes, causing SIGSEGV / SIGABRT on the worker. Deferring to
@@ -33,11 +34,22 @@ def _ensure_post_fork_init():
     if _post_fork_initialized:
         return
 
+    from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
+    from posthog.web_memory_probe import install_memory_probe_handler
+    from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
     initialize_otel()
+    prewarm_query_cache_cluster_in_background()
+    # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
+    # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
+    start_web_memory_sampler()
+    # Register the on-demand SIGUSR2 memory probe here too — not because of fork-unsafe
+    # threads (it starts none), but because signal handlers must be set on the worker's
+    # main thread, which this init runs on. Inert unless WEB_MEMORY_PROBE_ENABLED is set.
+    install_memory_probe_handler()
     _post_fork_initialized = True
 
 
@@ -86,4 +98,32 @@ def self_capture_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))
+def task_run_event_ingest_wrapper(func):
+    async def inner(scope, receive, send):
+        from products.tasks.backend.facade.streams import handle_task_run_event_ingest
+
+        if await handle_task_run_event_ingest(scope, receive, send):
+            return
+
+        return await func(scope, receive, send)
+
+    return inner
+
+
+# Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
+# pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
+# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# process forks workers. See docs/internal/django-startup-time.md.
+gc.disable()
+try:
+    application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+
+    # Resolve the URLconf now, at module load — the lazy API router otherwise builds on
+    # each worker's first live request (probes short-circuit in middleware and never warm
+    # it). See the matching block in wsgi.py for the full reasoning.
+    from django.urls import get_resolver
+
+    _ = get_resolver().url_patterns  # property access triggers the build
+finally:
+    gc.freeze()
+    gc.enable()

@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -17,9 +18,6 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
-    hog_flow,
-    hog_flow_template,
-    hog_function_template,
     playwright_setup,
     report,
     router,
@@ -31,12 +29,13 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
-from posthog.api.sdk_doctor import sdk_doctor
+from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.user_integration import github_link_complete
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -47,20 +46,28 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
-from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
-from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
+from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.cdp.backend.api import hog_function_template
+from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_workspace_claims_view,
+)
+from products.slack_app.backend.views import slack_user_link_authorize, slack_user_link_callback
 from products.surveys.backend.api.survey import public_survey_page
-from products.user_interviews.backend.webhooks import (
+from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -100,7 +107,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     """
     import json
 
-    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+    from products.tasks.backend.facade.webhooks import get_github_webhook_secret, verify_github_signature
 
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -126,9 +133,14 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return dispatch_github_event(request, event_type, payload)
 
     if event_type == "pull_request":
-        from products.tasks.backend.webhooks import handle_pull_request_event
+        from products.tasks.backend.facade.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
+
+    if event_type == "installation":
+        from posthog.api.github_callback.installation_events import handle_installation_event
+
+        return handle_installation_event(payload)
 
     return HttpResponse(status=200)
 
@@ -152,6 +164,36 @@ def home(request, *args, **kwargs):
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
     return render_template("index.html", request)
+
+
+_CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}
+# Surfaces allowed to start a connect flow and be returned to afterwards (see
+# posthog/api/github_callback/types.py APP_CONNECT_FROM_VALUES, plus Slack).
+_CONNECT_REDIRECT_ALLOWED_SURFACES = {"posthog_code", "posthog_mobile", "slack"}
+
+
+def integration_connect_redirect(request: HttpRequest, kind: str) -> HttpResponse:
+    """Login-gated entry point for starting an integration OAuth connect from an external surface
+    (a Slack message, the desktop app, etc.). Wrapped in ``login_required`` so unauthenticated users
+    are bounced to login and resume here, then redirected into the existing ``integrations/authorize``
+    flow with a ``connect_from``-tagged return page. ``next`` is constructed internally (never taken
+    from the query) so this can't be used as an open redirect."""
+    if kind not in _CONNECT_REDIRECT_ALLOWED_KINDS:
+        return HttpResponse("Unsupported integration kind", status=400)
+    connect_from = request.GET.get("connect_from", "")
+    if connect_from not in _CONNECT_REDIRECT_ALLOWED_SURFACES:
+        return HttpResponse("Unsupported connect_from", status=400)
+    project_id = request.GET.get("project_id") or getattr(request.user, "current_team_id", None)
+    if not project_id or not str(project_id).isdigit():
+        return HttpResponse("Missing or invalid project_id", status=400)
+
+    next_path = "/account-connected/{}-integration?{}".format(
+        kind, urlencode({"provider": kind, "project_id": project_id, "connect_from": connect_from})
+    )
+    authorize_url = "/api/environments/{}/integrations/authorize/?{}".format(
+        project_id, urlencode({"kind": kind, "next": next_path})
+    )
+    return HttpResponseRedirect(authorize_url)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -266,11 +308,24 @@ urlpatterns = [
         csrf_exempt(user_interviews_start_call),
         name="user_interviews_start_call",
     ),
-    path("api/sdk_doctor/", sdk_doctor),
+    path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    path(
+        "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
+    ),
+    path(
+        "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
@@ -314,6 +369,11 @@ urlpatterns = [
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
     ),
+    # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
+    path(
+        "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
+        csrf_exempt(agent_proxy_callback),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -331,15 +391,6 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
-    # Deployments internal endpoints — Temporal build worker posts here.
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/transitions/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "transitions"})),
-    ),
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/events/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "events"})),
-    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     opt_slash_path(
@@ -355,8 +406,14 @@ urlpatterns = [
         WizardClientMetadataView.as_view(),
         name="wizard-client-metadata",
     ),
+    path(
+        RAYCAST_METADATA_PATH,
+        RaycastClientMetadataView.as_view(),
+        name="raycast-client-metadata",
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
+    path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
     path(
         "shared_dashboard/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
@@ -394,11 +451,19 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     # GitHub account linking (identity-only, separate from the login pipeline).
     # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
-    path("complete/github-link/", github_link_complete, name="github_link_complete"),
+    path("complete/github-link/", github_oauth_callback, name="github_link_complete"),
+    opt_slash_path(
+        "integrations/github/callback", github_setup_callback, name="github_team_integration_setup_callback"
+    ),
+    # Slack user-identity linking — mirrors the GitHub per-user pattern above,
+    # and likewise must precede `social_django.urls` for the same reason.
+    path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
+    path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
@@ -406,6 +471,20 @@ urlpatterns = [
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
+
+# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
+# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
+# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
+# the catch-all matches first and the redirect is unreachable.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    urlpatterns.insert(
+        0,
+        path(
+            "api/llm_analytics/@me/spend/",
+            personal_spend_eu_redirect,
+            name="personal_spend_eu_redirect",
+        ),
+    )
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
@@ -452,6 +531,13 @@ if settings.TEST:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
+
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [
     "preflight",
@@ -462,7 +548,13 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    r"code/canvas/[^/]+/[^/]+",
     "verify_email",
+    r"agentic/account-mismatch",
+    # OAuth redirect target when logging the local frontend into a remote cloud region;
+    # the SPA handles the code→token exchange client-side, so it must load without auth.
+    r"^oauth/callback",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

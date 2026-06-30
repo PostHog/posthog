@@ -1,5 +1,5 @@
 from posthog.temporal import ai
-from posthog.temporal.llm_analytics import (
+from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
@@ -24,9 +24,6 @@ class TestAITemporalModuleIntegrity:
             "ChatAgentWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
-            "SlackConversationRunnerWorkflow",
-            "PostHogCodeSlackMentionWorkflow",
-            "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
@@ -53,20 +50,6 @@ class TestAITemporalModuleIntegrity:
             "process_chat_agent_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
-            "process_slack_conversation_activity",
-            "resolve_posthog_code_slack_user_activity",
-            "handle_posthog_code_rules_command_activity",
-            "collect_posthog_code_thread_messages_activity",
-            "create_posthog_code_routing_rule_activity",
-            "select_posthog_code_repository_activity",
-            "classify_posthog_code_task_needs_repo_activity",
-            "post_posthog_code_no_repos_activity",
-            "post_posthog_code_repo_picker_activity",
-            "create_posthog_code_task_for_repo_activity",
-            "forward_posthog_code_followup_activity",
-            "post_posthog_code_picker_timeout_activity",
-            "post_posthog_code_internal_error_activity",
-            "process_posthog_code_terminate_task_activity",
             "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
@@ -88,7 +71,6 @@ class TestAITemporalModuleIntegrity:
         expected_exports = [
             "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
-            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (
@@ -211,6 +193,7 @@ class TestSummarizationSweepModuleIntegrity:
             "list_enabled_teams_activity",
             "list_summarization_schedule_team_ids_activity",
             "upsert_team_schedule_activity",
+            "consume_summary_quota_activity",
         ]
         actual_activity_names = [a.__name__ for a in SUMMARIZATION_SWEEP_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -237,6 +220,10 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "RunSignalsScoutWorkflow",
+            "SignalsScoutCoordinatorWorkflow",
+            "CustomSignalAgentWorkflow",
+            "SignalReportInboxNotificationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -251,9 +238,14 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "dispatch_inbox_slack_notifications_activity",
+            "get_inbox_notification_state_activity",
+            "send_report_inbox_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "capture_signal_dropped_activity",
+            "check_signals_quota_limited_activity",
             "delete_report_activity",
             "emit_eval_signal_activity",
             "fetch_report_contexts_activity",
@@ -286,6 +278,10 @@ class TestSignalsProductModuleIntegrity:
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "fetch_enabled_signals_scout_runs_activity",
+            "stamp_dispatched_signals_scout_runs_activity",
+            "run_signals_scout_activity",
+            "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -298,7 +294,7 @@ class TestSignalsProductModuleIntegrity:
             )
 
 
-class TestLLMAnalyticsModuleIntegrity:
+class TestAIObservabilityModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected LLMA-worker workflows are present."""
         expected_workflows = [
@@ -310,11 +306,10 @@ class TestLLMAnalyticsModuleIntegrity:
             "CheckCountTriggeredReportsWorkflow",
             "GenerateAndDeliverEvalReportWorkflow",
             "EmitEvalReportSignalWorkflow",
-            "LLMAEvaluationSamplerCoordinatorWorkflow",
-            "LLMAEvaluationSamplerWorkflow",
-            "LLMAEvaluationClusteringCoordinatorWorkflow",
-            "LLMAEvaluationClusteringWorkflow",
-            "ClassifySentimentWorkflow",
+            "AIObservabilityEvaluationSamplerCoordinatorWorkflow",
+            "AIObservabilityEvaluationSamplerWorkflow",
+            "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
+            "AIObservabilityEvaluationClusteringWorkflow",
             "RunEvaluationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
@@ -328,7 +323,7 @@ class TestLLMAnalyticsModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected LLMA-worker activities are present."""
         expected_activities = [
-            "get_team_ids_for_llm_analytics",
+            "get_team_ids_for_ai_observability",
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",
@@ -352,7 +347,6 @@ class TestLLMAnalyticsModuleIntegrity:
             "generate_evaluation_cluster_labels_activity",
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
-            "classify_sentiment_activity",
             "fetch_evaluation_activity",
             "increment_trial_eval_count_activity",
             "disable_evaluation_activity",
@@ -361,6 +355,7 @@ class TestLLMAnalyticsModuleIntegrity:
             "update_key_state_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
+            "execute_sentiment_eval_activity",
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "emit_eval_signal_activity",

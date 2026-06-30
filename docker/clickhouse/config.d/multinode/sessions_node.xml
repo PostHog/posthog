@@ -1,0 +1,149 @@
+<clickhouse>
+    <tcp_port>9000</tcp_port>
+
+    <remote_servers>
+        <posthog>
+            <shard>
+                <replica>
+                    <host>clickhouse-data</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog>
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-data</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
+        <posthog_writable>
+            <shard>
+                <replica>
+                    <host>clickhouse-data</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_writable>
+        <posthog_primary_replica>
+            <shard>
+                <replica>
+                    <host>clickhouse-data</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_primary_replica>
+
+        <posthog_migrations>
+            <shard>
+                <replica>
+                    <host>clickhouse-data</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-ai-events</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-aux</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-ops</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-sessions</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_migrations>
+
+        <ai_events>
+            <shard>
+                <replica>
+                    <host>clickhouse-ai-events</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ai_events>
+        <aux>
+            <shard>
+                <replica>
+                    <host>clickhouse-aux</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </aux>
+        <ops>
+            <shard>
+                <replica>
+                    <host>clickhouse-ops</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ops>
+        <sessions>
+            <shard>
+                <replica>
+                    <host>clickhouse-sessions</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </sessions>
+        <logs>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </logs>
+    </remote_servers>
+
+    <named_collections>
+        <msk_cluster>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </msk_cluster>
+        <warpstream_ingestion>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_ingestion>
+        <warpstream_calculated_events>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_calculated_events>
+        <warpstream_replay>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_replay>
+        <warpstream_shared>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_shared>
+        <warpstream_cyclotron>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_cyclotron>
+        <warpstream_logs>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_logs>
+    </named_collections>
+
+    <macros>
+        <shard>01</shard>
+        <replica>sess</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>sessions</hostClusterRole>
+    </macros>
+</clickhouse>

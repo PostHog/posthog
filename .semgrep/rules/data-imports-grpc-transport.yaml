@@ -1,0 +1,107 @@
+# Warehouse-source gRPC calls must go through the tracked gRPC transport so they
+# participate in gRPC logging, metrics, and sample capture (see
+# products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/). Raw `grpc.secure_channel`
+# / `grpc.insecure_channel` channels, and direct vendor gRPC-client construction,
+# bypass the transport.
+#
+# Two supported seams:
+#   - SDKs that accept an `interceptors=` list (google-ads `get_service`):
+#       client.get_service("...", interceptors=tracked_interceptors(host))
+#   - SDKs that accept a `channel=` / `transport=` (BigQuery Storage):
+#       make_tracked_channel(create_channel(credentials=...), host=host)
+#
+# Type/exception imports from grpc remain allowed — only channel/client
+# construction is banned.
+rules:
+    - id: data-imports-grpc-transport-raw-channel
+      pattern-either:
+          - pattern: grpc.secure_channel(...)
+          - pattern: grpc.insecure_channel(...)
+          - pattern: grpc.aio.secure_channel(...)
+          - pattern: grpc.aio.insecure_channel(...)
+      message: |
+          Build the channel through the tracked gRPC transport instead of a raw
+          `grpc.*_channel(...)`. Use `make_tracked_channel(channel, host=...)`
+          from `products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc` so every RPC
+          is logged, metered, and eligible for sample capture.
+
+          If a vendor SDK forces a raw channel and exposes no interceptor seam,
+          add `# nosemgrep: data-imports-grpc-transport-raw-channel` with a reason.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: best-practice
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+          exclude:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+
+    - id: data-imports-grpc-transport-bigquery-read-client
+      pattern-either:
+          - pattern: bigquery_storage.BigQueryReadClient(...)
+          - pattern: BigQueryReadClient(...)
+      message: |
+          Construct the BigQuery Storage read client through a tracked channel so
+          its gRPC traffic is observed. Build the channel with
+          `BigQueryReadGrpcTransport.create_channel(host=..., credentials=...)`,
+          wrap it via `make_tracked_channel(channel, host=...)`, then pass it as
+          `BigQueryReadGrpcTransport(channel=tracked)` to the client — see
+          `bigquery/bigquery.py:bigquery_storage_read_client`.
+
+          If you must construct it raw, add
+          `# nosemgrep: data-imports-grpc-transport-bigquery-read-client` with a reason.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: best-practice
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+          exclude:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
+              # bigquery.py constructs the client itself, but routes the channel
+              # through make_tracked_channel — the enforced invariant there is the
+              # tracked channel, not avoiding the constructor.
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/bigquery/bigquery.py'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+
+    - id: data-imports-grpc-transport-google-ads-client
+      pattern-either:
+          - pattern: GoogleAdsClient(...)
+          - pattern: GoogleAdsClient.load_from_dict(...)
+      message: |
+          The Google Ads client talks gRPC; route its service calls through the
+          tracked transport by passing `interceptors=tracked_interceptors(host)`
+          to every `client.get_service(...)` call — see
+          `google_ads/google_ads.py`.
+
+          If you must construct the client elsewhere, add
+          `# nosemgrep: data-imports-grpc-transport-google-ads-client` with a reason.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: best-practice
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+          exclude:
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
+              # google_ads.py constructs the client but the enforced invariant is
+              # passing tracked_interceptors(...) to get_service, not avoiding the
+              # constructor (google-ads exposes no other seam).
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/google_ads/google_ads.py'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'

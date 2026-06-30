@@ -485,6 +485,7 @@ def create_deletes_dict(
 
 @dagster.op
 def create_adhoc_event_deletes_dict(
+    context: dagster.OpExecutionContext,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> AdhocEventDeletesDictionary:
@@ -510,6 +511,21 @@ def create_adhoc_event_deletes_dict(
             max_memory_usage=config.max_memory_usage,
         )
     ).result()
+
+    # The dictionary holds identical data on every host, so count the loaded ids on a single
+    # data node (verifying replica identity is the job of load_and_verify_adhoc_event_deletes_dictionary).
+    def count_ids(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM {del_dict.qualified_name}")
+        return result[0][0] if result else 0
+
+    ids_added = cluster.any_host_by_role(count_ids, NodeRole.DATA).result()
+
+    context.add_output_metadata(
+        {
+            "ids_added": dagster.MetadataValue.int(ids_added),
+            "dictionary_name": dagster.MetadataValue.text(del_dict.qualified_name),
+        }
+    )
 
     return del_dict
 

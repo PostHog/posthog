@@ -27,8 +27,9 @@ import structlog
 
 from posthog.schema import AlertState
 
-from posthog.models.alert import AlertCheck, InvestigationStatus
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+
+from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
 logger = structlog.get_logger(__name__)
 

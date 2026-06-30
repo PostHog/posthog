@@ -48,7 +48,7 @@ WRONG — You must run `info` for ALL tools before making ANY `call` commands
 <bad-example>
 User: Show me a trends chart of signups
 Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
-WRONG — info returned a summary with hint: "Run `schema query-trends series` for full structure".
+WRONG — info returned a summary with hint: "DO NOT GUESS – run `schema query-trends series` before populating this field".
 You MUST follow the hint and run `schema` before constructing the series field.
 </bad-example>
 

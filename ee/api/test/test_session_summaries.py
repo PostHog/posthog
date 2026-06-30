@@ -12,7 +12,7 @@ from django.http import HttpResponse
 from parameterized import parameterized
 from rest_framework import exceptions
 
-from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 
 from ee.api.session_summaries import _NO_READY_SUMMARY_ERROR_SUBSTRING
 from ee.hogai.session_summaries.session_group.patterns import (
@@ -28,9 +28,14 @@ class TestSessionSummariesAPI(APIBaseTest):
     environment_patches: list[Any]
 
     async def _create_async_generator(
-        self, result: tuple[EnrichedSessionGroupSummaryPatternsList, str]
+        self,
+        result: tuple[EnrichedSessionGroupSummaryPatternsList, str],
+        failed_sessions: Optional[list[FailedSessionInfo]] = None,
     ) -> AsyncIterator[
-        tuple[SessionSummaryStreamUpdate, Union[str, tuple[EnrichedSessionGroupSummaryPatternsList, str]]]
+        tuple[
+            SessionSummaryStreamUpdate,
+            Union[str, tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]]],
+        ]
     ]:
         """Helper to create an async generator that yields progress updates and final result."""
         # Yield progress updates in the new tuple format
@@ -40,8 +45,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Processing sessions...")
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Finding patterns...")
-        # Yield final result
-        yield (SessionSummaryStreamUpdate.FINAL_RESULT, result)
+        patterns, summary_id = result
+        yield (SessionSummaryStreamUpdate.FINAL_RESULT, (patterns, summary_id, failed_sessions or []))
 
     def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
@@ -104,7 +109,21 @@ class TestSessionSummariesAPI(APIBaseTest):
             datetime(2024, 1, 1, 11, 0, 0),
         )
         mock_result = self.create_mock_result()
-        mock_execute.return_value = self._create_async_generator((mock_result, "session-group-summary-id"))
+        mock_failed_sessions = [
+            FailedSessionInfo(
+                session_id="session-skipped-1",
+                category="skipped",
+                reason="Recording is too short or has no usable events",
+            ),
+            FailedSessionInfo(
+                session_id="session-errored-1",
+                category="summarization_failed",
+                reason="Couldn't generate a summary for this session",
+            ),
+        ]
+        mock_execute.return_value = self._create_async_generator(
+            (mock_result, "session-group-summary-id"), failed_sessions=mock_failed_sessions
+        )
         # Make request
         response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
         # Assertions
@@ -118,6 +137,17 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(data["patterns"][0]["pattern_name"], "Login Flow Pattern")
         self.assertEqual(data["patterns"][0]["severity"], "medium")
         self.assertEqual(data["patterns"][0]["stats"]["occurences"], 2)
+        self.assertIn("failed_sessions", data)
+        self.assertEqual(len(data["failed_sessions"]), 2)
+        self.assertEqual(
+            data["failed_sessions"][0],
+            {
+                "session_id": "session-skipped-1",
+                "category": "skipped",
+                "reason": "Recording is too short or has no usable events",
+            },
+        )
+        self.assertEqual(data["failed_sessions"][1]["category"], "summarization_failed")
         # Verify execute_summarize_session_group was called correctly
         mock_execute.assert_called_once_with(
             session_ids=["session1", "session2"],

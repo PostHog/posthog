@@ -6,7 +6,7 @@ import {
     isExperimentRatioMetric,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { VariantTag } from '~/scenes/experiments/ExperimentView/components'
+import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -71,7 +71,7 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
     ]
 
     const dataSource: TableRow[] = [
-        ...(result.baseline ? [{ ...result.baseline, key: 'control', isBaseline: true } as TableRow] : []),
+        ...(result.baseline ? [{ ...result.baseline, isBaseline: true } as TableRow] : []),
         ...(result.variant_results?.map((v) => ({ ...v, isBaseline: false }) as TableRow) || []),
     ]
 

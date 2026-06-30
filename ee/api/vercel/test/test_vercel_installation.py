@@ -61,6 +61,16 @@ class TestVercelInstallationAPI(VercelTestBase):
         assert response.status_code == status.HTTP_200_OK
         mock_plans.assert_called_once()
 
+    @patch("ee.vercel.integration.VercelIntegration.get_vercel_plans")
+    def test_plans_allows_placeholder_installation_id(self, mock_plans):
+        # Vercel fetches plans before an installation exists, using the literal
+        # path segment "new" instead of a real installation ID.
+        mock_plans.return_value = [{"id": "free"}, {"id": "paid"}]
+        response = self._request("get", url="/api/vercel/v1/installations/new/plans/", auth_type="system")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_plans.assert_called_once()
+
     @patch("ee.vercel.integration.VercelIntegration.update_installation")
     def test_update_calls_upsert_installation(self, mock_update):
         response = self._request("patch", data=self.update_payload)
@@ -103,6 +113,9 @@ class TestVercelInstallationAPI(VercelTestBase):
         assert response.json() == {"finalized": True}
 
     def test_invalid_installation_id_format(self):
+        # The token is bound to a different installation than the URL targets, so the
+        # per-installation authorization check rejects the request before the URL format
+        # is ever validated.
         url = "/api/vercel/v1/installations/invalid-id/"
         response = self._request("get", url=url, auth_type="system")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_403_FORBIDDEN

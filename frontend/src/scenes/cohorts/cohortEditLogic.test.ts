@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,6 +29,8 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
 }))
@@ -42,6 +45,16 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         success: jest.fn(),
     },
 }))
+
+const mockUsedInResponse: CohortUsedInResponseApi = {
+    feature_flags: {
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        total: 1,
+        has_more: false,
+    },
+    insights: { results: [], total: 0, has_more: false },
+    cohorts: { results: [], total: 0, has_more: false },
+}
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -64,6 +77,7 @@ describe('cohortEditLogic', () => {
             get: {
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
                 '/api/projects/:team_id/cohorts/:id/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse,
             },
             post: {
                 '/api/projects/:team_id/cohorts/': mockCohort,
@@ -81,7 +95,61 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
-            expect(api.get).toHaveBeenCalledTimes(1)
+            // One call for the cohort itself, one for its used-in references
+            expect(api.get).toHaveBeenCalledTimes(2)
+        })
+
+        it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
+        it('swallows used-in 404s without reporting them', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader swallows the error and returns a value, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
+        it('reports non-404 used-in failures', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader still returns a value on non-404 errors, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).toHaveBeenCalled()
+        })
+
+        it('keeps the previously loaded value when a refresh fails', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadUsedIn()
+            }).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            // The failed refresh returns the prior value instead of blanking the banner.
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
         it('loads new cohort on mount', async () => {
@@ -158,7 +226,9 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
+                .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 
@@ -1128,5 +1198,55 @@ describe('cohortEditLogic', () => {
                     cohort: partial(dynamicCohort),
                 })
         }, 15000)
+    })
+
+    describe('active tab URL routing', () => {
+        beforeEach(async () => {
+            await initCohortLogic({ id: 1 })
+            router.actions.replace(urls.cohort(1))
+        })
+
+        it('defaults to overview when no hash is set', async () => {
+            await expectLogic(logic).toMatchValues({ activeTab: 'overview' })
+        })
+
+        it('writes #tab=history when switching to history', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('history')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+        })
+
+        it('strips the tab key from the hash when switching back to overview', async () => {
+            logic.actions.setActiveTab('history')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('overview')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBeUndefined()
+        })
+
+        it('reads the tab from the URL on navigation', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'history' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'history' })
+        })
+
+        it('falls back to overview when the hash tab value is unrecognized', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'garbage' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'overview' })
+        })
+    })
+
+    describe('new cohort hash hygiene', () => {
+        it('clears a stale #tab=history hash on mount and resets activeTab to overview', async () => {
+            router.actions.replace(urls.cohort('new'), {}, { tab: 'history' })
+            await initCohortLogic({ id: 'new' })
+            expect(router.values.hashParams.tab).toBeUndefined()
+            // Without resetting activeTab, the user would land on a blank screen for new cohorts:
+            // overview is hidden via `display:none` while history requires a saved cohort to render.
+            expect(logic.values.activeTab).toBe('overview')
+        })
     })
 })

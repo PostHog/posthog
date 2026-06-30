@@ -182,6 +182,16 @@ The task list helps the assistant to stay on track.
 
 This prevents wasted API calls and gives users immediate feedback when the data they're looking for doesn't exist.
 
+##### Progressive exploration
+
+For unfamiliar or potentially large datasets, probe cheaply before running the expensive aggregation. Widen only if the cheap step looks reasonable:
+
+1. **Count first** — `SELECT count() FROM events WHERE timestamp >= now() - INTERVAL 1 DAY AND event = 'foo'`. Confirms the data exists and gives a sense of volume.
+2. **Small sample** — inspect a handful of rows (`LIMIT 10`) to verify property shapes and values match expectations.
+3. **Full query** — run the real aggregation with a time range and `LIMIT`, having confirmed it won't scan needlessly or return empty.
+
+This is faster than discovering an empty result or a mis-shaped property after the full aggregation, and it costs less.
+
 ##### Skipping index
 
 You should use the skipping index signature to write optimized analytical queries.
@@ -219,6 +229,8 @@ Keep in mind that the right expression is loaded in memory when joining data in 
 - Analytical functions and combinators.
 - Subqueries as a source or filter.
 - Arrays (arrayMap, arrayJoin) and ARRAY JOIN.
+
+A subquery used as a join/correlation source must **pre-filter and, where possible, pre-aggregate** — push the time range, `WHERE`, and any `GROUP BY` inside it so the right side stays small in memory. Wrapping a full table in a subquery without narrowing it gains nothing. When you only need a single match per row (enrichment lookups, e.g. attaching one attribute from system data), use `LEFT ANY JOIN` — it stops at the first match, using less memory and running faster than a regular join.
 
 **System data**
 

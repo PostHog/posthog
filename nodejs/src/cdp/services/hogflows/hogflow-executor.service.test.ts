@@ -5,28 +5,30 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { fetch } from '~/utils/request'
-import { logger } from '../../../utils/logger'
+import { fetch } from '~/common/utils/request'
+import { logger } from '~/common/utils/logger'
 import { Hub } from '../../../types'
-import { createHub } from '../../../utils/db/hub'
+import { createHub } from '~/common/utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -69,8 +71,10 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -80,6 +84,7 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -473,6 +478,32 @@ describe('Hogflow Executor', () => {
                     'Executing action [Action:exit]',
                     'Workflow completed',
                 ])
+            })
+
+            it('surfaces the matcher wake event in the resume log', async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        properties: { name: 'Debug User' },
+                        timestamp: '2026-01-30T20:20:20.200Z',
+                    },
+                })
+                // Woken by the matcher: the resume log should emit a linkable
+                // [Event:uuid|name|timestamp] token, not just echo the trigger event.
+                invocation.state.currentAction = {
+                    id: 'function_id_1',
+                    startedAtTimestamp: DateTime.now().toMillis(),
+                    eventMatched: true,
+                    eventMatchedEvent: 'subscription created',
+                    eventMatchedEventUuid: 'wake-uuid-123',
+                    eventMatchedEventTimestamp: '2026-01-30T21:00:00.000Z',
+                }
+
+                const result = await executor.execute(invocation)
+
+                expect(result.logs[0].message).toBe(
+                    'Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z] (woken by [Event:wake-uuid-123|subscription created|2026-01-30T21:00:00.000Z])'
+                )
             })
         })
     })
@@ -1010,7 +1041,8 @@ describe('Hogflow Executor', () => {
                     {
                         finished: false,
                         scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
-                        nextActionId: 'exit',
+                        // Still pending, so the delay parks without advancing currentAction
+                        nextActionId: 'delay',
                     },
                 ],
                 [
@@ -1350,6 +1382,41 @@ describe('Hogflow Executor', () => {
         })
     })
 
+    describe('data-warehouse-table trigger', () => {
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (per consumer),
+        // not the executor — coverage for source matching lives in the consumer tests. Here we just
+        // assert that when a warehouse-trigger flow with always-true filters is handed to the
+        // executor with warehouse-row globals, an invocation is produced.
+        it('builds an invocation when filter bytecode evaluates true for warehouse-row globals', async () => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'data-warehouse-table',
+                        table_name: 'postgres.table_1',
+                        // Always-true bytecode (return true) like the no-filter data warehouse example
+                        filters: { properties: [], bytecode: ['_h', 29] } as any,
+                    },
+                })
+                .build()
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'row-uuid-0001',
+                    event: '$warehouse_source_row',
+                    distinct_id: '',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: '',
+                    properties: { column1: 'value1', column2: 123, $source_table: 'postgres.table_1' },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
+        })
+    })
+
     describe('variable merging', () => {
         it('merges default and provided variables correctly', () => {
             const hogFlow: HogFlow = new FixtureHogFlowBuilder()
@@ -1403,6 +1470,48 @@ describe('Hogflow Executor', () => {
                 overrideMe: 'customValue',
                 extra: 'shouldBeIncluded',
             })
+        })
+    })
+
+    describe('group propagation', () => {
+        it('carries groups from globals onto the invocation', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            const groups = {
+                organization: {
+                    id: 'acme-123',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: {},
+                },
+            }
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                project: { id: 1, name: 'Test Project', url: '' },
+                person: { id: 'person_id', name: 'John Doe', properties: {}, url: '' },
+                groups,
+            }
+
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+
+            expect(invocation.groups).toEqual(groups)
         })
     })
 
@@ -1663,10 +1772,7 @@ describe('Hogflow Executor', () => {
                                 email: '',
                                 name: '',
                             },
-                            from: {
-                                email: '',
-                                name: '',
-                            },
+                            from: {},
                             replyTo: '',
                             subject: '',
                             preheader: '',
@@ -1714,7 +1820,6 @@ describe('Hogflow Executor', () => {
                                         },
                                         from: {
                                             integrationId: 1,
-                                            email: 'test@posthog.com',
                                         },
                                         subject: 'Test Email 1',
                                         text: 'Test Text 1',
@@ -1737,7 +1842,6 @@ describe('Hogflow Executor', () => {
                                         },
                                         from: {
                                             integrationId: 1,
-                                            email: 'test@posthog.com',
                                         },
                                         subject: 'Test Email 2',
                                         text: 'Test Text 2',
@@ -1767,24 +1871,233 @@ describe('Hogflow Executor', () => {
                 },
             })
 
-            // There are 4 async actions, so we need to execute multiple times until finished
+            // Each execute call returns the metrics for one queue segment, and email
+            // actions route through the dedicated email queue — so we accumulate metrics
+            // across every segment to assert the total billing over the whole run.
             let result = await executor.execute(invocation)
+            const metrics = [...result.metrics]
             while (!result.finished) {
                 result = await executor.execute(result.invocation)
+                metrics.push(...result.metrics)
             }
 
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
 
             // Verify we have billing metrics for both hog functions and email actions
-            const fetchBilling = result.metrics.filter(
+            const fetchBilling = metrics.filter(
                 (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
             )
             expect(fetchBilling).toHaveLength(2)
-            const emailBilling = result.metrics.filter(
+            const emailBilling = metrics.filter(
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
+        })
+    })
+
+    describe('email queue routing', () => {
+        it('should route email actions to the email queue', async () => {
+            const team = await getFirstTeam(hub.postgres)
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-email-routing-test',
+                name: 'Email Routing Test',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        default: {
+                            to: { email: '', name: '' },
+                            from: { email: '', name: '' },
+                            subject: '',
+                            text: 'Hello!',
+                            html: '<div>Hello!</div>',
+                        },
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email-routing-test',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            subject: 'Test Email',
+                                            text: 'Test',
+                                            html: '<p>Test</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    event: '$pageview',
+                },
+            })
+
+            const result = await executor.execute(invocation)
+
+            // Should be routed to email queue, not finished
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect(result.invocation.queueParameters?.type).toBe('email')
+        })
+
+        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
+            const team = await getFirstTeam(hub.postgres)
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-email-routing-test',
+                name: 'Email Routing Test',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        default: {
+                            to: { email: '', name: '' },
+                            from: { email: '', name: '' },
+                            subject: '',
+                            text: 'Hello!',
+                            html: '<div>Hello!</div>',
+                        },
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email-routing-test',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            subject: 'Test Email',
+                                            text: 'Test text',
+                                            html: '<p>Test html</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    event: '$pageview',
+                },
+            })
+
+            // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
+            const hogflowResult = await executor.execute(invocation)
+            expect(hogflowResult.finished).toBe(false)
+            expect(hogflowResult.invocation.queue).toBe('email')
+            expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
+
+            // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
+            let emailResult = await executor.execute(hogflowResult.invocation)
+            while (!emailResult.finished) {
+                emailResult = await executor.execute(emailResult.invocation)
+            }
+
+            // Workflow should complete
+            expect(emailResult.finished).toBe(true)
+            expect(emailResult.error).toBeUndefined()
+
+            // Verify email_sent metric was emitted
+            const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
+            expect(emailSentMetrics).toHaveLength(1)
         })
     })
 })

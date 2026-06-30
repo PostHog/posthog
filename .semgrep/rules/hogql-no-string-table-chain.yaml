@@ -22,10 +22,10 @@ rules:
           and POE virtual-table paths working.
       paths:
           include:
-              - 'posthog/hogql/**/*.py'
-              - 'posthog/hogql_queries/**/*.py'
-              - 'products/**/*.py'
-              - 'ee/**/*.py'
+              - '/posthog/hogql/**/*.py'
+              - '/posthog/hogql_queries/**/*.py'
+              - '/products/**/*.py'
+              - '/ee/**/*.py'
           exclude:
               - '**/test/**'
               - '**/tests/**'

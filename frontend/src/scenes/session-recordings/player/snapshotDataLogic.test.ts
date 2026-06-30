@@ -1,5 +1,6 @@
+import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
+
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
-import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
 import { RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'

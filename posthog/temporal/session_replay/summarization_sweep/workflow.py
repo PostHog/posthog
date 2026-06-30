@@ -20,7 +20,11 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     SESSION_LOOKBACK_MINUTES,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.types import FindSessionsInput, SummarizeTeamSessionsInputs
+from posthog.temporal.session_replay.summarization_sweep.types import (
+    ConsumeSummaryQuotaInput,
+    FindSessionsInput,
+    SummarizeTeamSessionsInputs,
+)
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
@@ -30,7 +34,10 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
     from posthog.temporal.session_replay.session_summary.workflow import SummarizeSingleSessionWorkflow
-    from posthog.temporal.session_replay.summarization_sweep.activities import find_sessions_for_team_activity
+    from posthog.temporal.session_replay.summarization_sweep.activities import (
+        consume_summary_quota_activity,
+        find_sessions_for_team_activity,
+    )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -86,6 +93,28 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 f"All {failed} child workflow starts failed for team {inputs.team_id}",
                 type="AllChildStartsFailed",
             )
+
+        # Charge the cap by what we actually dispatched. Skipped/failed children
+        # never reach the LLM, so don't count them.
+        #
+        # `maximum_attempts=1` + swallow exceptions: INCRBY is non-idempotent, so
+        # a retry after a Redis blip would silently inflate the counter for the
+        # rest of the month. Losing one increment is recoverable on the next
+        # sweep tick; an inflated counter is not. Bookkeeping must never fail a
+        # sweep whose children all dispatched.
+        if started > 0:
+            try:
+                await workflow.execute_activity(
+                    consume_summary_quota_activity,
+                    args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
+                    start_to_close_timeout=timedelta(seconds=15),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.warning(
+                    "summarization_sweep.consume_quota_failed",
+                    extra={"team_id": inputs.team_id, "n": started, "error": str(e)},
+                )
 
         return {
             "team_id": inputs.team_id,

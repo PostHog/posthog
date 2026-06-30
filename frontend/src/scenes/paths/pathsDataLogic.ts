@@ -2,10 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, selectors } from 'k
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
@@ -72,7 +72,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], sceneLogic, ['newTab']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     actions({
@@ -128,7 +128,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ values }) => ({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const query: InsightActorsQuery = {
                 kind: NodeKind.InsightActorsQuery,
@@ -178,7 +178,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 },
             }
 
-            actions.newTab(urls.insightNew({ query }))
+            newInternalTab(urls.insightNew({ query }))
         },
     })),
 ])

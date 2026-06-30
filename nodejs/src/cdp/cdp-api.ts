@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/api/router'
+import { ModifiedRequest } from '~/common/api/router'
+import { logger } from '~/common/utils/logger'
+import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -11,8 +13,6 @@ import {
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
-import { logger } from '../utils/logger'
-import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
 import { CdpOutputs, createCdpCoreServices } from './cdp-services'
@@ -24,22 +24,30 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
+import { RerunJobManager } from './rerun/rerun-job.manager'
+import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { CyclotronJobQueue } from './services/job-queue/job-queue'
+import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+    sanitizeLogMessage,
+} from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
@@ -81,16 +89,20 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private cyclotronJobQueue: CyclotronJobQueue
+    private hogQueue: JobQueue
+    private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
-        private deps: CdpApiDeps
+        private deps: CdpApiDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -111,18 +123,23 @@ export class CdpApi {
             ...deps,
             monitoringOutputs: services.outputs,
         })
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = jobQueues.hogQueue
+        this.hogflowQueue = jobQueues.hogflowQueue
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
-            services.recipientsManager
+            services.capturedEventsService,
+            services.teamWorkflowsConfigService,
+            services.recipientsManager,
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -139,15 +156,29 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        // CdpSourceWebhooksConsumer.start() calls startAsProducer on both queues
         await this.cdpSourceWebhooksConsumer.start()
-        await this.cyclotronJobQueue.startAsProducer()
+
+        // Rerun endpoints don't run the work — they just enqueue a wrapper
+        // job onto the cyclotron-v2 'rerun' queue. A dedicated consumer
+        // (`CdpRerunWorkerConsumer`) deployed as PLUGIN_SERVER_MODE=cdp-rerun-worker
+        // pages ClickHouse, rehydrates invocations, and commits progress back
+        // to the wrapper job via reschedule(state).
+        if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
+            this.rerunJobManager = new RerunJobManager({
+                dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+            })
+            await this.rerunJobManager.connect()
+        }
     }
 
     async stop(): Promise<void> {
+        // CdpSourceWebhooksConsumer.stop() calls stopProducer on both queues
         await Promise.all([
             this.cdpSourceWebhooksConsumer.stop(),
-            this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
+            this.rerunJobManager?.disconnect() ?? Promise.resolve(),
         ])
     }
 
@@ -175,6 +206,11 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
         )
+        router.post(
+            '/api/projects/:team_id/hog_functions/:id/rerun',
+            asyncHandler(this.postRerunInvocations('hog_function'))
+        )
+        router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -380,10 +416,16 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
+                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                        invocation.hogFunction,
+                        invocation.state.globals.inputs ?? {}
+                    )
                     const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                         mock_async_functions,
-                        logs
+                        logs,
+                        sensitiveValues
                     )
+                    options.sendEmailsInline = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -503,6 +545,17 @@ export class CdpApi {
                 team_id: team.id,
             }
 
+            // Mirror real execution: resolve groups server-side from the event's $groups so test-run
+            // conditionals branch on group properties. Only resolve when the caller didn't supply
+            // groups, so hand-edited test payloads are respected.
+            if (!globals.groups || Object.keys(globals.groups).length === 0) {
+                globals.groups = await this.groupsManager.getGroupsForEvent(
+                    team.id,
+                    globals.event.properties,
+                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+                )
+            }
+
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
@@ -530,6 +583,7 @@ export class CdpApi {
 
             const logs: MinimalLogEntry[] = []
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
@@ -598,7 +652,7 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
 
-            await this.cyclotronJobQueue.queueInvocations([invocation])
+            await this.hogflowQueue.queueInvocations([invocation])
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
@@ -606,6 +660,88 @@ export class CdpApi {
             res.status(500).json({ error: [e.message] })
         }
     }
+
+    // Rerun endpoints don't run the work — they just enqueue a wrapper job
+    // onto the cyclotron-v2 'rerun' queue. The dedicated `CdpRerunWorkerConsumer`
+    // picks it up, pages ClickHouse, rehydrates invocations onto the regular
+    // queue, and commits progress back to the wrapper job's state.
+    private postRerunInvocations =
+        (functionKind: 'hog_function' | 'hog_flow') =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                if (!this.rerunJobManager) {
+                    return res.status(503).json({
+                        error: 'Rerun manager not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                    })
+                }
+
+                const { team_id, id } = req.params
+                const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+                if (!team) {
+                    return res.status(404).json({ error: 'Team not found' })
+                }
+
+                if (functionKind === 'hog_function') {
+                    const hogFunction = await this.hogFunctionManager.getHogFunction(id)
+                    if (!hogFunction || hogFunction.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog function not found' })
+                    }
+                } else {
+                    const hogFlow = await this.hogFlowManager.getHogFlow(id)
+                    if (!hogFlow || hogFlow.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog flow not found' })
+                    }
+                }
+
+                const rerunRequest = req.body as RerunRequest
+                const rerunJobId = await this.rerunJobManager.enqueue(team.id, functionKind, id, rerunRequest)
+
+                // Surface the wrapper job in the Invocations list immediately —
+                // a 'running' lifecycle row + a `rerun_queued` log line. Both
+                // share the same `instance_id = rerun_job_id` so the logs
+                // viewer in the row's expand panel picks them up automatically.
+                const now = new Date()
+                this.invocationResultsService.invocationResultsRowsService.queueRerunWrapperRow({
+                    teamId: team.id,
+                    parentFunctionKind: functionKind,
+                    functionId: id,
+                    rerunJobId,
+                    status: 'running',
+                    pagesProcessed: 0,
+                    filter: rerunRequest.filter,
+                    scheduledAt: now,
+                    startedAt: now,
+                })
+                this.invocationResultsService.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: team.id,
+                            log_source: functionKind,
+                            log_source_id: id,
+                            instance_id: rerunJobId,
+                            timestamp: DateTime.fromJSDate(now),
+                            level: 'info',
+                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
+                        },
+                    ],
+                    functionKind
+                )
+                await this.invocationResultsService.flush()
+
+                logger.info('⚡️', 'Rerun job enqueued', {
+                    function_kind: functionKind,
+                    function_id: id,
+                    team_id: team.id,
+                    rerun_job_id: rerunJobId,
+                })
+                res.json({ rerun_job_id: rerunJobId, queued_count: 0, skipped_count: 0 })
+            } catch (e) {
+                logger.error('Error enqueueing rerun job', {
+                    error: e instanceof Error ? e.message : String(e),
+                })
+                res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+            }
+        }
 
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
@@ -629,6 +765,9 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
             }
 
+            const maxAudienceSize =
+                typeof req.body.max_audience_size === 'number' ? req.body.max_audience_size : undefined
+
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
@@ -637,6 +776,7 @@ export class CdpApi {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
                 },
+                maxAudienceSize,
             }
 
             await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
@@ -823,7 +963,8 @@ export class CdpApi {
 
 const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
-    logs: MinimalLogEntry[]
+    logs: MinimalLogEntry[],
+    sensitiveValues?: string[]
 ): HogExecutorExecuteAsyncOptions => {
     let mockFunctions: Record<string, (...args: any[]) => any> | undefined
 
@@ -831,7 +972,19 @@ const buildHogExecutorAsyncOptions = (
         mockFunctions = {}
         for (const name of getRegisteredAsyncFunctionNames()) {
             const handler = getAsyncFunctionHandler(name)!
-            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+            mockFunctions[name] = (...args: any[]) => {
+                const startIndex = logs.length
+                const result = handler.mock(args, logs)
+                if (sensitiveValues?.length) {
+                    for (let i = startIndex; i < logs.length; i++) {
+                        logs[i] = {
+                            ...logs[i],
+                            message: sanitizeLogMessage([logs[i].message], sensitiveValues),
+                        }
+                    }
+                }
+                return result
+            }
         }
     }
 

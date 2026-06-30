@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -144,16 +145,17 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/quick_filters/': {
                     results: [],
                 },
-                '/api/environments/:team_id/insights/trend/': async (req) => {
-                    const clientQueryId = req.url.searchParams.get('client_query_id')
+                '/api/environments/:team_id/insights/trend/': async ({ request }) => {
+                    const url = new URL(request.url)
+                    const clientQueryId = url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
                     }
 
-                    if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
+                    if (JSON.parse(url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
-                    if (req.url.searchParams.get('date_from') === '-180d') {
+                    if (url.searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
                         return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
@@ -170,8 +172,9 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/42': partialInsight42,
                 '/api/environments/:team_id/insights/43/': partialInsight43,
                 '/api/environments/:team_id/insights/44/': partialInsight44,
-                '/api/environments/:team_id/insights/': (req) => {
-                    if (req.url.searchParams.get('saved')) {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const url = new URL(request.url)
+                    if (url.searchParams.get('saved')) {
                         return [
                             200,
                             {
@@ -189,7 +192,7 @@ describe('insightLogic', () => {
                             },
                         ]
                     }
-                    const shortId = req.url.searchParams.get('short_id') || ''
+                    const shortId = url.searchParams.get('short_id') || ''
                     if (shortId === '500') {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -201,7 +204,7 @@ describe('insightLogic', () => {
                                     result: parseInt(shortId) === 42 ? ['result from api'] : null,
                                     id: parseInt(shortId),
                                     short_id: shortId.toString(),
-                                    filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                                    filters: JSON.parse(url.searchParams.get('filters') || 'false') || API_FILTERS,
                                     name: 'original name',
                                     dashboards: [1, 2, 3],
                                 },
@@ -247,34 +250,31 @@ describe('insightLogic', () => {
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/viewed': [201],
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { ...(req.body as any), id: 12, short_id: Insight12 },
+                    { ...((await request.json()) as any), id: 12, short_id: Insight12 },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     const response = patchResponseFor(
                         payload,
-                        req.params['id'] as string,
-                        JSON.parse(req.url.searchParams.get('filters') || 'false')
+                        params.id as string,
+                        JSON.parse(new URL(request.url).searchParams.get('filters') || 'false')
                     )
                     return [200, response]
                 },
-                '/api/projects/:team/insights/:id': async (req) => {
-                    const payload = await req.json()
-                    return [200, { ...payload, id: req.params['id'] }]
+                '/api/projects/:team/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as Record<string, any>
+                    return [200, { ...payload, id: params.id }]
                 },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -474,13 +474,10 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic({ tabId: '1' }).mount()
+            savedInsightsLogic().mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
-                'loadInsights',
-                'loadInsightsSuccess',
-            ])
+            await expectLogic(savedInsightsLogic()).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -557,7 +554,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -574,10 +571,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -585,7 +582,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -601,7 +598,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -633,7 +630,7 @@ describe('insightLogic', () => {
     })
 
     test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -652,7 +649,7 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
-            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic(), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
@@ -697,6 +694,32 @@ describe('insightLogic', () => {
                         return name === 'new name' && description === 'new description'
                     }),
                 })
+        })
+
+        it('updates query and savedInsight.query on renameInsightSuccess (display-option save)', async () => {
+            const updatedQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true },
+                },
+            }
+            const originalResult = logic.values.insight.result
+
+            insightsModel.actions.renameInsightSuccess(
+                insightModelWith({
+                    id: 42,
+                    short_id: Insight42,
+                    query: updatedQuery,
+                    result: null, // display-option PATCHes don't recompute — server returns null
+                })
+            )
+
+            // query updated, existing result preserved (not blanked by the null in the response)
+            expect(objectsEqual(logic.values.insight.query, updatedQuery)).toBe(true)
+            expect(logic.values.insight.result).toEqual(originalResult)
+            expect(objectsEqual(logic.values.savedInsight.query, updatedQuery)).toBe(true)
         })
 
         it('does not react to rename of a different insight', async () => {
@@ -1102,8 +1125,8 @@ describe('insightLogic', () => {
         it('syncs favorited to savedInsight on metadata save', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/insights/:id': async (req) => {
-                        const payload = await req.json()
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        const payload = (await request.json()) as Record<string, any>
                         return [
                             200,
                             {

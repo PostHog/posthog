@@ -12,9 +12,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -104,7 +104,11 @@ const getSavedQuerySchemaTable = (
 }
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
-    keys: [{ name: 'name', weight: 2 }],
+    keys: [
+        { name: 'name', weight: 2 },
+        // Warehouse tables are queryable by alternate names (e.g. the flat underscore form) too
+        { name: 'search_aliases', weight: 1 },
+    ],
     ignoreLocation: true,
     includeMatches: true,
 }
@@ -1567,7 +1571,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, cache }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
@@ -1940,10 +1944,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
+                // Auto-expand matching groups once per search term, so the user can freely collapse
+                // them afterwards without the selector immediately re-expanding them.
                 const expandedIdSet = new Set(expandedSearchFolders)
                 const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
 
-                if (missingRequiredExpansion) {
+                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchTerm) {
+                    cache.lastAutoExpandedSearchTerm = searchTerm
                     // Auto-expand only parent folders, not the matching nodes themselves.
                     setTimeout(() => {
                         actions.setExpandedSearchFolders(
@@ -2456,11 +2463,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         openUnsavedQuery: ({ record }) => {
             if (record.insight) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
+                newInternalTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
             } else if (record.view) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ view_id: record.view.id }))
+                newInternalTab(urls.sqlEditor({ view_id: record.view.id }))
             } else {
-                sceneLogic.actions.newTab(urls.sqlEditor({ query: record.query }))
+                newInternalTab(urls.sqlEditor({ query: record.query }))
             }
         },
     })),

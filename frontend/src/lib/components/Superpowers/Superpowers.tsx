@@ -11,7 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 export function SuperpowersModal(): JSX.Element | null {
@@ -44,8 +44,9 @@ function SuperpowersContent(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const { fakeStatusOverride, fakeBillingAlert } = useValues(superpowersLogic)
-    const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert } = useActions(superpowersLogic)
+    const { fakeStatusOverride, fakeBillingAlert, mcpHintsDismissed } = useValues(superpowersLogic)
+    const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert, reenableMCPHints } =
+        useActions(superpowersLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { isDev } = useValues(preflightLogic)
@@ -169,6 +170,30 @@ function SuperpowersContent(): JSX.Element {
                     </div>
                 </>
             )}
+
+            <LemonDivider />
+
+            <div>
+                <h3 className="font-semibold mb-2">MCP hints</h3>
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 border rounded">
+                        <div>
+                            <div className="font-medium">Re-enable MCP hints</div>
+                            <div className="text-sm text-secondary">
+                                Clear all dismissed surfaces, the global opt-out, and the cooldown so hints show again
+                            </div>
+                        </div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={reenableMCPHints}
+                            disabledReason={mcpHintsDismissed ? undefined : 'No MCP hints are currently dismissed'}
+                        >
+                            Re-enable
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
 
             <LemonDivider />
 

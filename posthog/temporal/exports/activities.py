@@ -5,15 +5,20 @@ import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import EventSource
-from posthog.models.exported_asset import ExportedAsset
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exports.failure_handler import SYSTEM_ERROR_NAMES
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES, TIMEOUT_ERROR_NAMES, ExportCancelled
+
 logger = structlog.get_logger(__name__)
+
+# Render/query timeouts are transient and must stay retryable; an explicit
+# cancellation is terminal even though it lives in TIMEOUT_ERROR_NAMES.
+RETRYABLE_ERROR_NAMES = SYSTEM_ERROR_NAMES | (TIMEOUT_ERROR_NAMES - {ExportCancelled.__name__})
 
 
 @temporalio.activity.defn
@@ -58,7 +63,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 type=exception_class,
-                non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
+                non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
             ) from e
 
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()

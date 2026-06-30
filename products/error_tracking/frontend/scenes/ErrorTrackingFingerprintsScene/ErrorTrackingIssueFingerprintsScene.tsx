@@ -203,15 +203,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
 }
 
 function StackTraceDisplay(): JSX.Element {
-    const [showAllFrames, setShowAllFrames] = useState(false)
     const [expandedFrameRawIds, setExpandedFrameRawIds] = useState<Set<string>>(new Set())
-    const { hasInAppFrames } = useValues(errorPropertiesLogic)
-
-    useEffect(() => {
-        if (!hasInAppFrames) {
-            setShowAllFrames(true)
-        }
-    }, [hasInAppFrames])
 
     const handleFrameExpandedChange = useCallback((rawId: string, expanded: boolean) => {
         setExpandedFrameRawIds((prev) => {
@@ -227,8 +219,6 @@ function StackTraceDisplay(): JSX.Element {
 
     return (
         <CollapsibleExceptionList
-            showAllFrames={showAllFrames}
-            setShowAllFrames={setShowAllFrames}
             expandedFrameRawIds={expandedFrameRawIds}
             onFrameExpandedChange={handleFrameExpandedChange}
             className="p-2"

@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature
-from posthog.models.insight import Insight
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -9,6 +8,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.dashboard_privilege import DashboardPrivilege
 
@@ -28,7 +28,11 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             {
                 "name": AvailableFeature.ACCESS_CONTROL,
                 "key": AvailableFeature.ACCESS_CONTROL,
-            }
+            },
+            {
+                "name": AvailableFeature.ROLE_BASED_ACCESS,
+                "key": AvailableFeature.ROLE_BASED_ACCESS,
+            },
         ]
         self.organization.save()
 
@@ -309,6 +313,44 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Check effective membership level
         with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_role_based_access_inert_without_role_based_access_feature(self):
+        """Role-backed project AccessControl rows must NOT take effect when the org lacks
+        ROLE_BASED_ACCESS — mirrors the UI gate on the project access settings page."""
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        # Make the team private and grant the role admin via project-level role override
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="admin",
+        )
+
+        # Without ROLE_BASED_ACCESS the role override is inert, so the private-team default ("none") applies
+        assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_lower_project_membership_than_org_membership(self):
         """Test that users with admin org access maintain their admin level even with lower member project access"""

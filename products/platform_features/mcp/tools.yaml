@@ -325,6 +325,12 @@ tools:
     organizations-update:
         operation: update
         enabled: false
+    personal-api-keys-list:
+        operation: personal_api_keys_list
+        enabled: false
+    request-ai-access-create:
+        operation: request_ai_access_create
+        enabled: false
     role-get:
         operation: roles_retrieve
         enabled: true

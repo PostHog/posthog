@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
+# from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import NodeKind, ProductKey
+from posthog.schema_enums import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +27,23 @@ class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
+    ID_JAG = "id_jag"
+    PROJECT_SECRET_API_KEY = "project_secret_api_key"
+    TEAM_SECRET_TOKEN = "team_secret_token"
+
+
+# OAuth and sharing-token deliberately excluded: OAuth is user-consented, sharing-token is public read-only.
+_API_KEY_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
+    {
+        AccessMethod.PERSONAL_API_KEY,
+        AccessMethod.PROJECT_SECRET_API_KEY,
+        AccessMethod.TEAM_SECRET_TOKEN,
+    }
+)
+
+
+def is_api_key_access_method(access_method: AccessMethod | str | None) -> bool:
+    return access_method in _API_KEY_ACCESS_METHODS
 
 
 class Product(StrEnum):
@@ -35,23 +52,30 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
+    INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
-    MCP = "mcp"
+    METRICS = "metrics"
+    MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
+    MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_CODE = "posthog_code"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    REPLAY_VISION = "replay_vision"
     REVENUE_ANALYTICS = "revenue_analytics"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
@@ -81,6 +105,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
+    EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
     # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
     # usage analysis can attribute load to the originating product surface.
@@ -96,7 +121,6 @@ class Feature(StrEnum):
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
-    LLM_ANALYTICS = "llm_analytics"
     # Endpoints product features
     ENDPOINT_EXECUTION = "endpoint_execution"  # external API callers (personal_api_key or oauth)
     ENDPOINT_PLAYGROUND = "endpoint_playground"  # frontend Playground tab (browser session auth)
@@ -122,6 +146,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
+    "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -164,7 +189,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.WEB_OVERVIEW_QUERY
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
-            | NodeKind.WEB_TRENDS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
@@ -209,6 +233,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
+            | NodeKind.TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY
+            | NodeKind.TRACE_SPANS_SYMBOL_STATS_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (
@@ -237,6 +263,15 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
+            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_TOP_USERS_QUERY
+            | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_STATS_QUERY
+            | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+        ):
+            return {"product": Product.MCP_ANALYTICS}
+        case (
             # not attributable on their own
             NodeKind.HOG_QL_QUERY
             | NodeKind.HOG_QL_METADATA
@@ -245,6 +280,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.DATABASE_SCHEMA_QUERY
             | NodeKind.PROPERTY_VALUES_QUERY
             | NodeKind.USAGE_METRICS_QUERY
+            | NodeKind.ACCOUNTS_QUERY
             # drill-downs — caller's product is what matters
             | NodeKind.ACTORS_QUERY
             | NodeKind.GROUPS_QUERY
@@ -389,7 +425,17 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_funnel_order_type: Optional[str] = None  # funnel metrics only: "ordered", "unordered", "strict"
+    # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
+    experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
+    # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
+    # UI group the (synchronous) build INSERTs under the read that triggered them.
+    experiment_query_group_id: Optional[uuid.UUID] = None
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
@@ -408,6 +454,9 @@ class QueryTags(BaseModel):
 
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
+
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
+    contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
 
@@ -522,6 +571,36 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def tag_authentication(
+    *,
+    access_method: AccessMethod,
+    team_id: int | None,
+    user_id: int | None = None,
+    api_key_mask: str | None = None,
+    api_key_label: str | None = None,
+) -> None:
+    """Single funnel for authenticator query tagging — add new auth tags here, not in each authenticator."""
+    tag_queries(
+        user_id=user_id,
+        team_id=team_id,
+        access_method=access_method,
+        api_key_mask=api_key_mask,
+        api_key_label=api_key_label,
+    )
+
+
+def tag_contains_user_hogql() -> None:
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
+
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
+    """
+    if get_query_tag_value("contains_user_hogql"):
+        return
+    tag_queries(contains_user_hogql=True)
+
+
 def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
 
@@ -574,12 +653,44 @@ EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, 
 _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
     (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"metrics", "metric_attributes"}), {"product": Product.METRICS}),
     (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
 )
 
 
+def _query_structure_fallback_tags(query: object, max_depth: int = 16) -> FallbackTags | None:
+    """Walk a query's `source` chain to the first node whose kind maps to a product.
+
+    Wrapper / drill-down nodes (DataTableNode, ActorsQuery, InsightActorsQuery, …) map to None in
+    `kind_fallback_tags` — "caller's product is what matters". When one of them runs as the
+    top-level request (e.g. "open as new insight" from an actors modal) there is no caller, so we
+    descend into `source` to find the wrapped insight (e.g. RetentionQuery → product_analytics).
+
+    Reads the canonical `kind` from `tags.query`, so it also resolves runners that pass a non-NodeKind
+    `query_type` label (e.g. marketing analytics' "marketing_analytics_table_query"). Accepts the raw
+    query dict stored on `tags.query` or a pydantic node.
+    """
+    current = query
+    for _ in range(max_depth):
+        if isinstance(current, dict):
+            kind_value, source = current.get("kind"), current.get("source")
+        else:
+            kind_value, source = getattr(current, "kind", None), getattr(current, "source", None)
+        if isinstance(kind_value, str):
+            try:
+                kind = NodeKind(kind_value)
+            except ValueError:
+                kind = None
+            if kind is not None and (mapped := kind_fallback_tags(kind)) is not None:
+                return mapped
+        if source is None:
+            return None
+        current = source
+    return None
+
+
 def add_fallback_query_tags(tags: QueryTags) -> None:
-    """Order: scene → kind → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
+    """Order: scene → kind → query structure → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
         _apply_fallback_tags(tags, scene_mapped)
 
@@ -590,6 +701,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
             kind = None
         if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
             _apply_fallback_tags(tags, kind_mapped)
+
+    if tags.product is None and tags.query is not None:
+        if (query_mapped := _query_structure_fallback_tags(tags.query)) is not None:
+            _apply_fallback_tags(tags, query_mapped)
 
     if (
         tags.product is None
@@ -648,7 +763,7 @@ class QueryCounter:
 
 
 @contextmanager
-def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
+def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     Context manager that saves all query tags on enter and restores them on exit.
     Optionally accepts key-value pairs to set after saving the original tags.

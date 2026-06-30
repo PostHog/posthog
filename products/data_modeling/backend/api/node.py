@@ -8,7 +8,6 @@ from django.conf import settings
 from django.db import models
 from django.db.models import OuterRef, Subquery
 
-import posthoganalytics
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -17,13 +16,14 @@ from temporalio.common import RetryPolicy
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -108,7 +108,7 @@ class NodePagination(PageNumberPagination):
 
 
 def _is_v2_backend_enabled(user: User, team: Team) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "data-modeling-backend-v2",
         str(user.distinct_id),
         groups={
@@ -164,7 +164,7 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     - _latest_job_status: status of the most recent job (any status)
     - _latest_job_run_at: last_run_at of the most recent *successful* job
     """
-    from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 
     latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
     latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
@@ -266,6 +266,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             workflow_name = "data-modeling-execute-dag"
             workflow_id = f"execute-dag-{uuid4()}"
         else:
+            # v1 workflow is frozen — do not extend this branch.
+            # v2 lives at posthog/temporal/data_modeling/workflows/. Teams are
+            # being migrated off v1 via the `_is_v2_backend_enabled` flag.
             saved_query_ids = list(
                 # nosemgrep: idor-lookup-without-team (node_ids from prior team-scoped graph traversal)
                 Node.objects.filter(

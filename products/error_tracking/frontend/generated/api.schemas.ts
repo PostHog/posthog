@@ -20,12 +20,8 @@ export interface ErrorTrackingAssignmentRuleApi {
     filters: unknown
     /** @nullable */
     readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -315,7 +311,7 @@ export interface PropertyGroupFilterValueApi {
 
 /**
  * * `user` - user
- * `role` - role
+ * * `role` - role
  */
 export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
@@ -326,9 +322,9 @@ export const AssigneeTypeEnumApi = {
 
 export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -339,6 +335,8 @@ export interface ErrorTrackingAssignmentRuleCreateRequestApi {
     filters: PropertyGroupFilterValueApi
     /** User or role to assign matching issues to. */
     assignee: ErrorTrackingAssignmentRuleAssigneeRequestApi
+    /** Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order. */
+    order_key?: number
 }
 
 export interface ErrorTrackingAssignmentRuleUpdateRequestApi {
@@ -368,10 +366,6 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     filters?: unknown
     /** @nullable */
     readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
@@ -379,17 +373,31 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
 }
 
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    /** ID of the integration backing this external reference. */
     readonly id: number
+    /** Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'. */
     readonly kind: string
+    /** Human-readable name of the connected integration. */
     readonly display_name: string
 }
 
+/**
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ */
+export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
+
 export interface ErrorTrackingExternalReferenceResultApi {
+    /** Unique ID of the external reference. */
     readonly id: string
+    /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    config: unknown
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    config: ErrorTrackingExternalReferenceResultApiConfig
+    /** ID of the error tracking issue to link the reference to. */
     issue: string
+    /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
 }
 
@@ -447,18 +455,14 @@ export interface ErrorTrackingGroupingRuleApi {
     /** @nullable */
     readonly assignee: ErrorTrackingGroupingRuleApiAssignee
     /** @nullable */
-    description?: string | null
+    description: string | null
     /**
      * Issue linked to this rule
      * @nullable
      */
     readonly issue: ErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -469,9 +473,9 @@ export interface ErrorTrackingGroupingRuleListResponseApi {
 
 export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -487,6 +491,16 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
      * @nullable
      */
     description?: string | null
+}
+
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
 }
 
 /**
@@ -515,90 +529,115 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      * @nullable
      */
     readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
     readonly updated_at?: string
 }
 
-/**
- * * `archived` - Archived
- * `active` - Active
- * `resolved` - Resolved
- * `pending_release` - Pending release
- * `suppressed` - Suppressed
- */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
-
-export const ErrorTrackingIssueFullStatusEnumApi = {
-    Archived: 'archived',
-    Active: 'active',
-    Resolved: 'resolved',
-    PendingRelease: 'pending_release',
-    Suppressed: 'suppressed',
-} as const
-
-export interface ErrorTrackingIssueAssignmentApi {
+export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
-    readonly type: string
+    type: string
+}
+
+export interface ErrorTrackingIssueCohortReadApi {
+    id: number
+    name: string
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type ErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
-export interface ErrorTrackingIssueFullApi {
-    readonly id: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export interface ErrorTrackingIssueReadApi {
+    id: string
+    status: string
     /** @nullable */
-    name?: string | null
+    name: string | null
     /** @nullable */
-    description?: string | null
-    first_seen: string
-    assignee: ErrorTrackingIssueAssignmentApi
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
-    /** @nullable */
-    readonly cohort: ErrorTrackingIssueFullApiCohort
+    cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
-export interface PaginatedErrorTrackingIssueFullListApi {
+export interface PaginatedErrorTrackingIssueReadListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingIssueFullApi[]
+    results: ErrorTrackingIssueReadApi[]
 }
 
 /**
- * @nullable
+ * * `active` - active
+ * * `resolved` - resolved
+ * * `suppressed` - suppressed
  */
-export type PatchedErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
+export type ErrorTrackingIssueWriteStatusEnumApi =
+    (typeof ErrorTrackingIssueWriteStatusEnumApi)[keyof typeof ErrorTrackingIssueWriteStatusEnumApi]
 
-export interface PatchedErrorTrackingIssueFullApi {
-    readonly id?: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export const ErrorTrackingIssueWriteStatusEnumApi = {
+    Active: 'active',
+    Resolved: 'resolved',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+export interface PatchedErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+/**
+ * Read-only serializer for issue contract types returned by the facade.
+ */
+export interface PatchedErrorTrackingIssueReadApi {
+    id?: string
+    status?: string
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
-    first_seen?: string
-    assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
-    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+    first_seen?: string | null
+    assignee?: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -785,22 +824,22 @@ export interface ErrorTrackingIssueDetailApi {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `gte` - gte
+ * * `lte` - lte
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_after` - is_date_after
+ * * `is_date_before` - is_date_before
+ * * `in` - in
+ * * `not_in` - not_in
  */
 export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
@@ -832,32 +871,32 @@ export const BlankEnumApi = {
 
 /**
  * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `event_metadata` - event_metadata
+ * * `feature` - feature
+ * * `person` - person
+ * * `cohort` - cohort
+ * * `element` - element
+ * * `static-cohort` - static-cohort
+ * * `dynamic-cohort` - dynamic-cohort
+ * * `precalculated-cohort` - precalculated-cohort
+ * * `group` - group
+ * * `recording` - recording
+ * * `log_entry` - log_entry
+ * * `behavioral` - behavioral
+ * * `session` - session
+ * * `hogql` - hogql
+ * * `data_warehouse` - data_warehouse
+ * * `data_warehouse_person_property` - data_warehouse_person_property
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `log` - log
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
+ * * `span` - span
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ * * `revenue_analytics` - revenue_analytics
+ * * `flag` - flag
+ * * `workflow_variable` - workflow_variable
  */
 export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
@@ -903,7 +942,7 @@ export interface PropertyItemApi {
 
 /**
  * * `ASC` - ASC
- * `DESC` - DESC
+ * * `DESC` - DESC
  */
 export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
 
@@ -914,8 +953,8 @@ export const OrderDirectionEnumApi = {
 
 /**
  * * `summary` - summary
- * `stack` - stack
- * `raw` - raw
+ * * `stack` - stack
+ * * `raw` - raw
  */
 export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
 
@@ -940,9 +979,9 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     searchQuery?: string
     /** Timestamp sort direction. Defaults to DESC.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -956,10 +995,10 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-
-  * `summary` - summary
-  * `stack` - stack
-  * `raw` - raw */
+     *
+     * * `summary` - summary
+     * * `stack` - stack
+     * * `raw` - raw */
     verbosity?: VerbosityEnumApi
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
@@ -996,16 +1035,16 @@ export interface ErrorTrackingIssueEventsResponseApi {
 
 /**
  * * `archived` - archived
- * `active` - active
- * `resolved` - resolved
- * `pending_release` - pending_release
- * `suppressed` - suppressed
- * `all` - all
+ * * `active` - active
+ * * `resolved` - resolved
+ * * `pending_release` - pending_release
+ * * `suppressed` - suppressed
+ * * `all` - all
  */
-export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+export const ErrorTrackingIssueStatusEnumApi = {
     Archived: 'archived',
     Active: 'active',
     Resolved: 'resolved',
@@ -1018,18 +1057,18 @@ export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
     id: string | number | null
     /** Assignee target type: user or role.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
 }
 
 /**
  * * `last_seen` - last_seen
- * `first_seen` - first_seen
- * `occurrences` - occurrences
- * `users` - users
- * `sessions` - sessions
+ * * `first_seen` - first_seen
+ * * `occurrences` - occurrences
+ * * `users` - users
+ * * `sessions` - sessions
  */
 export type ErrorTrackingIssueOrderByEnumApi =
     (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
@@ -1046,14 +1085,14 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Date range for issue aggregates. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
-
-  * `archived` - archived
-  * `active` - active
-  * `resolved` - resolved
-  * `pending_release` - pending_release
-  * `suppressed` - suppressed
-  * `all` - all */
-    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+     *
+     * * `archived` - archived
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `pending_release` - pending_release
+     * * `suppressed` - suppressed
+     * * `all` - all */
+    status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
     /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -1066,17 +1105,17 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
     filterGroup?: PropertyItemApi[]
     /** Field used to sort issues. Defaults to occurrences.
-
-  * `last_seen` - last_seen
-  * `first_seen` - first_seen
-  * `occurrences` - occurrences
-  * `users` - users
-  * `sessions` - sessions */
+     *
+     * * `last_seen` - last_seen
+     * * `first_seen` - first_seen
+     * * `occurrences` - occurrences
+     * * `users` - users
+     * * `sessions` - sessions */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -1177,51 +1216,31 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
-/**
- * * `ready` - Ready
- * `computing` - Computing
- */
-export type ErrorTrackingRecommendationStatusEnumApi =
-    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
-
-export const ErrorTrackingRecommendationStatusEnumApi = {
-    Ready: 'ready',
-    Computing: 'computing',
-} as const
-
-/**
- * Recommendation payload, shape depends on type.
- */
-export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
-
 export interface ErrorTrackingRecommendationApi {
     /** Recommendation UUID. */
-    readonly id: string
+    id: string
     /** Recommendation type identifier (e.g. 'alerts'). */
-    readonly type: string
+    type: string
     /** Recommendation payload, shape depends on type. */
-    readonly meta: ErrorTrackingRecommendationApiMeta
+    meta: unknown
     /** Whether the recommendation's recommended action has been satisfied. */
-    readonly completed: boolean
-    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-
-  * `ready` - Ready
-  * `computing` - Computing */
-    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    completed: boolean
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+    status: string
     /**
      * Timestamp meta was last successfully computed.
      * @nullable
      */
-    readonly computed_at: string | null
+    computed_at: string | null
     /**
      * Timestamp the user dismissed this recommendation, if any.
      * @nullable
      */
-    readonly dismissed_at: string | null
+    dismissed_at: string | null
     /** Timestamp the recommendation row was first created. */
-    readonly created_at: string
+    created_at: string
     /** Timestamp the recommendation row was last updated. */
-    readonly updated_at: string
+    updated_at: string
 }
 
 export interface PaginatedErrorTrackingRecommendationListApi {
@@ -1231,6 +1250,115 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
+}
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseApi {
+    id: string
+    hash_id: string
+    team_id: number
+    created_at: string
+    /** @nullable */
+    metadata: ErrorTrackingReleaseApiMetadata
+    version: string
+    project: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+/**
+ * Optional free-form metadata object stored alongside the release.
+ * @nullable
+ */
+export type ErrorTrackingReleaseCreateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseCreateRequestApi {
+    /** Human-readable release version, e.g. a semver string or build number. */
+    version: string
+    /** Identifier of the project this release belongs to. */
+    project: string
+    /**
+     * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseCreateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type ErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseUpdateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type PatchedErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface PatchedErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
 export interface ErrorTrackingSettingsApi {
@@ -1324,19 +1452,19 @@ export interface PatchedErrorTrackingSpikeDetectionConfigApi {
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
-    readonly id: string
+    id: string
     /** @nullable */
-    readonly name: string | null
+    name: string | null
     /** @nullable */
-    readonly description: string | null
+    description: string | null
 }
 
 export interface ErrorTrackingSpikeEventApi {
-    readonly id: string
-    readonly issue: ErrorTrackingSpikeEventIssueApi
-    readonly detected_at: string
-    readonly computed_baseline: number
-    readonly current_bucket_value: number
+    id: string
+    issue: ErrorTrackingSpikeEventIssueApi
+    detected_at: string
+    computed_baseline: number
+    current_bucket_value: number
 }
 
 export interface PaginatedErrorTrackingSpikeEventListApi {
@@ -1348,26 +1476,24 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
-    version: string
-    project: string
-}
+export type ErrorTrackingStackFrameApiContents = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingStackFrameApiContext = { [key: string]: unknown } | null
 
 export interface ErrorTrackingStackFrameApi {
-    readonly id: string
-    /** Raw frame ID in 'hash/part' format */
-    readonly raw_id: string
-    readonly created_at: string
-    contents: unknown
+    id: string
+    raw_id: string
+    created_at: string
+    contents: ErrorTrackingStackFrameApiContents
     resolved: boolean
-    context?: unknown
-    symbol_set_ref?: string
-    readonly release: ErrorTrackingReleaseApi
+    /** @nullable */
+    context: ErrorTrackingStackFrameApiContext
+    /** @nullable */
+    symbol_set_ref: string | null
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingStackFrameListApi {
@@ -1379,16 +1505,27 @@ export interface PaginatedErrorTrackingStackFrameListApi {
     results: ErrorTrackingStackFrameApi[]
 }
 
+export interface ErrorTrackingStackFrameBatchGetRequestApi {
+    /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+    raw_ids: string[]
+    /**
+     * Optional symbol set reference to scope the lookup to a single symbol set.
+     * @nullable
+     */
+    symbol_set?: string | null
+}
+
+export interface ErrorTrackingStackFrameBatchGetResponseApi {
+    /** Resolved stack frames for the requested raw IDs. */
+    results: ErrorTrackingStackFrameApi[]
+}
+
 export interface ErrorTrackingSuppressionRuleApi {
     readonly id: string
     filters: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
-    sampling_rate?: number
+    disabled_data: unknown
+    sampling_rate: number
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1406,7 +1543,29 @@ export interface ErrorTrackingSuppressionRuleCreateRequestApi {
     /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
     filters?: PropertyGroupFilterValueApi
     /**
-     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface ErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
      * @minimum 0
      * @maximum 1
      */
@@ -1416,10 +1575,6 @@ export interface ErrorTrackingSuppressionRuleCreateRequestApi {
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     sampling_rate?: number
@@ -1427,57 +1582,17 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
-    version?: string
-    project?: string
-}
-
-/**
- * Release associated with this symbol set, if any.
- * @nullable
- */
-export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
-
 export interface ErrorTrackingSymbolSetApi {
-    /** Unique symbol set ID. */
-    readonly id: string
-    /** Reference used to match stack frames to this symbol set. */
-    readonly ref: string
-    /** Project/team ID that owns this symbol set. */
-    readonly team_id: number
-    /** When this symbol set row was created. */
-    readonly created_at: string
-    /**
-     * When this symbol set was last used to resolve a stack frame.
-     * @nullable
-     */
-    readonly last_used: string | null
-    /**
-     * Reason symbol lookup failed, if the source map is missing or invalid.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    /** Whether this symbol set has an uploaded source map file available to download. */
-    readonly has_uploaded_file: boolean
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    readonly release: ErrorTrackingSymbolSetApiRelease
+    id: string
+    ref: string
+    team_id: number
+    created_at: string
+    /** @nullable */
+    last_used: string | null
+    /** @nullable */
+    failure_reason: string | null
+    has_uploaded_file: boolean
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
@@ -1541,6 +1656,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
@@ -1644,6 +1761,17 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1677,17 +1805,6 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
-export type ErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
@@ -1698,16 +1815,16 @@ export type ErrorTrackingSymbolSetsListParams = {
      */
     offset?: number
     /**
- * Sort order for symbol sets. Prefix with `-` for descending order.
-
-* `created_at` - created_at
-* `-created_at` - -created_at
-* `ref` - ref
-* `-ref` - -ref
-* `last_used` - last_used
-* `-last_used` - -last_used
- * @minLength 1
- */
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+     *
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `ref` - ref
+     * * `-ref` - -ref
+     * * `last_used` - last_used
+     * * `-last_used` - -last_used
+     * @minLength 1
+     */
     order_by?: string
     /**
      * Exact symbol set reference to filter by.
@@ -1715,13 +1832,18 @@ export type ErrorTrackingSymbolSetsListParams = {
      */
     ref?: string
     /**
- * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
-
-* `all` - all
-* `valid` - valid
-* `invalid` - invalid
- * @minLength 1
- */
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+     *
+     * * `all` - all
+     * * `valid` - valid
+     * * `invalid` - invalid
+     * @minLength 1
+     */
     status?: ErrorTrackingSymbolSetsListStatus
 }
 

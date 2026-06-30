@@ -1,16 +1,23 @@
 import shlex
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from temporalio import activity
 
+from posthog.models import Integration
+from posthog.models.integration import GitHubIntegration
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task
-from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
-from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
+from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.metrics import record_agent_server_boot_ms
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -72,7 +79,7 @@ def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBa
             " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
         )
 
-        if ctx.allowed_domains is not None:
+        if ctx.allowed_domains is not None and not (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox):
             cmd = (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
@@ -86,6 +93,43 @@ def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBa
             emit_agent_log(ctx.run_id, "debug", f"Connectivity diagnostics:\n{output}")
     except Exception as e:
         logger.warning("Connectivity diagnostics failed (non-fatal)", error=str(e), run_id=ctx.run_id)
+
+
+def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
+    """The branch the agent must not commit directly onto (passed to the agent-server as --baseBranch).
+
+    The task's working branch is normally the PR base it was started from, so protecting it is correct.
+    But when the working branch itself heads an open PR — e.g. a quick action started on an existing
+    posthog-code/* branch the agent is meant to update — the agent must commit *to* that branch, so the
+    protected base is the PR's own base instead. Without this the signed-commit guard refuses the very
+    branch the run needs to update. Best-effort: any failure falls back to the working branch.
+    """
+    branch = ctx.branch
+    if not branch or not ctx.repository or not ctx.has_github_credentials:
+        return branch
+
+    try:
+        integration: GitHubIntegration | UserGitHubIntegration
+        if ctx.github_integration_id:
+            integration = GitHubIntegration(Integration.objects.get(id=ctx.github_integration_id))
+            if integration.access_token_expired():
+                integration.refresh_access_token()
+        else:
+            integration = UserGitHubIntegration(UserIntegration.objects.get(id=str(ctx.github_user_integration_id)))
+        pr_base = integration.get_open_pr_base_for_head(ctx.repository, branch)
+    except Exception:
+        logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
+        return branch
+
+    if pr_base and pr_base != branch:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            f"Working branch '{branch}' heads an open PR; protecting its base '{pr_base}' so commits to "
+            f"'{branch}' are allowed",
+        )
+        return pr_base
+    return branch
 
 
 @dataclass
@@ -139,17 +183,36 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
+        event_stream_ingest_enabled = ctx.sandbox_event_ingest_enabled
+        event_ingest_token: str | None = None
+        # When the agent-proxy is configured, route the sandbox ingest POST to it instead of the
+        # Django ASGI short-circuit. Only meaningful once sequenced ingest is enabled. Unset means
+        # the agent falls back to POSTHOG_API_URL (Django).
+        event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
+        if event_stream_ingest_enabled:
+            try:
+                task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
+                event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            except Exception as e:
+                raise SandboxExecutionError(
+                    "Failed to create sandbox event ingest token",
+                    {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
+                    cause=e,
+                )
+
         mcp_configs = get_sandbox_ph_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
             scopes=scopes,
             interaction_origin=ctx.interaction_origin,
+            task_id=str(ctx.task_id),
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
                 token=access_token,
                 team_id=ctx.team_id,
                 user_id=task.created_by_id,
+                interaction_origin=ctx.interaction_origin,
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs
@@ -167,12 +230,24 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
             )
 
-        if ctx.allowed_domains is not None:
+        # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
+        agentsh_domains = (
+            None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+        )
+
+        if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(ctx.allowed_domains)}",
+                f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            )
+        elif agentsh_domains is not None:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(agentsh_domains)}",
             )
         elif ctx.sandbox_environment_id:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id
@@ -182,6 +257,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
             )
 
+        protected_base_branch = _resolve_protected_base_branch(ctx)
+
         try:
             sandbox.start_agent_server(
                 repository=ctx.repository,
@@ -190,13 +267,15 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mode=ctx.mode,
                 create_pr=ctx.create_pr,
                 interaction_origin=ctx.interaction_origin,
-                branch=ctx.branch,
+                branch=protected_base_branch,
                 runtime_adapter=ctx.runtime_adapter,
                 provider=ctx.provider,
                 model=ctx.model,
                 reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
-                allowed_domains=ctx.allowed_domains,
+                allowed_domains=agentsh_domains,
+                event_ingest_token=event_ingest_token,
+                event_ingest_url=event_ingest_url,
             )
 
             # Mark startup-time token issuance so follow-ups within the next
@@ -205,10 +284,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mark_mcp_token_issued(ctx.run_id)
 
             # emit agentsh logs
-            if ctx.allowed_domains is not None:
+            if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
         except Exception as e:
-            if ctx.allowed_domains is not None:
+            if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise SandboxExecutionError(
@@ -222,7 +301,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
-        if ctx.allowed_domains is not None:
+        if agentsh_domains is not None:
             emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
             _emit_agentsh_log_tail(ctx, sandbox)
         _emit_agent_server_log_tail(ctx, sandbox)
@@ -231,7 +310,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # domains are restricted so we can verify the env wrapper + DNS proxy work.
         _run_connectivity_diagnostics(ctx, sandbox)
 
+        boot_ms = sandbox.read_agent_server_boot_ms()
+        if boot_ms is not None:
+            record_agent_server_boot_ms(boot_ms)
+
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
 
-        return StartAgentServerOutput(sandbox_url=sandbox_url, connect_token=connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=sandbox_url,
+            connect_token=connect_token,
+        )

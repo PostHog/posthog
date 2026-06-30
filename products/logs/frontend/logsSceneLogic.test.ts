@@ -17,7 +17,7 @@ describe('logsSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = logsSceneLogic({ tabId: 'test-tab' })
+        logic = logsSceneLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -142,6 +142,38 @@ describe('logsSceneLogic', () => {
 
             expect(logic.values.activeTab).toEqual('viewer')
             expect(router.values.searchParams).not.toHaveProperty('activeTab')
+        })
+    })
+
+    describe('facetNameSearch URL sync', () => {
+        it('parses facetNameSearch from URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { facetNameSearch: 'namespace' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.facetNameSearch).toEqual('namespace')
+        })
+
+        it('syncs facetNameSearch to URL on setFacetNameSearch', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFacetNameSearch('kube')
+            }).toFinishAllListeners()
+
+            expect(logic.values.facetNameSearch).toEqual('kube')
+            expect(router.values.searchParams).toHaveProperty('facetNameSearch', 'kube')
+        })
+
+        it('removes facetNameSearch from URL when cleared', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFacetNameSearch('kube')
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFacetNameSearch('')
+            }).toFinishAllListeners()
+
+            expect(logic.values.facetNameSearch).toEqual('')
+            expect(router.values.searchParams).not.toHaveProperty('facetNameSearch')
         })
     })
 })

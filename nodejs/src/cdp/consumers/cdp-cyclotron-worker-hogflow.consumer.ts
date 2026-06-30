@@ -1,7 +1,8 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { logger } from '../../utils/logger'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -10,8 +11,8 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected override name = 'CdpCyclotronWorkerHogFlow'
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(config, deps, 'hogflow')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue) {
+        super(config, deps, jobQueue, 'hogflow')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -56,7 +57,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                // Warehouse-row invocations don't have a real person — the row is the unit of work
+                // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
+                // rather than relying on event.distinct_id being empty so future changes to the
+                // synthetic event shape don't accidentally re-enable the lookup.
+                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                const personIdOrDistinctId = isWarehouseRow
+                    ? undefined
+                    : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
                 const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
 
                 const [person, groups] = await Promise.all([
@@ -78,6 +86,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                 }
 
+                // Batch-triggered invocations arrive with an empty event.distinct_id because the
+                // blast-radius query returns UUIDs only. The person lookup above resolves one
+                // distinct_id for us (when the person has any), so backfill it here so templates
+                // defaulting to `{event.distinct_id}` resolve at hog runtime.
+                if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
+                    hogFlowInvocationState.event.distinct_id = person.distinct_id
+                }
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person: person ?? undefined,
@@ -90,6 +106,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
+                    groups,
                     filterGlobals,
                 })
             })

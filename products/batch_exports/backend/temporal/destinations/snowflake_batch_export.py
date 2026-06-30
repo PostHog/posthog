@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
-from snowflake.connector.errors import InterfaceError, OperationalError
+from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -312,7 +312,7 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
-        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ":
+        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ" | "TIMESTAMP_TZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
             base_type = pa.float64()
@@ -585,6 +585,11 @@ class SnowflakeClient:
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
+                    # Pin Snowflake's per-session statement count to 1 to block
+                    # multi-statement execution. This is already the connector default,
+                    # but setting it explicitly means an account-level override cannot
+                    # accidentally enable multi-statement execution.
+                    session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
             connection.telemetry_enabled = False
 
@@ -599,6 +604,15 @@ class SnowflakeClient:
 
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
+        # Handle 404 errors (usually indicates the provided account is invalid)
+        except HttpError as err:
+            if err.msg is not None and "404 Not Found" in err.msg:
+                raise SnowflakeConnectionError(
+                    f"Could not establish a connection to Snowflake as the resolved URL does not exist. This usually indicates an invalid Snowflake account."
+                ) from err
+            # allow other errors to raise in case they're temporary connection issues
+            raise
 
         self.logger.debug("Connected to Snowflake")
 
@@ -793,7 +807,7 @@ class SnowflakeClient:
             SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
             SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
                 mutable table and one or more fields from the primary key are missing
-                from the table.
+                from the table, or the fields we require have types we do not support.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -840,14 +854,22 @@ class SnowflakeClient:
             if field_metadata.name.lower() in record_batch_field_names
         )
 
-        return SnowflakeTable.from_snowflake_table(
-            table.name,
-            fields=fields,
-            parents=table.parents,
-            primary_key=table.primary_key,
-            version_key=table.version_key,
-            stage_prefix=table.stage_prefix,
-        )
+        try:
+            table = SnowflakeTable.from_snowflake_table(
+                table.name,
+                fields=fields,
+                parents=table.parents,
+                primary_key=table.primary_key,
+                version_key=table.version_key,
+                stage_prefix=table.stage_prefix,
+            )
+        except ValueError as exc:
+            raise SnowflakeIncompatibleSchemaError(
+                f"A Snowflake table '{table.name}' was found, but one or more "
+                f"fields are defined with incompatible types: '{exc}'. Have "
+                "you created the table following the PostHog documentation? "
+            ) from exc
+        return table
 
     async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.
@@ -895,7 +917,7 @@ class SnowflakeClient:
         exists_ok: bool = True,
         delete: bool = True,
         not_found_ok: bool = True,
-    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
             await self.create_table(table)
@@ -1013,8 +1035,9 @@ class SnowflakeClient:
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
-            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and (e.errno == 608 or e.errno == 90073),
+            is_exception_retryable=lambda e: (
+                isinstance(e, snowflake.connector.errors.ProgrammingError) and (e.errno == 608 or e.errno == 90073)
+            ),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
@@ -1426,6 +1449,7 @@ async def insert_into_snowflake_activity_from_stage(
                     transformer=transformer,
                     # TODO: Deprecate this argument once all other destinations are also migrated.
                     json_columns=(),
+                    records_total=inputs.records_total,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

@@ -7,14 +7,17 @@ import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icon
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
@@ -122,7 +125,11 @@ const InlineCreateForm = ({
 
 export const OAuthAuthorize = (): JSX.Element => {
     const {
-        scopeDescriptions,
+        scopeRows,
+        allScopesRequired,
+        identityScopeDescriptions,
+        showReadOnlyToggle,
+        readOnlyMode,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
@@ -150,8 +157,11 @@ export const OAuthAuthorize = (): JSX.Element => {
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
+        setReadOnlyMode,
+        toggleDeniedScope,
     } = useActions(oauthAuthorizeLogic)
 
+    const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
@@ -254,6 +264,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                     </p>
                 </div>
 
+                {isImpersonated && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
+                        <IconWarning className="text-warning shrink-0" />
+                        <span>
+                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
+                            are short-lived and will be revoked when impersonation ends
+                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
+                        </span>
+                    </div>
+                )}
+
                 {!oauthApplication.is_verified && (
                     <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
                         <IconWarning className="text-warning shrink-0" />
@@ -350,22 +371,68 @@ export const OAuthAuthorize = (): JSX.Element => {
                             />
                         )}
 
-                        <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested permissions</div>
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
+                                {showReadOnlyToggle && (
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        value={readOnlyMode ? 'read' : 'full'}
+                                        onChange={(value) => setReadOnlyMode(value === 'read')}
+                                        options={[
+                                            { value: 'full', label: 'All requested' },
+                                            { value: 'read', label: 'Read-only' },
+                                        ]}
+                                    />
+                                )}
+                            </div>
                             {resourceScopesLoading ? (
                                 <div className="flex items-center gap-2 py-2">
                                     <Spinner className="text-muted" />
                                     <span className="text-muted">Loading permissions...</span>
                                 </div>
                             ) : (
-                                <ul className="space-y-2">
-                                    {scopeDescriptions.map((scopeDescription, idx) => (
-                                        <li key={idx} className="flex items-center space-x-2 text-large">
-                                            <IconCheck color="var(--success)" />
-                                            <span className="font-medium">{scopeDescription}</span>
-                                        </li>
-                                    ))}
-                                </ul>
+                                <>
+                                    {identityScopeDescriptions.length > 0 && (
+                                        <ul className="space-y-2">
+                                            {identityScopeDescriptions.map((description, idx) => (
+                                                <li key={idx} className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" />
+                                                    <span className="font-medium">{description}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                    {scopeRows.length > 0 &&
+                                        (allScopesRequired ? (
+                                            <ul className="space-y-2">
+                                                {scopeRows.map((row) => (
+                                                    <li key={row.key} className="flex items-center space-x-2">
+                                                        <IconCheck color="var(--success)" />
+                                                        <span className="font-medium">{row.description}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <div className="flex flex-col gap-2">
+                                                {scopeRows.map((row) => (
+                                                    <LemonCheckbox
+                                                        key={row.key}
+                                                        checked={row.granted}
+                                                        onChange={() =>
+                                                            row.toggleKey && toggleDeniedScope(row.toggleKey)
+                                                        }
+                                                        label={row.description}
+                                                        disabledReason={
+                                                            row.required
+                                                                ? `Required by ${oauthApplication.name}`
+                                                                : undefined
+                                                        }
+                                                    />
+                                                ))}
+                                            </div>
+                                        ))}
+                                </>
                             )}
                         </div>
 

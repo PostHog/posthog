@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -65,10 +65,16 @@ export function Annotations(): JSX.Element {
                             />
                         }
                     >
-                        <div className="font-semibold line-clamp-2">
-                            <Link subtle to={urls.annotation(annotation.id)}>
-                                {annotation.content ?? ''}
-                            </Link>
+                        <div className="flex items-center gap-1.5">
+                            {annotation.emoji && (
+                                <span className="text-base leading-none shrink-0">{annotation.emoji}</span>
+                            )}
+                            {/* line-clamp-2 must stay on its own element — combining it with flex breaks the clamp */}
+                            <div className="font-semibold line-clamp-2 min-w-0">
+                                <Link subtle to={urls.annotation(annotation.id)}>
+                                    {annotation.content ?? ''}
+                                </Link>
+                            </div>
                         </div>
                     </Tooltip>
                 )
@@ -156,7 +162,7 @@ export function Annotations(): JSX.Element {
                     type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewAnnotation"
                         keybind={[keyBinds.new]}
                         intent="New annotation"
@@ -172,7 +178,7 @@ export function Annotations(): JSX.Element {
                         >
                             New annotation
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
             <div className="flex flex-row items-center gap-2 justify-end">
@@ -190,6 +196,7 @@ export function Annotations(): JSX.Element {
                         action={() => openModalToCreateAnnotation()}
                         isEmpty={shouldShowEmptyState}
                         customHog={MicrophoneHog}
+                        mcpSurfaceKey="annotations.create"
                     />
                 </div>
                 {!shouldShowEmptyState && (

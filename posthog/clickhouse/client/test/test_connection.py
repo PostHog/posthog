@@ -10,6 +10,7 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.execute import sync_execute
 
 
+@pytest.mark.django_db
 def test_insert_with_http_client():
     sync_execute("DROP TABLE IF EXISTS _test_http_insert")
     sync_execute("CREATE TABLE _test_http_insert (id UInt64) ENGINE = Memory")
@@ -63,7 +64,7 @@ def test_connection_pool_creation_with_team_id(settings):
     assert get_pool(Workload.DEFAULT, team_id=2) is team_pool
     assert get_pool(Workload.DEFAULT, team_id=3) is online_pool
 
-    assert online_pool.connection_args["host"] == "localhost"
+    assert online_pool.connection_args["host"] == settings.CLICKHOUSE_HOST
     assert team_pool.connection_args["host"] == "clicky"
 
 

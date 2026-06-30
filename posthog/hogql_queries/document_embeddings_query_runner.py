@@ -60,6 +60,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="DocumentSimilarityQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,

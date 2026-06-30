@@ -16,14 +16,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import functions from the modular package
 from toolbox.kubernetes import select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
+from toolbox.telemetry import capture_invocation, prompt_for_reason
 from toolbox.user import get_current_user
 
+# `default_namespace` is where the pool lives when KUBE_NAMESPACE isn't set.
+#
+# `extra_selectors_by_namespace` ANDs onto the base
+# `app.kubernetes.io/name=<app_label>` selector. Keyed by namespace because the
+# golden-chart deployment co-locates the toolbox release's own pgbouncer pods
+# under the same `name` label, so we need `component=app` there to pick only
+# the main pool pods. The legacy `posthog` namespace doesn't need a
+# discriminator because its pgbouncers carry a different `name`.
 POOLS = {
     "toolbox-django": {
+        # Golden-chart deployment in the per-app namespace; the legacy `posthog`
+        # namespace is still available via `KUBE_NAMESPACE=posthog`.
+        "default_namespace": "posthog-toolbox-django",
         "app_label": "posthog-toolbox-django",
         "claimed_label_key": "toolbox-claimed",
+        "extra_selectors_by_namespace": {
+            "posthog-toolbox-django": "app.kubernetes.io/component=app",
+        },
     },
     "flags-cache-jumphost": {
+        "default_namespace": "posthog",
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },
@@ -79,10 +95,23 @@ def main():
         )
         args = parser.parse_args()
 
+        # Ask up front (before the kubectl waits) what this session is for; skipped
+        # automatically on non-interactive stdin so automation never blocks.
+        usage_reason = prompt_for_reason()
+
         pool = POOLS[args.pool]
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
-        namespace = os.environ.get("KUBE_NAMESPACE", "posthog")
+        # Each pool advertises its own default namespace; `KUBE_NAMESPACE`
+        # remains the escape hatch (e.g. to point the toolbox-django pool back
+        # at the legacy `posthog` namespace during migration).
+        namespace = os.environ.get("KUBE_NAMESPACE", pool["default_namespace"])
+        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
+        # namespaces also host other workloads that share that label (e.g. the
+        # golden chart deploys a per-app pgbouncer under the same name in the
+        # `posthog-toolbox-django` namespace), so we may need a further
+        # discriminator to pick only the main pool pods.
+        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
 
         print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
 
@@ -110,8 +139,26 @@ def main():
             claimed_label_key=claimed_label_key,
             namespace=namespace,
             context=selected_context,
+            extra_selector=extra_selector,
         )
         print(f"🎯 Found pod: {pod_name}")  # noqa: T201
+
+        # Best-effort usage event; counts invocations and records the environment +
+        # the user's stated reason. Never raises, so it can't break connecting.
+        capture_invocation(
+            distinct_id=user_labels[claimed_label_key],
+            properties={
+                "pool": args.pool,
+                "namespace": namespace,
+                "kube_context": selected_context,
+                "pod_name": pod_name,
+                "was_already_claimed": is_already_claimed,
+                "claim_duration_hours": args.claim_duration,
+                "update_claim": args.update_claim,
+                "auto_delete": args.auto_delete,
+                "usage_reason": usage_reason,
+            },
+        )
 
         # Calculate duration
         future_time = datetime.now() + timedelta(hours=args.claim_duration)
@@ -177,6 +224,7 @@ def main():
                         claimed_label_key=claimed_label_key,
                         namespace=namespace,
                         context=selected_context,
+                        extra_selector=extra_selector,
                     )
                     if is_already_claimed:
                         # Either we won an earlier race attempt (whose ack we missed) or

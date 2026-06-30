@@ -6,8 +6,10 @@ import posthog from 'posthog-js'
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 
 import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { percentage, tryJsonParse, uuid } from 'lib/utils'
-import { formatCurrency } from 'lib/utils/geography/currency'
+import { formatCurrency } from 'lib/utils/currency'
+import { uuid } from 'lib/utils/dom'
+import { tryJsonParse } from 'lib/utils/json'
+import { percentage } from 'lib/utils/numbers'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { Group } from '~/types'
@@ -265,9 +267,13 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
                 {} as Record<string, any>
             )
 
-            const hasChanges = Object.keys(stringifiedAttrs).some(
-                (key) => previousNodeAttrs.current?.[key] !== stringifiedAttrs[key]
-            )
+            // Compare in stringified form — prosemirror state may hold the value as an object,
+            // stringifiedAttrs as a string. Without this, no-op updates dispatch a transaction.
+            const hasChanges = Object.keys(stringifiedAttrs).some((key) => {
+                const prev = previousNodeAttrs.current?.[key]
+                const prevStringified = prev && typeof prev === 'object' ? JSON.stringify(prev) : prev
+                return prevStringified !== stringifiedAttrs[key]
+            })
 
             if (!hasChanges) {
                 return

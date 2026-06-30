@@ -10,7 +10,6 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
-import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -20,6 +19,7 @@ from posthog.schema import (
     CachedTrendsQueryResponse,
     ChartDisplayType,
     Compare,
+    CompareFilter,
     CompareItem,
     DashboardFilter,
     DataWarehouseEventsModifier,
@@ -32,6 +32,7 @@ from posthog.schema import (
     InCohortVia,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
@@ -54,19 +55,19 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    has_breakdown_filter,
+)
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -77,14 +78,16 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_e
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -99,6 +102,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ):
         from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 
@@ -122,7 +126,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        # The Metric change pill compares to the previous period, but the display has no compare toggle —
+        # force it when the pill needs it (shown, not "latest", and a previous period exists).
+        if (
+            query.trendsFilter
+            and query.trendsFilter.display == ChartDisplayType.METRIC
+            and query.trendsFilter.metricShowChange is not False
+            and query.trendsFilter.metricSummary != MetricSummary.LATEST
+            and not (query.dateRange and query.dateRange.date_from == "all")
+        ):
+            if query.compareFilter is None:
+                query.compareFilter = CompareFilter(compare=True)
+            else:
+                query.compareFilter.compare = True
+
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
     def __post_init__(self):
         self.update_hogql_modifiers()
@@ -302,6 +320,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsActorsQueryOptions",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -374,6 +393,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsQuery",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
@@ -450,6 +470,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
             ),
+            resolved_compare_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_previous_date_range.date_from(),
+                date_to=self.query_previous_date_range.date_to(),
+            )
+            if self.query.compareFilter is not None and self.query.compareFilter.compare
+            else None,
         )
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
@@ -502,9 +528,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
-        # Weekend filtering is two layers: the WHERE clause (in trends_query_builder) excludes
-        # weekend events from aggregation, and this post-processor removes weekend date buckets
-        # from the response so the chart x-axis shows only weekdays.
+        # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
+        # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
+        # weekend date buckets from the response so the chart x-axis shows weekdays.
         # For week/month intervals we keep all buckets since they span multiple days.
         # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
         if (
@@ -858,7 +884,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
 
     def _team_flag_session_property_pre_aggregation(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "trends-session-property-pre-aggregation",
             str(self.team.uuid),
             groups={
@@ -1118,13 +1144,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return False
 
         if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
-            series = self.query.series[0]  # only one series when data warehouse is active
+            series = self.query.series[0]
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
-            if not table_or_view:
-                raise ValueError(f"Table {series.table_name} not found")
-            if table_or_view.columns is None:
+            # A DataWarehouseNode may target a native HogQL table (e.g. a preaggregated table) that has
+            # no warehouse-catalog entry — it's simply not a boolean breakdown field, so fall through.
+            if not table_or_view or table_or_view.columns is None:
                 return False
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value

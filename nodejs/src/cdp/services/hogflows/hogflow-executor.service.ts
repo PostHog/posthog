@@ -1,9 +1,10 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { logger } from '../../../utils/logger'
-import { UUIDT } from '../../../utils/utils'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
@@ -71,6 +72,7 @@ export function createHogFlowInvocation(
         functionId: hogFlow.id, // TODO: Include version?
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
+        groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
         queuePriority: 1,
@@ -123,13 +125,20 @@ export class HogFlowExecutorService {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (see
+        // HogFlowInvocationPipeline). Flows that reach this loop are assumed to be source-compatible
+        // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
-            if (hogFlow.trigger.type !== 'event') {
+            const trigger = hogFlow.trigger
+
+            // Defensive: only the trigger types that carry `filters` make it through eligibility.
+            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
                 continue
             }
+
             const filterResults = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: hogFlow.trigger.filters,
+                filters: trigger.filters,
                 filterGlobals,
             })
 
@@ -173,7 +182,16 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
-        logs.push(this.logExecutionTriggerInfo(invocation))
+        // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
+        // (e.g. 'email' for SES rate-limit gating) and is continuing the same action. Suppress
+        // the redundant trigger log — the customer-visible story should be one Resuming line
+        // per real wake (delay, wait_until_condition, throttle retry), not a second one for
+        // an internal queue transition. The flag stays set so executeCurrentAction can also
+        // suppress its "Executing action..." debug log on this same continuation; it clears
+        // the flag itself after reading so subsequent actions on this dequeue log normally.
+        if (!invocation.state.currentAction?.routingOnlyReschedule) {
+            logs.push(this.logExecutionTriggerInfo(invocation))
+        }
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
@@ -284,6 +302,15 @@ export class HogFlowExecutorService {
                 )
             }
         }
+        // Event-based conversion goals are evaluated by the subscription matcher (against the live
+        // event stream), which flags the job when the conversion event fires. The property-based
+        // check above can't see those, so honor the flag here. It is a one-shot signal ("the
+        // conversion event just fired"), so consume it: clear it after reading so a later, unrelated
+        // resume (e.g. after a subsequent delay) can't re-trigger an exit from a stale flag.
+        if (invocation.state.conversionMatched) {
+            conversionMatch = true
+            invocation.state.conversionMatched = false
+        }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
@@ -351,11 +378,20 @@ export class HogFlowExecutorService {
 
             await this.observeDuplicateInvocation(invocation, currentAction)
 
-            result.logs.push({
-                level: 'debug',
-                message: `Executing action ${actionIdForLogging(currentAction)}`,
-                timestamp: DateTime.now(),
-            })
+            // Routing-only reschedule continuation (see hog_function.ts): the previous dequeue
+            // set this flag so the executor knows the current call is just resuming an action
+            // that was momentarily parked to switch queues — not the start of a fresh action
+            // step. Suppress the redundant "Executing action..." log and consume the flag so
+            // subsequent actions (next handler returns nextAction → loop continues) log normally.
+            if (invocation.state.currentAction?.routingOnlyReschedule) {
+                invocation.state.currentAction.routingOnlyReschedule = false
+            } else {
+                result.logs.push({
+                    level: 'debug',
+                    message: `Executing action ${actionIdForLogging(currentAction)}`,
+                    timestamp: DateTime.now(),
+                })
+            }
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
                 action: currentAction,
                 invocation,
@@ -488,11 +524,18 @@ export class HogFlowExecutorService {
         // If the result has scheduled for the future then we return that triggering a push back to the queue
         result.invocation.queueScheduledAt = scheduledAt
         result.finished = false
-        result.logs.push({
-            level: 'info',
-            timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
-        })
+        // Routing-only reschedules (hog function moving the job onto a dedicated queue) don't
+        // represent a workflow-author-visible pause — the next dequeue fires almost
+        // immediately and continues the same action. Skip the "Workflow will pause until..."
+        // log in that case so it doesn't surface as a pause the workflow never actually took.
+        // Real pauses (delays, wait_until_condition, throttle retries) still log normally.
+        if (!result.invocation.state.currentAction?.routingOnlyReschedule) {
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
+            })
+        }
 
         return result
     }
@@ -633,9 +676,21 @@ export class HogFlowExecutorService {
                 : ''
         }
 
-        const triggeredByEvent = hasAssociatedEvent
+        let triggeredByEvent = hasAssociatedEvent
             ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
+
+        // Surface the event that woke the job (not the trigger). The logs view builds the link
+        // from uuid + timestamp, so emit the linkable token only when both are present.
+        const wakeEvent = invocation.state.currentAction?.eventMatchedEvent
+        const wakeEventUuid = invocation.state.currentAction?.eventMatchedEventUuid
+        const wakeEventTimestamp = invocation.state.currentAction?.eventMatchedEventTimestamp
+        if (hasCurrentAction && invocation.state.currentAction?.eventMatched && wakeEvent) {
+            triggeredByEvent +=
+                wakeEventUuid && wakeEventTimestamp
+                    ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
+                    : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
 
         return {
             level: 'info',

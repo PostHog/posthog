@@ -5,8 +5,8 @@ from rest_framework import status
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.dag import DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
 class TestSavedQueryDagSyncIntegration(APIBaseTest):
@@ -97,8 +97,10 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
-    @patch("products.data_warehouse.backend.api.saved_query.sync_saved_query_workflow")
-    @patch("products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists", return_value=False)
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_saved_query_workflow")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
+    )
     def test_materialize_updates_node_type(self, _mock_workflow_exists, _mock_sync_workflow):
         # create
         create_response = self.client.post(
@@ -125,7 +127,9 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
 
-    @patch("products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True
+    )
     def test_revert_materialization_updates_node_type(self, _mock_workflow_exists):
         # create materialized
         create_response = self.client.post(
@@ -152,7 +156,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.save()
 
         # revert materialization
-        with patch("products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"):
+        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"):
             revert_response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization/"
             )

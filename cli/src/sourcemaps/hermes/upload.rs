@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use crate::api::symbol_sets::{self, SymbolSetUpload};
 use crate::invocation_context::context;
-use crate::sourcemaps::args::ReleaseArgs;
+use crate::sourcemaps::args::{ReleaseArgs, UploadConflictArgs};
 use crate::sourcemaps::content::SourceMapFile;
 use crate::sourcemaps::inject::get_release_for_maps;
 
@@ -23,6 +23,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -31,6 +34,7 @@ pub fn upload(args: &Args) -> Result<()> {
         directory,
         release,
         batch_size,
+        conflict,
     } = args;
 
     let directory = directory.canonicalize().map_err(|e| {
@@ -87,8 +91,13 @@ pub fn upload(args: &Args) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result =
-        symbol_sets::upload_with_retry(uploads, *batch_size, release.skip_release_on_fail, false);
+    let upload_result = symbol_sets::upload_with_retry(
+        uploads,
+        *batch_size,
+        release.skip_release_on_fail,
+        conflict.force,
+        conflict.skip_on_conflict,
+    );
     let duration_ms = started_at.elapsed().as_millis();
 
     let mut props = vec![

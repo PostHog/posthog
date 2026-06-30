@@ -132,6 +132,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "AsyncDeletion",
         "AsyncMigration",
         "AsyncMigrationError",
+        # Outbound email delivery queue — looked up by PK / comment FK from internal
+        # tasks (send + sweeper), never by user-supplied ID through an API.
+        "EmailOutboxMessage",
         "InsightCachingState",
         "InstanceSetting",
         "Schedule",
@@ -159,13 +162,17 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckLakeBackfill",
         "DuckLakeCatalog",
         "DuckgresServer",
+        "DuckgresServerTeam",
+        "DuckgresSinkSchemaState",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
+        "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         "TeamJsSnippetConfig",
@@ -204,6 +211,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingComment",
         "SessionSummary",
         "SharePassword",
+        # Per-(Slack workspace, Slack channel) approval state — looked up by
+        # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
+        # never by user-supplied ID. `approved_by` is for audit only.
+        "SlackChannel",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
@@ -290,7 +301,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ConversationCheckpointBlob",  # via ConversationCheckpoint
         "ConversationCheckpointWrite",  # via ConversationCheckpoint
         "DashboardPrivilege",  # via Dashboard
-        "DashboardTile",  # via Dashboard
         "Element",  # via Event/ElementGroup
         "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
         "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
@@ -314,6 +324,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingExternalReference",  # via SessionRecording
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
+        "SourceBatchDuckgresStatus",  # via SourceBatch
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
@@ -327,6 +338,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
+        "SlackSettings",  # via Integration
     }
 
     team_scoped: set[str] = set()

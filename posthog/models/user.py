@@ -1,9 +1,12 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.management.base import CommandError
 from django.db import models, transaction
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 from django_deprecate_fields import deprecate_field
@@ -50,6 +53,9 @@ class Notifications(TypedDict, total=False):
     realtime_notifications_disabled: dict[
         str, dict[str, bool]
     ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
+    pipeline_notifications_disabled: dict[
+        str, bool
+    ]  # Maps pipeline ID (e.g. "hog_function:<uuid>", "plugin_config:<id>", "batch_export:<uuid>") to disabled status (True = do not email for this pipeline)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -65,6 +71,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
+    "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -110,6 +117,22 @@ class UserManager(BaseUserManager):
             user.set_password(password)
         user.save()
         return user
+
+    def create_superuser(self, *args: Any, **kwargs: Any) -> NoReturn:
+        # PostHog has no superuser concept — the `is_superuser` field was removed in 2020 (PR #2026)
+        # and `User.is_superuser` is now a read-only alias for `is_staff`. Django's `createsuperuser`
+        # command calls this method, so we shadow it here to fail with guidance instead of a confusing
+        # `AttributeError`. (We can't override the command itself: `django.contrib.auth` is listed
+        # before `posthog` in INSTALLED_APPS, so its `createsuperuser` always wins resolution.)
+        raise CommandError(
+            "PostHog doesn't support `createsuperuser`. There's no superuser concept here — "
+            "`is_superuser` is a read-only alias for `is_staff`.\n\n"
+            "To set up a local admin instead:\n\n"
+            "  • Demo environment:  python manage.py generate_demo_data\n"
+            "  • Existing account:  sign up in the web app, then grant staff access:\n"
+            '      python manage.py shell -c "from posthog.models import User; '
+            "u = User.objects.get(email='you@example.com'); u.is_staff = True; u.save()\""
+        )
 
     def bootstrap(
         self,
@@ -200,6 +223,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -228,6 +252,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=True,
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -327,20 +358,28 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                         ).values_list("team_id", flat=True)
                     )
 
-                    # Get teams where user has role-based access
-                    try:
-                        from ee.models.rbac.role import RoleMembership
+                    # Get teams where user has role-based access. Only honored when the
+                    # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
+                    # the project access settings page (and as resource-level role overrides).
+                    role_based_access_supported = (
+                        AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
+                    )
+                    if role_based_access_supported:
+                        try:
+                            from ee.models.rbac.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                            user_roles = RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            ).values_list("role_id", flat=True)
 
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
+                            role_accessible_team_ids = set(
+                                AccessControl.objects.filter(
+                                    resource="project", access_level__in=["member", "admin"], role__in=user_roles
+                                ).values_list("team_id", flat=True)
+                            )
+                        except ImportError:
+                            role_accessible_team_ids = set()
+                    else:
                         role_accessible_team_ids = set()
 
                     # Get organizations where user is admin or owner (have implicit access to all teams)
@@ -576,3 +615,20 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
+
+
+@receiver(pre_save, sender=User)
+def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Revoke all of a user's login sessions when they are deactivated (is_active True→False).
+
+    A pre_save signal catches every deactivation path (Django admin, SCIM, ORM). The is_active
+    short-circuit keeps the extra query off the hot path — it only runs when saving an
+    already-inactive instance, never for active users.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if was_active:
+        from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
+
+        revoke_other_sessions(instance, keep_session_key=None)

@@ -49,6 +49,18 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub bulk_acquire_timeout_secs: u64,
 
+    /// Number of items per chunk when splitting bulk operations (reads and
+    /// deletes) into parallel queries.
+    #[envconfig(default = "200")]
+    pub bulk_chunk_size: usize,
+
+    /// Maximum number of chunks to execute concurrently. Each concurrent
+    /// chunk holds a connection from the bulk pool, so this should not
+    /// exceed bulk_max_pg_connections. Kept conservative to limit burst
+    /// load on the database when multiple callers delete concurrently.
+    #[envconfig(default = "2")]
+    pub bulk_max_concurrent_chunks: usize,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
@@ -82,6 +94,39 @@ pub struct Config {
     /// 0 = disabled (connections live indefinitely).
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent gRPC requests before load shedding.
+    /// When exceeded, new requests get an immediate UNAVAILABLE response
+    /// so the router retries on another pod. 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
+
+    /// Enable gzip response compression via AsyncGzipLayer. When enabled,
+    /// responses to clients that send `grpc-accept-encoding: gzip` are
+    /// compressed on a blocking thread pool instead of the tokio runtime.
+    #[envconfig(default = "false")]
+    pub gzip_response_compression: bool,
+
+    /// Gzip compression level (1–9). Lower is faster, higher compresses more.
+    #[envconfig(default = "6")]
+    pub gzip_compression_level: u32,
+
+    /// Minimum response payload size (bytes) to compress. Responses smaller
+    /// than this pass through uncompressed.
+    #[envconfig(default = "256")]
+    pub gzip_min_payload_size: usize,
+
+    /// Maximum response size (bytes) enforced after gzip compression. Applies
+    /// to the final wire size — compressed bytes for gzip responses, raw bytes
+    /// for uncompressed passthrough. 0 = disabled. Default 4 MiB.
+    #[envconfig(default = "4194304")]
+    pub gzip_max_response_size: usize,
+
+    /// When true, responses exceeding `gzip_max_response_size` are rejected
+    /// with a gRPC OUT_OF_RANGE error. When false, the metric fires but the
+    /// response is delivered normally (monitor mode).
+    #[envconfig(default = "false")]
+    pub gzip_max_response_size_enforce: bool,
 }
 
 impl Config {

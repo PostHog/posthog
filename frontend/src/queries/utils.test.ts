@@ -5,6 +5,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, TeamType } from '~/types'
 
@@ -12,7 +13,9 @@ import {
     convertDataTableNodeToDataVisualizationNode,
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
     hogql,
+    supportsBarValueStacking,
 } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
@@ -99,6 +102,43 @@ describe('escapeHogQLString', () => {
     })
 })
 
+describe('escapePropertyAsHogQLIdentifier', () => {
+    it('leaves simple identifiers unquoted', () => {
+        expect(escapePropertyAsHogQLIdentifier('browser')).toEqual('browser')
+        expect(escapePropertyAsHogQLIdentifier('$browser')).toEqual('$browser')
+    })
+
+    it('double-quotes identifiers with special characters but no double quote', () => {
+        expect(escapePropertyAsHogQLIdentifier('order items')).toEqual('"order items"')
+    })
+
+    it('backtick-wraps identifiers containing a double quote', () => {
+        expect(escapePropertyAsHogQLIdentifier('a"b')).toEqual('`a"b`')
+    })
+
+    it('doubles inner backticks when an identifier has both a double quote and a backtick', () => {
+        // Backslash-escaping (`a"b\`c`) would be rejected by the HogQL parser; doubling round-trips.
+        expect(escapePropertyAsHogQLIdentifier('a"b`c')).toEqual('`a"b``c`')
+    })
+
+    it('escapes backslashes so they survive the parser instead of forming an escape sequence', () => {
+        expect(escapePropertyAsHogQLIdentifier('a\\b')).toEqual('"a\\\\b"')
+        expect(escapePropertyAsHogQLIdentifier('end\\')).toEqual('"end\\\\"')
+        // A backslash alongside a double quote takes the backtick branch and still escapes both.
+        expect(escapePropertyAsHogQLIdentifier('a"\\b')).toEqual('`a"\\\\b`')
+        // A backslash immediately before an inner backtick (which forces the backtick branch).
+        expect(escapePropertyAsHogQLIdentifier('a"b\\`c')).toEqual('`a"b\\\\``c`')
+    })
+
+    it('escapes control characters instead of emitting them raw', () => {
+        expect(escapePropertyAsHogQLIdentifier('a\tb')).toEqual('"a\\tb"')
+        expect(escapePropertyAsHogQLIdentifier('a\nb')).toEqual('"a\\nb"')
+        expect(escapePropertyAsHogQLIdentifier('a\bb')).toEqual('"a\\bb"')
+        // An embedded double quote forces the backtick branch; the control char is still escaped.
+        expect(escapePropertyAsHogQLIdentifier('a"\tb')).toEqual('`a"\\tb`')
+    })
+})
+
 describe('escapeDottedHogQLIdentifier', () => {
     it('leaves simple dotted identifiers unquoted', () => {
         expect(escapeDottedHogQLIdentifier('demo.orders')).toEqual('demo.orders')
@@ -163,5 +203,47 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 columns: [{ column: 'event' }],
             },
         })
+    })
+})
+
+describe('supportsBarValueStacking', () => {
+    const breakdown = { breakdown: '$browser', breakdown_type: 'event' as const }
+    const trends = (display: ChartDisplayType, withBreakdown: boolean): InsightQueryNode =>
+        ({
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            trendsFilter: { display },
+            ...(withBreakdown ? { breakdownFilter: breakdown } : {}),
+        }) as InsightQueryNode
+
+    it.each([
+        {
+            name: 'trends + bar-value + breakdown',
+            query: trends(ChartDisplayType.ActionsBarValue, true),
+            expected: true,
+        },
+        {
+            name: 'trends + bar-value without breakdown',
+            query: trends(ChartDisplayType.ActionsBarValue, false),
+            expected: false,
+        },
+        {
+            name: 'trends + vertical bar + breakdown',
+            query: trends(ChartDisplayType.ActionsBar, true),
+            expected: false,
+        },
+        {
+            name: 'trends + line + breakdown',
+            query: trends(ChartDisplayType.ActionsLineGraph, true),
+            expected: false,
+        },
+        {
+            name: 'funnels + breakdown',
+            query: { kind: NodeKind.FunnelsQuery, series: [], breakdownFilter: breakdown } as InsightQueryNode,
+            expected: false,
+        },
+        { name: 'null query', query: null, expected: false },
+    ])('returns $expected for $name', ({ query, expected }) => {
+        expect(supportsBarValueStacking(query)).toBe(expected)
     })
 })

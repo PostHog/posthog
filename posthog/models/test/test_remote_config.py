@@ -3,18 +3,18 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.action.action import Action
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
+from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
@@ -243,6 +243,45 @@ class TestRemoteConfig(_RemoteConfigBase):
             self.sync_remote_config()
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
+    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self):
+        """Pairs the bypass-True / bypass-False paths against a stale in-process cache so a
+        regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
+        the bypass-True case."""
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+            replace_limited_team_tokens,
+        )
+
+        list_limited_team_attributes.clear_cache()
+
+        replace_limited_team_tokens(QuotaResource.RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
+        # explicit `use_cache=True` the call would bypass caching in tests and the assertion
+        # below would lose its meaning.
+        primed = list_limited_team_attributes(
+            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True
+        )
+        assert primed == []
+
+        future_ts = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: future_ts},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        cached_config = self.remote_config.build_config(bypass_recordings_quota_cache=False)
+        assert cached_config.get("quotaLimited") is None
+        assert cached_config["sessionRecording"] is not False
+
+        fresh_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert fresh_config["quotaLimited"] == ["recordings"]
+        assert fresh_config["sessionRecording"] is False
+
+        list_limited_team_attributes.clear_cache()
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -351,6 +390,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -378,6 +418,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -426,6 +467,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore
@@ -467,6 +509,82 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_change_path_writes_s3_and_tracks_expiry_with_single_build(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Force a content change so sync() takes the change path.
+        self.remote_config.config["token"] = "FORCE_CHANGE"
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "build_config", wraps=self.remote_config.build_config) as mock_build,
+        ):
+            self.remote_config.sync()
+
+        # The already-built config is reused — build_config() runs exactly once.
+        assert mock_build.call_count == 1
+        # Change path writes through to S3 and stamps expiry tracking.
+        mock_s3_write.assert_called()
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_change_path_restamps_redis_and_expiry_without_s3_or_cdn(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "_purge_cdn") as mock_purge,
+        ):
+            # No content change → self-heal path.
+            self.remote_config.sync()
+
+        # Self-heal must skip the content-dependent work (S3 PUT, CDN purge)...
+        mock_s3_write.assert_not_called()
+        mock_purge.assert_not_called()
+        # ...but still re-stamp the expiry sorted set so the entry stays tracked.
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+        # And the Redis tier is repopulated with the unchanged config.
+        assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
+
+    def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
+        from django.core.cache import caches
+
+        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+
+        # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
+        # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
+        # the in-memory backend ignores it.
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
+            }
+        ):
+            hypercache = RemoteConfig.get_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+
+            # Roundtrip: a value written via the hypercache must land in the
+            # dedicated backend (not just be reachable through cache_client) and
+            # be readable through both direct access and the hypercache reader.
+            hypercache.set_cache_value_redis_only(self.team.api_token, {"token": self.team.api_token, "v": 1})
+            direct_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(hypercache.get_cache_key(self.team.api_token))
+            assert direct_value is not None
+            assert hypercache.get_from_cache(self.team.api_token) == {"token": self.team.api_token, "v": 1}
+
+    def test_hypercache_falls_back_to_default_cache_when_alias_absent(self):
+        from django.core.cache import cache
+
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            assert RemoteConfig.get_hypercache().cache_client is cache
 
     @patch("posthog.models.remote_config.requests.post")
     def test_purges_cdn_cache_on_sync(self, mock_post):

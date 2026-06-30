@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -10,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
+import { addTilePickerModalLogic } from './addTilePickerModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
@@ -75,14 +77,19 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel>
         dashboardMode?: DashboardMode | null
+        dashboardModeSource?: DashboardEventSource
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
-        const { dashboard = MOCK_DASHBOARD, dashboardMode = null } = opts
+        const {
+            dashboard = MOCK_DASHBOARD,
+            dashboardMode = null,
+            dashboardModeSource = DashboardEventSource.Browser,
+        } = opts
 
         const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
+            logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
         render(
@@ -110,10 +117,25 @@ describe('DashboardHeader', () => {
             notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
         },
         {
-            scenario: 'Edit mode',
+            scenario: 'Filter edit mode',
             dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            visible: ['dashboard-add-tile'],
+            notVisible: [
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-share-button',
+                'add-text-tile-to-dashboard',
+                'dashboard-add-graph-header',
+            ],
+        },
+        {
+            scenario: 'Layout edit mode',
+            dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
+            canEdit: true,
+            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
             notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
         },
         {
@@ -123,18 +145,44 @@ describe('DashboardHeader', () => {
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
-    ])('$scenario shows correct action buttons', ({ dashboardMode, canEdit, visible, notVisible }) => {
-        const dashboard = makeDashboard({
-            user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
-        })
-        const { logic } = renderHeader({ dashboard, dashboardMode })
+    ])(
+        '$scenario shows correct action buttons',
+        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+            const dashboard = makeDashboard({
+                user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+            })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
 
-        for (const attr of visible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            for (const attr of visible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            }
+            for (const attr of notVisible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+            }
+
+            logic.unmount()
         }
-        for (const attr of notVisible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+    )
+
+    // The add-tile-picker experiment: the flag must route the Add click to the picker modal in the
+    // `test` variant and to the existing dropdown (never the picker) in control. Guards against the
+    // gating being removed or inverted in DashboardAddTileButton.
+    it.each([
+        { variant: 'test' as string | undefined, expectPicker: true },
+        { variant: undefined, expectPicker: false },
+    ])('add button opens picker only for the test variant (variant=$variant)', ({ variant, expectPicker }) => {
+        if (variant) {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL], {
+                [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL]: variant,
+            })
         }
+
+        const { logic } = renderHeader({})
+        addTilePickerModalLogic.mount()
+
+        fireEvent.click(document.querySelector('[data-attr="dashboard-add-tile"]')!)
+
+        expect(addTilePickerModalLogic.values.addTilePickerModalVisible).toBe(expectPicker)
 
         logic.unmount()
     })

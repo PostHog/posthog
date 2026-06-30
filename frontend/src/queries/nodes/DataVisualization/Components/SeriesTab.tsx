@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconGear, IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonColorButton,
     LemonColorGlyph,
     LemonColorPicker,
     LemonInput,
@@ -14,17 +15,20 @@ import {
     LemonTabs,
     LemonTag,
     Popover,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
-import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
+import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
-import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
@@ -43,7 +47,8 @@ export const SeriesTab = (): JSX.Element => {
         dataVisualizationProps,
         effectiveVisualizationType,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries, setTransposeResults } = useActions(dataVisualizationLogic)
+    const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
+        useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
@@ -94,6 +99,66 @@ export const SeriesTab = (): JSX.Element => {
             </div>
         ),
     }))
+
+    if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
+        const valueOptions = numericalColumns.map(({ name, type }) => ({
+            value: name,
+            label: (
+                <div className="items-center flex-1">
+                    {name}
+                    <LemonTag className="ml-2" type="default">
+                        {type.name}
+                    </LemonTag>
+                </div>
+            ),
+        }))
+
+        // A pie encodes a single value column. Set it on the first series and drop any others
+        // the chart may have carried over from another chart type.
+        const setValueColumn = (columnName: string): void => {
+            if (!selectedYAxis || selectedYAxis.length === 0) {
+                addYSeries(columnName)
+                return
+            }
+            updateSeriesIndex(0, columnName)
+            for (let index = selectedYAxis.length - 1; index >= 1; index--) {
+                deleteYSeries(index)
+            }
+        }
+
+        return (
+            <div className="flex flex-col w-full p-3">
+                <LemonLabel className="mb-1">Label</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    value={xData !== null ? xData.column.name : 'None'}
+                    options={options}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const column = columns.find((n) => n.name === value)
+                        if (column) {
+                            updateXSeries(column.name)
+                        }
+                    }}
+                />
+
+                <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    placeholder="Select a column"
+                    value={valueColumn}
+                    options={valueOptions}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        if (value) {
+                            setValueColumn(value)
+                        }
+                    }}
+                />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col w-full p-3">
@@ -634,14 +699,18 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
                     onClick={() => deleteSeriesBreakdown()}
                 />
             </div>
-            <div className="ml-4 mt-2">
-                {seriesBreakdownData.error ? (
-                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
-                ) : (
-                    seriesBreakdownData.seriesData.map((series, index) => (
-                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
-                    ))
-                )}
+            <div className="ml-1 mt-2">
+                {seriesBreakdownData.warning ? (
+                    <div className="flex items-center gap-1.5 text-warning bg-warning-highlight rounded px-2 py-1 mt-1 mb-2 text-xs font-medium">
+                        <span>{BREAKDOWN_LIMIT_LABEL}</span>
+                        <Tooltip title={seriesBreakdownData.warning}>
+                            <IconInfo className="text-base shrink-0 ml-auto" />
+                        </Tooltip>
+                    </div>
+                ) : null}
+                {seriesBreakdownData.seriesData.map((series, index) => (
+                    <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
+                ))}
             </div>
         </>
     )
@@ -654,16 +723,38 @@ const BreakdownSeries = ({
     series: AxisBreakdownSeries<number | null>
     index: number
 }): JSX.Element => {
+    const { chartSettings } = useValues(dataVisualizationLogic)
+    const { updateChartSettings } = useActions(dataVisualizationLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+
+    const theme = getTheme(undefined)
+    const themeTokens = theme ? (Object.keys(theme) as DataColorToken[]) : []
+    const selectedToken = chartSettings.resultCustomizations?.[series.breakdownValue]?.color ?? null
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
-        <div className="flex gap-1 mb-2">
-            <div className="flex gap-2">
-                <LemonColorGlyph color={seriesColor} className="mr-2" />
-                <span>{series.name ? series.name : '[No value]'}</span>
-            </div>
-            {/* For now let's keep things simple and not allow too much configuration */}
-            {/* We may just want to add a show/hide button here */}
+        <div className="flex gap-1 mb-2 items-center">
+            <LemonColorPicker
+                colorTokens={themeTokens}
+                selectedColorToken={selectedToken}
+                customButton={<LemonColorButton type="tertiary" color={seriesColor} className="mr-2" />}
+                onSelectColorToken={(token) => {
+                    updateChartSettings({
+                        resultCustomizations: {
+                            ...chartSettings.resultCustomizations,
+                            [series.breakdownValue]: {
+                                assignmentBy: ResultCustomizationBy.Value,
+                                color: token,
+                            },
+                        },
+                    })
+                }}
+                onClearColorToken={() => {
+                    const { [series.breakdownValue]: _removed, ...rest } = chartSettings.resultCustomizations ?? {}
+                    updateChartSettings({ resultCustomizations: rest })
+                }}
+            />
+            <span>{series.name ? series.name : '[No value]'}</span>
         </div>
     )
 }

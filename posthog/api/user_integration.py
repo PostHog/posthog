@@ -11,127 +11,50 @@ Login management is fully handled by ``UserSocialAuth`` (python-social-auth) and
 is not controlled here.
 """
 
-import re
+import os
 from typing import Any, cast
-from urllib.parse import parse_qs, urlencode
-
-from django.conf import settings
-from django.core.cache import cache
-from django.http import HttpRequest, HttpResponseRedirect
-from django.shortcuts import redirect
-from django.views.decorators.http import require_http_methods
+from urllib.parse import urlencode
 
 import requests
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.types import (
+    APP_CONNECT_FROM_VALUES,
+    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    github_oauth_authorize_url,
+)
 from posthog.api.integration import (
-    GITHUB_INSTALL_STATE_CACHE_PREFIX,
-    GITHUB_INSTALL_STATE_TTL_SECONDS,
     GitHubBranchesQuerySerializer,
     GitHubBranchesResponseSerializer,
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
-    github_oauth_redirect_uri,
     validate_github_repository_name,
 )
-from posthog.auth import (
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-    session_auth_required,
-)
-from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import (
-    GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
-    GitHubInstallationAccess,
-    GitHubIntegration,
-    Integration,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import (
-    UserGitHubIntegration,
-    UserIntegration,
-    user_github_integration_from_installation,
-)
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
+from posthog.user_permissions import UserPermissions
+
+from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 
 logger = structlog.get_logger(__name__)
-
-PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
-ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
-
-
-def _github_oauth_authorize_url(state: str) -> str:
-    """Build the GitHub App user authorization URL."""
-    if not settings.GITHUB_APP_CLIENT_ID:
-        raise exceptions.ValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
-    return "https://github.com/login/oauth/authorize?" + urlencode(
-        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
-    )
-
-
-def _github_app_install_url(state: str) -> str:
-    """Build the GitHub App install URL."""
-    instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
-    app_slug = instance_settings.get("GITHUB_APP_SLUG")
-    if not app_slug:
-        raise exceptions.ValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
-    return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
-
-
-def _github_state_token(state_raw: str) -> str:
-    state_params = parse_qs(state_raw)
-    return state_params["token"][0] if "token" in state_params else state_raw
-
-
-def _github_user_installation_ids(user_access_token: str) -> list[str]:
-    """List GitHub App installations visible to a user-to-server token."""
-    response = requests.get(
-        "https://api.github.com/user/installations",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {user_access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        params={"per_page": 100},
-        timeout=10,
-    )
-    if response.status_code != 200:
-        logger.warning("github_link: failed to list user installations", status_code=response.status_code)
-        raise requests.RequestException(f"Unexpected status {response.status_code} listing user installations")
-
-    installations = response.json().get("installations", [])
-    ids: list[str] = []
-    if isinstance(installations, list):
-        for installation in installations:
-            if isinstance(installation, dict) and installation.get("id") is not None:
-                ids.append(str(installation["id"]))
-    return ids
-
-
-def _redirect_to_github_app_install(user: User, connect_from: str | None) -> HttpResponseRedirect:
-    """Continue from user OAuth discovery to app installation when no installation exists yet."""
-    from django.utils.crypto import get_random_string
-
-    token = get_random_string(48)
-    state = urlencode({"token": token, "source": "user_integration"})
-    install_state_payload: dict[str, Any] = {"user_id": user.id}
-    if connect_from:
-        install_state_payload["connect_from"] = connect_from
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        install_state_payload,
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
-    )
-    return redirect(_github_app_install_url(state))
 
 
 class UserGitHubAccountSerializer(serializers.Serializer):
@@ -174,6 +97,10 @@ class UserGitHubIntegrationListResponseSerializer(serializers.Serializer):
     )
 
 
+class UserGitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(help_text="GitHub App installation id being managed on github.com.")
+
+
 class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
@@ -196,13 +123,92 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core"])
+class UserSlackIntegrationItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog UserIntegration row id.")
+    kind = serializers.CharField(help_text="Integration kind; always `slack` for this API.")
+    slack_user_id = serializers.CharField(help_text="Slack user id this PostHog account is linked to.")
+    slack_team_id = serializers.CharField(help_text="Slack workspace (team) id the link belongs to.")
+    slack_team_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack workspace display name as of link time.",
+    )
+    slack_email_at_link = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack email at the time of linking. Stored for support; not consulted at resolve time.",
+    )
+    created_at = serializers.DateTimeField(help_text="When this link was first created.")
+
+
+class UserSlackIntegrationListResponseSerializer(serializers.Serializer):
+    results = UserSlackIntegrationItemSerializer(
+        many=True,
+        help_text="Slack identity links for the authenticated user.",
+    )
+
+
+class UserSlackLinkStartRequestSerializer(serializers.Serializer):
+    """Settings-initiated link can target a specific PostHog team + Slack workspace.
+
+    Both are optional — when omitted we fall back to the user's ``current_team``
+    and that team's first Slack ``Integration`` (mirrors ``github_start`` for
+    the simple case). The frontend passes both explicitly once it has the
+    linkable-workspace list and the user has picked a workspace.
+    """
+
+    team_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional team/project id to link against; defaults to the user's current team.",
+    )
+    slack_team_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).",
+    )
+
+
+class UserSlackLinkStartResponseSerializer(serializers.Serializer):
+    install_url = serializers.CharField(
+        help_text="URL to open in the browser to start the Sign-in-with-Slack flow.",
+    )
+
+
+class UserSlackLinkableWorkspaceItemSerializer(serializers.Serializer):
+    posthog_team_id = serializers.IntegerField(help_text="PostHog team/project id owning the Slack workspace install.")
+    posthog_team_name = serializers.CharField(help_text="PostHog team/project name, for display in a picker.")
+    posthog_organization_name = serializers.CharField(
+        help_text="PostHog organization name owning the team, for picker disambiguation.",
+    )
+    slack_team_id = serializers.CharField(help_text="Slack workspace (team) id.")
+    slack_team_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack workspace display name as known by PostHog.",
+    )
+
+
+class UserSlackLinkableWorkspaceListResponseSerializer(serializers.Serializer):
+    results = UserSlackLinkableWorkspaceItemSerializer(
+        many=True,
+        help_text="Slack workspaces the user could link to but hasn't yet.",
+    )
+
+
+@extend_schema(extensions={"x-product": "core"})
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
     scope_object = "user"
     required_scopes: list[str] | None = None
-    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "github_repos",
+        "github_branches",
+        "slack_linkable",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -210,8 +216,11 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "patch",
         "destroy",
         "github_start",
+        "github_prepare_callback",
         "github_destroy",
         "github_repos_refresh",
+        "slack_start",
+        "slack_destroy",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -250,21 +259,59 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         return installation_ids
 
     @extend_schema(
-        summary="List personal GitHub integrations",
+        summary="List the user's personal integrations of a given kind",
+        parameters=[
+            OpenApiParameter(
+                name="kind",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["github", "slack"],
+                description="Integration kind to list. Defaults to `github` for back-compat with mobile and the Code SDK, which call this endpoint without a query param and expect GitHub-shaped items.",
+            ),
+        ],
         responses={200: UserGitHubIntegrationListResponseSerializer},
     )
     def list(self, request: Request, **_kwargs) -> Response:
+        """Return the authenticated user's personal integrations of a given
+        ``kind`` (``github`` or ``slack``).
+
+        The response shape varies per kind because the underlying ``UserIntegration``
+        rows carry different identity fields — GitHub rows expose
+        ``installation_id`` / ``account`` / ``uses_shared_installation``; Slack
+        rows expose ``slack_user_id`` / ``slack_team_id`` / ``slack_team_name``.
+        Kind-specific destroy and start actions remain split so their distinct
+        semantics (e.g. Slack's lack of "uninstall on last reference") stay
+        explicit at the URL layer.
+
+        Default of ``kind=github`` is load-bearing: mobile (``apps/mobile/...``)
+        and the Code SDK (``packages/api-client/...``) both call this endpoint
+        without a query param today and rely on receiving GitHub rows.
+        """
         user = self._get_user()
-        integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
-        team_installation_ids = self._team_github_installation_ids(user)
-        return Response(
-            {
-                "results": [
+        kind = request.query_params.get("kind") or "github"
+        if kind not in {"github", "slack"}:
+            raise exceptions.ValidationError(f"Unsupported integration kind: {kind!r}")
+
+        # Single query and single pass — each row picks its own serializer
+        # off `integration.kind`. Today the query is filtered to one kind so
+        # the loop only sees that one shape, but the per-row dispatch keeps
+        # the door open for dropping the kind default and returning github
+        # + slack rows side-by-side in one response.
+        integrations = UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at")
+        # Only compute the github-specific cross-team installation set when
+        # there could be github rows in the response; for `kind=slack` this
+        # would be an unused DB roundtrip on every settings page load.
+        team_installation_ids: set[str] = self._team_github_installation_ids(user) if kind == "github" else set()
+        results: list[dict[str, Any]] = []
+        for integration in integrations:
+            if integration.kind == "github":
+                results.append(
                     _serialize_github_integration(integration, team_integration_installation_ids=team_installation_ids)
-                    for integration in integrations
-                ],
-            }
-        )
+                )
+            elif integration.kind == "slack":
+                results.append(_serialize_slack_integration(integration))
+        return Response({"results": results})
 
     @extend_schema(
         summary="Disconnect a personal GitHub integration",
@@ -277,6 +324,16 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         integration = UserIntegration.objects.filter(user=user, kind="github", integration_id=installation_id).first()
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
+
+        # Notify GitHub to uninstall the App, but only if no other PostHog team or user
+        # still relies on this installation (uninstalling breaks it for everyone sharing it).
+        try:
+            UserGitHubIntegration.uninstall_if_last_reference(
+                installation_id, exclude_user_integration_id=integration.id
+            )
+        except Exception as e:
+            capture_exception(e)
+
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -381,11 +438,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         page handles both cases: orgs where the app is installed show "Configure"
         (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-        **PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
-        the current project already has a team-level GitHub installation, and the
-        user has no ``UserIntegration`` for that installation yet, we skip the org
-        picker and redirect straight to ``/login/oauth/authorize`` so the user
-        only authorizes themselves and returns to PostHog Code immediately.
+        **OAuth fast path:** when the current project already has a team-level
+        GitHub installation, and the user has no ``UserIntegration`` for that
+        installation yet, we skip the org picker and redirect straight to
+        ``/login/oauth/authorize`` so the user only authorizes themselves.
+        ``connect_from`` is preserved for first-party clients so they return to
+        the originating client immediately.
 
         In both cases the response key is ``install_url`` for compatibility with callers.
         """
@@ -397,16 +455,20 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         team = _resolve_team_for_github_start(user, self.request)
         connect_from = request.data.get("connect_from")
 
-        if connect_from == "posthog_code":
-            if fast_path_response := _attempt_posthog_code_oauth_fast_path(user, team, token, state):
-                return fast_path_response
+        if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
+            return fast_path_response
+
+        if connect_from in APP_CONNECT_FROM_VALUES:
             if _team_github_installation_id(team) is None:
-                cache.set(
-                    f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-                    {"user_id": user.id, "connect_from": connect_from, "flow": "oauth_discover"},
-                    timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+                github_callback_state.store_unified_authorize_state(
+                    GitHubAuthorizeState(
+                        token=token,
+                        flow=FlowKind.OAUTH_DISCOVER,
+                        user_id=user.id,
+                        connect_from=connect_from,
+                    ),
                 )
-                return Response({"install_url": _github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
+                return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
 
         # If the user already has linked integrations, check whether there are
         # any GitHub App installations they haven't linked yet. If everything
@@ -417,250 +479,186 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "All GitHub App installations accessible to your account are already linked."
             )
 
-        install_state_payload: dict[str, Any] = {"user_id": user.id}
-        if connect_from:
-            install_state_payload["connect_from"] = connect_from
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            install_state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=user.id,
+                connect_from=str(connect_from) if connect_from else None,
+            ),
         )
         return Response(
             {
-                "install_url": _github_app_install_url(state),
+                "install_url": github_app_install_url(state),
                 "connect_flow": "app_install",
             }
         )
 
-
-def _posthog_code_flow_from_state_query(request: HttpRequest) -> bool:
-    """Best-effort: OAuth error callbacks may still include ``state``; read cache (do not delete)."""
-    state_raw = request.GET.get("state")
-    if not state_raw:
-        return False
-    token = _github_state_token(state_raw)
-    cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
-    state_payload = cache.get(cache_key)
-    return bool(
-        state_payload
-        and state_payload.get("user_id") == request.user.id
-        and state_payload.get("connect_from") == "posthog_code"
+    @extend_schema(
+        request=UserGitHubPrepareCallbackRequestSerializer, responses={204: OpenApiResponse(description="No content")}
     )
-
-
-@require_http_methods(["GET"])
-@session_auth_required
-def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
-    """GitHub App installation + user authorization callback.
-
-    **Install flow** (``/installations/new``): GitHub sends ``installation_id``,
-    ``code``, and ``state`` in the query string.
-
-    **OAuth-only flow** (``/login/oauth/authorize`` when the team already has the
-    app installed): GitHub sends only ``code`` and ``state``; ``installation_id``
-    is read from validated server-side state.
-
-    Steps: validate state, resolve ``installation_id``, exchange ``code`` for
-    user-to-server tokens, fetch installation token, create/update ``UserIntegration``.
-    """
-
-    posthog_code_flow = False
-
-    def _error(reason: str) -> HttpResponseRedirect:
-        logger.warning("github_link: redirecting with error", reason=reason, user_id=request.user.id)
-        if posthog_code_flow:
-            q = urlencode({"provider": "github", "error": reason})
-            return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{q}")
-        return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={reason}")
-
-    # GitHub appends ?error=... when the user denied consent.
-    if github_error := request.GET.get("error"):
-        logger.warning(
-            "github_link: GitHub returned error on callback",
-            error=github_error,
-            description=request.GET.get("error_description"),
-            user_id=request.user.id,
-        )
-        if _posthog_code_flow_from_state_query(request):
-            posthog_code_flow = True
-        return _error(github_error if github_error == "access_denied" else "github_oauth_error")
-
-    code = request.GET.get("code")
-    state_raw = request.GET.get("state")
-
-    if not code or not state_raw:
-        return _error("missing_params")
-
-    # The frontend extracts the raw token from the URL-encoded state before forwarding
-    # here, so state_raw is normally the 48-char random token.  Handle both forms so
-    # direct backend calls (e.g. in tests) and any future flow changes work correctly.
-    token = _github_state_token(state_raw)
-
-    # Validate state
-    cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
-    state_payload = cache.get(cache_key)
-    if not state_payload or state_payload.get("user_id") != request.user.id:
-        return _error("invalid_state")
-    if state_payload.get("connect_from") == "posthog_code":
-        posthog_code_flow = True
-    cache.delete(cache_key)
-
-    flow = state_payload.get("flow")
-    oauth_flow = flow == "oauth_authorize"
-    oauth_discover_flow = flow == "oauth_discover"
-    team_oauth_flow = flow == "team_oauth_authorize"
-    team_oauth_team_id: int | None = None
-    team_oauth_next: str | None = None
-    installation_ids: list[str] = []
-    if oauth_flow:
-        installation_id = state_payload.get("installation_id")
-        if not installation_id or not isinstance(installation_id, str):
-            return _error("missing_params")
-        # Do not require ``current_team`` to match: OAuth completes in a browser
-        # session whose active team may differ from the app that started the flow.
-        if not Integration.objects.filter(
-            kind="github", integration_id=installation_id, team__in=request.user.teams.all()
-        ).exists():
-            return _error("invalid_installation")
-        installation_ids = [installation_id]
-    elif team_oauth_flow:
-        # Triggered when the GitHub App is already installed on the org but no PostHog
-        # team has captured it (orphan installation). The frontend redirects the user
-        # through GitHub's User OAuth so we get a `code` for verify_user_installation_access.
-        installation_id = state_payload.get("installation_id")
-        team_oauth_team_id = state_payload.get("team_id")
-        team_oauth_next = state_payload.get("next") or None
-        if not installation_id or not isinstance(installation_id, str):
-            return _error("missing_params")
-        if not isinstance(team_oauth_team_id, int):
-            return _error("invalid_state")
-        # Confirm the user still has access to the team they started this flow from.
-        if not request.user.teams.filter(id=team_oauth_team_id).exists():
-            return _error("invalid_team")
-        installation_ids = [installation_id]
-    elif oauth_discover_flow:
-        pass
-    else:
-        installation_id = request.GET.get("installation_id")
-        if not installation_id:
-            return _error("missing_params")
-        installation_ids = [installation_id]
-
-    # Exchange code for user-to-server tokens
-    if oauth_flow or oauth_discover_flow or team_oauth_flow:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
-    else:
-        authorization = GitHubIntegration.github_user_from_code(code)
-    if authorization is None:
-        return _error("exchange_failed")
-
-    if oauth_discover_flow:
-        try:
-            installation_ids = _github_user_installation_ids(authorization.access_token)
-        except requests.RequestException:
-            return _error("installation_fetch_failed")
-        if not installation_ids:
-            return _redirect_to_github_app_install(
-                request.user,
-                "posthog_code" if posthog_code_flow else cast(str | None, state_payload.get("connect_from")),
-            )
-
-    for installation_id in installation_ids:
-        # installation_id must be a plain positive integer (GitHub App IDs always are).
-        # Reject anything else before it touches URL construction.
-        if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-            return _error("invalid_installation_id")
-
-    for installation_id in installation_ids:
-        installation_id = str(installation_id)
-        # Verify the authorizing user actually has access to this installation.
-        # An attacker could use their own OAuth code with someone else's installation_id
-        # to obtain an installation token scoped to a different organisation's repos.
-        if not oauth_discover_flow:
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    installation_id, authorization.access_token
-                )
-            except requests.RequestException:
-                logger.warning(
-                    "github_link: installation ownership check failed",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                    exc_info=True,
-                )
-                return _error("installation_verify_failed")
-            if not has_access:
-                logger.warning(
-                    "github_link: user does not have access to installation",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                )
-                return _error("installation_not_authorized")
-
-        # Get installation info and access token
-        try:
-            installation_info = GitHubIntegration.client_request(f"installations/{installation_id}").json()
-            access_token_response = GitHubIntegration.client_request(
-                f"installations/{installation_id}/access_tokens", method="POST"
-            ).json()
-        except Exception:
-            logger.warning("github_link: failed to fetch installation info", exc_info=True)
-            return _error("installation_fetch_failed")
-
-        installation_access_token = access_token_response.get("token")
-        if not installation_access_token:
-            return _error("installation_token_failed")
-
-        token_expires_at = access_token_response.get("expires_at")
-        if not token_expires_at:
-            return _error("installation_token_failed")
-
-        user_github_integration_from_installation(
-            request.user,
-            GitHubInstallationAccess(
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, **_kwargs) -> Response:
+        """Seed personal GitHub manage callback state before opening installation settings on GitHub."""
+        serializer = UserGitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        installation_id = str(serializer.validated_data["installation_id"])
+        user = self._get_user()
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_UPDATE,
+                user_id=user.id,
                 installation_id=installation_id,
-                installation_info=installation_info,
-                access_token=installation_access_token,
-                token_expires_at=token_expires_at,
-                repository_selection=access_token_response.get("repository_selection", "selected"),
+                next_url=PERSONAL_INTEGRATIONS_SETTINGS_PATH,
             ),
-            authorization,
+        )
+        return Response(status=204)
+
+    @extend_schema(
+        summary="List Slack workspaces this user could link to",
+        responses={200: UserSlackLinkableWorkspaceListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="slack/linkable_workspaces")
+    def slack_linkable(self, request: Request, **_kwargs) -> Response:
+        """Return Slack workspaces in the user's organizations that they have
+        not yet linked. The settings UI uses this list to decide whether to
+        show a "Link my Slack account" button (non-empty list) and what to
+        offer in the picker when several are connectable.
+        """
+        user = self._get_user()
+        org_ids = set(user.organization_memberships.values_list("organization_id", flat=True))
+        if not org_ids:
+            return Response({"results": []})
+
+        already_linked_slack_team_ids = set(
+            UserIntegration.objects.filter(
+                user=user,
+                kind=UserIntegration.IntegrationKind.SLACK,
+            ).values_list("config__slack_team_id", flat=True)
         )
 
-    if team_oauth_flow and team_oauth_team_id is not None:
-        installation_id = str(installation_ids[0])
-        # Create the team-level Integration that the user originally tried to install.
-        # ``integration_from_installation_id`` re-fetches the installation token, so it
-        # works whether or not another team in the org has already linked this install.
-        try:
-            team_integration = GitHubIntegration.integration_from_installation_id(
-                installation_id, team_oauth_team_id, cast(User, request.user)
+        candidates = (
+            Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
+            .exclude(integration_id__in=already_linked_slack_team_ids)
+            .select_related("team", "team__organization")
+        )
+
+        # Skip projects the user can't actually access (private project, no role
+        # via access-control, etc.). Without the per-team check, an org member
+        # would see Slack workspace IDs + project names for every project in
+        # their orgs — including private ones their `effective_membership_level`
+        # is `None` for. Using per-team `effective_membership_level` rather than
+        # `user.teams` mirrors `resolve_user_for_workspace` and dodges the
+        # `Organization.first()`-feature-flags quirk that gates `user.teams`.
+        permissions = UserPermissions(user=user)
+
+        results: list[dict[str, Any]] = []
+        for integration in candidates:
+            if permissions.team(integration.team).effective_membership_level is None:
+                continue
+            # Feature-flag check per workspace so an org that hasn't rolled out
+            # the flag yet doesn't show up in another org's picker.
+            if not slack_oauth_link_enabled(integration, integration.integration_id):
+                continue
+            # `(config or {}).get("team", {})` doesn't defend against an explicit
+            # ``config["team"] = None`` — dict.get returns the literal None
+            # rather than the default — so we coerce defensively before the
+            # second `.get("name")`.
+            team_block = (integration.config or {}).get("team") or {}
+            results.append(
+                {
+                    "posthog_team_id": integration.team_id,
+                    "posthog_team_name": integration.team.name,
+                    "posthog_organization_name": integration.team.organization.name,
+                    "slack_team_id": integration.integration_id,
+                    "slack_team_name": team_block.get("name"),
+                }
             )
-        except Exception:
-            logger.warning(
-                "github_link: failed to create team integration",
-                installation_id=installation_id,
-                team_id=team_oauth_team_id,
-                exc_info=True,
+        return Response({"results": results})
+
+    @extend_schema(
+        summary="Start Slack identity link from settings",
+        request=UserSlackLinkStartRequestSerializer,
+        responses={200: UserSlackLinkStartResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="slack/start", throttle_classes=[UserAuthenticationThrottle])
+    def slack_start(self, request: Request, **_kwargs) -> Response:
+        """Mint a Sign-in-with-Slack invite URL initiated from settings, without
+        Slack-DM context. The returned URL takes the user through PostHog login
+        (already satisfied here), then to Slack OAuth, then back to our callback
+        which writes the ``UserIntegration`` row.
+
+        Without body params, falls back to the user's ``current_team`` and that
+        team's first Slack ``Integration`` — works when there's exactly one
+        linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+        the exact pair (what the frontend uses when a picker is shown).
+
+        Refuses if the target team has no matching Slack workspace, if the
+        feature flag is off for the workspace, or if the user is already linked
+        to it.
+        """
+        user = self._get_user()
+        team = _resolve_team_for_github_start(user, request)
+        if team is None:
+            raise exceptions.ValidationError("No team available for this user.")
+
+        # If the caller specifies a Slack workspace explicitly, honor it (this
+        # is the picker path). Otherwise pick the first Slack integration on
+        # the resolved team (the simple "Link my Slack account" path).
+        body: Any = request.data if isinstance(request.data, dict) else {}
+        slack_team_id_hint = body.get("slack_team_id")
+        workspace_query = Integration.objects.filter(team=team, kind="slack")
+        if slack_team_id_hint:
+            workspace_query = workspace_query.filter(integration_id=slack_team_id_hint)
+        workspace = workspace_query.first()
+        if workspace is None:
+            raise exceptions.ValidationError(
+                "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
             )
-            return _error("integration_create_failed")
 
-        # Mirror the fresh-install flow: stamp the connecting user's GitHub login on
-        # the team integration card.
-        team_integration.config["connecting_user_github_login"] = authorization.gh_login
-        team_integration.save(update_fields=["config"])
+        if not slack_oauth_link_enabled(workspace, workspace.integration_id):
+            raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
 
-        target = team_oauth_next or PERSONAL_INTEGRATIONS_SETTINGS_PATH
-        forwarded_params: dict[str, str] = {
-            "installation_id": installation_id,
-            "integration_id": str(team_integration.id),
-        }
-        joiner = "&" if "?" in target else "?"
-        return redirect(f"{target}{joiner}{urlencode(forwarded_params)}")
+        if UserIntegration.objects.filter(
+            user=user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            config__slack_team_id=workspace.integration_id,
+        ).exists():
+            raise exceptions.ValidationError("You're already linked to this Slack workspace.")
 
-    if posthog_code_flow:
-        return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode({'provider': 'github'})}")
-    return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
+        install_url = build_invite_url(
+            slack_user_id=None,
+            slack_team_id=workspace.integration_id,
+            posthog_team_id=team.id,
+            channel=None,
+            thread_ts=None,
+        )
+        return Response({"install_url": install_url})
+
+    @extend_schema(
+        summary="Unlink a Slack identity",
+        responses={204: OpenApiResponse(description="Slack link removed.")},
+    )
+    # Restrict the slack_user_id capture to Slack's real id format ("U..." for
+    # human users, "W..." for Enterprise Grid). A looser regex would shadow
+    # sibling actions like ``slack/start`` and return 405 on their POSTs.
+    @action(methods=["DELETE"], detail=False, url_path=r"slack/(?P<slack_user_id>[UW][A-Z0-9]+)")
+    def slack_destroy(self, request: Request, slack_user_id: str, **_kwargs) -> Response:
+        """Remove a Slack identity link by Slack user id. Idempotent and
+        flag-agnostic — users must always be able to unlink even after the
+        feature flag is turned off."""
+        user = self._get_user()
+        integration = UserIntegration.objects.filter(
+            user=user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id=slack_user_id,
+        ).first()
+        if integration is None:
+            raise exceptions.NotFound("No Slack link found for this Slack user id.")
+        integration.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):
@@ -746,10 +744,13 @@ def _team_github_installation_id(team: Any) -> str | None:
     return str(team_row.integration_id) if team_row is not None and team_row.integration_id else None
 
 
-def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, state: str) -> Response | None:
+def _attempt_app_oauth_fast_path(
+    user: User, team: Any, token: str, state: str, connect_from: str | None
+) -> Response | None:
     """If the team has a GitHub installation the user hasn't linked yet, return
-    an OAuth-only ``/login/oauth/authorize`` redirect so PostHog Code users
-    authorize and return immediately — no org picker needed.
+    an OAuth-only ``/login/oauth/authorize`` redirect so users authorize against
+    the already-installed App — no org picker needed. ``connect_from`` is
+    preserved so first-party app callbacks return to the right client.
 
     Returns ``None`` when the fast path doesn't apply (no team integration,
     user already linked, or missing config).
@@ -759,17 +760,16 @@ def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, sta
         return None
     if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
         return None
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        {
-            "user_id": user.id,
-            "installation_id": team_installation_id,
-            "flow": "oauth_authorize",
-            "connect_from": "posthog_code",
-        },
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+    github_callback_state.store_unified_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.PERSONAL_OAUTH,
+            user_id=user.id,
+            installation_id=team_installation_id,
+            connect_from=connect_from,
+        ),
     )
-    return Response({"install_url": _github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
+    return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
 
 
 def _serialize_github_integration(
@@ -785,5 +785,19 @@ def _serialize_github_integration(
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
+        "created_at": integration.created_at,
+    }
+
+
+def _serialize_slack_integration(integration: UserIntegration) -> dict[str, Any]:
+    """Build the response payload for a single Slack UserIntegration row."""
+    config = integration.config or {}
+    return {
+        "id": integration.id,
+        "kind": "slack",
+        "slack_user_id": integration.integration_id,
+        "slack_team_id": config.get("slack_team_id"),
+        "slack_team_name": config.get("slack_team_name"),
+        "slack_email_at_link": config.get("slack_email_at_link"),
         "created_at": integration.created_at,
     }

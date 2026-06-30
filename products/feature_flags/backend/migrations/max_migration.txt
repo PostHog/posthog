@@ -1,1 +1,1 @@
-0001_team_feature_flag_defaults_config
+0006_validate_archived_flag_must_be_disabled

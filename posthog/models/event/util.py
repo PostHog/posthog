@@ -16,6 +16,7 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_distinct_id
 from posthog.models.team import Team
 from posthog.settings import TEST
 
@@ -102,6 +103,14 @@ def format_clickhouse_timestamp(
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[Person]:
+    """Resolve the person for a test event by distinct_id via personhog."""
+    try:
+        return get_person_by_distinct_id(int(team_id), str(distinct_id))
+    except Exception:
+        return None
+
+
 def bulk_create_events(
     events: list[dict[str, Any]],
     person_mapping: Optional[dict[str, Person]] = None,
@@ -180,15 +189,12 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at or datetime64_default_timestamp
         else:
-            try:
-                person = Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                    persondistinctid__distinct_id=event["distinct_id"],
-                    persondistinctid__team_id=team_id,
-                )
-                person_properties = person.properties
-                person_id = person.uuid
-                person_created_at = person.created_at or datetime64_default_timestamp
-            except Person.DoesNotExist:
+            resolved_person = _resolve_person_for_bulk_event(team_id, event["distinct_id"])
+            if resolved_person is not None:
+                person_properties = resolved_person.properties
+                person_id = resolved_person.uuid
+                person_created_at = resolved_person.created_at or datetime64_default_timestamp
+            else:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
                 person_created_at = datetime64_default_timestamp
@@ -209,7 +215,10 @@ def bulk_create_events(
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                group = get_group_by_key(team_id, int(group_type_index), value)
+                try:
+                    group = get_group_by_key(team_id, int(group_type_index), value)
+                except Exception:
+                    group = None
                 if group is None:
                     continue
                 group_property_key = f"group{group_type_index}_properties"
@@ -324,7 +333,21 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        return parse_properties(event["properties"])
+        props = parse_properties(event["properties"])
+        restricted = self.context.get("restricted_event_properties")
+        if restricted:
+            props = {k: v for k, v in props.items() if k not in restricted}
+
+        restricted_person = self.context.get("restricted_person_properties")
+        if restricted_person:
+            for key in ("$set", "$set_once"):
+                nested = props.get(key)
+                if isinstance(nested, dict):
+                    props[key] = {k: v for k, v in nested.items() if k not in restricted_person}
+            unset = props.get("$unset")
+            if isinstance(unset, list):
+                props["$unset"] = [k for k in unset if k not in restricted_person]
+        return props
 
     @extend_schema_field(serializers.CharField())
     def get_event(self, event):
@@ -341,11 +364,14 @@ class ClickhouseEventSerializer(serializers.Serializer):
             return None
 
         person = self.context["people"][event["distinct_id"]]
+        restricted = self.context.get("restricted_person_properties", set())
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
             "properties": {
-                key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
+                key: person.properties[key]
+                for key in ["email", "name", "username"]
+                if key in person.properties and key not in restricted
             },
         }
 

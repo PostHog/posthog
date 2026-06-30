@@ -549,7 +549,9 @@ def test_get_paginated_session_events(
     mock_metadata = RecordingMetadata(**mock_raw_metadata)  # type: ignore
     mock_columns = mock_events_columns
     # Prepare mock pages data (add columns to each page)
-    processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
+    processed_pages_data = [
+        (mock_columns, events, False) if events is not None else (None, None, False) for events in pages_data
+    ]
     with (
         patch("ee.hogai.session_summaries.session.input_data.SessionReplayEvents") as mock_replay_events,
         patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),

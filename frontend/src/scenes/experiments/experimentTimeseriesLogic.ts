@@ -5,8 +5,9 @@ import api from 'lib/api'
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA, pluralize } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -21,6 +22,7 @@ import { Experiment, ExperimentIdType } from '~/types'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 import { COLORS } from './MetricsView/shared/colors'
 import { getMetricColors, getVariantInterval } from './MetricsView/shared/utils'
+import { getExperimentVariants } from './utils'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -48,6 +50,8 @@ export interface ProcessedChartData {
     labels: string[]
     datasets: ChartDataset[]
     processedData: ProcessedTimeseriesDataPoint[]
+    /** When the timeseries was last computed (ISO string), shared across all data points. */
+    computedAt: string | null
 }
 
 export interface ExperimentTimeseriesLogicProps {
@@ -249,9 +253,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, props.experiment, props.metric],
+            (s, props) => [s.processedVariantData, s.timeseries, props.experiment, props.metric],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
+                timeseries: ExperimentMetricTimeseries | null,
                 experiment: Experiment,
                 metric: ExperimentMetric | undefined
             ): ((variantKey: string) => ProcessedChartData | null) => {
@@ -284,15 +289,11 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     const upperBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.upper_bound)
                     const lowerBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.lower_bound)
 
-                    // Get variant index from the experiment's stable feature_flag_variants order
+                    // Get variant index from the experiment's stable variant order (flag-sourced)
                     let variantIndex = 0
-                    if (experiment?.parameters?.feature_flag_variants) {
-                        const idx = experiment.parameters.feature_flag_variants.findIndex(
-                            (v: any) => v.key === variantKey
-                        )
-                        if (idx !== -1) {
-                            variantIndex = idx
-                        }
+                    const idx = getExperimentVariants(experiment).findIndex((v) => v.key === variantKey)
+                    if (idx !== -1) {
+                        variantIndex = idx
                     }
 
                     const variantColor = getSeriesColor(variantIndex)
@@ -400,6 +401,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         labels,
                         datasets,
                         processedData: trimmedData,
+                        computedAt: timeseries?.computed_at ?? null,
                     }
                 }
             },

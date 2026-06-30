@@ -148,6 +148,33 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     }
 }
 
+/// Mirrors `$os` and `$os_name` so a flag condition keyed on either property
+/// matches when the person row carries only one of them.
+///
+/// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
+/// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
+/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
+/// only covers newly-written rows — historical and un-normalized person rows can
+/// carry only one of the two keys. Flag matching does exact-key lookups, so
+/// without this a mobile person whose row has only `$os_name` never matches an
+/// `$os` filter (and vice versa). The mirror is bidirectional so either filter
+/// key works regardless of which key the person row happens to carry.
+///
+/// Only the missing key is filled — an already-present value is never
+/// overwritten, so request overrides keep precedence over their own key.
+pub fn populate_os_aliases(properties: &mut HashMap<String, Value>) {
+    match (properties.get("$os"), properties.get("$os_name")) {
+        (Some(os), None) => {
+            properties.insert("$os_name".to_string(), os.clone());
+        }
+        (None, Some(os_name)) => {
+            properties.insert("$os".to_string(), os_name.clone());
+        }
+        // Both present or both absent: nothing to mirror.
+        _ => {}
+    }
+}
+
 /// Result from the person + static cohort query branch.
 struct PersonCohortResult {
     person: Option<Person>,
@@ -456,11 +483,13 @@ async fn fetch_group_properties(
 }
 
 /// Apply person and cohort results to the flag evaluation state.
-fn apply_person_cohort_to_state(
-    state: &mut FlagEvaluationState,
-    result: PersonCohortResult,
-    distinct_id: String,
-) {
+///
+/// `distinct_id` is intentionally not injected here. `evaluate_all_feature_flags`
+/// folds `self.distinct_id` into `person_property_overrides` upfront via
+/// `merge_distinct_id_into_person_properties`, and overrides extend on top of
+/// these DB-loaded properties at merge time, so adding `distinct_id` here would
+/// just be overwritten on the way out.
+fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonCohortResult) {
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
 
     if let Some(ref person) = result.person {
@@ -472,8 +501,7 @@ fn apply_person_cohort_to_state(
         state.set_cohort_matches(cohort_matches);
     }
 
-    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = result.person
-    {
+    let person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
         match person.properties.as_object() {
             Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             None => HashMap::new(),
@@ -482,11 +510,7 @@ fn apply_person_cohort_to_state(
         HashMap::new()
     };
 
-    // Always add distinct_id to person properties to match Python implementation.
-    // This allows flags to filter on distinct_id even when no other person properties exist.
-    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
-
-    state.set_person_properties(all_person_properties);
+    state.set_person_properties(person_properties);
     person_processing_timer.fin();
 }
 
@@ -538,14 +562,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             fetch_group_properties(&reader, team_id, group_type_to_key),
         )?;
 
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }
     } else {
         let person_cohort =
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
     Ok(())
@@ -1636,6 +1660,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1752,6 +1777,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1873,6 +1899,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1888,6 +1915,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1903,6 +1931,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1918,6 +1947,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         context
@@ -2010,6 +2040,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2092,6 +2123,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2164,6 +2196,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "age".to_string(),
@@ -2173,6 +2206,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2189,6 +2223,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "cohort".to_string(),
@@ -2198,6 +2233,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2220,6 +2256,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "missing_property".to_string(), // This property is NOT in overrides
@@ -2229,6 +2266,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2261,6 +2299,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         }];
 
         let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
@@ -2310,6 +2349,7 @@ mod tests {
             negation: None,
             group_type_index: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
@@ -2328,6 +2368,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
@@ -2450,6 +2491,64 @@ mod tests {
         // Existing $initial_ should NOT be overwritten
         assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
         assert_eq!(properties.get("$browser"), Some(&json!("Firefox")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_fills_os_from_os_name() {
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("Android")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_fills_os_name_from_os() {
+        let mut properties = HashMap::from([("$os".to_string(), json!("iOS"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os_name"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_preserves_both_when_present() {
+        let mut properties = HashMap::from([
+            ("$os".to_string(), json!("iOS")),
+            ("$os_name".to_string(), json!("iPadOS")),
+        ]);
+
+        populate_os_aliases(&mut properties);
+
+        // Neither value is overwritten when both keys already exist.
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("iPadOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_noop_when_neither_present() {
+        let mut properties = HashMap::from([("$browser".to_string(), json!("Chrome"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert!(!properties.contains_key("$os"));
+        assert!(!properties.contains_key("$os_name"));
+        assert_eq!(properties.len(), 1);
+    }
+
+    #[test]
+    fn test_populate_os_aliases_then_initial_backfills_initial_os() {
+        // Mobile person row carries only $os_name; the alias should let $initial_os
+        // get backfilled by populate_missing_initial_properties.
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+        populate_missing_initial_properties(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$initial_os"), Some(&json!("Android")));
     }
 
     #[test]

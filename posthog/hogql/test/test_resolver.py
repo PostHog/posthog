@@ -1123,16 +1123,25 @@ class TestResolver(BaseTest):
 
         # all columns resolve to a type in the end
         assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="event", array=None, nullable=False
+            name="event",
+            array=None,
+            nullable=False,
+            description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="person_id", array=None, nullable=False
+            name="person_id",
+            array=None,
+            nullable=False,
+            description="Resolved person this distinct_id belongs to; matches `persons.id`.",
         )
         assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
             name="person_properties", nullable=False
         )
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
-            name="created_at", array=None, nullable=False
+            name="created_at",
+            array=None,
+            nullable=False,
+            description="When the person was first seen by PostHog.",
         )
 
     def test_visit_hogqlx_tag(self):
@@ -1376,7 +1385,7 @@ class TestResolver(BaseTest):
 
     def test_assume_not_null_with_unknown_arg_type(self):
         # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
-        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = self._select("SELECT assumeNotNull(formatReadableSize(1024))")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         [selected] = node.select

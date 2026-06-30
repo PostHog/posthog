@@ -3,22 +3,30 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
+from django.test import override_settings
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
+from posthog.tasks.email_utils import compute_week_over_week_change
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRecommendation,
+)
 from products.error_tracking.backend.weekly_digest import (
     auto_select_project_for_user,
-    compute_week_over_week_change,
     get_crash_free_sessions,
     get_daily_exception_counts,
     get_exception_counts,
     get_exception_summary_for_team,
     get_new_issues_for_team,
     get_org_ids_with_exceptions,
+    get_source_maps_recommendation_for_team,
     get_top_issues_for_team,
 )
 
@@ -305,23 +313,40 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result == {} or result["exception_count"] == 0
 
-    def test_auto_select_project_picks_busiest(self):
-        team_b = Team.objects.create(organization=self.organization, name="Team B")
+    @parameterized.expand(["engineering", "data", "founder", "Engineering", "DATA", "Founder"])
+    def test_auto_select_project_enrolls_eligible_roles(self, role):
+        self.user.role_at_organization = role
+        self.user.save()
 
         team_exception_counts = {
-            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
-            team_b.pk: {"exception_count": 15, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
         }
 
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert str(self.team.pk) not in project_enabled
-        assert project_enabled[str(team_b.pk)] is True
+        assert project_enabled[str(self.team.pk)] is True
+
+    @parameterized.expand(["marketing", "sales", "leadership", "product", "other", None])
+    def test_auto_select_project_sets_empty_for_ineligible_roles(self, role):
+        self.user.role_at_organization = role
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings or {}
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled == {}
 
     def test_auto_select_project_skips_if_already_configured(self):
+        self.user.role_at_organization = "engineering"
         self.user.partial_notification_settings = {
             "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True},
         }
@@ -334,7 +359,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         assert settings["error_tracking_weekly_digest_project_enabled"] == {str(self.team.pk): True}
 
     def test_auto_select_project_noop_when_no_exceptions(self):
@@ -458,3 +483,68 @@ class TestComputeWeekOverWeekChange:
 
     def test_returns_none_when_no_change(self):
         assert compute_week_over_week_change(100, 100, higher_is_better=True) is None
+
+
+# total_frames >= 20 and unresolved_pct > 0.30 => an active (not completed) recommendation
+_ACTIVE_META = {
+    "total_frames": 100,
+    "unresolved_frames": 72,
+    "unresolved_pct": 0.72,
+    "threshold_pct": 0.30,
+    "min_sample_frames": 20,
+    "lookback_hours": 24,
+}
+
+
+class TestSourceMapsRecommendationForDigest(APIBaseTest):
+    def _create_recommendation(
+        self, *, meta: dict, computed: bool = True, dismissed: bool = False
+    ) -> ErrorTrackingRecommendation:
+        now = timezone.now()
+        return ErrorTrackingRecommendation.objects.create(
+            team=self.team,
+            type="source_maps",
+            meta=meta,
+            computed_at=now if computed else None,
+            dismissed_at=now if dismissed else None,
+        )
+
+    def test_returns_none_when_no_recommendation(self):
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_not_yet_computed(self):
+        self._create_recommendation(meta=_ACTIVE_META, computed=False)
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_dismissed(self):
+        self._create_recommendation(meta=_ACTIVE_META, dismissed=True)
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_completed_below_threshold(self):
+        self._create_recommendation(meta={**_ACTIVE_META, "unresolved_frames": 5, "unresolved_pct": 0.05})
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_completed_too_few_frames(self):
+        self._create_recommendation(meta={**_ACTIVE_META, "total_frames": 5})
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_data_when_active(self):
+        self._create_recommendation(meta=_ACTIVE_META)
+        result = get_source_maps_recommendation_for_team(self.team)
+        assert result is not None
+        assert result["unresolved_percent"] == 72
+        assert result["lookback_hours"] == 24
+        assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps"
+        assert result["docs_url"].startswith("https://posthog.com/docs/error-tracking/upload-source-maps")
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_wizard_command_appends_region_eu_on_eu_cloud(self):
+        self._create_recommendation(meta=_ACTIVE_META)
+        result = get_source_maps_recommendation_for_team(self.team)
+        assert result is not None
+        assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps --region eu"
+
+    def test_only_returns_recommendation_for_the_given_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._create_recommendation(meta=_ACTIVE_META)
+        assert get_source_maps_recommendation_for_team(other_team) is None

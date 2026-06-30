@@ -29,7 +29,8 @@ from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_a
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
-from posthog.health import is_clickhouse_connected
+from posthog.health import is_clickhouse_connected, is_kafka_connected
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
@@ -84,6 +85,10 @@ def login_required(view):
 
     @wraps(view)
     def handler(request, *args, **kwargs):
+        # Dev-only: in cloud-OAuth mode the session is client-side, so serve without a local login
+        # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
+        if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
+            return view(request, *args, **kwargs)
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
@@ -179,10 +184,6 @@ def render_query(request: HttpRequest) -> HttpResponse:
 def preflight_check(request: HttpRequest) -> JsonResponse:
     with tracer.start_as_current_span("preflight.slack_config_main"):
         slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    with tracer.start_as_current_span("preflight.posthog_code_slack_config"):
-        posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
-        posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
-        posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -196,7 +197,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "clickhouse": in_cloud
         or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
         or settings.TEST,
-        "kafka": in_cloud or settings.TEST,
+        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,
@@ -213,12 +214,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
         },
-        "posthog_code_slack_service": {
-            "available": bool(posthog_code_slack_client_id)
-            and bool(posthog_code_slack_signing_secret)
-            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
-            "client_id": posthog_code_slack_client_id or None,
-        },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},
             "salesforce": {"client_id": salesforce_client_id},
@@ -232,6 +227,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if is_dev_login_allowed():
+        response["allow_dev_login"] = True
 
     if settings.TEST:
         response["is_test"] = True
@@ -248,9 +246,13 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             if not in_cloud
             else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            # Max runs on Anthropic, so it needs its own signal — otherwise self-hosted instances
+            # render the assistant but fail at call time with no key configured.
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
         }
 
     return JsonResponse(response)

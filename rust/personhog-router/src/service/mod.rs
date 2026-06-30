@@ -6,14 +6,16 @@ use std::sync::Arc;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -26,7 +28,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -53,6 +57,16 @@ macro_rules! route_request {
     }};
 }
 
+macro_rules! route_with_metadata {
+    ($self:expr, $method:ident, $request:expr) => {{
+        let metadata = $request.metadata().clone();
+        match $self.router.$method(&metadata, $request.into_inner()).await {
+            Ok(response) => Ok(Response::new(response)),
+            Err(status) => Err(status),
+        }
+    }};
+}
+
 #[tonic::async_trait]
 impl PersonHogService for PersonHogRouterService {
     // Person lookups by ID
@@ -61,28 +75,28 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person, request)
+        route_with_metadata!(self, get_person, request)
     }
 
     async fn get_persons(
         &self,
         request: Request<GetPersonsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
-        route_request!(self, get_persons, request)
+        route_with_metadata!(self, get_persons, request)
     }
 
     async fn get_person_by_uuid(
         &self,
         request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person_by_uuid, request)
+        route_with_metadata!(self, get_person_by_uuid, request)
     }
 
     async fn get_persons_by_uuids(
         &self,
         request: Request<GetPersonsByUuidsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
-        route_request!(self, get_persons_by_uuids, request)
+        route_with_metadata!(self, get_persons_by_uuids, request)
     }
 
     // Person lookups by distinct ID
@@ -91,21 +105,21 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetPersonByDistinctIdRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person_by_distinct_id, request)
+        route_with_metadata!(self, get_person_by_distinct_id, request)
     }
 
     async fn get_persons_by_distinct_ids_in_team(
         &self,
         request: Request<GetPersonsByDistinctIdsInTeamRequest>,
     ) -> Result<Response<PersonsByDistinctIdsInTeamResponse>, Status> {
-        route_request!(self, get_persons_by_distinct_ids_in_team, request)
+        route_with_metadata!(self, get_persons_by_distinct_ids_in_team, request)
     }
 
     async fn get_persons_by_distinct_ids(
         &self,
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
-        route_request!(self, get_persons_by_distinct_ids, request)
+        route_with_metadata!(self, get_persons_by_distinct_ids, request)
     }
 
     // Distinct ID operations
@@ -114,14 +128,14 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetDistinctIdsForPersonRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
-        route_request!(self, get_distinct_ids_for_person, request)
+        route_with_metadata!(self, get_distinct_ids_for_person, request)
     }
 
     async fn get_distinct_ids_for_persons(
         &self,
         request: Request<GetDistinctIdsForPersonsRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
-        route_request!(self, get_distinct_ids_for_persons, request)
+        route_with_metadata!(self, get_distinct_ids_for_persons, request)
     }
 
     // Feature flag hash key override support
@@ -251,6 +265,13 @@ impl PersonHogService for PersonHogRouterService {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        route_request!(self, count_group_type_mappings, request)
+    }
+
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         request: Request<GetGroupTypeMappingByDashboardIdRequest>,
@@ -318,6 +339,36 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<DeletePersonsBatchForTeamRequest>,
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         route_request!(self, delete_persons_batch_for_team, request)
+    }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        route_request!(self, delete_personless_distinct_ids_batch_for_team, request)
+    }
+
+    // Person split
+
+    async fn split_person(
+        &self,
+        request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        route_request!(self, split_person, request)
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        route_request!(self, set_person_distinct_id_version_floor, request)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        route_request!(self, set_person_version_floor, request)
     }
 
     // Person property updates (routed to leader)

@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconHeartPlus, IconLinear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -12,6 +11,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
+import { captureSignalSourceInterest } from './inboxAnalytics'
+import { PgAnalyzeIcon as IconPgAnalyze } from './PgAnalyzeIcon'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceConfigStatus } from './types'
 
@@ -50,7 +51,7 @@ function NotifyMeButton({ source }: { source: string }): JSX.Element {
             size="xsmall"
             disabledReason={notified ? "We'll let you know!" : undefined}
             onClick={() => {
-                posthog.capture('signals source interest', { source })
+                captureSignalSourceInterest(source)
                 setNotified(true)
             }}
             icon={<IconBell />}
@@ -95,7 +96,7 @@ function Source(props: SourceProps): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
+                <p className="text-xs text-secondary mt-0.25 mb-0 pr-8">{props.description}</p>
                 {!isComingSoon && props.checked && props.config !== undefined && (
                     <>
                         <div className="mt-2 border rounded">
@@ -144,12 +145,16 @@ export function SourcesList(): JSX.Element {
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
+        pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
+        healthChecksConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
+        isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
+        isHealthChecksToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -157,6 +162,7 @@ export function SourcesList(): JSX.Element {
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
+        toggleHealthChecks,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -206,6 +212,16 @@ export function SourcesList(): JSX.Element {
             />
 
             <Source
+                icon={<IconHeartPlus className="size-5 text-danger" />}
+                title="PostHog Health checks"
+                description="Instrumentation issues – missing events, proxy gaps, outdated SDKs → Signals"
+                variant="available"
+                checked={!!healthChecksConfig?.enabled}
+                loading={isHealthChecksToggling}
+                onToggle={() => toggleHealthChecks()}
+            />
+
+            <Source
                 icon={<img className="size-5" src={iconZendesk} />}
                 title="Zendesk"
                 description="Incoming support tickets → Signals"
@@ -236,6 +252,17 @@ export function SourcesList(): JSX.Element {
                 loading={isGithubIssuesToggling}
                 requiresSetup
                 onToggle={() => initiateDataWarehouseSourceToggle('Github')}
+            />
+
+            <Source
+                icon={<IconPgAnalyze className="size-5" />}
+                title="pganalyze"
+                description="Postgres performance findings, slow queries, and index recommendations → Signals"
+                variant="available"
+                checked={!!pgAnalyzeIssuesConfig?.enabled}
+                loading={isPgAnalyzeIssuesToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('PgAnalyze')}
             />
 
             <Source

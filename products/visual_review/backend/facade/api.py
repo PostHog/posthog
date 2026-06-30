@@ -19,12 +19,46 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 
+from posthog.helpers.trigram_search import search_match_type_from_instance
+
 from .. import logic
 from ..diff_metadata import DiffMetadata
 from . import contracts
-from .enums import ReviewDecision
+from .enums import RunPurpose
 
 User = get_user_model()
+
+# Server-owned run.metadata keys — never accept these from client input.
+# Allowing clients to set these would let them target arbitrary GitHub
+# comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+# These are all written by the server itself, never by the CI runner.
+# `github_check_run_id` is deliberately NOT reserved: the CI runner is its
+# only source (from `JOB_CHECK_RUN_ID=${{ job.check_run_id }}`), and the
+# rerun it enables is fenced by `_rerun_github_job` — the job must run on the
+# run's commit and belong to the recorded workflow run (`github_run_id`).
+_RESERVED_RUN_METADATA_KEYS = frozenset(
+    {
+        "github_comment_id",
+        "baseline_commit_sha",
+        "baseline_healed_from_merge_base",
+    }
+)
+
+# GitHub identifiers arrive as JSON, so a client can send them as numbers.
+# Store them as strings so rerun logic (which calls `.isdigit()`) and
+# workflow-run comparisons stay type-stable.
+_STRING_RUN_METADATA_KEYS = frozenset({"github_check_run_id", "github_run_id"})
+
+
+def _sanitize_run_metadata(metadata: dict | None) -> dict:
+    if not metadata:
+        return {}
+    cleaned = {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    for key in _STRING_RUN_METADATA_KEYS:
+        if cleaned.get(key) is not None:
+            cleaned[key] = str(cleaned[key])
+    return cleaned
+
 
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
@@ -35,6 +69,7 @@ GitHubCommitError = logic.GitHubCommitError
 GitHubRateLimitError = logic.GitHubRateLimitError
 PRSHAMismatchError = logic.PRSHAMismatchError
 StaleRunError = logic.StaleRunError
+RunNotFullyResolvedError = logic.RunNotFullyResolvedError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 
 
@@ -97,6 +132,7 @@ def _to_snapshot(
     cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
+        run_id=snapshot.run_id,
         identifier=snapshot.identifier,
         result=snapshot.result,
         classification_reason=snapshot.classification_reason or "",
@@ -120,7 +156,15 @@ def _to_snapshot(
 
 
 def _compute_unresolved(run) -> int:
-    """Compute unresolved count from prefetched snapshots, or fall back to DB."""
+    """Count snapshots still awaiting human resolution.
+
+    Observe (tracking-only) runs are never approvable, so nothing is ever
+    "unresolved" — return 0. This keeps the CLI (which exits non-zero when
+    unresolved > 0) and the UI from treating a default-branch run as gating,
+    matching the green commit status such runs post.
+    """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
     # Use prefetched snapshots if available (detail view), skip for list views
     if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
         return sum(1 for s in run.snapshots.all() if logic._is_unresolved(s))
@@ -155,6 +199,8 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
         metadata=run.metadata or {},
+        # Present only when the queryset came from a trigram search (annotation absent otherwise).
+        search_match_type=search_match_type_from_instance(run),
     )
 
 
@@ -216,6 +262,11 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     """
     raw = logic.get_baselines_overview(repo_id)
 
+    # Hydrate UserBasicInfo for everyone who created an active quarantine so the
+    # overview can show "Quarantined by X" without a per-card fetch.
+    quarantine_user_ids = {q.created_by_id for q in raw.active_quarantines_by_key.values() if q.created_by_id}
+    quarantine_user_infos = _fetch_user_basic_infos(quarantine_user_ids)
+
     entries: list[contracts.BaselineEntry] = []
     for snapshot in raw.entries:
         identifier = snapshot.identifier
@@ -226,6 +277,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         # different run types is a different baseline.
         key = (run.run_type, identifier)
         metadata = snapshot.metadata or {}
+        active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
             contracts.BaselineEntry(
                 identifier=identifier,
@@ -236,10 +288,15 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
-                is_quarantined=key in raw.quarantined_ids,
+                is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
                 recent_drift_avg=raw.recent_drift_by_key.get(key),
+                quarantine=(
+                    _to_baseline_quarantine_summary(active_quarantine, quarantine_user_infos)
+                    if active_quarantine is not None
+                    else None
+                ),
             )
         )
 
@@ -269,6 +326,7 @@ def list_runs(
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> list[contracts.Run]:
     runs = logic.list_runs_for_team(
         team_id,
@@ -277,6 +335,7 @@ def list_runs(
         pr_number=pr_number,
         commit_sha=commit_sha,
         branch=branch,
+        search=search,
     )
     return [_to_run(r) for r in runs]
 
@@ -309,7 +368,8 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         unchanged_count=input.unchanged_count,
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
-        metadata=dict(input.metadata) if input.metadata else {},
+        metadata=_sanitize_run_metadata(input.metadata),
+        is_partial=input.is_partial,
     )
 
     upload_targets = [
@@ -358,14 +418,33 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run, user_basic_infos)
 
 
-def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
+def get_run_snapshots(
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+) -> contracts.RunSnapshots:
+    if not include_quarantined and team_id is None:
+        raise ValueError("team_id is required to exclude quarantined snapshots")
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
-        return []
+        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
     repo_id = snapshots[0].run.repo_id
+    run_type = snapshots[0].run.run_type
+    quarantined_identifiers = (
+        {q.identifier for q in logic.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
+        if team_id is not None
+        else set()
+    )
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
+    dtos: list[contracts.Snapshot] = []
+    quarantined_count = 0
+    for s in snapshots:
+        dto = _to_snapshot(s, repo_id, user_basic_infos)
+        if dto.identifier in quarantined_identifiers:
+            quarantined_count += 1
+            if not include_quarantined:
+                continue
+        dtos.append(dto)
+    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
@@ -437,31 +516,11 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.Recompu
     )
 
 
-def approve_all(
-    run_id: UUID,
-    user_id: int,
-    team_id: int | None = None,
-    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
-    commit_to_github: bool = True,
-) -> contracts.AutoApproveResult:
-    run, baseline_content = logic.approve_all(
-        run_id=run_id,
-        user_id=user_id,
-        team_id=team_id,
-        review_decision=review_decision,
-        commit_to_github=commit_to_github,
-    )
-    return contracts.AutoApproveResult(
-        run=_to_run(run),
-        baseline_content=baseline_content,
-    )
+def approve_snapshots(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
+    """Mark specific snapshots reviewed (DB only — no baseline commit, no gate change).
 
-
-def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
-    """Approve specific snapshots (DB only).
-
-    For full run finalization with GitHub commit, use approve_all=true
-    which routes through auto_approve_run.
+    This is the per-snapshot "Accept change" triage action. Shipping the run (committing
+    the baseline and greening the gate) happens via finalize_run.
     """
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
     run = logic.approve_snapshots(
@@ -471,6 +530,36 @@ def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) ->
         team_id=team_id,
     )
     return _to_run(run)
+
+
+def finalize_run(
+    run_id: UUID,
+    user_id: int,
+    team_id: int | None = None,
+    approve_all: bool = False,
+    commit_to_github: bool = True,
+    add_images_to_comment_on_pr: bool = False,
+) -> contracts.FinalizeResult:
+    """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+
+    The single ship action. Commits exactly the snapshots approved in the DB (tolerated
+    ones are left alone) and only succeeds once every changed/new snapshot is resolved.
+    With ``approve_all=True`` any still-pending snapshot is approved first. The pushed
+    baseline commit SHA is surfaced on ``run.metadata["baseline_commit_sha"]``.
+
+    With ``commit_to_github=False`` the server skips the commit and returns the signed
+    baseline YAML on ``baseline_content`` instead (for tooling that commits it itself).
+    """
+    run = logic.finalize_run(
+        run_id=run_id,
+        user_id=user_id,
+        team_id=team_id,
+        approve_all=approve_all,
+        commit_to_github=commit_to_github,
+        add_images_to_comment_on_pr=add_images_to_comment_on_pr,
+    )
+    baseline_content = "" if commit_to_github else logic.build_signed_baseline(run_id, team_id=team_id)
+    return contracts.FinalizeResult(run=_to_run(run), baseline_content=baseline_content)
 
 
 # --- Quarantine ---
@@ -491,10 +580,32 @@ def _fetch_user_basic_infos(user_ids: set[int]) -> dict[int, contracts.UserBasic
     return {u.id: _to_user_basic(u) for u in users}
 
 
+def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
+    if run is None:
+        return None
+    return contracts.QuarantineSourceRun(
+        id=run.id,
+        branch=run.branch,
+        commit_sha=run.commit_sha,
+        created_at=run.created_at,
+        pr_number=run.pr_number,
+    )
+
+
+def _quarantine_common_fields(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None
+) -> tuple[contracts.UserBasicInfo | None, contracts.QuarantineSourceRun | None]:
+    """Fields shared by both quarantine DTOs. Callers must ensure `q.source_run`
+    is preloaded — list/overview use `select_related`, and the create path
+    attaches the resolved Run directly — so accessing it never lazy-loads."""
+    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    return created_by, _to_quarantine_source_run(q.source_run)
+
+
 def _to_quarantined_entry(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.QuarantinedIdentifierEntry:
-    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
     return contracts.QuarantinedIdentifierEntry(
         id=q.id,
         identifier=q.identifier,
@@ -504,6 +615,21 @@ def _to_quarantined_entry(
         created_at=q.created_at,
         updated_at=q.updated_at,
         created_by=created_by,
+        source_run=source_run,
+    )
+
+
+def _to_baseline_quarantine_summary(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.BaselineQuarantineSummary:
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
+    return contracts.BaselineQuarantineSummary(
+        id=q.id,
+        reason=q.reason,
+        expires_at=q.expires_at,
+        created_at=q.created_at,
+        created_by=created_by,
+        source_run=source_run,
     )
 
 
@@ -525,6 +651,7 @@ def quarantine_identifier(
         run_type=run_type,
         reason=input.reason,
         expires_at=input.expires_at,
+        source_run_id=input.source_run_id,
         user_id=user_id,
         team_id=team_id,
     )

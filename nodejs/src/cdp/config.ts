@@ -4,10 +4,13 @@ import {
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
+    KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '../config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
@@ -15,9 +18,13 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
+import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
-export type CdpConfig = {
+// CdpConfig intersects ClickhouseConfig so any consumer reading
+// `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
+// case where `CdpRerunWorkerConsumer` silently fell back to `default` DB.
+export type CdpConfig = ClickhouseConfig & {
     CDP_WATCHER_COST_ERROR: number
     CDP_WATCHER_HOG_COST_TIMING: number
     CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number
@@ -43,9 +50,6 @@ export type CdpConfig = {
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
@@ -78,16 +82,33 @@ export type CdpConfig = {
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
+    SES_RATE_LIMITER_VALKEY_HOST: string
+    SES_RATE_LIMITER_VALKEY_PORT: number
+    SES_RATE_LIMITER_VALKEY_PASSWORD: string
+    SES_RATE_LIMITER_VALKEY_TLS: boolean
+
+    CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
+    CDP_SES_RATE_LIMIT_CAPACITY: number
+    CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_TOPIC: string
+    HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_ENABLED: boolean
+    HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
+    // Kept small by default — each job runs a full ClickHouse query per page.
+    CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -127,6 +148,7 @@ export type CdpConfig = {
 
 export function getDefaultCdpConfig(): CdpConfig {
     return {
+        ...getDefaultClickhouseConfig(),
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,
@@ -152,9 +174,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: false,
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
@@ -181,16 +200,43 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
 
+        SES_RATE_LIMITER_VALKEY_HOST: '',
+        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+        SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
+        CDP_SES_RATE_LIMIT_CAPACITY: 50,
+        CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
+        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
+        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
+        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
+        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
+        // Cyclotron Warpstream cluster — ClickHouse consumes hog_invocation_results
+        // from the warpstream_cyclotron named collection, so the producer must
+        // target the same cluster.
+        HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default — flip to true once the table is migrated and we want to start writing.
+        // Per-team rollout still happens at the call site.
+        HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
+        // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
+        HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        // Small by default — rerun jobs are heavy (a full ClickHouse query per
+        // page), so a replica drains one wrapper job at a time unless tuned up.
+        CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,

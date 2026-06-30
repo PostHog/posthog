@@ -216,7 +216,6 @@
         "$replay_sample_rate": null,
         "$viewport_width": 1366,
         "$session_entry_referring_domain": "posthog.example.com",
-        "$prev_pageview_pathname": "/testing",
         "$feature_flag_payloads": {},
         "$sdk_debug_retry_queue_size": 0,
         "$is_identified": true,

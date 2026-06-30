@@ -1,28 +1,29 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../src/config/kafka-topics'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../src/ingestion/analytics/outputs'
-import { IngestionOutputs } from '../../../src/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../../../src/ingestion/outputs/single-ingestion-output'
-import { KafkaProducerWrapper } from '../../../src/kafka/producer'
-import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
-import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
-import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
-import { parseJSON } from '../../../src/utils/json-parse'
-import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
-import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import {
     createPersonUpdateFields,
     fetchDistinctIdValues,
     fetchDistinctIds,
     fetchPersons,
-} from '../../../src/worker/ingestion/persons/repositories/test-helpers'
+} from '~/common/persons/repositories/test-helpers'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT, castTimestampOrNow } from '~/common/utils/utils'
+
+import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
+import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
 import { Clickhouse } from '../../helpers/clickhouse'
 import { waitForExpect } from '../../helpers/expectations'
 import { ensureKafkaTopics } from '../../helpers/kafka'
 import { createUserTeamAndOrganization } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/logger')
+jest.mock('~/common/utils/logger')
 
 function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
@@ -36,12 +37,18 @@ function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     })
 }
 /**
- * After topic creation/recreation, ClickHouse Kafka engine consumers need to connect.
- * With auto.offset.reset=latest, messages produced before connection are missed.
- * We produce probe messages until ClickHouse consumes one, guaranteeing the
- * consumer is active before tests begin.
+ * Waits until ClickHouse's Kafka engine is consuming the person topic, by producing probe
+ * messages until one lands in the person table.
+ *
+ * Before probing we create every topic ClickHouse's Kafka engine tables subscribe to. Otherwise
+ * any table whose topic is missing keeps retrying "Can't get assignment", which saturates
+ * ClickHouse's background scheduler and intermittently starves the person consumer this suite
+ * depends on — the root cause of the flakiness. We repeatedly produce probe messages because,
+ * with the default auto.offset.reset=latest, messages produced before assignment are missed.
  */
 async function waitForClickHousePersonConsumer(clickhouse: Clickhouse): Promise<void> {
+    await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics(), extraServerConfig)
+
     const producer = await KafkaProducerWrapper.create(undefined)
     const probeTeamId = -1
 

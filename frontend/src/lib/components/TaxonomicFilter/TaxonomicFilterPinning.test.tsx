@@ -129,4 +129,56 @@ describe('TaxonomicFilter pinning', () => {
             expect(pinButtons.length).toBeGreaterThan(0)
         })
     })
+
+    it.each([
+        {
+            description: 'fresh person pin with full distinct_ids',
+            value: 'distinct-abc',
+            storedItem: { name: 'Alice', distinct_ids: ['distinct-abc'] },
+        },
+        {
+            description: 'pre-existing pin shrunk to just { name } (old localStorage shape)',
+            value: 'distinct-abc',
+            storedItem: { name: 'distinct-abc' },
+        },
+    ])('does not crash when hovering a pinned Person item: $description', async ({ value, storedItem }) => {
+        const logic = taxonomicFilterPinnedPropertiesLogic.build()
+        logic.mount()
+        // Seed the persisted shape directly so we can exercise both the new (full)
+        // and the old ({ name }-only) localStorage entry shapes.
+        logic.actions.setPinnedFilters([
+            {
+                groupType: TaxonomicFilterGroupType.Persons,
+                groupName: 'Persons',
+                value,
+                item: storedItem,
+                timestamp: Date.now(),
+            },
+        ])
+
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons],
+            popoverEnabled: true,
+        })
+
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-tab-pinned_filters')).toBeInTheDocument()
+        })
+
+        await userEvent.click(screen.getByTestId('taxonomic-tab-pinned_filters'))
+
+        const pinnedRow = await screen.findByTestId('prop-filter-pinned_filters-0')
+
+        // Hovering the row triggers ControlledDefinitionPopover, which calls the
+        // source group's getValue on the stored item. Before the fix, the old
+        // `{ name }`-only shape threw `TypeError: Cannot read properties of
+        // undefined (reading '0')` here because Persons read `distinct_ids[0]`.
+        // Awaiting the async hover ensures any rejection from a synchronous
+        // render throw fails the test, and the positive `Person` popover-header
+        // assertion proves the chain ran to completion — not just "didn't throw".
+        await userEvent.hover(pinnedRow)
+        expect(await screen.findByText('Person')).toBeInTheDocument()
+
+        logic.unmount()
+    })
 })

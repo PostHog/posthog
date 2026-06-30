@@ -12,7 +12,6 @@ from posthog.schema import NativeMarketingSource, SourceMap
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
@@ -20,6 +19,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
     NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,
@@ -147,8 +147,14 @@ class MarketingSourceFactory:
         self.context = context
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
-        # Cache warehouse data to avoid repeated queries
-        database = Database.create_for(team=self.context.team)
+        # Cache warehouse data to avoid repeated queries. Reuse the request-shared database when the
+        # caller provides one (Database.create_for is ~550ms and we only need warehouse table names);
+        # otherwise build one bypassing access control — this only enumerates table names to build
+        # adapters, and the marketing query runner re-resolves the schema with the requesting user, so
+        # actual data access stays gated there (QueryContext has no user to pass for access controls).
+        database = self.context.database or Database.create_for(
+            team=self.context.team, bypass_warehouse_access_control=True
+        )
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")

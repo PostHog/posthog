@@ -3,10 +3,11 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Insight, Organization, Tag, Team
+from posthog.models import Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestTaggedItemSerializerMixin(APIBaseTest):
@@ -84,16 +85,17 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
     def test_can_list_tags(self) -> None:
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        tag = Tag.objects.create(name="dashboard tag", team_id=self.team.id)
+        tag = Tag.objects.create(name="zebra tag", team_id=self.team.id)
         dashboard.tagged_items.create(tag_id=tag.id)
 
         insight = Insight.objects.create(team_id=self.team.id, name="empty insight")
-        tag2 = Tag.objects.create(name="insight tag", team_id=self.team.id)
+        tag2 = Tag.objects.create(name="apple tag", team_id=self.team.id)
         insight.tagged_items.create(tag_id=tag2.id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
-        assert sorted(response.json()) == ["dashboard tag", "insight tag"]
+        # Tags are returned in alphabetical order regardless of insertion order
+        assert response.json() == ["apple tag", "zebra tag"]
 
 
 class TestBulkUpdateTags(APIBaseTest):

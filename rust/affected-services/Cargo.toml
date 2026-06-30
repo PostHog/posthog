@@ -1,0 +1,16 @@
+[package]
+name = "affected-services"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+determinator = "0.12"
+guppy = "0.17"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
+
+[dev-dependencies]
+rstest = "0.26"

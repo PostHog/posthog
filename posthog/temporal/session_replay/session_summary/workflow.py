@@ -19,13 +19,17 @@ from temporalio.common import (
     WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.session_recordings.ai_summary_cap import atomic_check_and_consume, refund
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -66,10 +70,16 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     collect_session_problems,
 )
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
+from ee.hogai.session_summaries.constants import (
+    DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
+    SESSION_SUMMARIES_MODEL,
+)
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +87,10 @@ logger = structlog.get_logger(__name__)
 SESSION_VIDEO_CHUNK_DURATION_S = 60
 # How large should the active period be, so we still analyze it (or skip it, if it's smaller)
 MIN_SESSION_PERIOD_DURATION_S = 1
+
+# Returned by the workflow run() when the session has no events to summarize, so the
+# streaming endpoint can surface a specific message instead of the generic error.
+SUMMARY_RESULT_NO_EVENTS = "no_events"
 
 # Drives the step counter in the get_progress query so the frontend can render "Step N of M".
 VIDEO_PHASE_ORDER: tuple[str, ...] = (
@@ -127,7 +141,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         return cast(SingleSessionProgress, dict(self._progress))
 
     @temporalio.workflow.run
-    async def run(self, inputs: SingleSessionSummaryInputs) -> None:
+    async def run(self, inputs: SingleSessionSummaryInputs) -> str | None:
         start_time = temporalio.workflow.now()
         progress = self._progress if inputs.video_based else None
         _set_phase(progress, "fetching_data")
@@ -138,7 +152,9 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not session_got_data:
-            return None
+            # The session has no events to summarize — signal the reason so the
+            # stream surfaces a clear message rather than a generic failure.
+            return SUMMARY_RESULT_NO_EVENTS
         await ensure_llm_single_session_summary(inputs, progress=progress)
         duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
         await temporalio.workflow.execute_activity(
@@ -157,6 +173,8 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+        # Success path writes the summary to Postgres; no sentinel to return.
+        return None
 
 
 def _validate_period(
@@ -617,6 +635,28 @@ async def _check_handle_data(
     return desc.status, final_result
 
 
+async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
+    """True iff a workflow with this id is currently RUNNING.
+
+    Discriminates fresh LLM runs from silent attaches: ``_start_video_summary_workflow``
+    uses ``USE_EXISTING``, so starting twice with the same id returns a handle
+    without raising.
+
+    Error handling is asymmetric on purpose:
+    - ``NOT_FOUND`` → ``False`` (fresh start path; caller must charge the cap).
+    - Any other ``RPCError`` is re-raised so a flaky Temporal blip surfaces as
+      ``session-summary-error`` rather than silently double-charging.
+    """
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        desc = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.status == WorkflowExecutionStatus.RUNNING
+
+
 def _prepare_execution(
     session_id: str,
     user: User,
@@ -790,7 +830,7 @@ async def execute_summarize_session_video_stream(
     custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     force_restart: bool = False,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Start the video-based summarization workflow and stream progress events.
 
     Yields SSE-formatted ``session-summary-progress`` events every few seconds
@@ -801,6 +841,10 @@ async def execute_summarize_session_video_stream(
     client and workflow handle — both of which hold asyncio-bound state — are
     reused safely across iterations.
     """
+
+    def error_event(message: str) -> str:
+        return serialize_to_sse_event(event_label="session-summary-error", event_data=message)
+
     # Fast path: if a summary already exists, yield it immediately and skip Temporal entirely.
     existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context
@@ -817,6 +861,36 @@ async def execute_summarize_session_video_stream(
         )
         return
 
+    # Length is knowable from cheap metadata, so reject too-short/too-long sessions up front
+    # with a clear message rather than starting a doomed workflow. (The no-events case can only
+    # be determined after fetching events, so it's signalled from inside the workflow instead.)
+    try:
+        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata, thread_sensitive=False)(
+            session_id=session_id, team=team
+        )
+    except Exception as e:
+        # Don't block summarization on a flaky metadata read; downstream activities still guard length.
+        logger.warning(
+            "video summary length precheck skipped (metadata read failed)",
+            session_id=session_id,
+            error=str(e),
+            signals_type="session-summaries",
+        )
+        metadata = None
+    if metadata:
+        if (metadata.get("duration") or 0) < MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S:
+            yield error_event(
+                f"This recording is too short to summarize — recordings under "
+                f"{MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S} seconds can't be summarized."
+            )
+            return
+        if (metadata.get("active_seconds") or 0) > MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S:
+            yield error_event(
+                f"This recording is too long to summarize — AI summaries are limited to "
+                f"{MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S // 60} minutes of activity."
+            )
+            return
+
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user=user,
@@ -830,12 +904,67 @@ async def execute_summarize_session_video_stream(
     )
 
     client = await async_connect()
+
+    # The cap only fires on a fresh LLM run. If `_start_video_summary_workflow`
+    # is about to attach via USE_EXISTING to someone else's in-flight run, skip
+    # the cap so we don't 402 a teammate reading already-paid-for work.
+    # `force_restart` always preempts via TERMINATE_EXISTING — counts as fresh.
+    will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
+
+    quota_reserved = False
+    if will_start_fresh_run:
+        # Reserve a slot atomically (INCR + revert if over cap). One round-trip
+        # closes the TOCTOU window where concurrent requests can all read the
+        # same `used` and then collectively overshoot. Redis failures fail open
+        # — a flaky counter must not break the summarize path.
+        try:
+            cap_decision = await database_sync_to_async(atomic_check_and_consume, thread_sensitive=False)(team.id)
+        except Exception as e:
+            logger.warning(
+                "video summary cap reservation failed (fail-open)",
+                team_id=team.id,
+                session_id=session_id,
+                error=str(e),
+                signals_type="session-summaries",
+            )
+            cap_decision = None
+
+        if cap_decision is not None and not cap_decision.allowed:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="replay summary quota blocked",
+                properties={
+                    "team_id": team.id,
+                    "used": cap_decision.used,
+                    "cap": cap_decision.cap,
+                    "source": "dock",
+                },
+                groups=groups(None, team),
+            )
+            yield error_event(
+                "You've reached this team's monthly limit for AI session summaries "
+                f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+            )
+            return
+
+        quota_reserved = cap_decision is not None and cap_decision.allowed
+
     try:
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
     except WorkflowAlreadyStartedError:
+        # Race: someone else started the same workflow between our describe and
+        # start call. Attach to theirs and refund the slot we reserved.
         handle = client.get_workflow_handle(workflow_id)
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+            quota_reserved = False
+    except Exception:
+        # Any other start failure: never went to the LLM, give the slot back.
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+        raise
 
     logger.info(
         "video summary polling loop starting",
@@ -846,21 +975,21 @@ async def execute_summarize_session_video_stream(
 
     while True:
         try:
-            status, _final_result = await _check_handle_data(handle)
+            status, final_result = await _check_handle_data(handle)
             if status is None:
                 await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             if status == WorkflowExecutionStatus.COMPLETED:
+                if final_result == SUMMARY_RESULT_NO_EVENTS:
+                    yield error_event("This recording has no events to summarize.")
+                    return
                 # Workflow writes the summary to Postgres, doesn't return it.
                 summary_row = await database_sync_to_async(
                     SingleSessionSummary.objects.get_summary, thread_sensitive=False
                 )(team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context)
                 if not summary_row:
-                    yield serialize_to_sse_event(
-                        event_label="session-summary-error",
-                        event_data="Something went wrong while generating the summary. Please try again.",
-                    )
+                    yield error_event("Something went wrong while generating the summary. Please try again.")
                     return
                 yield serialize_to_sse_event(
                     event_label="session-summary-stream",
@@ -880,10 +1009,7 @@ async def execute_summarize_session_video_stream(
                     WorkflowExecutionStatus.TERMINATED: "The summary generation was terminated unexpectedly. Please try again.",
                     WorkflowExecutionStatus.TIMED_OUT: "The summary generation timed out. The recording may be too long or complex. Please try again.",
                 }
-                yield serialize_to_sse_event(
-                    event_label="session-summary-error",
-                    event_data=status_messages[status],
-                )
+                yield error_event(status_messages[status])
                 return
 
             progress_payload = await _fetch_summary_progress(client, handle)
@@ -906,8 +1032,5 @@ async def execute_summarize_session_video_stream(
             await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
         except Exception as e:
             capture_exception(e)
-            yield serialize_to_sse_event(
-                event_label="session-summary-error",
-                event_data="Something went wrong while generating the summary. Please try again.",
-            )
+            yield error_event("Something went wrong while generating the summary. Please try again.")
             return

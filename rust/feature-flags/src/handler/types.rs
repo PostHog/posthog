@@ -1,8 +1,14 @@
 use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
+use chrono_tz::Tz;
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    net::IpAddr,
+    sync::{Arc, OnceLock},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -32,6 +38,16 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// Side channel for body logging: when at least one team is opted into
+    /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
+    /// keeps a clone. The decode step in `parse_and_authenticate` fills it
+    /// with the decoded body (post gzip + post base64). After the handler
+    /// completes, the endpoint reads from its clone and hands the bytes to
+    /// `BodyLogger::log_response`. This avoids decoding the body twice and
+    /// also ensures base64-wrapped bodies are logged as the JSON they
+    /// actually parsed as, not as the base64 string.
+    pub decoded_body_for_logging: Option<Arc<OnceLock<Bytes>>>,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -47,6 +63,9 @@ pub struct RequestPropertyOverrides {
 /// Represents all context required for evaluating a set of feature flags.
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
+    /// Team timezone, used to interpret naive datetime filter values consistently
+    /// with HogQL/ClickHouse cohort evaluation.
+    pub team_timezone: Tz,
     pub distinct_id: String,
     pub device_id: Option<String>,
     pub feature_flags: FeatureFlagList,
@@ -107,6 +126,8 @@ pub enum Library {
     PosthogDotnet,
     /// posthog-elixir SDK
     PosthogElixir,
+    /// posthog-rs SDK
+    PosthogRs,
     /// posthog-android SDK
     PosthogAndroid,
     /// posthog-ios SDK
@@ -137,6 +158,7 @@ impl Library {
             Library::PosthogJava => "posthog-java",
             Library::PosthogDotnet => "posthog-dotnet",
             Library::PosthogElixir => "posthog-elixir",
+            Library::PosthogRs => "posthog-rs",
             Library::PosthogAndroid => "posthog-android",
             Library::PosthogIos => "posthog-ios",
             Library::PosthogReactNative => "posthog-react-native",
@@ -159,6 +181,7 @@ impl Library {
         Library::PosthogJava,
         Library::PosthogDotnet,
         Library::PosthogElixir,
+        Library::PosthogRs,
         Library::PosthogAndroid,
         Library::PosthogIos,
         Library::PosthogReactNative,
@@ -255,10 +278,12 @@ mod tests {
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
+    #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
     #[case("posthog-go/1.0.0", Library::PosthogGo)]
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
     #[case("posthog-elixir/0.2.0", Library::PosthogElixir)]
+    #[case("posthog-rs/0.10.0", Library::PosthogRs)]
     #[case("posthog-server/1.0.0", Library::PosthogServer)]
     #[case("posthog-server/3.2.1 (Android SDK)", Library::PosthogServer)]
     // Client-side SDKs
@@ -343,6 +368,7 @@ mod tests {
     #[case(Library::PosthogJava, "posthog-java")]
     #[case(Library::PosthogDotnet, "posthog-dotnet")]
     #[case(Library::PosthogElixir, "posthog-elixir")]
+    #[case(Library::PosthogRs, "posthog-rs")]
     #[case(Library::PosthogAndroid, "posthog-android")]
     #[case(Library::PosthogIos, "posthog-ios")]
     #[case(Library::PosthogReactNative, "posthog-react-native")]
@@ -363,6 +389,7 @@ mod tests {
     #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]
     #[case(Library::PosthogElixir, "\"posthog-elixir\"")]
+    #[case(Library::PosthogRs, "\"posthog-rs\"")]
     #[case(Library::PosthogAndroid, "\"posthog-android\"")]
     #[case(Library::PosthogIos, "\"posthog-ios\"")]
     #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]

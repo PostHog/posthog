@@ -50,8 +50,6 @@ export const modalsLogic = kea<modalsLogicType>([
         closeSecondarySharedMetricModal: true,
         openVariantDeltaTimeseriesModal: true,
         closeVariantDeltaTimeseriesModal: true,
-        openCalculateRunningTimeModal: true,
-        closeCalculateRunningTimeModal: true,
         openPrimaryMetricsReorderModal: true,
         closePrimaryMetricsReorderModal: true,
         openSecondaryMetricsReorderModal: true,
@@ -163,13 +161,6 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openVariantDeltaTimeseriesModal: () => true,
                 closeVariantDeltaTimeseriesModal: () => false,
-            },
-        ],
-        isCalculateRunningTimeModalOpen: [
-            false,
-            {
-                openCalculateRunningTimeModal: () => true,
-                closeCalculateRunningTimeModal: () => false,
             },
         ],
         isPrimaryMetricsReorderModalOpen: [

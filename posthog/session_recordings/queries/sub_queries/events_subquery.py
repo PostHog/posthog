@@ -21,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
@@ -45,6 +46,10 @@ HYBRID_QUERY_ELIGIBLE_PROPERTIES = {
     "external_id",
     "distinct_id",
 }
+
+
+def _event_session_id_field() -> ast.Field:
+    return ast.Field(chain=["properties", "$session_id"])
 
 
 def get_negative_entity_properties(
@@ -116,7 +121,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # with a bad experience filtering out 60% of results incorrectly
         # We use a feature flag to control this behavior for safe rollout.
 
-        remove_order_by = posthoganalytics.feature_enabled(
+        remove_order_by = feature_enabled_or_false(
             "remove-order-by-for-event-subquery",
             str(self._team.organization.id),
             send_feature_flag_events=False,
@@ -147,7 +152,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
         """
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "enable-hybrid-poe-replay-filtering",
             str(self._team.id),
             send_feature_flag_events=False,
@@ -262,7 +267,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         date_to_buffered = self.query_date_range.date_to() + timedelta(days=1)
 
         return ast.SelectQuery(
-            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -288,12 +293,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotEq,
-                        left=ast.Call(name="empty", args=[ast.Field(chain=["$session_id"])]),
+                        left=ast.Call(name="empty", args=[_event_session_id_field()]),
                         right=ast.Constant(value=1),
                     ),
                 ]
             ),
-            group_by=[ast.Field(chain=["$session_id"])],  # DISTINCT session_id
+            group_by=[_event_session_id_field()],  # DISTINCT session_id
             limit=ast.Constant(value=1000000),
         )
 
@@ -492,8 +497,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
         return self._get_queries_for_matching(
-            select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
-            group_by=[ast.Field(chain=["$session_id"])],
+            select_expr=ast.Alias(alias="session_id", expr=_event_session_id_field()),
+            group_by=[_event_session_id_field()],
         )
 
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
@@ -504,7 +509,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
-            group_by=[ast.Field(chain=["$session_id"]), ast.Field(chain=["uuid"])],
+            group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:
@@ -522,7 +527,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_expr=[ast.Field(chain=["uuid"]), ast.Call(name="any", args=[ast.Field(chain=["timestamp"])])],
             where_expr=self.wrapped_with_query_operand(exprs=select_exprs),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
-            group_by=[ast.Field(chain=["$session_id"]), ast.Field(chain=["uuid"])],
+            group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
             limit_expr=ast.Constant(value=10000),
         )
 
@@ -547,7 +552,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
-                args=[ast.Field(chain=["$session_id"])],
+                args=[_event_session_id_field()],
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
@@ -590,7 +595,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["$session_id"]),
+                    left=_event_session_id_field(),
                     right=ast.Constant(value=self._query.session_ids),
                 )
             )
@@ -698,10 +703,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
 
         return ast.SelectQuery(
-            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where_predicates(where_expr),
-            group_by=[ast.Field(chain=["$session_id"])],
+            group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),
         )
 

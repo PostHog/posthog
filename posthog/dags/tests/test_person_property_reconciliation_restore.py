@@ -21,6 +21,11 @@ from posthog.dags.person_property_reconciliation_restore import (
 )
 from posthog.models import Organization, Person, Team
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.test.persons import create_person
+
+# Exercises the persons DB directly (raw reads against PERSONS_DB_FOR_WRITE), so it must run against
+# the real persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
 
 
 def create_backup_entry(
@@ -589,7 +594,7 @@ class TestRestoreIntegration:
     @pytest.fixture
     def person(self, team):
         """Create a test person."""
-        return Person.objects.create(
+        return create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "current@example.com"},
@@ -626,7 +631,7 @@ class TestRestoreIntegration:
         """Test fetching backup entries filtered by person_ids."""
         job_id = f"test-job-{uuid_module.uuid4()}"
 
-        person2 = Person.objects.create(
+        person2 = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "other@example.com"},
@@ -665,7 +670,7 @@ class TestRestoreIntegration:
 
         # Create a second team with a person
         team2 = Team.objects.create(organization=organization, name="Test Team 2")
-        person2 = Person.objects.create(
+        person2 = create_person(
             team_id=team2.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "other@example.com"},
@@ -711,7 +716,7 @@ class TestRestoreIntegration:
         persons = []
         for team in [team1, team2]:
             for i in range(5):
-                p = Person.objects.create(
+                p = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={"email": f"p{i}@example.com"},
@@ -762,7 +767,7 @@ class TestRestoreIntegration:
         for team in [team1, team2]:
             persons[team.id] = []
             for i in range(3):
-                p = Person.objects.create(
+                p = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={"email": f"p{i}@example.com"},
@@ -811,7 +816,7 @@ class TestRestoreIntegration:
         # Create multiple persons
         persons = []
         for i in range(5):
-            p = Person.objects.create(
+            p = create_person(
                 team_id=team.id,
                 uuid=uuid_module.uuid4(),
                 properties={"email": f"person{i}@example.com", "index": i},
@@ -832,7 +837,7 @@ class TestRestoreIntegration:
 
     def test_fetch_persons_by_ids_partial(self, team):
         """Test batch fetching when some ids don't exist."""
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "exists@example.com"},
@@ -1101,13 +1106,13 @@ class TestRestoreJobEndToEnd:
         job_id = f"test-job-{uuid_module.uuid4()}"
 
         # Create test persons
-        person1 = Person.objects.create(
+        person1 = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "current1@example.com", "name": "Current Name"},
             version=5,
         )
-        person2 = Person.objects.create(
+        person2 = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "current2@example.com"},
@@ -1197,13 +1202,13 @@ class TestRestoreJobEndToEnd:
         team2 = Team.objects.create(organization=organization, name="Test Team 2")
 
         # Create persons in both teams
-        person1 = Person.objects.create(
+        person1 = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "team1@example.com"},
             version=2,
         )
-        person2 = Person.objects.create(
+        person2 = create_person(
             team_id=team2.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "team2@example.com"},
@@ -1279,7 +1284,7 @@ class TestRestoreJobEndToEnd:
 
         job_id = f"test-job-{uuid_module.uuid4()}"
 
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             uuid=uuid_module.uuid4(),
             properties={"email": "current@example.com"},
@@ -1355,7 +1360,7 @@ class TestRestoreJobEndToEnd:
             persons[team.id] = []
 
             for p in range(4):
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={
@@ -1457,7 +1462,7 @@ class TestRestoreJobEndToEnd:
             persons[team.id] = []
 
             for p in range(3):
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={"email": f"current_t{t}_p{p}@example.com", "status": "current"},
@@ -1553,7 +1558,7 @@ class TestRestoreJobEndToEnd:
             persons[team.id] = []
 
             for p in range(5):
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={"email": f"current_t{t}_p{p}@example.com", "restored": False},
@@ -1646,7 +1651,7 @@ class TestRestoreJobEndToEnd:
             persons[team.id] = []
 
             for p in range(4):
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={
@@ -1771,7 +1776,7 @@ class TestRestoreJobEndToEnd:
 
             for p in range(3):
                 # Current state has properties added after backup
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={
@@ -1870,7 +1875,7 @@ class TestRestoreJobEndToEnd:
             persons[team.id] = []
 
             for p in range(persons_per_team[t]):
-                person = Person.objects.create(
+                person = create_person(
                     team_id=team.id,
                     uuid=uuid_module.uuid4(),
                     properties={"email": f"current_t{t}_p{p}@example.com"},

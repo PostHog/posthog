@@ -21,6 +21,10 @@ PDI_VERSION = 3
 TEAM_ID = 7
 DUMMY_OVERRIDE_UUID = "00000000-0000-0000-0000-000000000001"
 
+# The integration class writes persons to the persons DB directly, so it must run against the real
+# persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
+
 
 def _make_cursor(fetchone_values: list | None = None) -> MagicMock:
     cursor = MagicMock()
@@ -326,15 +330,43 @@ class TestDetachDistinctIdIntegration:
 
         return Team.objects.create(organization=organization, name="Detach Test Team")
 
+    @staticmethod
+    def _pdi_exists(conn, pdi_id: int) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM posthog_persondistinctid WHERE id = %s", [pdi_id])
+            return cursor.fetchone() is not None
+
     @pytest.fixture
     def person_with_two_distinct_ids(self, team):
-        from posthog.models.person import Person, PersonDistinctId
+        from posthog.models.utils import UUIDT
 
-        person = Person.objects.create(team_id=team.id, version=1)
-        pdi_keep = PersonDistinctId.objects.create(team=team, person=person, distinct_id="keep_this", version=0)
-        pdi_detach = PersonDistinctId.objects.create(
-            team=team, person=person, distinct_id="$posthog_cookieless", version=3
-        )
+        conn = self._get_persons_conn()
+        person_uuid = UUIDT()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO posthog_person (team_id, uuid, properties, is_identified, version, created_at, properties_last_updated_at, properties_last_operation) "
+                "VALUES (%s, %s, '{}', false, 1, NOW(), '{}', '{}') RETURNING id",
+                [team.id, str(person_uuid)],
+            )
+            person_id = cursor.fetchone()[0]
+            cursor.execute(
+                "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                [team.id, person_id, "keep_this", 0],
+            )
+            pdi_keep_id = cursor.fetchone()[0]
+            cursor.execute(
+                "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                [team.id, person_id, "$posthog_cookieless", 3],
+            )
+            pdi_detach_id = cursor.fetchone()[0]
+
+        from types import SimpleNamespace
+
+        person = SimpleNamespace(id=person_id, uuid=person_uuid, version=1)
+        pdi_keep = SimpleNamespace(id=pdi_keep_id, distinct_id="keep_this", version=0)
+        pdi_detach = SimpleNamespace(id=pdi_detach_id, distinct_id="$posthog_cookieless", version=3)
         return person, pdi_keep, pdi_detach
 
     @staticmethod
@@ -362,8 +394,6 @@ class TestDetachDistinctIdIntegration:
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_dry_run_does_not_delete(self, mock_sync_execute, team, person_with_two_distinct_ids):
-        from posthog.models.person import PersonDistinctId
-
         person, _pdi_keep, pdi_detach = person_with_two_distinct_ids
         producer = MagicMock()
 
@@ -373,14 +403,12 @@ class TestDetachDistinctIdIntegration:
         )
 
         assert result.success
-        assert PersonDistinctId.objects.filter(id=pdi_detach.id).exists()
+        assert self._pdi_exists(self._get_persons_conn(), pdi_detach.id)
         producer.produce.assert_not_called()
         mock_sync_execute.assert_not_called()
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_live_run_deletes_and_publishes(self, mock_sync_execute, team, person_with_two_distinct_ids):
-        from posthog.models.person import PersonDistinctId
-
         person, pdi_keep, pdi_detach = person_with_two_distinct_ids
         producer = MagicMock()
 
@@ -391,10 +419,11 @@ class TestDetachDistinctIdIntegration:
 
         assert result.success
 
+        conn = self._get_persons_conn()
         # PDI row deleted
-        assert not PersonDistinctId.objects.filter(id=pdi_detach.id).exists()
+        assert not self._pdi_exists(conn, pdi_detach.id)
         # Other PDI untouched
-        assert PersonDistinctId.objects.filter(id=pdi_keep.id).exists()
+        assert self._pdi_exists(conn, pdi_keep.id)
 
         # Kafka deletion published
         producer.produce.assert_called_once()
@@ -429,10 +458,25 @@ class TestDetachDistinctIdIntegration:
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_fails_when_only_distinct_id(self, mock_sync_execute, team):
-        from posthog.models.person import Person, PersonDistinctId
+        from types import SimpleNamespace
 
-        person = Person.objects.create(team_id=team.id, version=1)
-        PersonDistinctId.objects.create(team=team, person=person, distinct_id="$posthog_cookieless", version=3)
+        from posthog.models.utils import UUIDT
+
+        conn = self._get_persons_conn()
+        person_uuid = UUIDT()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO posthog_person (team_id, uuid, properties, is_identified, version, created_at, properties_last_updated_at, properties_last_operation) "
+                "VALUES (%s, %s, '{}', false, 1, NOW(), '{}', '{}') RETURNING id",
+                [team.id, str(person_uuid)],
+            )
+            person_id = cursor.fetchone()[0]
+            cursor.execute(
+                "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version) "
+                "VALUES (%s, %s, %s, %s)",
+                [team.id, person_id, "$posthog_cookieless", 3],
+            )
+        person = SimpleNamespace(id=person_id, uuid=person_uuid, version=1)
         producer = MagicMock()
 
         result = detach_distinct_id_job.execute_in_process(

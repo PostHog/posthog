@@ -31,7 +31,7 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
                       : (description as React.ReactNode) || 'No description'}
             </span>
         ),
-        width: '35%',
+        width: '30%',
     },
     {
         title: 'User',
@@ -79,6 +79,17 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
         key: 'time',
         render: (_, logItem) => <TZLabel time={logItem.created_at} />,
         width: '15%',
+    },
+    {
+        title: 'IP address',
+        key: 'ip_address',
+        render: (_, logItem) =>
+            logItem.unprocessed?.ip_address ? (
+                <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+            ) : (
+                <span className="text-muted">—</span>
+            ),
+        width: '10%',
     },
 ]
 

@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 
 import {
     LogsAlertConfigurationApi,
@@ -114,6 +114,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
     [LogsAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
+    [LogsAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
 }
 
 function describeEvent(event: LogsAlertEventApi): EventDescription {

@@ -1,5 +1,4 @@
-import { resetContext } from 'kea'
-import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,10 +22,6 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
-
-        resetContext({
-            plugins: [testUtilsPlugin],
-        })
 
         useMocks({
             get: {
@@ -308,6 +303,11 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             const distinctId2 = 'person-2-id'
             const globalsForPerson1 = createGlobals(distinctId1)
 
+            // Wait for afterMount's loadSamplePersons to complete before proceeding
+            await expectLogic(logic)
+                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
+                .toFinishAllListeners()
+
             // Reload when sampleGlobals is null
             await expectLogic(logic, () => {
                 logic.actions.setSelectedPersonDistinctId(distinctId1)
@@ -369,6 +369,11 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         it('should not reload person if sampleGlobals matches selectedPersonDistinctId', async () => {
             const distinctId = 'person-1-id'
             const globalsForPerson1 = createGlobals(distinctId)
+
+            // Wait for afterMount's loadSamplePersons to complete before proceeding
+            await expectLogic(logic)
+                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
+                .toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.setSampleGlobals(JSON.stringify(globalsForPerson1, null, 2))

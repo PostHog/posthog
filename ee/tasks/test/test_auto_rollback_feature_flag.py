@@ -1,8 +1,8 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from posthog.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.tasks.auto_rollback_feature_flag import (
     calculate_rolling_average,
@@ -35,6 +35,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2021-08-22 05:00:00",
                     properties={"prop": 1},
                 )
+            flush_persons_and_events()
         with freeze_time("2021-08-21T21:00:00.000Z"):
             self.assertEqual(
                 calculate_rolling_average(
@@ -102,6 +103,8 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 properties={"prop": 1},
             )
 
+        flush_persons_and_events()
+
         with freeze_time("2021-08-21T20:00:00.000Z"):
             flag = FeatureFlag.objects.create(
                 team=self.team,
@@ -143,6 +146,8 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2021-08-22 00:00:00",
                 properties={"prop": 1},
             )
+
+        flush_persons_and_events()
 
         with freeze_time("2021-08-21T00:00:00.000Z"):
             flag = FeatureFlag.objects.create(

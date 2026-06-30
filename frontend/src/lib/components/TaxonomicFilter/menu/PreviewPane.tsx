@@ -9,6 +9,8 @@
  * Properties / events / actions render specific extras; everything else
  * falls back to the shared header + description.
  */
+import posthog from 'posthog-js'
+
 import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
@@ -19,8 +21,10 @@ import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/t
 
 import { useTaxonomicAutocompleteItemDetails } from '../headless'
 import { TaxonomicFilterGroupType } from '../types'
+import { getMatchedValue } from './MatchedValueBadge'
 import { ActionMatchGroups } from './preview/ActionMatchGroups'
 import { MenuFilterEntry } from './types'
+import { VerificationBadge } from './VerificationBadge'
 
 export interface PreviewPaneProps {
     /** Highlighted entry, or `null` when nothing is highlighted. */
@@ -55,11 +59,12 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
     // for event first/last seen (handled later if needed).
     const isAction = entry.group.type === TaxonomicFilterGroupType.Actions
     const viewUrl = resolveViewUrl(entry)
+    const matchedValue = getMatchedValue(entry)
 
     return (
         <ScrollArea className="flex-1 min-h-0">
             <div className="flex flex-col gap-3 p-3 text-sm">
-                <PreviewHeader details={details} viewUrl={viewUrl} />
+                <PreviewHeader details={details} viewUrl={viewUrl} entry={entry} />
 
                 {details.description ? (
                     <p className="text-xs leading-relaxed text-secondary">{details.description}</p>
@@ -76,10 +81,10 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
                     </div>
                 )}
 
-                {details.rawName && details.rawName !== details.title && (
+                {matchedValue && (
                     <div className="flex flex-col gap-0.5 border-t pt-2">
-                        <div className="text-xxs uppercase tracking-wide text-secondary">Sent as</div>
-                        <code className="text-xs break-all font-mono">{details.rawName}</code>
+                        <div className="text-xxs uppercase tracking-wide text-secondary">Matched on value</div>
+                        <code className="break-all font-mono text-xs text-tertiary">{matchedValue}</code>
                     </div>
                 )}
 
@@ -93,9 +98,11 @@ interface PreviewHeaderProps {
     details: ReturnType<typeof useTaxonomicAutocompleteItemDetails>
     /** Data management URL for the definition, or `undefined` to hide. */
     viewUrl: string | undefined
+    /** Highlighted entry — drives the verification badge. */
+    entry: MenuFilterEntry
 }
 
-function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | null {
+function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Element | null {
     if (!details) {
         return null
     }
@@ -108,7 +115,15 @@ function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | 
                     size="sm"
                     disabled={!details.isPinnable}
                     aria-pressed={details.isPinned}
-                    onClick={details.togglePin}
+                    onClick={() => {
+                        posthog.capture('taxonomic filter menu pin toggled', {
+                            groupType: entry.group.type,
+                            // Intended next state — `isPinned` still reads
+                            // the pre-toggle value here.
+                            pinned: !details.isPinned,
+                        })
+                        details.togglePin()
+                    }}
                 >
                     <IconPin className="size-3.5" />
                     {details.isPinned ? 'Pinned' : 'Pin'}
@@ -127,6 +142,13 @@ function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | 
             <div className="flex flex-col gap-1">
                 <div className="text-xxs uppercase tracking-wide text-secondary">{details.groupLabel}</div>
                 <div className="text-base font-semibold leading-tight break-words">{details.title}</div>
+                {details.rawName && details.rawName !== details.title && (
+                    <div className="flex items-baseline gap-1 text-xs text-secondary">
+                        <span>Sent as</span>
+                        <code className="break-all font-mono text-tertiary">{details.rawName}</code>
+                    </div>
+                )}
+                <VerificationBadge entry={entry} className="mt-1 self-start" />
             </div>
             <Separator />
         </div>

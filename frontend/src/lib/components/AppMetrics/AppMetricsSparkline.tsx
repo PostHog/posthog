@@ -5,7 +5,7 @@ import { useInView } from 'react-intersection-observer'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'
 

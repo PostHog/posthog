@@ -1,6 +1,6 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import {
     DashboardFilter,
@@ -23,7 +23,6 @@ import {
     isHogQLQuery,
     isInsightQueryNode,
     isPersonsNode,
-    shouldQueryBeAsync,
 } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
@@ -169,21 +168,16 @@ async function executeQuery<N extends DataNode>(
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
      */
     pollOnly = false,
-    limitContext?: 'posthog_ai'
+    limitContext?: 'posthog_ai',
+    /**
+     * When the backend serves a cached result while kicking off a background recompute
+     * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
+     * attached), return the cached results immediately instead of blocking on the recompute.
+     */
+    acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
-        // Determine the refresh type based on the query node type and refresh parameter
-        let refreshParam: RefreshType
-
-        if (posthog.isFeatureEnabled('always-query-blocking')) {
-            refreshParam = refresh || 'blocking'
-        } else if (shouldQueryBeAsync(queryNode)) {
-            // For insight queries, use async variants but preserve explicit force requests
-            refreshParam = refresh || 'async'
-        } else {
-            // For other queries, use blocking unless explicitly set to a different RefreshType
-            refreshParam = refresh || 'blocking'
-        }
+        const refreshParam: RefreshType = refresh || 'blocking'
 
         const response = await api.query(queryNode, {
             requestOptions: methodOptions,
@@ -200,6 +194,12 @@ async function executeQuery<N extends DataNode>(
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
+            return response
+        }
+
+        if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
+            // Cached results are already present alongside a background recompute, so use them
+            // now rather than discarding them to poll a job that may take a while (or be stuck).
             return response
         }
 
@@ -227,7 +227,8 @@ export async function performQuery<N extends DataNode>(
     filtersOverride?: DashboardFilter | null,
     variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false,
-    limitContext?: 'posthog_ai'
+    limitContext?: 'posthog_ai',
+    acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -246,7 +247,8 @@ export async function performQuery<N extends DataNode>(
                 filtersOverride,
                 variablesOverride,
                 pollOnly,
-                limitContext
+                limitContext,
+                acceptStaleCache
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

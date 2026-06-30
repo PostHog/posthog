@@ -26,8 +26,16 @@ const LivePersonDrillDownInner = ({ selection }: { selection: LivePersonDrillDow
         breakdownType: selection.breakdownType,
         breakdownValue: selection.breakdownValue,
     }
-    const { persons, personsLoading, totalCount, identifiedCount, anonymousCount, newVisitorCount, isTruncated } =
-        useValues(livePersonDrillDownLogic(logicProps))
+    const {
+        persons,
+        personsLoading,
+        totalCount,
+        identifiedCount,
+        anonymousCount,
+        newVisitorCount,
+        isTruncated,
+        recordingCountByPersonKey,
+    } = useValues(livePersonDrillDownLogic(logicProps))
     const { refresh } = useActions(livePersonDrillDownLogic(logicProps))
 
     const title = `${BREAKDOWN_TITLE_PREFIX[selection.breakdownType]} ${selection.breakdownLabel}`
@@ -93,9 +101,16 @@ const LivePersonDrillDownInner = ({ selection }: { selection: LivePersonDrillDow
                                     {isTruncated ? ` of ${identifiedCount.toLocaleString()}` : ''})
                                 </div>
                                 <div className="flex flex-col">
-                                    {persons.map((person) => (
-                                        <LivePersonDrillDownRow key={person.id ?? person.uuid} person={person} />
-                                    ))}
+                                    {persons.map((person) => {
+                                        const key = person.id ?? person.uuid
+                                        return (
+                                            <LivePersonDrillDownRow
+                                                key={key}
+                                                person={person}
+                                                recordingCount={key ? recordingCountByPersonKey[key] : undefined}
+                                            />
+                                        )
+                                    })}
                                 </div>
                                 {isTruncated && (
                                     <div className="text-xs text-muted mt-2">

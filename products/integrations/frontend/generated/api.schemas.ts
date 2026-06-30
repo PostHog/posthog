@@ -19,13 +19,13 @@ export const OrganizationIntegrationKindEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -150,46 +150,51 @@ export interface RoleLookupResponseApi {
 
 /**
  * * `anthropic` - Anthropic
- * `apns` - Apple Push
- * `azure-blob` - Azure Blob
- * `bing-ads` - Bing Ads
- * `clickup` - Clickup
- * `customerio-app` - Customerio App
- * `customerio-track` - Customerio Track
- * `customerio-webhook` - Customerio Webhook
- * `databricks` - Databricks
- * `email` - Email
- * `firebase` - Firebase
- * `github` - Github
- * `gitlab` - Gitlab
- * `google-ads` - Google Ads
- * `google-cloud-service-account` - Google Cloud Service Account
- * `google-cloud-storage` - Google Cloud Storage
- * `google-pubsub` - Google Pubsub
- * `google-sheets` - Google Sheets
- * `hubspot` - Hubspot
- * `intercom` - Intercom
- * `jira` - Jira
- * `linear` - Linear
- * `linkedin-ads` - Linkedin Ads
- * `meta-ads` - Meta Ads
- * `pinterest-ads` - Pinterest Ads
- * `postgresql` - Postgresql
- * `reddit-ads` - Reddit Ads
- * `salesforce` - Salesforce
- * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `snapchat` - Snapchat
- * `stripe` - Stripe
- * `tiktok-ads` - Tiktok Ads
- * `twilio` - Twilio
- * `vercel` - Vercel
+ * * `apns` - Apple Push
+ * * `aws-s3` - Aws S3
+ * * `azure-blob` - Azure Blob
+ * * `bing-ads` - Bing Ads
+ * * `clickup` - Clickup
+ * * `customerio-app` - Customerio App
+ * * `customerio-track` - Customerio Track
+ * * `customerio-webhook` - Customerio Webhook
+ * * `databricks` - Databricks
+ * * `email` - Email
+ * * `firebase` - Firebase
+ * * `github` - Github
+ * * `gitlab` - Gitlab
+ * * `google-ads` - Google Ads
+ * * `google-analytics` - Google Analytics
+ * * `google-cloud-service-account` - Google Cloud Service Account
+ * * `google-cloud-storage` - Google Cloud Storage
+ * * `google-pubsub` - Google Pubsub
+ * * `google-search-console` - Google Search Console
+ * * `google-sheets` - Google Sheets
+ * * `hubspot` - Hubspot
+ * * `intercom` - Intercom
+ * * `jira` - Jira
+ * * `linear` - Linear
+ * * `linkedin-ads` - Linkedin Ads
+ * * `meta-ads` - Meta Ads
+ * * `pinterest-ads` - Pinterest Ads
+ * * `postgresql` - Postgresql
+ * * `reddit-ads` - Reddit Ads
+ * * `s3-compatible` - S3 Compatible
+ * * `salesforce` - Salesforce
+ * * `slack` - Slack
+ * * `slack-posthog-code` - Slack Posthog Code
+ * * `snapchat` - Snapchat
+ * * `stripe` - Stripe
+ * * `tiktok-ads` - Tiktok Ads
+ * * `twilio` - Twilio
+ * * `vercel` - Vercel
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -202,9 +207,11 @@ export const IntegrationKindEnumApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -215,6 +222,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
@@ -270,6 +278,8 @@ export interface SlackChannelsResponseApi {
      * @nullable
      */
     lastRefreshedAt?: string | null
+    /** Whether more channels match the current search beyond this page. */
+    has_more?: boolean
 }
 
 /**
@@ -314,68 +324,154 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
-export interface UserGitHubAccountApi {
-    /**
-     * GitHub account type for the installation (e.g. User or Organization).
-     * @nullable
-     */
-    type?: string | null
-    /**
-     * GitHub login or organization name tied to the installation.
-     * @nullable
-     */
-    name?: string | null
+export interface GitHubTeamApi {
+    /** GitHub team numeric identifier. */
+    id: number
+    /** GitHub team slug. */
+    slug: string
+    /** GitHub team display name. */
+    name: string
 }
 
-export interface UserGitHubIntegrationItemApi {
-    /** PostHog UserIntegration row id. */
+export interface GitHubTeamsResponseApi {
+    /** List of GitHub teams available to the installation organization. */
+    teams: GitHubTeamApi[]
+    /** Whether more teams are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GoogleSearchConsoleSiteApi {
+    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+    siteUrl: string
+    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+    permissionLevel: string
+}
+
+export interface GoogleSearchConsoleSitesResponseApi {
+    sites: GoogleSearchConsoleSiteApi[]
+}
+
+export interface JiraProjectApi {
+    /** Jira project ID. */
     id: string
-    /** Integration kind; always `github` for this API. */
-    kind: string
-    /** GitHub App installation id. */
-    installation_id: string
+    /** Jira project key to pass as error tracking config.project_key. */
+    key: string
+    /** Jira project display name. */
+    name: string
+}
+
+export interface JiraProjectsResponseApi {
+    /** Jira projects available to this integration. */
+    projects: JiraProjectApi[]
+}
+
+export interface LinearTeamApi {
+    /** Linear team ID to pass as error tracking config.team_id. */
+    id: string
+    /** Linear team display name. */
+    name: string
+}
+
+export interface LinearTeamsResponseApi {
+    /** Linear teams available to this integration. */
+    teams: LinearTeamApi[]
+}
+
+export interface GitHubLinkExistingRequestApi {
     /**
-     * Repository selection mode from GitHub (e.g. selected or all).
+     * Sibling team in the same organization whose GitHub installation should be reused.
      * @nullable
      */
-    repository_selection?: string | null
-    /** Installation account metadata from GitHub. */
-    account?: UserGitHubAccountApi | null
-    /** True when this installation id matches a team-level GitHub integration on the active project. */
-    uses_shared_installation: boolean
-    /** When this integration row was created. */
-    created_at: string
+    source_team_id?: number | null
+    /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+    installation_id?: string
 }
 
-export interface UserGitHubIntegrationListResponseApi {
-    /** GitHub personal integrations for the authenticated user. */
-    results: UserGitHubIntegrationItemApi[]
+/**
+ * * `posthog_code` - posthog_code
+ */
+export type ConnectFromEnumApi = (typeof ConnectFromEnumApi)[keyof typeof ConnectFromEnumApi]
+
+export const ConnectFromEnumApi = {
+    PosthogCode: 'posthog_code',
+} as const
+
+export interface GitHubOAuthAuthorizeRequestApi {
+    /** GitHub installation ID to carry through the User OAuth flow. */
+    installation_id?: string
+    /** Relative URL to redirect to after the OAuth flow completes. */
+    next?: string
+    /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+     *
+     * * `posthog_code` - posthog_code */
+    connect_from?: ConnectFromEnumApi
 }
 
-export interface PaginatedUserGitHubIntegrationListResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserGitHubIntegrationListResponseApi[]
+export interface GitHubOAuthAuthorizeResponseApi {
+    /** GitHub User OAuth URL the client should redirect to. */
+    oauth_url: string
 }
 
-export interface UserGitHubLinkStartRequestApi {
+export interface GitHubPrepareCallbackRequestApi {
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    next?: string
+    /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+    installation_id?: string
+}
+
+export interface IntegrationAccessRequestApi {
+    /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+     *
+     * * `anthropic` - Anthropic
+     * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel */
+    kind: IntegrationKindEnumApi
     /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
-     * @nullable
+     * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+     * @maxLength 2000
      */
-    team_id?: number | null
-    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
-    connect_from?: string
+    reason: string
 }
 
-export interface UserGitHubLinkStartResponseApi {
-    /** URL to open in the browser to install or authorize the GitHub App for this user. */
-    install_url: string
-    /** OAuth or install flow used for this GitHub connection. */
-    connect_flow: string
+export interface IntegrationAccessRequestResponseApi {
+    /** Whether the access request was accepted and the project admins were notified. */
+    success: boolean
 }
 
 export type RoleExternalReferencesListParams = {
@@ -415,40 +511,44 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
-     * `apns` - Apple Push
-     * `azure-blob` - Azure Blob
-     * `bing-ads` - Bing Ads
-     * `clickup` - Clickup
-     * `customerio-app` - Customerio App
-     * `customerio-track` - Customerio Track
-     * `customerio-webhook` - Customerio Webhook
-     * `databricks` - Databricks
-     * `email` - Email
-     * `firebase` - Firebase
-     * `github` - Github
-     * `gitlab` - Gitlab
-     * `google-ads` - Google Ads
-     * `google-cloud-service-account` - Google Cloud Service Account
-     * `google-cloud-storage` - Google Cloud Storage
-     * `google-pubsub` - Google Pubsub
-     * `google-sheets` - Google Sheets
-     * `hubspot` - Hubspot
-     * `intercom` - Intercom
-     * `jira` - Jira
-     * `linear` - Linear
-     * `linkedin-ads` - Linkedin Ads
-     * `meta-ads` - Meta Ads
-     * `pinterest-ads` - Pinterest Ads
-     * `postgresql` - Postgresql
-     * `reddit-ads` - Reddit Ads
-     * `salesforce` - Salesforce
-     * `slack` - Slack
-     * `slack-posthog-code` - Slack Posthog Code
-     * `snapchat` - Snapchat
-     * `stripe` - Stripe
-     * `tiktok-ads` - Tiktok Ads
-     * `twilio` - Twilio
-     * `vercel` - Vercel
+     * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel
      */
     kind?: IntegrationsListKind
     /**
@@ -466,6 +566,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -478,9 +579,11 @@ export const IntegrationsListKind = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -491,6 +594,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
@@ -500,6 +604,24 @@ export const IntegrationsListKind = {
     Twilio: 'twilio',
     Vercel: 'vercel',
 } as const
+
+export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string
+}
 
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -542,54 +664,20 @@ export type IntegrationsGithubReposRetrieveParams = {
     search?: string
 }
 
-export type UsersIntegrationsListParams = {
+export type IntegrationsGithubTeamsRetrieveParams = {
     /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type UsersIntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Maximum number of branches to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number
-    /**
-     * Number of branches to skip
-     * @minimum 0
-     */
-    offset?: number
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string
-}
-
-export type UsersIntegrationsGithubReposRetrieveParams = {
-    /**
-     * Maximum number of repositories to return per request (max 500).
+     * Maximum number of teams to return per request (max 500).
      * @minimum 1
      * @maximum 500
      */
     limit?: number
     /**
-     * Number of repositories to skip before returning results.
+     * Number of teams to skip before returning results.
      * @minimum 0
      */
     offset?: number
     /**
-     * Optional case-insensitive repository name search query.
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string
 }

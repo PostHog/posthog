@@ -33,12 +33,14 @@ const _commonActionFields = {
                 key: z.string(),
                 result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
                 spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+                label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
             }),
             z.array(
                 z.object({
                     key: z.string(),
                     result_path: z.string().optional().nullable(),
                     spread: z.boolean().optional().nullable(),
+                    label: z.string().optional().nullable(),
                 })
             ),
         ])
@@ -71,6 +73,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'posthog_assignee',
         'posthog_ticket_tags',
         'posthog_business_hours',
+        'non_failure_status_codes',
     ]),
     key: z.string(),
     label: z.string(),
@@ -143,6 +146,15 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
         }),
     }),
+    z.object({
+        type: z.literal('data-warehouse-table'),
+        // Dot-notated table name matching the Python CDPProducer naming
+        table_name: z.string(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+        key_property: z.string().optional(),
+    }),
 ])
 
 /** Trigger types that use HogFlowSchedule for recurring execution */
@@ -198,6 +210,14 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: ActionFiltersSchema.optional().nullable(),
                 name: z.string().optional(), // Custom name for the condition
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: ActionFiltersSchema.optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),
@@ -294,6 +314,14 @@ export const isTriggerFunction = (
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
     return ['webhook', 'tracking_pixel', 'manual'].includes(trigger.config.type)
+}
+
+export const isScheduleTrigger = (action: HogFlowAction): boolean => {
+    if (action.type !== 'trigger') {
+        return false
+    }
+    const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
+    return trigger.config.type === 'schedule'
 }
 
 export interface HogflowTestResult {

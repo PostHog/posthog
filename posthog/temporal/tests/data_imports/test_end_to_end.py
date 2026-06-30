@@ -48,25 +48,47 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import process_message
-from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE, PendingBatch
-from posthog.temporal.data_imports.row_tracking import get_rows
-from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_latest_run_if_exists,
+)
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    process_message,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BATCH_TABLE,
+    PendingBatch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.row_tracking import get_rows
+from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClient as PostHogRESTClient,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import XminBounds
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
@@ -82,22 +104,16 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
-from posthog.temporal.utils import ExternalDataWorkflowInputs
-
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
-from products.data_warehouse.backend.models.external_table_definitions import external_tables
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    ExternalDataSourceType,
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -226,6 +242,31 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+# `mysql_container`, `mysql_config`, and `mysql_connection` live in
+# conftest.py so the container starts once per test session and is shared
+# across every test file in this package.
+
+
+def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
+    """Serialize `mysql_config` into the flat string-keyed dict the
+    ExternalDataSource.job_inputs pipeline expects (same shape the UI
+    produces).
+
+    Return type matches `_run`'s `job_inputs` param — dicts are invariant
+    so the wider `str | dict[str, str]` value type is required even
+    though every value this helper produces is a plain `str`.
+    """
+    return {
+        "host": mysql_config["host"],
+        "port": str(mysql_config["port"]),
+        "database": mysql_config["database"],
+        "user": mysql_config["user"],
+        "password": mysql_config["password"],
+        "schema": mysql_config["schema"],
+        "using_ssl": "false",
+    }
+
+
 @pytest.fixture
 def mock_paddle_client():
     response_data: dict[str, Any] = {"items": []}
@@ -261,11 +302,11 @@ def mock_paddle_client():
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.paddle.paddle.paddle_request",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.paddle_request",
             side_effect=mock_paddle_request,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
             return_value=True,
         ),
     ):
@@ -303,11 +344,11 @@ def mock_customer_io_client():
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.customer_io.api_client._session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session",
             return_value=_StubSession(),
         ),
         mock.patch(
-            "posthog.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
             return_value=(True, None),
         ),
     ):
@@ -377,9 +418,11 @@ async def _run(
     with (
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
-        mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
+        ) as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -507,7 +550,7 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
             DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
             side_effect=_pg_queue_replay.mock_idempotency_check,
         ),
     ):
@@ -603,23 +646,21 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         if _current_pipeline_mode == "v3":
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=True,
                 )
             )
             # Point the Postgres producer at the Django test database
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
                     _get_test_database_url(),
                 )
             )
         else:
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=False,
                 )
             )
@@ -644,34 +685,63 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 )
 
 
+_STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
+    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+    "stripe_account_id": "acct_id",
+}
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_balance_transactions(team, stripe_balance_transaction, mock_stripe_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name",
+    [
+        (STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME, "stripe_balancetransaction", "stripe_balance_transaction"),
+        (STRIPE_CUSTOMER_RESOURCE_NAME, "stripe_customer", "stripe_customer"),
+        (STRIPE_INVOICE_RESOURCE_NAME, "stripe_invoice", "stripe_invoice"),
+        (STRIPE_PRICE_RESOURCE_NAME, "stripe_price", "stripe_price"),
+        (STRIPE_PRODUCT_RESOURCE_NAME, "stripe_product", "stripe_product"),
+        (STRIPE_SUBSCRIPTION_RESOURCE_NAME, "stripe_subscription", "stripe_subscription"),
+        (STRIPE_DISPUTE_RESOURCE_NAME, "stripe_dispute", "stripe_dispute"),
+        (STRIPE_PAYOUT_RESOURCE_NAME, "stripe_payout", "stripe_payout"),
+        (STRIPE_REFUND_RESOURCE_NAME, "stripe_refund", "stripe_refund"),
+        (STRIPE_INVOICE_ITEM_RESOURCE_NAME, "stripe_invoiceitem", "stripe_invoiceitem"),
+        (STRIPE_CREDIT_NOTE_RESOURCE_NAME, "stripe_creditnote", "stripe_credit_note"),
+        (
+            STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+            "stripe_customerbalancetransaction",
+            "stripe_customer_balance_transaction",
+        ),
+        (
+            STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            "stripe_customerpaymentmethod",
+            "stripe_customer_payment_method",
+        ),
+    ],
+)
+async def test_stripe_source(team, mock_stripe_client, request, schema_name, table_name, fixture_name):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
-        schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-        table_name="stripe_balancetransaction",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_balance_transaction["data"],
+        job_inputs=_STRIPE_JOB_INPUTS,
+        mock_data_response=fixture_data["data"],
     )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
+    # Kept standalone: also asserts that the revenue analytics first-sync
+    # notification flag gets set after a successful charges sync.
     await _run(
         team=team,
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
+        job_inputs=_STRIPE_JOB_INPUTS,
         mock_data_response=stripe_charge["data"],
     )
 
@@ -680,378 +750,68 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
     assert team.revenue_analytics_config.notified_first_sync
 
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer(team, stripe_customer, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer["data"],
-    )
+_ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
+    "subdomain": "test",
+    "api_key": "test_api_key",
+    "email_address": "test@posthog.com",
+}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_invoice(team, stripe_invoice, mock_stripe_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name,fixture_data_key",
+    [
+        ("brands", "zendesk_brands", "zendesk_brands", "brands"),
+        ("organizations", "zendesk_organizations", "zendesk_organizations", "organizations"),
+        ("groups", "zendesk_groups", "zendesk_groups", "groups"),
+        ("sla_policies", "zendesk_sla_policies", "zendesk_sla_policies", "sla_policies"),
+        ("users", "zendesk_users", "zendesk_users", "users"),
+        ("ticket_fields", "zendesk_ticket_fields", "zendesk_ticket_fields", "ticket_fields"),
+        ("ticket_events", "zendesk_ticket_events", "zendesk_ticket_events", "ticket_events"),
+        ("tickets", "zendesk_tickets", "zendesk_tickets", "tickets"),
+        (
+            "ticket_metric_events",
+            "zendesk_ticket_metric_events",
+            "zendesk_ticket_metric_events",
+            "ticket_metric_events",
+        ),
+    ],
+)
+async def test_zendesk_source(team, request, schema_name, table_name, fixture_name, fixture_data_key):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
-        schema_name=STRIPE_INVOICE_RESOURCE_NAME,
-        table_name="stripe_invoice",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_invoice["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_price(team, stripe_price, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PRICE_RESOURCE_NAME,
-        table_name="stripe_price",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_price["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_product(team, stripe_product, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PRODUCT_RESOURCE_NAME,
-        table_name="stripe_product",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_product["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-        table_name="stripe_subscription",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_subscription["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
-        table_name="stripe_dispute",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_dispute["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
-        table_name="stripe_payout",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_payout["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_REFUND_RESOURCE_NAME,
-        table_name="stripe_refund",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_refund["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
-        table_name="stripe_invoiceitem",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_invoiceitem["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
-        table_name="stripe_creditnote",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_credit_note["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-        table_name="stripe_customerbalancetransaction",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer_balance_transaction["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer_payment_method(team, stripe_customer_payment_method, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
-        table_name="stripe_customerpaymentmethod",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer_payment_method["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_brands(team, zendesk_brands):
-    await _run(
-        team=team,
-        schema_name="brands",
-        table_name="zendesk_brands",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_brands["brands"],
+        job_inputs=_ZENDESK_JOB_INPUTS,
+        mock_data_response=fixture_data[fixture_data_key],
     )
+
+
+_PADDLE_JOB_INPUTS: dict[str, str | dict[str, str]] = {"paddle_api_key": "test_api_key"}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_zendesk_organizations(team, zendesk_organizations):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name",
+    [
+        ("customers", "paddle_customers", "paddle_customers"),
+        ("subscriptions", "paddle_subscriptions", "paddle_subscriptions"),
+    ],
+)
+async def test_paddle_source(team, mock_paddle_client, request, schema_name, table_name, fixture_name):
+    fixture_data = request.getfixturevalue(fixture_name)
+    mock_paddle_client(fixture_data["data"])
     await _run(
         team=team,
-        schema_name="organizations",
-        table_name="zendesk_organizations",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_organizations["organizations"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_groups(team, zendesk_groups):
-    await _run(
-        team=team,
-        schema_name="groups",
-        table_name="zendesk_groups",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_groups["groups"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_sla_policies(team, zendesk_sla_policies):
-    await _run(
-        team=team,
-        schema_name="sla_policies",
-        table_name="zendesk_sla_policies",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_sla_policies["sla_policies"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_users(team, zendesk_users):
-    await _run(
-        team=team,
-        schema_name="users",
-        table_name="zendesk_users",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_users["users"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
-    await _run(
-        team=team,
-        schema_name="ticket_fields",
-        table_name="zendesk_ticket_fields",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_fields["ticket_fields"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_events(team, zendesk_ticket_events):
-    await _run(
-        team=team,
-        schema_name="ticket_events",
-        table_name="zendesk_ticket_events",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_events["ticket_events"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_tickets(team, zendesk_tickets):
-    await _run(
-        team=team,
-        schema_name="tickets",
-        table_name="zendesk_tickets",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_tickets["tickets"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
-    await _run(
-        team=team,
-        schema_name="ticket_metric_events",
-        table_name="zendesk_ticket_metric_events",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_paddle_customers(team, paddle_customers, mock_paddle_client):
-    mock_paddle_client(paddle_customers["data"])
-
-    await _run(
-        team=team,
-        schema_name="customers",
-        table_name="paddle_customers",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Paddle",
-        job_inputs={"paddle_api_key": "test_api_key"},
-        mock_data_response=paddle_customers["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_client):
-    mock_paddle_client(paddle_subscriptions["data"])
-
-    await _run(
-        team=team,
-        schema_name="subscriptions",
-        table_name="paddle_subscriptions",
-        source_type="Paddle",
-        job_inputs={"paddle_api_key": "test_api_key"},
-        mock_data_response=paddle_subscriptions["data"],
+        job_inputs=_PADDLE_JOB_INPUTS,
+        mock_data_response=fixture_data["data"],
     )
 
 
@@ -1069,131 +829,32 @@ async def _run_customer_io(team, schema_name, table_name, mock_data, mock_custom
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_customer_io_broadcasts(team, customer_io_broadcasts, mock_customer_io_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name,fixture_data_key",
+    [
+        ("broadcasts", "customerio_broadcasts", "customer_io_broadcasts", "broadcasts"),
+        ("campaigns", "customerio_campaigns", "customer_io_campaigns", "campaigns"),
+        ("collections", "customerio_collections", "customer_io_collections", "collections"),
+        ("newsletters", "customerio_newsletters", "customer_io_newsletters", "newsletters"),
+        ("object_types", "customerio_object_types", "customer_io_object_types", "types"),
+        ("segments", "customerio_segments", "customer_io_segments", "segments"),
+        ("sender_identities", "customerio_sender_identities", "customer_io_sender_identities", "sender_identities"),
+        ("snippets", "customerio_snippets", "customer_io_snippets", "snippets"),
+        ("subscription_topics", "customerio_subscription_topics", "customer_io_subscription_topics", "topics"),
+        ("transactional", "customerio_transactional", "customer_io_transactional", "messages"),
+    ],
+)
+async def test_customer_io_source(
+    team, mock_customer_io_client, request, schema_name, table_name, fixture_name, fixture_data_key
+):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run_customer_io(
         team,
-        schema_name="broadcasts",
-        table_name="customerio_broadcasts",
-        mock_data=customer_io_broadcasts["broadcasts"],
+        schema_name=schema_name,
+        table_name=table_name,
+        mock_data=fixture_data[fixture_data_key],
         mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_broadcasts,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_campaigns(team, customer_io_campaigns, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="campaigns",
-        table_name="customerio_campaigns",
-        mock_data=customer_io_campaigns["campaigns"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_campaigns,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_collections(team, customer_io_collections, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="collections",
-        table_name="customerio_collections",
-        mock_data=customer_io_collections["collections"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_collections,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_newsletters(team, customer_io_newsletters, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="newsletters",
-        table_name="customerio_newsletters",
-        mock_data=customer_io_newsletters["newsletters"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_newsletters,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_object_types(team, customer_io_object_types, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="object_types",
-        table_name="customerio_object_types",
-        mock_data=customer_io_object_types["types"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_object_types,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_segments(team, customer_io_segments, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="segments",
-        table_name="customerio_segments",
-        mock_data=customer_io_segments["segments"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_segments,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_sender_identities(team, customer_io_sender_identities, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="sender_identities",
-        table_name="customerio_sender_identities",
-        mock_data=customer_io_sender_identities["sender_identities"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_sender_identities,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_snippets(team, customer_io_snippets, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="snippets",
-        table_name="customerio_snippets",
-        mock_data=customer_io_snippets["snippets"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_snippets,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_subscription_topics(team, customer_io_subscription_topics, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="subscription_topics",
-        table_name="customerio_subscription_topics",
-        mock_data=customer_io_subscription_topics["topics"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_subscription_topics,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_transactional(team, customer_io_transactional, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="transactional",
-        table_name="customerio_transactional",
-        mock_data=customer_io_transactional["messages"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_transactional,
+        payload=fixture_data,
     )
 
 
@@ -1907,7 +1568,7 @@ async def test_missing_source(team):
     with (
         pytest.raises(Exception) as e,
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
         ) as mock_delete_external_data_schedule,
     ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
@@ -2047,13 +1708,17 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
+        ) as mock_chunk_size,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -2151,12 +1816,14 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ),
     ):
@@ -2234,13 +1901,17 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
+        ) as mock_chunk_size,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -2573,10 +2244,11 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            mock_setup_partitioning,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
             mock_apply_partitioning,
         ),
     ):
@@ -2672,10 +2344,11 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            mock_setup_partitioning,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
             mock_apply_partitioning,
         ),
     ):
@@ -2803,12 +2476,14 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -2857,12 +2532,14 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.finish_row_tracking"
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.decrement_rows"
+        ) as mock_decrement_rows,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
         ) as mock_finish_row_tracking_workflow,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking"
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking"
         ) as mock_finish_row_tracking_consumer,
     ):
         _, inputs = await _run(
@@ -2928,7 +2605,9 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
 
     with (
         pytest.raises(Exception),
-        mock.patch("posthog.temporal.data_imports.external_data_job.update_should_sync") as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
     ):
         await _run(
             team=team,
@@ -3048,10 +2727,15 @@ async def test_worker_shutdown_desc_sort_order(team):
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.vitally.vitally.get_messages", mock_get_messages),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
+            mock_get_messages,
+        ),
     ):
         _, inputs = await _run(
             team=team,
@@ -3088,9 +2772,11 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
     ):
         _, inputs = await _run(
             team=team,
@@ -3281,9 +2967,13 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
         process_mock = mock.patch.object(PipelineNonDLT, "_process_pa_table")
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES", 1),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 5000
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES",
+            1,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE",
+            5000,
         ),  # Explicitly make this big
         process_mock as mock_process,
     ):
@@ -3342,6 +3032,12 @@ async def test_postgres_deleting_schemas(team, postgres_config, postgres_connect
 
         return list(schemas)
 
+    # Schema discovery now runs on its own per-source schedule — simulate a tick
+    # of that schedule to discover the second table.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
+
     schemas = await get_schemas()
     assert len(schemas) == 2
 
@@ -3350,6 +3046,11 @@ async def test_postgres_deleting_schemas(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    # Simulate the next tick of the per-source discovery schedule.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
 
     schemas = await get_schemas()
 
@@ -3398,6 +3099,11 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 
         return list(schemas)
 
+    # Schema discovery now runs on its own per-source schedule — simulate a tick.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
+
     schemas = await get_schemas()
     assert len(schemas) == 2
 
@@ -3405,7 +3111,6 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     await postgres_connection.execute("DROP TABLE {schema}.table_1".format(schema=postgres_config["schema"]))
     await postgres_connection.commit()
 
-    # Sync the second table - this will trigger `sync_new_schemas_activity`
     unsynced_schema_ids = [s.id for s in schemas if s.id != inputs.external_data_schema_id]
     assert len(unsynced_schema_ids) == 1
     unsynced_schema_id = unsynced_schema_ids[0]
@@ -3418,6 +3123,11 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
             billable=inputs.billable,
         ),
         [],
+    )
+
+    # Simulate the next tick of the per-source discovery schedule.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
     )
 
     schemas = await get_schemas()
@@ -3521,7 +3231,10 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Sync a fifth time 1 min later but with a reduced query file delete buffer
     datetime_5 = datetime_4 + timedelta(minutes=1)
-    with freeze_time(datetime_5), mock.patch("posthog.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1):
+    with (
+        freeze_time(datetime_5),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1),
+    ):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3596,7 +3309,9 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     if _current_pipeline_mode != "v3":
         pytest.skip("only applies to pipeline_v3")
 
-    from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
+        is_batch_already_processed,
+    )
 
     _, inputs = await _run(
         team=team,
@@ -3693,50 +3408,75 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+@pytest.mark.parametrize("pipeline_mode", ["non_dlt"], indirect=True)
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client, pipeline_mode):
+    # The retry/short-circuit behaviour lives in the workflow + activity layer, upstream of the
+    # v3/non_dlt split, so running a single pipeline mode is enough — running both just doubles the
+    # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
+    # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
+    # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
+    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    resumable_retry_cap = 3
+    non_retryable_attempts = 2
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.MAX_RESUMABLE_SOURCE_RETRIES",
+            resumable_retry_cap,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.NON_RETRYABLE_ERROR_RETRY_LIMIT",
+            non_retryable_attempts - 1,
+        ),
+    ):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.get_rows"
+        ) as mock_get_rows:
+            mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
-    # Resumable source syncs retry up to 15 times
-    assert mock_get_rows.call_count == 15
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
-    non_retryable_error = next(iter(non_retryable_errors.keys()))
+        # Resumable source syncs retry up to the configured cap
+        assert mock_get_rows.call_count == resumable_retry_cap
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception(non_retryable_error)
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        non_retryable_error = next(iter(non_retryable_errors.keys()))
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.get_rows"
+        ) as mock_get_rows:
+            mock_get_rows.side_effect = Exception(non_retryable_error)
 
-    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
-    assert mock_get_rows.call_count == 4
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
+
+        # Non-retryable errors short-circuit before reaching the resumable cap
+        assert mock_get_rows.call_count == non_retryable_attempts
+        assert non_retryable_attempts < resumable_retry_cap
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3749,7 +3489,7 @@ async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.external_data_job.start_child_workflow"
+        "products.warehouse_sources.backend.temporal.data_imports.external_data_job.start_child_workflow"
     ) as mock_start_child_workflow:
         _, inputs = await _run(
             team=team,
@@ -3817,11 +3557,12 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
             _fake_scope,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns",
+            return_value=1768828644858352000,
         ),
     ):
         _, inputs = await _run(
@@ -3845,7 +3586,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         "tax_exempt": "none",
         "address": None,
         "invoice_prefix": "0759376C",
-        "balance": 0,
+        "balance": -1000,
         "currency": None,
         "livemode": False,
         "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
@@ -3869,8 +3610,13 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     if pipeline_mode == "non_dlt":
         expected_properties["_ph_partition_key"] = "2023-w14"
 
-    assert call_kwargs["data"] == {
+    # The producer derives a deterministic event id per row per job. Its value depends on the
+    # dynamic job id, so assert it is a valid UUID and compare the rest of the payload.
+    data = call_kwargs["data"]
+    assert str(uuid.UUID(data["event_id"])) == data["event_id"]
+    assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
+        "table_name": "stripe.customer",
         "properties": expected_properties,
     }
 
@@ -4021,11 +3767,8 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert len(files.get("Contents", [])) == 1
 
-    # Run the pipeline again with webhook feature flag enabled
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # Run the pipeline again to ingest the webhook parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4215,11 +3958,8 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # Verify offsets were committed
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
-    # 6. Run the import pipeline with webhook feature flag enabled to ingest the parquet
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # 6. Run the import pipeline to ingest the parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4237,3 +3977,419 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # 9. Verify webhook parquet file was cleaned up after consumption
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert files.get("Contents") is None or len(files.get("Contents", [])) == 0
+
+
+async def _mysql_setup(mysql_connection, statements: list[tuple[str, tuple | None]]) -> None:
+    """Run a list of `(sql, args)` statements against MySQL in one shot.
+
+    `mysql_connection` is a sync pymysql connection; wrap the batch in
+    `sync_to_async` so the surrounding async test body doesn't block the
+    event loop.
+    """
+
+    def _run() -> None:
+        with mysql_connection.cursor() as cursor:
+            for sql_stmt, args in statements:
+                cursor.execute(sql_stmt, args) if args is not None else cursor.execute(sql_stmt)
+        mysql_connection.commit()
+
+    await sync_to_async(_run)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
+    """Full-refresh sync of a simple table with a mix of common MySQL types."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS users_full_refresh", None),
+            (
+                """
+                CREATE TABLE users_full_refresh (
+                    id INT PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    age SMALLINT,
+                    created_at DATETIME
+                )
+                """,
+                None,
+            ),
+            (
+                "INSERT INTO users_full_refresh (id, email, age, created_at) VALUES (%s, %s, %s, %s)",
+                (1, "alice@example.com", 30, datetime(2025, 1, 1, 12, 0, 0)),
+            ),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="users_full_refresh",
+        table_name="mysql_users_full_refresh",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, email, age FROM mysql_users_full_refresh", team)
+    assert res.results is not None
+    row = res.results[0]
+    assert row[0] == 1
+    assert row[1] == "alice@example.com"
+    assert row[2] == 30
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection):
+    """Incremental sync with an INT cursor field — second run should pick up only new rows."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS events_int_incremental", None),
+            (
+                "CREATE TABLE events_int_incremental (id INT PRIMARY KEY, payload VARCHAR(64))",
+                None,
+            ),
+            ("INSERT INTO events_int_incremental VALUES (1, 'first')", None),
+        ],
+    )
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="events_int_incremental",
+        table_name="mysql_events_int_incremental",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
+    assert [row[0] for row in res.results] == [1]
+
+    # Insert more rows and re-run — the incremental cursor should pick them up.
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("INSERT INTO events_int_incremental VALUES (2, 'second')", None),
+            ("INSERT INTO events_int_incremental VALUES (3, 'third')", None),
+        ],
+    )
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
+    assert [row[0] for row in res.results] == [1, 2, 3]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh_with_zero_date(team, mysql_config, mysql_connection):
+    """Full-refresh sync of a table containing MySQL's notorious
+    '0000-00-00 00:00:00' zero-date. `_safe_convert_datetime` should map
+    it to None so the sync survives pymysql's default type coercion."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS events_zero_date", None),
+            ("CREATE TABLE events_zero_date (id INT PRIMARY KEY, updated_at DATETIME)", None),
+            # Bypass strict mode to allow the zero datetime.
+            ("SET SESSION sql_mode = ''", None),
+            ("INSERT INTO events_zero_date VALUES (1, '0000-00-00 00:00:00')", None),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="events_zero_date",
+        table_name="mysql_events_zero_date",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, updated_at FROM mysql_events_zero_date",
+        team,
+    )
+    assert len(res.results) == 1
+    assert res.results[0][0] == 1
+    # The zero date should have been converted to NULL/None.
+    assert res.results[0][1] is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_schema_evolution(team, mysql_config, mysql_connection):
+    """Add a column between syncs — the second run should pick up the new column."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS orders_evolution", None),
+            ("CREATE TABLE orders_evolution (id INT PRIMARY KEY)", None),
+            ("INSERT INTO orders_evolution (id) VALUES (1)", None),
+        ],
+    )
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="orders_evolution",
+        table_name="mysql_orders_evolution",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM mysql_orders_evolution", team)
+    assert any(col == "id" for col in res.columns or [])
+
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("ALTER TABLE orders_evolution ADD COLUMN total_cents INT", None),
+            ("INSERT INTO orders_evolution (id, total_cents) VALUES (2, 999)", None),
+        ],
+    )
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM mysql_orders_evolution", team)
+    columns = res.columns or []
+    assert any(col == "id" for col in columns)
+    assert any(col == "total_cents" for col in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_decimal_and_unsigned_types(team, mysql_config, mysql_connection):
+    """DECIMAL(p,s) keeps precision; UNSIGNED BIGINT widens so the full
+    u64 range (beyond signed int64) survives the round-trip."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS ledger_types", None),
+            (
+                """
+                CREATE TABLE ledger_types (
+                    id INT PRIMARY KEY,
+                    amount DECIMAL(10, 2),
+                    big_count BIGINT UNSIGNED
+                )
+                """,
+                None,
+            ),
+            (
+                "INSERT INTO ledger_types (id, amount, big_count) VALUES (%s, %s, %s)",
+                (1, "123.45", 9_000_000_000_000_000_000),
+            ),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="ledger_types",
+        table_name="mysql_ledger_types",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, amount, big_count FROM mysql_ledger_types",
+        team,
+    )
+    rows = res.results
+    assert rows is not None and len(rows) == 1
+    assert rows[0][0] == 1
+    # Decimal round-trip — compare as string to avoid float drift.
+    assert str(rows[0][1]) == "123.45"
+    # Unsigned BIGINT > signed-int64 max — must come back intact.
+    assert int(rows[0][2]) == 9_000_000_000_000_000_000
+
+
+def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str]]:
+    return {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
+    """End-to-end xmin replication: initial snapshot, incremental delta on insert/update,
+    persisted ceiling state, and hard-delete invisibility."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_table (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Initial snapshot captures the committed row (`_run` asserts exactly one row landed).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="xmin_table",
+        table_name="postgres_xmin_table",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_ceiling is not None
+    assert schema.xmin_num_wraparound is not None
+    first_ceiling = schema.xmin_last_value
+
+    # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
+    await postgres_connection.execute(
+        "UPDATE {schema}.xmin_table SET name = 'a2' WHERE id = 1".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # Only the delta is read, upserted by primary key: row 1 reflects the update, row 2 is new.
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+    # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_last_value > first_ceiling
+
+    # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
+    await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres_connection):
+    """The single-wrap `>= lower OR < upper` predicate executes against real Postgres and reads rows.
+    A mocked ceiling forces the wraparound branch (the exact SQL is covered by unit tests)."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_wrap (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_wrap (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Force the OR-range branch with a huge `upper` so the `< upper` side matches every real
+    # (small) tuple xmin — exercising the wraparound predicate end-to-end.
+    wraparound_bounds = XminBounds(
+        lower=4_000_000_000,
+        upper=4_294_967_295,
+        ceiling_xid8=(1 << 32) | 4_294_967_295,
+        num_wraparound=1,
+        wraparound_or_range=True,
+    )
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._capture_xmin_ceiling",
+        return_value=wraparound_bounds,
+    ) as mock_capture:
+        await _run(
+            team=team,
+            schema_name="xmin_wrap",
+            table_name="postgres_xmin_wrap",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={},
+        )
+
+    mock_capture.assert_called_once()
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, postgres_connection):
+    """Switching an already-synced table to xmin rebuilds the Delta table. Without the resync the
+    write fails: the old physical schema lacks the non-nullable `_ph_xmin` control column."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.switch_tbl (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # First sync as incremental — the Delta table is created without `_ph_xmin`.
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="switch_tbl",
+        table_name="postgres_switch_tbl",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
+    await sync_to_async(schema.save)()
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
+    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
+    )
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a"), (2, "b")]
+    assert all(r[2] is not None for r in res.results)
+
+    # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.sync_type_config.get("reset_pipeline") is None
+    assert schema.xmin_last_value is not None

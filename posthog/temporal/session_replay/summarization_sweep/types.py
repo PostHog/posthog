@@ -31,6 +31,12 @@ class UpsertTeamScheduleInput:
 
 
 @dataclass
+class ConsumeSummaryQuotaInput:
+    team_id: int
+    n: int
+
+
+@dataclass
 class ReconcileSchedulesInputs:
     pass
 

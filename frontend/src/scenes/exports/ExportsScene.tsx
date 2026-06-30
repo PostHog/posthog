@@ -4,17 +4,19 @@ import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/ico
 import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ExportedAssetType, ExporterFormat } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExportedAssetType, ExporterFormat } from '~/types'
 
 import { exportsSceneLogic } from './exportsSceneLogic'
 
@@ -32,12 +34,8 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
-    let disabledReason: string | undefined = undefined
-    if (asset.exception) {
-        disabledReason = asset.exception
-    } else if (!asset.has_content) {
-        disabledReason = 'Export not ready yet'
-    }
+    const disabledReason = getExportDisabledReason(asset)
+    const pendingLabel = getExportPendingLabel(asset)
 
     const handleEdit = async (): Promise<void> => {
         const r = await exportedAssetBlob(asset)
@@ -49,40 +47,57 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
     }
 
     return (
-        <div className="flex gap-2 justify-end">
-            {asset.export_format === ExporterFormat.PNG && (
-                <LemonButton
-                    tooltip="Edit"
-                    size="xsmall"
-                    data-attr="export-editor"
-                    disabledReason={disabledReason}
-                    type={isNotDownloaded ? 'primary' : 'secondary'}
-                    icon={<IconPencil />}
-                    onClick={() => {
-                        void handleEdit()
-                    }}
-                />
+        <div className="flex gap-2 justify-end items-center">
+            {stillCalculating && pendingLabel && (
+                <span className="text-xs text-secondary" data-attr="export-pending-label">
+                    {pendingLabel}
+                </span>
             )}
-            <LemonButton
-                tooltip="Download"
-                size="xsmall"
-                type={isNotDownloaded ? 'primary' : 'secondary'}
-                data-attr="export-download"
-                disabledReason={disabledReason}
-                onClick={() => {
-                    removeFresh(asset)
-                    void downloadExportedAsset(asset)
-                }}
-                sideIcon={
-                    stillCalculating ? (
-                        <Spinner />
-                    ) : asset.has_content ? (
-                        <IconDownload className="text-link" />
-                    ) : (
-                        <IconWarning className="text-link" />
-                    )
-                }
-            />
+            {asset.export_format === ExporterFormat.PNG && (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Export}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={asset.user_access_level}
+                >
+                    <LemonButton
+                        tooltip="Edit"
+                        size="xsmall"
+                        data-attr="export-editor"
+                        disabledReason={disabledReason}
+                        type={isNotDownloaded ? 'primary' : 'secondary'}
+                        icon={<IconPencil />}
+                        onClick={() => {
+                            void handleEdit()
+                        }}
+                    />
+                </AccessControlAction>
+            )}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Export}
+                minAccessLevel={AccessControlLevel.Viewer}
+                userAccessLevel={asset.user_access_level}
+            >
+                <LemonButton
+                    tooltip="Download"
+                    size="xsmall"
+                    type={isNotDownloaded ? 'primary' : 'secondary'}
+                    data-attr="export-download"
+                    disabledReason={disabledReason}
+                    onClick={() => {
+                        removeFresh(asset)
+                        void downloadExportedAsset(asset)
+                    }}
+                    sideIcon={
+                        stillCalculating ? (
+                            <Spinner />
+                        ) : asset.has_content ? (
+                            <IconDownload className="text-link" />
+                        ) : (
+                            <IconWarning className="text-link" />
+                        )
+                    }
+                />
+            </AccessControlAction>
         </div>
     )
 }

@@ -8,15 +8,20 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
-from products.tasks.backend.services.sandbox import (
+from products.tasks.backend.constants import filter_user_sandbox_env_vars
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.logic.services.connection_token import (
+    SANDBOX_JWT_STATE_KID_KEY,
+    get_primary_sandbox_jwt_kid,
+    get_sandbox_jwt_public_key,
+)
+from products.tasks.backend.logic.services.sandbox import (
     Sandbox,
     SandboxConfig,
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -31,17 +36,6 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
-
-RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
-    "POSTHOG_PERSONAL_API_KEY",
-    "POSTHOG_API_URL",
-    "POSTHOG_PROJECT_ID",
-    "JWT_PUBLIC_KEY",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "LLM_GATEWAY_URL",
-    "POSTHOG_RESUME_RUN_ID",
-}
 
 
 def _get_image_source_label(
@@ -182,25 +176,19 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if ctx.sandbox_environment_id:
             sandbox_environment = ctx.get_sandbox_environment()
             if sandbox_environment and sandbox_environment.environment_variables:
-                skipped_keys: list[str] = []
-                added_keys = 0
-                for key, value in sandbox_environment.environment_variables.items():
-                    if key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
-                        skipped_keys.append(key)
-                        continue
-                    environment_variables[key] = value
-                    added_keys += 1
+                safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+                environment_variables.update(safe_vars)
 
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Applied {added_keys} sandbox environment variable(s) from '{sandbox_environment.name}'",
+                    f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
                 )
                 if skipped_keys:
                     emit_agent_log(
                         ctx.run_id,
                         "debug",
-                        f"Skipped reserved sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
+                        f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                     )
 
         if github_token:
@@ -250,6 +238,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_ext_id else None,
             metadata={"task_id": ctx.task_id},
+            **ctx.sandbox_resource_overrides(),
         )
 
         emit_agent_log(
@@ -321,6 +310,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         sandbox_state = {
             "sandbox_id": sandbox.id,
             "sandbox_url": credentials.url,
+            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
         }
         if credentials.token:
             sandbox_state["sandbox_connect_token"] = credentials.token

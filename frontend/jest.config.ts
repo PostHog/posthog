@@ -13,6 +13,9 @@ const esmModules = [
     '@medv',
     'monaco-editor',
     '@posthog/hedgehog-mode',
+    // @marsidev/react-turnstile ships ESM-only; the auth flow variant registry pulls it
+    // into test module graphs (including Exporter via the shared login ERROR_MESSAGES export).
+    '@marsidev/react-turnstile',
     'escape-string-regexp',
     '@tiptap',
     '@mathjax',
@@ -20,6 +23,9 @@ const esmModules = [
     'lowlight',
     'devlop',
     'zwitch',
+    // posthog-js's rrweb subpath entries are shipped as ESM; the rest of posthog-js
+    // is CJS, so we scope the transform to just dist/rrweb* to avoid retranspiling main.js.
+    'posthog-js/dist/rrweb',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
@@ -55,9 +61,27 @@ const esmModules = [
     'longest-streak',
     'markdown-table',
     '@mathjax/src',
+    // MSW v2 and its dependencies ship ESM that resolves under the forced `default` export condition
+    'msw',
+    '@mswjs/.*',
+    '@bundled-es-modules/.*',
+    '@open-draft/.*',
+    'rettime',
+    'strict-event-emitter',
+    'headers-polyfill',
+    'outvariant',
+    'until-async',
+    'is-node-process',
+    // yaml's browser entry (used under the jsdom env) is ESM and re-exports its CJS dist
+    'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return ['<rootDir>/src', '<rootDir>/../products']
+    return [
+        '<rootDir>/src',
+        '<rootDir>/../products',
+        '<rootDir>/../packages/quill/packages/charts/src',
+        '<rootDir>/../packages/quill/packages/components/src',
+    ]
 }
 
 const config: Config = {
@@ -107,6 +131,14 @@ const config: Config = {
     // Make calling deprecated APIs throw helpful error messages
     // errorOnDeprecated: false,
 
+    // Faking queueMicrotask starves the web-streams pump that MSW v2 response bodies ride on:
+    // each pump microtask lands in the fake queue and respawns the next one, so any
+    // advanceTimersByTimeAsync allocates unboundedly until the worker OOMs. Keep microtasks real.
+    // Merged into per-test `jest.useFakeTimers({...})` configs unless they pass their own doNotFake.
+    fakeTimers: {
+        doNotFake: ['queueMicrotask'],
+    },
+
     // Force coverage collection from ignored files using an array of glob patterns
     // forceCoverageMatch: [],
 
@@ -138,15 +170,20 @@ const config: Config = {
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
+        '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
+        // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
+        // Required for sidePanelNotificationsLogic.test.ts and other tests with a transitive
+        // import chain through src/lib/hog.ts.
+        '^@posthog/hogvm$': '<rootDir>/node_modules/@posthog/hogvm/src/index.ts',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
         '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^remark-breaks$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
-        '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-annotation': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
         'chartjs-plugin-datalabels': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
@@ -161,8 +198,15 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
+        '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
+        '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
+        '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
+        '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
+        '^@posthog/quill-components$': '<rootDir>/../packages/quill/packages/components/src/index.ts',
+        '^@posthog/quill-primitives$': '<rootDir>/../packages/quill/packages/primitives/src/index.ts',
+        '^@posthog/quill-tokens$': '<rootDir>/../packages/quill/packages/tokens/src/index.ts',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
-        '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
         '^@mathjax/src/(.*)$': '<rootDir>/src/test/mocks/mathjaxMock.js',
@@ -192,8 +236,9 @@ const config: Config = {
     // Reset the module registry before running each individual test
     // resetModules: false,
 
-    // A path to a custom resolver
-    // resolver: undefined,
+    // A path to a custom resolver — strips the `browser` export condition for the MSW ecosystem
+    // (whose Node subpaths are null under `browser`) without affecting any other package's resolution.
+    resolver: '<rootDir>/jest.resolver.js',
 
     // Automatically restore mock state between every test
     // restoreMocks: false,
@@ -208,7 +253,7 @@ const config: Config = {
     // runner: "jest-runner",
 
     // The paths to modules that run some code to configure or set up the testing environment before each test
-    setupFiles: ['<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
+    setupFiles: ['<rootDir>/jest.polyfills.js', '<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
     setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', '<rootDir>/src/mocks/jest.ts'],
@@ -235,7 +280,14 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/services/mcp/',
+        '/products/[^/]+/frontend/e2e/',
+        '/products/visual_review/cli/',
+        '/products/agent_platform/services/',
+        '/products/agent_platform/packages/',
+    ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
@@ -254,7 +306,9 @@ const config: Config = {
 
     // A map from regular expressions to paths to transformers
     transform: {
-        '\\.[jt]sx?$': '@sucrase/jest-plugin',
+        // Include .mjs/.cjs so ESM dependencies allowed through transformIgnorePatterns (e.g. MSW's) are transpiled.
+        '\\.[cm]?[jt]sx?$': '@sucrase/jest-plugin',
+        '\\.yaml$': '<rootDir>/src/test/yamlRawTransformer.js',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

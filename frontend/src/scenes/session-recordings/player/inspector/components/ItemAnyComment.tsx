@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingCommentForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListItemComment,
     InspectorListItemNotebookComment,
@@ -26,9 +27,10 @@ function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is I
 }
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
     return (
         <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
-            {item.data.comment.trim().length > 30 ? (
+            {showLineTooltips && item.data.comment.trim().length > 30 ? (
                 <Tooltip title={item.data.comment}>{item.data.comment}</Tooltip>
             ) : (
                 item.data.comment
@@ -38,6 +40,7 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
 }
 
 function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
     // lazy but good enough check for markdown image urls
     // we don't want to render markdown in the list row if there's an image since it won't fit
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
@@ -52,7 +55,7 @@ function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element 
 
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
-            {(item.data.content || '').trim().length > 30 ? (
+            {showLineTooltips && (item.data.content || '').trim().length > 30 ? (
                 <Tooltip
                     title={
                         item.data.rich_content ? (

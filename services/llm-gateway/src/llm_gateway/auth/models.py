@@ -11,6 +11,15 @@ class AuthenticatedUser:
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
     application_id: str | None = None
+    is_staff: bool = False
+
+
+def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:
+    # OAuth tokens identify the human; everything else prefers end_user_id so
+    # events land on the customer-facing person profile.
+    if auth_user.auth_method == "oauth_access_token":
+        return auth_user.distinct_id
+    return end_user_id or auth_user.distinct_id
 
 
 def has_required_scope(scopes: list[str], required: str = "llm_gateway:read", *, allow_wildcard: bool = False) -> bool:

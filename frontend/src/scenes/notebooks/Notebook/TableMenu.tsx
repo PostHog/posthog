@@ -131,6 +131,11 @@ export function TableMenu(): JSX.Element | null {
                 return
             }
 
+            // view.dom hits the v3 throwing Proxy.
+            if (ttEditor.isDestroyed) {
+                return
+            }
+
             const target = e.target as HTMLElement
 
             // If mouse is over a grip wrapper, keep current state
@@ -167,7 +172,7 @@ export function TableMenu(): JSX.Element | null {
 
     /** Returns a 2D array [row][col] of ProseMirror cell positions for the hovered table */
     const getTableCellPositions = useCallback((): number[][] => {
-        if (!ttEditor || !hoveredCell) {
+        if (!ttEditor || !hoveredCell || ttEditor.isDestroyed) {
             return []
         }
         const tablePos = ttEditor.view.posAtDOM(hoveredCell.table, 0) - 1

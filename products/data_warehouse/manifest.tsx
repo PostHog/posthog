@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
+import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
@@ -15,8 +16,7 @@ export const manifest: ProductManifest = {
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
-            description:
-                'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
+            description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
         },
         Models: {
@@ -57,6 +57,11 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'New data warehouse source',
         },
+        DataWarehouseSourceConnect: {
+            import: () => import('./frontend/scenes/SourceConnectScene/SourceConnectScene'),
+            projectBased: true,
+            name: 'Connect data warehouse source',
+        },
         DataWarehouseSourceSchema: {
             import: () => import('./frontend/scenes/SchemaScene/SchemaScene'),
             projectBased: true,
@@ -66,6 +71,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
+        '/models/dags': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
@@ -82,6 +88,7 @@ export const manifest: ProductManifest = {
         ],
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+        '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     },
     redirects: {
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
@@ -89,7 +96,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
-        models: (): string => '/models',
+        models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
         nodeDetail: (id: string): string => `/models/${id}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -128,6 +135,8 @@ export const manifest: ProductManifest = {
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
         },
+        dataWarehouseSourceConnect: (kind?: string): string =>
+            `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
     treeItemsProducts: [
         {
@@ -179,6 +188,14 @@ export const manifest: ProductManifest = {
             iconType: 'managed_viewsets',
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+        },
+        {
+            path: 'Exports',
+            category: 'Pipeline',
+            iconType: 'exports',
+            href: urls.exports(),
+            sceneKey: 'Exports',
+            sceneKeys: ['Exports'],
         },
     ],
 }

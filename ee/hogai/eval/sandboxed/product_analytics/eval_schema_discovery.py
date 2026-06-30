@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS, SchemaDiscoveryOrder
@@ -45,7 +43,6 @@ def _discovery_case(
     return SandboxedEvalCase(name=name, prompt=prompt, expected=expected)
 
 
-@pytest.mark.django_db
 async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _discovery_case(

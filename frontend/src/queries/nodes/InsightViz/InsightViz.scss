@@ -145,6 +145,10 @@
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
     }
+
+    .WebTile--short-chart .InsightVizDisplay {
+        --insight-viz-min-height: 18rem;
+    }
 }
 
 .RevenueAnalyticsDashboard {
@@ -160,7 +164,13 @@
     width: 100%;
 
     .RetentionContainer__graph {
+        // Flex column so the hog-charts wrapper (inline `flex: 1`) fills it.
+        // min-height lives here, not on .LineGraph, because the wrapper's inline
+        // `min-height: 0` would override a class rule set directly on .LineGraph.
+        display: flex;
         flex: 1;
+        flex-direction: column;
+        min-height: 30vh;
         margin: 0.5rem;
     }
 
@@ -171,17 +181,18 @@
     .LineGraph {
         position: relative !important;
         width: 100% !important;
-        height: 100%;
-        min-height: 30vh;
     }
 
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        .RetentionContainer__graph {
+            min-height: 100px;
+        }
+
         .LineGraph {
             position: relative;
-            min-height: 100px;
         }
     }
 }
@@ -191,21 +202,40 @@
     display: flex;
     flex: 1;
     flex-direction: column;
+    height: var(--insight-viz-min-height);
+
+    // Explicit height (not just min/max) so a top/bottom in-chart legend's max-height: 40% cap resolves —
+    // a flex-derived used size does not count, and without it the legend stretches the chart taller.
     min-height: var(--insight-viz-min-height);
+    max-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        height: auto;
         min-height: auto;
+        max-height: none;
     }
 
     &--ActionsTable,
     &--WorldMap,
-    &--BoldNumber {
+    &--BoldNumber,
+    &--Metric {
+        height: auto;
         min-height: auto;
+        max-height: none;
         margin: 0;
+    }
+
+    &--ActionsBarValue {
+        // Keep the standard height as a floor so a few-row chart still fills it (a single bar
+        // shouldn't shrink), but drop the height/max-height cap so many breakdown rows grow the
+        // container instead of being clipped.
+        height: auto;
+        min-height: var(--insight-viz-min-height);
+        max-height: none;
     }
 
     &--BoldNumber {
@@ -213,6 +243,11 @@
         align-items: center;
         justify-content: center;
     }
+}
+
+// Drop the viz padding so the Metric sparkline can bleed to the card edges.
+.InsightVizDisplay__content:has(.Metric) {
+    padding: 0;
 }
 
 .FunnelInsight {
@@ -252,6 +287,7 @@
 .ErrorTracking__breakdowns,
 .ErrorTracking__insights {
     .InsightViz {
+        align-items: stretch;
         height: 100%;
     }
 

@@ -91,7 +91,8 @@ async fn test_s3_gzip_minio_integration() {
         "bucket": TEST_BUCKET,
         "prefix": prefix,
         "region": "us-east-1",
-        "endpoint_url": MINIO_ENDPOINT
+        "endpoint_url": MINIO_ENDPOINT,
+        "allow_internal_ips": true
     }))
     .expect("source config from json");
     let s3_config = match &source_config {
@@ -114,8 +115,9 @@ async fn test_s3_gzip_minio_integration() {
         .collect(),
     };
 
+    let _staging = tempfile::TempDir::new().expect("create staging dir");
     let source = s3_config
-        .create_gzip_source(&secrets)
+        .create_gzip_source(&secrets, _staging.path().to_path_buf())
         .await
         .expect("create gzip source");
     source.prepare_for_job().await.expect("prepare for job");

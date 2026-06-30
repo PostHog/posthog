@@ -9,8 +9,8 @@ import api from 'lib/api'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { isDomain } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -134,6 +134,16 @@ export const proxyLogic = kea<proxyLogicType>([
             { persist: true },
             {
                 acknowledgeCloudflareOptIn: () => true,
+                // Existing proxy records imply the org already consented previously — persist that so the
+                // banner doesn't flash on browsers where localStorage was cleared after records were created.
+                loadRecordsSuccess: (state, { proxyRecords }) => state || proxyRecords.length > 0,
+            },
+        ],
+        proxyRecordsLoaded: [
+            false,
+            {
+                loadRecordsSuccess: () => true,
+                loadRecordsFailure: () => true,
             },
         ],
         cloudflareOptInChecked: [
@@ -232,6 +242,26 @@ export const proxyLogic = kea<proxyLogicType>([
                 return proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
             },
         ],
+        shouldShowCloudflareOptIn: [
+            (s) => [s.cloudflareOptInAcknowledged, s.proxyRecordsLoaded, s.proxyRecords, s.user],
+            (acknowledged: boolean, recordsLoaded: boolean, records: ProxyRecord[], user: UserType | null): boolean => {
+                if (acknowledged) {
+                    return false
+                }
+                if (user?.is_impersonated) {
+                    return false
+                }
+                // Wait for the initial records fetch — otherwise the banner flashes during the API call
+                // for orgs that already have proxy records, which is the visible symptom of #59549.
+                if (!recordsLoaded) {
+                    return false
+                }
+                if (records.length > 0) {
+                    return false
+                }
+                return true
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
@@ -309,8 +339,12 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadRecords()
+    afterMount(({ actions, values, cache }) => {
+        // Only fetch when authenticated and the org is loaded — otherwise the GET fires without a
+        // valid session and 401s, polluting error tracking.
+        if (values.user && values.currentOrganizationId) {
+            actions.loadRecords()
+        }
         cache.disposables.add(() => {
             const timerId = setInterval(() => actions.maybeRefreshRecords(), 5000)
             return () => clearInterval(timerId)

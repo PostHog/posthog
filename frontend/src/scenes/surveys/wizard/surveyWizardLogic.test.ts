@@ -86,8 +86,8 @@ describe('surveyWizardLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/add_product_intent/': async (req) => {
-                        const data = await req.json()
+                    '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                        const data = await request.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]
                     },
@@ -361,6 +361,46 @@ describe('surveyWizardLogic', () => {
                     reason: 'Relationship metrics work best quarterly',
                 }),
             })
+        })
+
+        it.each([
+            {
+                mode: 'in_app' as const,
+                expectedCore: [
+                    SurveyTemplateType.NPS,
+                    SurveyTemplateType.CSAT,
+                    SurveyTemplateType.PMF,
+                    SurveyTemplateType.OpenFeedback,
+                ],
+                otherContains: [SurveyTemplateType.Announcement, SurveyTemplateType.ErrorTracking],
+                otherExcludes: [SurveyTemplateType.UserResearchIntake, SurveyTemplateType.ProductResearch],
+            },
+            {
+                mode: 'hosted' as const,
+                expectedCore: [
+                    SurveyTemplateType.UserResearchIntake,
+                    SurveyTemplateType.ProductResearch,
+                    SurveyTemplateType.NPS,
+                    SurveyTemplateType.CCR,
+                ],
+                otherContains: [SurveyTemplateType.FeatureRequest],
+                otherExcludes: [
+                    SurveyTemplateType.Announcement,
+                    SurveyTemplateType.ErrorTracking,
+                    SurveyTemplateType.OnboardingFeedback,
+                ],
+            },
+        ])('exposes mode-specific templates for $mode mode', ({ mode, expectedCore, otherContains, otherExcludes }) => {
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setTemplateMode(mode)
+
+            const coreTypes = logic.values.coreTemplates.map((t) => t.templateType)
+            expect(coreTypes).toEqual(expectedCore)
+
+            const otherTypes = logic.values.otherTemplates.map((t) => t.templateType)
+            otherContains.forEach((type) => expect(otherTypes).toContain(type))
+            otherExcludes.forEach((type) => expect(otherTypes).not.toContain(type))
         })
     })
 })

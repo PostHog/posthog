@@ -256,7 +256,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
     """The Temporal-local `aggregator.build_org_reports` must fetch
     organization membership counts in bulk. The legacy Celery facade still

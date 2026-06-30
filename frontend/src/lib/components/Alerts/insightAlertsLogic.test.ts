@@ -9,7 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -36,7 +36,7 @@ describe('insightAlertsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
+        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
     })
 
     afterEach(() => {
@@ -219,8 +219,12 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(API_QUERY)).toBe(true)
     })
 
-    it('returns false for funnel insight viz', () => {
+    it('returns false for funnel insight viz when the funnel flag is off', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
+    })
+
+    it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
     })
 
     it('returns false when trendsFilter is null', () => {
@@ -232,5 +236,18 @@ describe('areAlertsSupportedForInsight', () => {
             },
         }
         expect(areAlertsSupportedForInsight(query)).toBe(false)
+    })
+})
+
+describe('alertsUnsupportedReason', () => {
+    it.each([
+        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
+        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
+        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
+        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
+    ])('lists only enabled types: %s', (_name, options, included, excluded) => {
+        const reason = alertsUnsupportedReason(options)
+        included.forEach((type) => expect(reason).toContain(type))
+        excluded.forEach((type) => expect(reason).not.toContain(type))
     })
 })

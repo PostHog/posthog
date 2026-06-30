@@ -14,7 +14,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
@@ -26,6 +25,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -61,11 +61,11 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_l
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-BytesGenerator = collections.abc.Generator[bytes, None, None]
-RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+BytesGenerator = collections.abc.Generator[bytes]
+RecordsGenerator = collections.abc.Generator[pa.RecordBatch]
 
-AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
-AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes]
+AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
 
 
 def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
@@ -100,16 +100,16 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
     """
     try:
         run = BatchExportRun.objects.select_related("batch_export__team").get(id=batch_export_run_id)
-        team = run.batch_export.team
+        team = run.parent.team
         # failure_rate=1.0 mirrors the email path (send_batch_export_run_failure default) — a fully
         # failed run is treated as 100%, so users are filtered only by their data_pipeline_error_threshold.
         memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
         if not memberships:
             return
-        name = (run.batch_export.name or "")[:80]
+        name = (run.parent.name if isinstance(run.parent, BatchExport) else "on demand")[:80]
         title = f"Batch export {name} failed"
         body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d, %Y')}"
-        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{run.batch_export.id}"
+        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{run.parent.id}"
         for membership in memberships:
             try:
                 create_notification(
@@ -122,7 +122,7 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
                         target_type=TargetType.USER,
                         target_id=str(membership.user_id),
                         resource_type=NotificationOnlyResourceType.PIPELINE,
-                        resource_id=str(run.batch_export.id),
+                        resource_id=str(run.parent.id),
                         source_url=source_url,
                     )
                 )
@@ -581,6 +581,7 @@ class FinishBatchExportRunInputs:
     failure_check_window: int = 50
     bytes_exported: int | None = None
     records_failed: int | None = None
+    on_demand: bool = False
 
 
 @activity.defn
@@ -594,7 +595,9 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     'failure_check_window' exceeds 'failure_threshold' and attempt to pause the batch export if
     that's the case. Also, a notification is sent to users on every failure.
     """
-    bind_contextvars(team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status)
+    bind_contextvars(
+        team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status, on_demand=inputs.on_demand
+    )
     logger = LOGGER.bind()
     external_logger = EXTERNAL_LOGGER.bind()
 
@@ -604,6 +607,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         "batch_export_id",
         "failure_threshold",
         "failure_check_window",
+        "on_demand",
     )
     update_params = {
         key: value

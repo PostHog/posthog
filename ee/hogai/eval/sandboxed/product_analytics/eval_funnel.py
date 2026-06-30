@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsExclusionEventsNode,
@@ -47,7 +45,6 @@ def _funnel_case(
     )
 
 
-@pytest.mark.django_db(transaction=True, databases="__all__")
 async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
     now = datetime.now()
     this_year = now.year

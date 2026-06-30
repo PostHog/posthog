@@ -17,8 +17,42 @@ export const customerAnalyticsConfigurationDescriber = (change?: ActivityChange)
     const after = (change.after ?? {}) as CustomerAnalyticsConfig
 
     const eventConfigDescriptions = customerAnalyticsEventConfigDescriber(before, after) ?? []
+    const accountGroupTypeDescriptions = accountGroupTypeIndexDescriber(before, after) ?? []
 
-    return { description: [...eventConfigDescriptions] }
+    return { description: [...eventConfigDescriptions, ...accountGroupTypeDescriptions] }
+}
+
+const accountGroupTypeIndexDescriber = (
+    before: CustomerAnalyticsConfig,
+    after: CustomerAnalyticsConfig
+): JSX.Element[] | null => {
+    const beforeValue = before.account_group_type_index ?? null
+    const afterValue = after.account_group_type_index ?? null
+
+    if (beforeValue === afterValue) {
+        return null
+    }
+
+    if (beforeValue === null) {
+        return [
+            <>
+                set <strong>Account group type</strong> to <code>group {afterValue}</code>
+            </>,
+        ]
+    }
+    if (afterValue === null) {
+        return [
+            <>
+                cleared <strong>Account group type</strong>
+            </>,
+        ]
+    }
+    return [
+        <>
+            changed <strong>Account group type</strong> from <code>group {beforeValue}</code> to{' '}
+            <code>group {afterValue}</code>
+        </>,
+    ]
 }
 
 type EventType = 'activity_event' | 'signup_pageview_event' | 'signup_event' | 'subscription_event' | 'payment_event'

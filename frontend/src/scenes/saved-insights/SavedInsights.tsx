@@ -36,10 +36,10 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -52,13 +52,15 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNonEmptyObject } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
@@ -83,7 +85,7 @@ import {
 } from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
-import { savedInsightsLogic } from './savedInsightsLogic'
+import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export interface InsightTypeMetadata {
     name: string
@@ -380,12 +382,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.WebTrendsQuery]: {
-        name: 'Web Trends',
-        description: 'Analyze web trends and patterns over time.',
-        icon: IconTrends,
-        inMenu: true,
-    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -510,17 +506,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Analytics Traces',
+        name: 'AI observability traces',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceNeighborsQuery]: {
-        name: 'LLM Analytics Trace Neighbors',
+        name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
-        name: 'LLM Analytics Trace',
+        name: 'AI observability trace',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
@@ -565,6 +561,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.TraceSpansAttributeBreakdownQuery]: {
+        name: 'Trace Spans Attribute Breakdown',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansSymbolStatsQuery]: {
+        name: 'Trace Spans Symbol Stats',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -587,6 +593,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.AccountsQuery]: {
+        name: 'Accounts',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -613,6 +624,42 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebNotableChangesQuery]: {
         name: 'Notable changes',
         description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPHarnessBreakdownQuery]: {
+        name: 'MCP harness breakdown',
+        description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolStatsQuery]: {
+        name: 'MCP tool stats',
+        description: 'Summary stats for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDailyStatsQuery]: {
+        name: 'MCP tool daily stats',
+        description: 'Per-day activity for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDescriptionsQuery]: {
+        name: 'MCP tool descriptions',
+        description: 'Reported descriptions for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolTopUsersQuery]: {
+        name: 'MCP tool top users',
+        description: 'Top users of a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolFailuresQuery]: {
+        name: 'MCP tool failures',
+        description: 'Recurring exception messages for a single MCP tool.',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -734,7 +781,7 @@ export function NewInsightButton(): JSX.Element {
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <AppShortcut
+            <Shortcut
                 name="NewInsight"
                 keybind={[keyBinds.new]}
                 intent="New insight"
@@ -753,7 +800,7 @@ export function NewInsightButton(): JSX.Element {
                         New
                     </LemonButton>
                 </LemonMenu>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }
@@ -769,7 +816,7 @@ export function SavedInsights(): JSX.Element {
 
     const { tab } = filters
 
-    const columns: LemonTableColumns<QueryBasedInsightModel> = [
+    const columns: LemonTableColumns<SavedInsightListItem> = [
         {
             key: 'id',
             width: 32,
@@ -807,6 +854,15 @@ export function SavedInsights(): JSX.Element {
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </AccessControlAction>
+                        {insight.search_match_type === 'similar' && (
+                            <span className="ml-auto">
+                                <Tooltip title="Not an exact match for your search, but a close one">
+                                    <LemonTag type="muted" size="small">
+                                        similar
+                                    </LemonTag>
+                                </Tooltip>
+                            </span>
+                        )}
                     </div>
                 )
             },
@@ -814,7 +870,7 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Tags',
-            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            dataIndex: 'tags' as keyof SavedInsightListItem,
             key: 'tags',
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={[...tags].sort()} staticOnly />
@@ -822,8 +878,8 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Created by',
-            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
-            render: function Render(_: any, item: QueryBasedInsightModel) {
+            dataIndex: 'created_by' as keyof SavedInsightListItem,
+            render: function Render(_: any, item: SavedInsightListItem) {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
@@ -1032,8 +1088,8 @@ export function SavedInsights(): JSX.Element {
                             ) : undefined
                         }
                         bulkSelection={{
-                            getKey: (insight: QueryBasedInsightModel): number => insight.id,
-                            isRowSelectable: (insight: QueryBasedInsightModel) =>
+                            getKey: (insight: SavedInsightListItem): number => insight.id,
+                            isRowSelectable: (insight: SavedInsightListItem) =>
                                 accessLevelSatisfied(
                                     AccessControlResourceType.Insight,
                                     insight.user_access_level,
@@ -1041,7 +1097,7 @@ export function SavedInsights(): JSX.Element {
                                 )
                                     ? true
                                     : { disabledReason: "You don't have permission to edit this insight." },
-                            rowAriaLabel: (insight: QueryBasedInsightModel) =>
+                            rowAriaLabel: (insight: SavedInsightListItem) =>
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
                             renderActions: (ctx) => (

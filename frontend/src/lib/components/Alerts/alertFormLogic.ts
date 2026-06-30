@@ -1,27 +1,51 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
     AlertConditionType,
     GoalLine,
+    HogQLAlertConfig,
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+
+import {
+    blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    getDefaultSimulationRange,
+    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
+    isHighFrequencyAlertInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
+import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { quietHoursFormError } from './scheduleRestrictionValidation'
-import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
+import {
+    AlertConfig,
+    AlertSimulationResult,
+    AlertType,
+    AlertTypeWrite,
+    AnomalyPoint,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+} from './types'
+
+export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -56,18 +80,8 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
-export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
-    }
-}
+/** The insight query kind an alert is built for; selects the default config type for new alerts. */
+export type InsightAlertKind = 'trends' | 'hogql' | 'funnels'
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
@@ -75,8 +89,23 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
-    /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
-    historyChartEnabled: boolean
+    /** Selects the default config type for new alerts based on the insight's query kind. */
+    insightAlertKind?: InsightAlertKind
+}
+
+const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
+    if (kind === 'hogql') {
+        // last_row is the default — the most common SQL alert shape is a chronological series.
+        return { type: 'HogQLAlertConfig', evaluation: 'last_row' }
+    }
+    if (kind === 'funnels') {
+        return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
+    }
+    return {
+        type: 'TrendsAlertConfig',
+        series_index: 0,
+        check_ongoing_interval: false,
+    }
 }
 
 /**
@@ -88,8 +117,8 @@ export interface AlertFormLogicProps {
  * `logic.values` on an unmounted logic throws a `[KEA] Can not find path …` error. Check mount state
  * first and skip the merge (there's nothing to preserve for a brand-new alert).
  */
-function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
-    const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    const logic = alertLogic({ alertId: updatedAlert.id })
     const wasMounted = logic.isMounted()
     const previousAlert = wasMounted ? logic.values.alert : null
     const savedChecks = updatedAlert.checks ?? []
@@ -137,6 +166,13 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
+function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+    return {
+        ...alert,
+        insight: insightId,
+    }
+}
+
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -153,7 +189,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
     key(({ alert }) => alert?.id ?? 'new'),
 
     connect((props: AlertFormLogicProps) => ({
-        values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
+        values: [
+            trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }),
+            ['goalLines'],
+            insightVizDataLogic({ dashboardItemId: undefined, ...props.insightVizDataLogicProps }),
+            ['insightData'],
+        ],
     })),
 
     actions({
@@ -163,6 +204,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         simulateAlert: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setAlertFormSubmitAttempted: true,
     }),
 
     reducers({
@@ -170,6 +212,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as string | null,
             {
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        alertFormSubmitAttempted: [
+            false,
+            {
+                setAlertFormSubmitAttempted: () => true,
+                submitAlertFormSuccess: () => false,
             },
         ],
     }),
@@ -183,13 +232,17 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const formConfig = values.alertForm.config
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
-                        series_index: values.alertForm.config?.series_index ?? 0,
+                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
                         date_from:
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        // SQL insights have no series_index; the config carries the evaluated column
+                        // and read direction so the preview matches what the alert will score.
+                        config: formConfig,
                     })
                 },
                 clearSimulation: () => null,
@@ -199,59 +252,65 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     forms(({ props, values }) => ({
         alertForm: {
-            defaults:
-                props.alert ??
-                ({
-                    id: undefined,
-                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                    created_by: null,
-                    created_at: '',
-                    enabled: true,
-                    config: {
-                        type: 'TrendsAlertConfig',
-                        series_index: 0,
-                        check_ongoing_interval: false,
-                    },
-                    threshold: {
-                        configuration: {
-                            type: InsightThresholdType.ABSOLUTE,
-                            bounds: getThresholdBounds(values.goalLines),
-                        },
-                    },
-                    condition: {
-                        type: AlertConditionType.ABSOLUTE_VALUE,
-                    },
-                    subscribed_users: [],
-                    checks: [],
-                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                    skip_weekend: false,
-                    schedule_restriction: null,
-                    detector_config: null,
-                    investigation_agent_enabled: false,
-                    investigation_gates_notifications: false,
-                    investigation_inconclusive_action: 'notify',
-                    insight: props.insightId,
-                } as AlertFormType),
-            errors: (alert: AlertType | AlertFormType) =>
-                ({
-                    name: !alert.name ? 'You need to give your alert a name' : undefined,
-                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
+            defaults: props.alert
+                ? alertToFormType(props.alert, props.insightId)
+                : ({
+                      id: undefined,
+                      name:
+                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
+                      created_by: null,
+                      created_at: '',
+                      enabled: true,
+                      config: defaultConfigForInsight(props.insightAlertKind),
+                      threshold: {
+                          configuration: {
+                              type: InsightThresholdType.ABSOLUTE,
+                              bounds: getThresholdBounds(values.goalLines),
+                          },
+                      },
+                      condition: {
+                          type: AlertConditionType.ABSOLUTE_VALUE,
+                      },
+                      subscribed_users: [],
+                      checks: [],
+                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
+                      skip_weekend: false,
+                      schedule_restriction: null,
+                      detector_config: null,
+                      investigation_agent_enabled: false,
+                      investigation_gates_notifications: false,
+                      investigation_inconclusive_action: 'notify',
+                      insight: props.insightId,
+                  } as AlertFormType),
+            errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
+                if (
+                    blockSubmitWithoutHighFrequencyAlertsEntitlement(
+                        alert.calculation_interval,
+                        userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+                    )
+                ) {
+                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                }
+
                 const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
-                    // can only skip weekends for hourly/daily alerts
+                    // can only skip weekends for sub-daily alerts
                     skip_weekend:
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
-                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                            isHighFrequencyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
-                    config: {
-                        ...alert.config,
-                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
-                    },
+                    config: isTrendsAlertConfig(alert.config)
+                        ? {
+                              ...alert.config,
+                              check_ongoing_interval:
+                                  canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                          }
+                        : alert.config,
                     detector_config: alert.detector_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
@@ -312,7 +371,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
                 try {
                     await flushPendingNotifications(updatedAlert.id)
-                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
                 } catch (postSaveError) {
@@ -320,13 +379,145 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+                if (alert.id === undefined) {
+                    tryShowMCPHint('alerts.create', {
+                        derivedPrompt: alert.name ? `Create an alert called ${alert.name}` : undefined,
+                    })
+                }
 
-                return updatedAlert
+                return alertToFormType(updatedAlert, props.insightId)
             },
         },
     })),
 
-    listeners(({ props, values }) => {
+    selectors(({ props }) => ({
+        thresholdBoundsFormError: [
+            (s) => [s.alertFormSubmitAttempted, s.alertFormErrors],
+            (submitAttempted, alertFormErrors): string | undefined => {
+                if (!submitAttempted) {
+                    return undefined
+                }
+                const thresholdError = alertFormErrors.threshold
+                return typeof thresholdError === 'string' ? thresholdError : undefined
+            },
+        ],
+        hogqlAlertPreview: [
+            // Inputs are narrowed to the fields the preview reads, so name/interval/etc. keystrokes
+            // don't re-derive it (the per-row map can cover up to HOGQL_ANY_ROW_MAX_ROWS rows).
+            (s) => [
+                s.insightData,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+            ],
+            (
+                insightData: Record<string, any> | null,
+                config: AlertConfig | null | undefined,
+                bounds: InsightsThresholdBounds | null | undefined
+            ): HogQLAlertPreview | null =>
+                props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData, config, bounds) : null,
+        ],
+        /** The conversion rate(s) a funnel alert would evaluate right now, with breach status; null until the result loads. */
+        funnelAlertPreview: [
+            (s) => [
+                s.insightData,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+            ],
+            (
+                insightData: Record<string, any> | null,
+                config: AlertConfig | null | undefined,
+                bounds: InsightsThresholdBounds | null | undefined
+            ): FunnelAlertPreview | null =>
+                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config, bounds) : null,
+        ],
+        /** Result column names of the SQL insight, for the column pickers. */
+        hogqlResultColumns: [
+            (s) => [s.insightData],
+            (insightData): string[] | null =>
+                props.insightAlertKind === 'hogql' && Array.isArray(insightData?.columns)
+                    ? insightData.columns.map(String)
+                    : null,
+        ],
+        /** Result columns with numeric cells — the only valid picks for the evaluated column. */
+        hogqlNumericColumns: [
+            (s) => [s.insightData, s.hogqlResultColumns],
+            (insightData, resultColumns): string[] | null =>
+                resultColumns && Array.isArray(insightData?.result)
+                    ? resultColumns.filter((_, index) => columnIsNumeric(insightData.result, index))
+                    : null,
+        ],
+        /** Default evaluated column for the picker: the last numeric column (SQL convention puts
+         * the measure last). Bolder than the backend's single-numeric fallback because the user
+         * sees the prefilled pick and it's stored explicitly. Null when the picker is hidden
+         * (single-column results) or nothing numeric is detectable. */
+        hogqlSuggestedColumn: [
+            (s) => [s.hogqlResultColumns, s.hogqlNumericColumns],
+            (resultColumns, numericColumns): string | null =>
+                (resultColumns?.length ?? 0) > 1 && numericColumns && numericColumns.length > 0
+                    ? numericColumns[numericColumns.length - 1]
+                    : null,
+        ],
+        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and the
+         * label (first column that isn't evaluated — the backend fallback). Both apply in every
+         * evaluation mode: the label names the evaluated row(s) in breach messages regardless of
+         * last/first/any-row. Computed together so prefilling lands in a single form write with
+         * no ordering between the fields. Null when there's nothing to fill. */
+        hogqlConfigPrefill: [
+            (s) => [
+                s.hogqlResultColumns,
+                s.hogqlSuggestedColumn,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+            ],
+            (
+                resultColumns: string[] | null,
+                suggestedColumn: string | null,
+                config: AlertConfig | null | undefined
+            ): Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null => {
+                if (!isHogQLAlertConfig(config)) {
+                    return null
+                }
+                const patch: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> = {}
+                if (config.column == null && suggestedColumn != null) {
+                    patch.column = suggestedColumn
+                }
+                const evaluated = config.column ?? suggestedColumn
+                if (config.label_column == null && evaluated != null) {
+                    const label = resultColumns?.find((column) => column !== evaluated)
+                    if (label != null) {
+                        patch.label_column = label
+                    }
+                }
+                return Object.keys(patch).length > 0 ? patch : null
+            },
+        ],
+        /** Options for the evaluated-column picker: the numeric columns. Falls back to every
+         * column when the result isn't loaded or nothing numeric was detected — an empty
+         * picker would be a dead end. A stored pick missing from the options still renders
+         * on the select button, but can't be re-picked. */
+        hogqlValueColumnOptions: [
+            (s) => [s.hogqlResultColumns, s.hogqlNumericColumns],
+            (resultColumns: string[] | null, numericColumns: string[] | null): { label: string; value: string }[] => {
+                const columns =
+                    numericColumns === null || numericColumns.length === 0 ? (resultColumns ?? []) : numericColumns
+                return columns.map((column) => ({ label: column, value: column }))
+            },
+        ],
+        /** Options for the label-column picker: every column except the evaluated one. */
+        hogqlLabelColumnOptions: [
+            (s) => [s.hogqlResultColumns, (state, logicProps) => s.alertForm(state, logicProps)?.config],
+            (
+                resultColumns: string[] | null,
+                config: AlertConfig | null | undefined
+            ): { label: string; value: string }[] => {
+                const evaluated = isHogQLAlertConfig(config) ? (config.column ?? null) : null
+                return (resultColumns ?? [])
+                    .filter((column) => column !== evaluated)
+                    .map((column) => ({ label: column, value: column }))
+            },
+        ],
+    })),
+
+    listeners(({ props, values, actions }) => {
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -358,7 +549,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -373,13 +564,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
                 props.onEditSuccess(values.alertForm.id)
+            },
+            submitAlertForm: () => {
+                actions.setAlertFormSubmitAttempted()
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes
@@ -431,7 +625,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         }))
                     )
                 } else {
-                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    const formConfig = values.alertForm.config
+                    const seriesIndex = isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0
                     anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
                         index: idx,
                         date: simulationResult.dates[idx] ?? '',
@@ -456,4 +651,25 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
         }
     }),
+
+    subscriptions(({ props, values, actions }) =>
+        // Create-only: prefilling an existing alert would dirty the form on passive open and,
+        // if the query result shape drifted since save, silently rewrite a stored column. New
+        // alerts have nothing to clobber. A subscription (not a listener) because the suggestion
+        // derives from another logic's loader — there is no single action to listen to. Never
+        // fires for single-column results (picker hidden there); those stay implicit so they
+        // keep working on column renames.
+        props.insightAlertKind !== 'hogql' || props.alert
+            ? {}
+            : {
+                  // Materialize the suggested picks into the form, so the pickers show the actual
+                  // choice and the saved config is explicit.
+                  hogqlConfigPrefill: (patch: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null) => {
+                      const config = values.alertForm?.config
+                      if (patch != null && isHogQLAlertConfig(config)) {
+                          actions.setAlertFormValue('config', { ...config, ...patch })
+                      }
+                  },
+              }
+    ),
 ])

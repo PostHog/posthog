@@ -29,6 +29,8 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     insert_persons_to_ch_batch,
 )
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 @pytest.mark.django_db(transaction=True)
 class TestSyncPersonDistinctIdsWorkflow:

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "resource": {
+            "description": "Which builder playbook to fetch. Accepts either a bare id (one of: authenticating-as-the-user, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, secrets-and-integrations, setting-up-slack-app) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.",
+            "type": "string"
+        }
+    },
+    "required": ["resource"],
+    "type": "object"
+}

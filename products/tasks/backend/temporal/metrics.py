@@ -50,6 +50,50 @@ def increment_snapshot_usage(used_snapshot: bool) -> None:
     ).add(1)
 
 
+def increment_credential_refresh(kind: str, outcome: str) -> None:
+    """Record a sandbox credential refresh outcome.
+
+    outcome is one of: refreshed (token re-injected), skipped (nothing to do or
+    token could not be resolved), failed (the credential raised). Best-effort:
+    a metric failure must never break the refresh loop.
+    """
+    try:
+        meter = _metric_meter({"kind": kind, "outcome": outcome})
+        meter.create_counter(
+            "tasks_sandbox_credential_refresh",
+            "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_created(runtime: str) -> None:
+    """Record a sandbox creation, labeled by runtime ("vm" or "gvisor")."""
+    try:
+        meter = _metric_meter({"runtime": runtime})
+        meter.create_counter(
+            "tasks_process_sandbox_created",
+            "Sandboxes created for process-task runs by runtime",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_agent_server_boot_ms(boot_ms: int) -> None:
+    try:
+        attributes: Attributes = {
+            "step": "agent_server_boot",
+            "status": "COMPLETED",
+        }
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=boot_ms))
+    except Exception:
+        pass
+
+
 class StepTimer:
     def __init__(self, step: str, used_snapshot: bool | None = None) -> None:
         self.step = step

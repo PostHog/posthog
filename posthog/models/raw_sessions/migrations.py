@@ -39,7 +39,7 @@ def update_raw_sessions_table(migration: str):
                 table_name=TABLE_BASE_NAME,
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
         ),
         # recreate the view
         run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),
@@ -55,22 +55,22 @@ AggregateFunction(uniqUpTo(1), Nullable(UUID))
 AFTER maybe_has_session_replay
 """
 
-BASE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
-    lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
+BASE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = lambda: (
+    ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
         table_name=TABLE_BASE_NAME,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
-WRITABLE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
-    lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
+WRITABLE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = lambda: (
+    ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
         table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
-DISTRIBUTED_RAW_SESSIONS_ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL = (
-    lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
+DISTRIBUTED_RAW_SESSIONS_ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
+    ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
         table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
         cluster=settings.CLICKHOUSE_CLUSTER,
     )

@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -24,6 +25,7 @@ import {
     JsonType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
@@ -192,6 +194,11 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             }),
             submit: async ({ name, description, useTemplate, show, _create_in_folder }, breakpoint) => {
                 actions.setIsLoading(true)
+                // Read before the await: the modal/menu that mounts this logic can close
+                // mid-request (e.g. the "Start from scratch" menu), unmounting it. Reading
+                // `values` afterwards throws `[KEA] Can not find path`, which the catch below
+                // would mislabel as "Could not create dashboard" even though creation succeeded.
+                const redirectAfterCreation = values.redirectAfterCreation
                 try {
                     const result: DashboardType = await api.create(
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
@@ -208,7 +215,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
-                    if (show && values.redirectAfterCreation) {
+                    tryShowMCPHint('dashboards.create', {
+                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
+                    })
+                    if (show && redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
                     }
@@ -258,7 +268,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,
-                        _create_in_folder: 'Unfiled/Dashboards',
+                        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
 

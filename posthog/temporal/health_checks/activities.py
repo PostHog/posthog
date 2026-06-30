@@ -11,11 +11,11 @@ import temporalio.activity
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.rollout import filter_ids_for_rollout
 from posthog.temporal.health_checks.models import BatchResult, HealthCheckWorkflowInputs
+from posthog.temporal.health_checks.observability import push_health_check_metrics
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn, get_product
 
@@ -67,7 +67,7 @@ def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[in
         team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
         logger.info("after rollout filtering", rollout_pct=inputs.rollout_percentage, count=len(team_ids))
 
-    batches = [list(b) for b in batched(team_ids, inputs.batch_size)]
+    batches = [list(b) for b in batched(team_ids, inputs.batch_size, strict=False)]
 
     logger.info("created team batches", batch_count=len(batches), batch_size=inputs.batch_size)
     return batches

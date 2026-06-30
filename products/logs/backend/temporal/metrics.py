@@ -46,6 +46,20 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_cohort_update_ms",
 )
 
+LOGS_ALERTING_COUNT_HISTOGRAM_METRICS = ("logs_alerting_cohort_size",)
+
+LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS = [
+    1.0,
+    5.0,
+    10.0,
+    20.0,
+    30.0,
+    50.0,
+    100.0,
+    250.0,
+    500.0,
+]
+
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,
     500.0,
@@ -189,11 +203,14 @@ def record_cohort_update_duration(duration_ms: int) -> None:
 
 
 def record_cohort_size(size: int) -> None:
-    _record_histogram(
-        "logs_alerting_cohort_size",
-        "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
-        size,
+    """Record a non-timedelta histogram observation — cohort size is a count, not a duration."""
+    meter = get_metric_meter()
+    hist = meter.create_histogram(
+        name="logs_alerting_cohort_size",
+        description="Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+        unit="alerts",
     )
+    hist.record(size)
 
 
 CohortSaveFallbackReason = typing.Literal["integrity_error"]
@@ -267,7 +284,7 @@ def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> Non
 
 
 # TODO: Extract ExecutionTimeRecorder to posthog/temporal/common/ — copied from
-# posthog/temporal/llm_analytics/metrics.py to avoid cross-product import.
+# posthog/temporal/ai_observability/metrics.py to avoid cross-product import.
 class ExecutionTimeRecorder:
     """Context manager to record execution time to a histogram metric."""
 

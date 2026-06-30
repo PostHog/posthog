@@ -8,7 +8,8 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { pluralize } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
@@ -30,7 +31,7 @@ import {
     isPersonsNode,
     isSessionsQuery,
 } from '~/queries/utils'
-import { ExportContext, ExporterFormat } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExportContext, ExporterFormat } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -86,7 +87,14 @@ export async function startDownload(
         }
 
         if (columns.includes('person')) {
-            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
+            // Expand the `person` column to `person.id` (canonical UUID, always populated),
+            // `person.distinct_ids.0` (may be blank when the person can't be hydrated), and
+            // `person.is_unresolved` (true for merged/deleted persons whose Postgres row is
+            // missing). The id keeps every row identifiable; is_unresolved must be listed
+            // explicitly so the backend's user_columns filter doesn't drop it.
+            columns = columns.flatMap((c: string) =>
+                c === 'person' ? ['person.id', 'person.distinct_ids.0', 'person.is_unresolved'] : [c]
+            )
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
@@ -116,8 +124,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns =
-        (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
+    const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
         isPersonsNode(source) ||
         isEventsQuery(source) ||
@@ -125,6 +132,12 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         isMarketingAnalyticsTableQuery(source) ||
         isNonIntegratedConversionsTableQuery(source)
     const canSaveAsCohort = isActorsQuery(source)
+
+    // Creating an export requires editor access to the export resource.
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     return (
         <LemonMenu
@@ -254,7 +267,13 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                 },
             ].filter(Boolean)}
         >
-            <LemonButton type="secondary" icon={<IconDownload />} data-attr="data-table-export-menu" size="small">
+            <LemonButton
+                type="secondary"
+                icon={<IconDownload />}
+                data-attr="data-table-export-menu"
+                size="small"
+                disabledReason={accessControlDisabledReason ?? undefined}
+            >
                 Export{filterCount > 0 ? ` (${pluralize(filterCount, 'filter')})` : ''}
             </LemonButton>
         </LemonMenu>

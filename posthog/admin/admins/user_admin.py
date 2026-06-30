@@ -3,11 +3,9 @@ import datetime
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
-from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -23,6 +21,7 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_two_factor_reset_email
 
 
@@ -48,6 +47,14 @@ class UserChangeForm(DjangoUserChangeForm):
             raise ValidationError("Only users with a posthog.com email address may be promoted to staff.")
 
         return is_staff
+
+    def clean_passkeys_enabled_for_2fa(self):
+        # Mirror the API-side guard in UserSerializer.validate_passkeys_enabled_for_2fa:
+        # only allow enabling if the user has a verified passkey.
+        value = bool(self.cleaned_data.get("passkeys_enabled_for_2fa", False))
+        if value and not WebauthnCredential.objects.filter(user=self.instance, verified=True).exists():
+            raise ValidationError("Cannot enable passkeys for 2FA — this user has no verified passkey.")
+        return value
 
 
 @admin.register(User)
@@ -81,6 +88,7 @@ class UserAdmin(DjangoUserAdmin):
                     "strapi_id",
                     "revoke_sessions_link",
                     "two_factor_status",
+                    "passkeys_enabled_for_2fa",
                     "allow_impersonation",
                 )
             },
@@ -245,14 +253,5 @@ class UserAdmin(DjangoUserAdmin):
 
         return super().change_view(request, object_id, form_url, extra_context)
 
-    def _user_sessions(self, user):
-        """Fetch user's active sessions. Uses an iterator due to large table size and lack of effective indexing."""
-        user_pk = str(user.pk)
-        sessions = Session.objects.filter(expire_date__gt=timezone.now()).only("session_data")
-        for s in sessions.iterator():
-            data = s.get_decoded()
-            if data.get("_auth_user_id") == user_pk:
-                yield s
-
     def delete_user_sessions(self, user):
-        return sum(1 for s in self._user_sessions(user) if s.delete())
+        return revoke_other_sessions(user, keep_session_key=None)

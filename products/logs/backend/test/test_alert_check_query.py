@@ -86,6 +86,16 @@ class TestIsProjectionEligible(unittest.TestCase):
                 False,
             ),
             (
+                "filter_group_is_list",
+                {"filterGroup": [{"type": "AND", "values": []}]},
+                False,
+            ),
+            (
+                "filter_group_inner_value_not_dict",
+                {"filterGroup": {"type": "AND", "values": ["not-a-dict"]}},
+                False,
+            ),
+            (
                 "attribute_filter_present",
                 {
                     "filterGroup": {
@@ -221,6 +231,35 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                                     "value": "argo-rollouts-dashboard",
                                     "operator": "icontains",
                                     "type": "log_resource_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+        result = self._make_query(alert).execute()
+        assert isinstance(result, AlertCheckCountResult)
+        assert result.count > 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_raw_scan_path_log_attribute_filter(self):
+        # log_attribute filters read the `attributes_map_str` Map column. This only happens with
+        # propertyGroupsMode=OPTIMIZED; without it the read falls back to JSONExtract, which is
+        # illegal on a Map and the query errors at execution time.
+        alert = self._make_alert(
+            filters={
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "log.iostream",
+                                    "value": "stderr",
+                                    "operator": "exact",
+                                    "type": "log_attribute",
                                 }
                             ],
                         }
