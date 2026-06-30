@@ -117,8 +117,6 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                             repo={value.repository}
                             value={value.branch ?? ''}
                             onChange={handleBranchChange}
-                            placeholder="Default branch"
-                            showNoneOption
                         />
                     ) : (
                         <Button variant="outline" size="sm" disabled aria-label="Branch">
