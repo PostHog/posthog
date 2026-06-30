@@ -349,3 +349,19 @@ testdata_group_superset: list[tuple[EntityNode, EntityNode, bool]] = [
 @pytest.mark.parametrize("a,b,expected", testdata_superset + testdata_group_superset)
 def test_is_superset(a, b, expected):
     assert is_superset(a, b) == expected
+
+
+def test_is_superset_empty_is_superset_false_ignores_unfiltered_entity():
+    # An unfiltered entity is a superset by default, but with empty_is_superset=False it must not be
+    # treated as a superset of a filtered one (e.g. a mid-edit / unfiltered required funnel step).
+    unfiltered = EventsNode(event="$pageview")
+    filtered = EventsNode(
+        event="$pageview",
+        properties=[EventPropertyFilter(key="$current_url", value="/foo", operator=PropertyOperator.EXACT)],
+    )
+
+    assert is_superset(unfiltered, filtered) is True
+    assert is_superset(unfiltered, filtered, empty_is_superset=False) is False
+
+    # When both sides are unfiltered the flag has no effect — they're still equal supersets.
+    assert is_superset(unfiltered, EventsNode(event="$pageview"), empty_is_superset=False) is True

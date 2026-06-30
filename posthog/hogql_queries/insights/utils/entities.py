@@ -122,8 +122,13 @@ def is_equal(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode, compare_p
     return True
 
 
-def is_superset(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> bool:
-    """Checks if this entity is a superset version of other. The nodes match and the properties of (a) is a subset of the properties of (b)."""
+def is_superset(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode, *, empty_is_superset: bool = True) -> bool:
+    """Checks if this entity is a superset version of other. The nodes match and the properties of (a) is a subset of the properties of (b).
+
+    With ``empty_is_superset=False``, an entity with no effective properties is not treated as a superset of a
+    filtered one. This is useful for user-facing validation, where a step that is mid-edit (or genuinely
+    unfiltered) shouldn't be reported as overlapping a preceding filtered step.
+    """
 
     if not is_equal(a, b, compare_properties=False):
         return False
@@ -131,11 +136,14 @@ def is_superset(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> boo
     properties_a = Counter(_sorted_property_reprs(a.properties))
     properties_b = Counter(_sorted_property_reprs(b.properties))
 
-    if len(properties_a - properties_b) != 0:
-        return False
-
     fixed_properties_a = Counter(_sorted_property_reprs(a.fixedProperties))
     fixed_properties_b = Counter(_sorted_property_reprs(b.fixedProperties))
+
+    if not empty_is_superset and not (properties_a or fixed_properties_a) and (properties_b or fixed_properties_b):
+        return False
+
+    if len(properties_a - properties_b) != 0:
+        return False
 
     return len(fixed_properties_a - fixed_properties_b) == 0
 

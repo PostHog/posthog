@@ -5,11 +5,13 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    EventPropertyFilter,
     EventsNode,
     FunnelExclusionEventsNode,
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
+    PropertyOperator,
     StepOrderValue,
 )
 
@@ -204,3 +206,49 @@ class TestFunnelValidationRules(BaseTest):
 
         self.assertIn(expected_error, str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
+
+    @parameterized.expand(
+        [
+            (
+                "different_url_filters",
+                FunnelsQuery(
+                    series=[
+                        EventsNode(event="$pageview"),
+                        EventsNode(
+                            event="$pageview",
+                            optionalInFunnel=True,
+                            properties=[
+                                EventPropertyFilter(key="$current_url", value="/foo", operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                EventPropertyFilter(key="$current_url", value="/bar", operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+            (
+                "following_required_step_unfiltered",
+                # The required step's URL filter isn't typed yet, so it arrives with no properties. It must not
+                # be reported as overlapping the preceding filtered optional step of the same event.
+                FunnelsQuery(
+                    series=[
+                        EventsNode(event="$pageview"),
+                        EventsNode(
+                            event="$pageview",
+                            optionalInFunnel=True,
+                            properties=[
+                                EventPropertyFilter(key="$current_url", value="/foo", operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                        EventsNode(event="$pageview"),
+                    ],
+                ),
+            ),
+        ]
+    )
+    def test_allows_optional_step_when_following_required_step_differs(self, _name, query):
+        ValidateOptionalFunnelSteps().validate(self._context(query))

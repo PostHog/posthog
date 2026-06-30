@@ -140,7 +140,10 @@ class ValidateOptionalFunnelSteps:
         # slightly different could get around this, but we want to stop the naive case from spawning support issues.
         for previous_step, current_step in pairwise(series):
             if (
-                (is_equal(previous_step, current_step) or is_superset(current_step, previous_step))
+                (
+                    is_equal(previous_step, current_step)
+                    or is_superset(current_step, previous_step, empty_is_superset=False)
+                )
                 and getattr(previous_step, "optionalInFunnel", False)
                 and not getattr(current_step, "optionalInFunnel", False)
             ):
