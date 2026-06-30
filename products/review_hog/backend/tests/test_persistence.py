@@ -6,20 +6,18 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
-    load_chunk_analyses,
     load_chunk_set,
     load_perspective_results,
     load_pr_snapshot,
     load_prior_findings,
+    load_run_validations,
     load_valid_findings,
-    persist_chunk_analyses,
     persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
@@ -318,6 +316,37 @@ class TestLoadValidFindings(BaseTest):
         ]
 
 
+class TestLoadRunValidations(BaseTest):
+    def test_maps_issues_to_this_runs_verdicts_and_ignores_other_runs(self) -> None:
+        # Powers validator skip-resume + DB-sourced body: each issue → this run's verdict (lossless),
+        # unjudged issues absent, and an earlier run's verdict for the same id must not leak in.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        judged = _issue("1-1-1", file="a.py")
+        unjudged = _issue("1-1-2", file="b.py", start=20)
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=judged,
+            validation=IssueValidation(is_valid=True, argumentation="real", category="bug"),
+            run_index=2,
+        )
+        # Same issue id, but an EARLIER run — keyed under run 1, so run 2's view must not return it.
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=judged,
+            validation=IssueValidation(is_valid=False, argumentation="stale", category="security"),
+            run_index=1,
+        )
+
+        out = load_run_validations(team_id=self.team.id, report_id=report_id, run_index=2, issues=[judged, unjudged])
+
+        assert set(out) == {"1-1-1"}  # the unjudged issue has no verdict this run
+        assert out["1-1-1"].is_valid is True
+        assert out["1-1-1"].category == "bug"
+        assert out["1-1-1"].argumentation == "real"  # run 2's verdict, not run 1's "stale"
+
+
 class TestLoadPriorFindings(BaseTest):
     def test_returns_only_earlier_turns_findings(self) -> None:
         # The "already covered" context for a re-review must be PRIOR turns' findings only — never the
@@ -362,23 +391,6 @@ class TestWorkingState(BaseTest):
         assert loaded is not None
         assert [c.chunk_id for c in loaded.chunks] == [1]
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") is None
-
-    def test_chunk_analyses_round_trip_latest_wins_per_chunk(self) -> None:
-        persist_chunk_analyses(
-            team_id=self.team.id,
-            report_id=self.report_id,
-            head_sha="sha-aaa",
-            analyses={1: ChunkAnalysis(goal="old", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["a.py"]))},
-        )
-        persist_chunk_analyses(
-            team_id=self.team.id,
-            report_id=self.report_id,
-            head_sha="sha-aaa",
-            analyses={1: ChunkAnalysis(goal="new", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["a.py"]))},
-        )
-        loaded = load_chunk_analyses(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
-        assert loaded[1].goal == "new"
-        assert load_chunk_analyses(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
 
     def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
         results = {

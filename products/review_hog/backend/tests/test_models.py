@@ -6,14 +6,12 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ARTEFACT_CONTENT_SCHEMAS,
-    ChunkAnalysisArtefact,
     ChunkSetArtefact,
     PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -40,14 +38,6 @@ def _chunk_set(head_sha: str = "abc123") -> ChunkSetArtefact:
     )
 
 
-def _chunk_analysis(head_sha: str = "abc123") -> ChunkAnalysisArtefact:
-    return ChunkAnalysisArtefact(
-        head_sha=head_sha,
-        chunk_id=1,
-        analysis=ChunkAnalysis(goal="adds the thing", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["f.py"])),
-    )
-
-
 def _perspective_result(head_sha: str = "abc123") -> PerspectiveResultArtefact:
     return PerspectiveResultArtefact(head_sha=head_sha, pass_number=1, chunk_id=1, review=IssuesReview(issues=[]))
 
@@ -58,7 +48,7 @@ class TestReviewArtefactContent:
         # silently breaks parse_artefact_content / artefact_type_for for that type.
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(ReviewReportArtefact.ArtefactType.values)
         # The working-state types the DB-driven resume reads back must be registered.
-        assert {"chunk_set", "chunk_analysis", "perspective_result"} <= set(ARTEFACT_CONTENT_SCHEMAS.keys())
+        assert {"chunk_set", "perspective_result"} <= set(ARTEFACT_CONTENT_SCHEMAS.keys())
 
     @parameterized.expand([("finding", _finding), ("chunk_set", _chunk_set)])
     def test_add_log_rejects_non_log_content(self, _name, make_content):
@@ -73,7 +63,7 @@ class TestReviewArtefactContent:
             )
 
     def test_add_working_state_rejects_non_working_state_content(self):
-        # add_working_state must refuse a finding — only chunk_set/chunk_analysis/perspective_result
+        # add_working_state must refuse a finding — only chunk_set/perspective_result/pr_snapshot
         # accumulate via it. Raises before any DB write.
         with pytest.raises(ValueError):
             ReviewReportArtefact.add_working_state(
@@ -130,7 +120,6 @@ class TestReviewArtefactFunnel(BaseTest):
     @parameterized.expand(
         [
             (_chunk_set, ReviewReportArtefact.ArtefactType.CHUNK_SET, ChunkSetArtefact),
-            (_chunk_analysis, ReviewReportArtefact.ArtefactType.CHUNK_ANALYSIS, ChunkAnalysisArtefact),
             (_perspective_result, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, PerspectiveResultArtefact),
         ]
     )

@@ -1,4 +1,3 @@
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
@@ -17,63 +16,35 @@ def _issue(issue_id: str, priority: IssuePriority = IssuePriority.MUST_FIX) -> I
     )
 
 
-def _analysis(chunk_id: int, goal: str) -> ChunkAnalysis:
-    return ChunkAnalysis(goal=goal, chunk_meta=ChunkMeta(chunk_id=chunk_id, files_in_this_chunk=["src/auth.py"]))
-
-
 def _chunk(chunk_id: int, chunk_type: str) -> Chunk:
     return Chunk(chunk_id=chunk_id, files=[FileInfo(filename="src/auth.py")], chunk_type=chunk_type, key_changes=[])
 
 
-def test_only_validated_issues_count_toward_chunk_issue_line() -> None:
-    # One valid + one invalid issue on the same chunk; the body must count only the valid one.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
-    analyses = {1: _analysis(1, "Fix the auth bug")}
+def test_only_validated_issues_count_and_chunk_appears() -> None:
+    # One valid + one invalid issue on the same chunk: the body shows the chunk (with a humanized
+    # header) and counts only the valid one.
+    chunks_data = ChunksList(chunks=[_chunk(1, "business_logic")])
     issues = [_issue("1-1-1"), _issue("1-1-2")]
     validations = {
         "1-1-1": IssueValidation(is_valid=True, argumentation="real bug", category="bug"),
         "1-1-2": IssueValidation(is_valid=False, argumentation="not a bug", category="code_quality"),
     }
 
-    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=issues, validations=validations)
-
-    assert "**Issues:** 1 issue" in body
-
-
-def test_body_contains_header_chunk_header_and_analysis_goal() -> None:
-    goal = "This chunk rewires the auth handshake and adds retry handling."
-    chunks_data = ChunksList(chunks=[_chunk(1, "business_logic")])
-    analyses = {1: _analysis(1, goal)}
-
-    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=[], validations={})
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
 
     assert "# ReviewHog Report" in body
-    # chunk_type "business_logic" is humanized into the chunk header
-    assert "## Business logic" in body
-    assert goal in body
+    assert "## Business logic" in body  # chunk_type humanized into the header
+    assert "**Issues:** 1 issue" in body  # only the valid issue counts
 
 
-def test_chunk_without_analysis_and_no_valid_issue_is_skipped() -> None:
-    # chunk 2 has no analysis and no validated issue, so it must not appear in the rendered body.
+def test_chunk_with_no_valid_issue_is_skipped() -> None:
+    # chunk 2 has no validated issue, so it must not clutter the body (which summarizes findings, not
+    # coverage); chunk 1 has a valid finding and appears.
     chunks_data = ChunksList(chunks=[_chunk(1, "bugfix"), _chunk(2, "frontend")])
-    analyses = {1: _analysis(1, "Fix the auth bug")}
+    issues = [_issue("1-1-1")]
+    validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
 
-    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=[], validations={})
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
 
     assert "## Bugfix" in body
     assert "## Frontend" not in body
-
-
-def test_analysis_less_chunk_with_valid_issue_still_appears() -> None:
-    # A transient analysis failure must not drop a valid finding that publish (DB-driven) would still
-    # comment on — the chunk appears (with a placeholder analysis) so body and publish stay consistent.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix"), _chunk(2, "frontend")])
-    analyses = {1: _analysis(1, "Fix the auth bug")}  # chunk 2's analysis "failed"
-    issues = [_issue("1-2-1")]  # a valid issue in chunk 2
-    validations = {"1-2-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
-
-    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=issues, validations=validations)
-
-    assert "## Frontend" in body
-    assert "**Issues:** 1 issue" in body
-    assert "(analysis unavailable for this chunk)" in body

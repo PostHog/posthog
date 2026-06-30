@@ -4,6 +4,7 @@ Activities are replaced with `@activity.defn` stand-ins (matching the real activ
 exercise the real orchestration + the real fan-out children without touching the DB or a sandbox.
 """
 
+import json
 import uuid
 
 import pytest
@@ -15,7 +16,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.temporal.activities import (
-    AnalyzeChunkInput,
     DedupResult,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
@@ -25,13 +25,11 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
-    ValidateIssueInput,
-    ValidateIssueResult,
+    ValidateChunkInput,
+    ValidateChunkResult,
 )
 from products.review_hog.backend.temporal.types import ReviewPRWorkflowInputs
 from products.review_hog.backend.temporal.workflow import (
-    AnalyzeChunksInputs,
-    AnalyzeChunksWorkflow,
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
     ValidateIssuesInputs,
@@ -54,16 +52,12 @@ def _stage_kwargs() -> dict:
 async def _run_full_review_pr_workflow(
     *, publish: bool, already_published: bool = False, acting_user_id: int | None = 3
 ) -> dict:
-    """Run `ReviewPRWorkflow` end-to-end with activity stand-ins; record what fanned out + published.
-
-    `already_published` drives the fetch stand-in's `ReviewMeta.already_published` to exercise the
-    parent's early-exit gate (a re-trigger at an already-published head). `acting_user_id` drives the
-    resolve stand-in: None means the PR author maps to no PostHog user, so the parent skips the review.
-    """
+    # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
+    # already_published drives the early-exit gate; acting_user_id None means the author isn't a
+    # PostHog user, so the workflow skips the review.
     split_calls: list[int] = []
-    analyze_calls: list[int] = []
     review_calls: list[tuple[int, int]] = []
-    validate_calls: list[str] = []
+    validate_calls: list[int] = []
     publish_calls: list[int] = []
     # The user id the parent threads into the perspective + validation loads (should be the RESOLVED
     # value, not the None workflow input) — guards the per-user perspective/validator selection seam.
@@ -113,11 +107,6 @@ async def _run_full_review_pr_workflow(
             LoadedPerspectiveDTO(pass_number=3, skill_name="s-perf", version=1),
         ]
 
-    @activity.defn(name="analyze_chunk_activity")
-    async def analyze(input: AnalyzeChunkInput) -> bool:
-        analyze_calls.append(input.chunk_id)
-        return True
-
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
         review_calls.append((input.pass_number, input.chunk_id))
@@ -129,17 +118,18 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="dedup_activity")
     async def dedup(input) -> DedupResult:
-        return DedupResult(issues_json=["issue-json"], findings_count=1)
+        # Two survivors in two different chunks, so validate fans out one warm session per chunk.
+        return DedupResult(issues_json=[json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})], findings_count=2)
 
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input: LoadValidationInput) -> LoadedValidationSkillDTO:
         load_user_ids.append(input.acting_user_id)
         return LoadedValidationSkillDTO(skill_name="s-val", version=1)
 
-    @activity.defn(name="validate_issue_activity")
-    async def validate_issue(input: ValidateIssueInput) -> ValidateIssueResult:
-        validate_calls.append(input.issue_json)
-        return ValidateIssueResult(issue_id="1-1-1", validation_json="vj")
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        validate_calls.append(input.chunk_id)
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issues_json))
 
     @activity.defn(name="build_body_activity")
     async def build_body(input) -> None:
@@ -157,7 +147,6 @@ async def _run_full_review_pr_workflow(
             task_queue=task_queue,
             workflows=[
                 ReviewPRWorkflow,
-                AnalyzeChunksWorkflow,
                 ReviewPerspectivesWorkflow,
                 ValidateIssuesWorkflow,
             ],
@@ -169,12 +158,11 @@ async def _run_full_review_pr_workflow(
                 gen_schemas,
                 split,
                 load_perspectives,
-                analyze,
                 review,
                 combine,
                 dedup,
                 load_validation,
-                validate_issue,
+                validate_chunk,
                 build_body,
                 publish_act,
             ],
@@ -192,7 +180,6 @@ async def _run_full_review_pr_workflow(
     return {
         "result": result,
         "split": split_calls,
-        "analyze": analyze_calls,
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
@@ -204,10 +191,9 @@ async def _run_full_review_pr_workflow(
 async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     recorded = await _run_full_review_pr_workflow(publish=False)
     assert recorded["result"] == "rep-1"
-    # The analyze child fans out one activity per chunk; review fans out per (perspective × chunk).
-    assert sorted(recorded["analyze"]) == [1, 2]
+    # Review fans out per (perspective × chunk); validate fans out one warm session per chunk.
     assert len(recorded["review"]) == 6  # 3 perspectives × 2 chunks
-    assert recorded["validate"] == ["issue-json"]  # one post-dedup issue
+    assert sorted(recorded["validate"]) == [1, 2]  # one session per chunk-with-issues
     assert recorded["publish"] == []  # publish=False → never posts to GitHub
     # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
     # both the perspective and validation loads — the per-user selection seam for each.
@@ -223,11 +209,10 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
 @pytest.mark.asyncio
 async def test_review_pr_workflow_early_exits_when_already_published():
     # A re-trigger at an already-published head: the gate returns the report id without running any
-    # downstream stage — no re-chunk/analyze/review/dedup/validate and no re-publish.
+    # downstream stage — no re-chunk/review/dedup/validate and no re-publish.
     recorded = await _run_full_review_pr_workflow(publish=True, already_published=True)
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []
-    assert recorded["analyze"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
@@ -240,79 +225,17 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     recorded = await _run_full_review_pr_workflow(publish=True, acting_user_id=None)
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []
-    assert recorded["analyze"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
 
 
-@pytest.mark.asyncio
-async def test_analyze_chunks_workflow_is_best_effort_on_unit_failure():
-    @activity.defn(name="analyze_chunk_activity")
-    async def analyze(input: AnalyzeChunkInput) -> bool:
-        if input.chunk_id == 2:
-            raise RuntimeError("sandbox boom")
-        return True
+async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> tuple[int, list]:
+    """Run `ValidateIssuesWorkflow` with a stand-in chunk validator; return (result, recorded calls)."""
 
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[AnalyzeChunksWorkflow],
-            activities=[analyze],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            analyzed = await env.client.execute_workflow(
-                AnalyzeChunksWorkflow.run,
-                AnalyzeChunksInputs(**_stage_kwargs(), chunk_ids=[1, 2, 3]),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
-
-    # 1 of 3 fails (33%, under the 70% floor): the workflow returns the survivors, not a failure.
-    assert analyzed == 2
-
-
-@pytest.mark.asyncio
-async def test_analyze_chunks_workflow_fails_above_failure_floor():
-    # 3 of 4 fail (75%, over the 70% floor): a near-total wipeout fails the run loudly instead of
-    # finalizing an empty review as success.
-    @activity.defn(name="analyze_chunk_activity")
-    async def analyze(input: AnalyzeChunkInput) -> bool:
-        if input.chunk_id in (1, 2, 3):
-            raise RuntimeError("sandbox boom")
-        return True
-
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[AnalyzeChunksWorkflow],
-            activities=[analyze],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            with pytest.raises(WorkflowFailureError):
-                await env.client.execute_workflow(
-                    AnalyzeChunksWorkflow.run,
-                    AnalyzeChunksInputs(**_stage_kwargs(), chunk_ids=[1, 2, 3, 4]),
-                    id=str(uuid.uuid4()),
-                    task_queue=task_queue,
-                )
-
-
-@pytest.mark.asyncio
-async def test_validate_issues_workflow_collects_kept_drops_skips():
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input) -> LoadedValidationSkillDTO:
         return LoadedValidationSkillDTO(skill_name="s-val", version=1)
-
-    @activity.defn(name="validate_issue_activity")
-    async def validate_issue(input: ValidateIssueInput) -> ValidateIssueResult:
-        if "drop" in input.issue_json:
-            return ValidateIssueResult(issue_id="dropped", validation_json=None)
-        return ValidateIssueResult(issue_id="kept", validation_json="vj")
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -320,46 +243,66 @@ async def test_validate_issues_workflow_collects_kept_drops_skips():
             env.client,
             task_queue=task_queue,
             workflows=[ValidateIssuesWorkflow],
-            activities=[load_validation, validate_issue],
+            activities=[load_validation, validate_chunk],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            validations = await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 ValidateIssuesWorkflow.run,
-                ValidateIssuesInputs(**_stage_kwargs(), issues_json=["keep", "drop"], acting_user_id=3),
+                ValidateIssuesInputs(**_stage_kwargs(), issues_json=issues_json, acting_user_id=3),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+    return result
 
-    # A None verdict is a deliberate skip (e.g. an unresolved chunk), not a failure: it's dropped from
-    # the result but does NOT count toward the failure floor.
-    assert validations == {"kept": "vj"}
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_fans_out_one_session_per_chunk():
+    # Survivors are grouped by their chunk (id = "{pass}-{chunk}-{issue}"): one warm session per chunk,
+    # its issues batched in. A malformed id is dropped from grouping, not sent to any session.
+    calls: list[tuple[int, tuple[str, ...]]] = []
+
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        calls.append((input.chunk_id, tuple(sorted(input.issues_json))))
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issues_json))
+
+    issues = [
+        json.dumps({"id": "1-1-1"}),  # chunk 1
+        json.dumps({"id": "2-1-2"}),  # chunk 1 (different perspective)
+        json.dumps({"id": "1-2-1"}),  # chunk 2
+        "not-json",  # malformed → skipped
+    ]
+    await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+
+    by_chunk = {chunk_id: set(issues_json) for chunk_id, issues_json in calls}
+    assert set(by_chunk) == {1, 2}
+    assert by_chunk[1] == {json.dumps({"id": "1-1-1"}), json.dumps({"id": "2-1-2"})}
+    assert by_chunk[2] == {json.dumps({"id": "1-2-1"})}
+
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_is_best_effort_on_chunk_failure():
+    # One chunk of two fails (50%, under the 70% floor): the workflow returns the survivor count and
+    # does NOT fail — a chunk that can't open its session degrades best-effort, the run still finalizes.
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        if input.chunk_id == 2:
+            raise RuntimeError("sandbox boom")
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=1)
+
+    issues = [json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})]
+    validated = await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+    assert validated == 1  # chunk 1 survived; chunk 2 dropped
 
 
 @pytest.mark.asyncio
 async def test_validate_issues_workflow_fails_above_failure_floor():
-    # Every validate unit raises a genuine sandbox failure (100%, over the 70% floor) — distinct from
-    # the None skip above — so the workflow fails loudly instead of returning an empty verdict set.
-    @activity.defn(name="load_validation_skill_activity")
-    async def load_validation(input) -> LoadedValidationSkillDTO:
-        return LoadedValidationSkillDTO(skill_name="s-val", version=1)
-
-    @activity.defn(name="validate_issue_activity")
-    async def validate_issue(input: ValidateIssueInput) -> ValidateIssueResult:
+    # Both chunks' sessions fail (100%, over the 70% floor): a near-total wipeout fails the run loudly
+    # instead of finalizing with no verdicts.
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         raise RuntimeError("sandbox boom")
 
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[ValidateIssuesWorkflow],
-            activities=[load_validation, validate_issue],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            with pytest.raises(WorkflowFailureError):
-                await env.client.execute_workflow(
-                    ValidateIssuesWorkflow.run,
-                    ValidateIssuesInputs(**_stage_kwargs(), issues_json=["a", "b"], acting_user_id=3),
-                    id=str(uuid.uuid4()),
-                    task_queue=task_queue,
-                )
+    issues = [json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})]
+    with pytest.raises(WorkflowFailureError):
+        await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
