@@ -2617,11 +2617,11 @@ def postgres_source(
             conn.autocommit = True
             return conn
 
-        # A hot-standby recovery conflict ("terminating connection due to conflict with recovery")
-        # terminates the whole connection mid-probe, so autocommit alone can't isolate it — every
-        # subsequent probe on the dead connection fails too. Reconnect and retry the metadata
-        # probes a bounded number of times with backoff, mirroring how the read loop recovers from
-        # the same conflict. Only once the conflicts are sustained do we raise the non-retryable
+        # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe
+        # mid-flight, so autocommit alone can't isolate it — the connection is left unusable and
+        # every subsequent probe on it fails too. Reconnect and retry the metadata probes a bounded
+        # number of times with backoff, mirroring how the read loop recovers from the same conflict.
+        # Only once the conflicts are sustained do we raise the non-retryable
         # "successive SerializationFailure errors" abort the read path already uses, rather than
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
@@ -2864,7 +2864,14 @@ def postgres_source(
                     # retryable dropped-connection error instead.
                     _raise_if_setup_connection_broken(connection)
                 break
-            except psycopg.errors.SerializationFailure as e:
+            except (psycopg.errors.SerializationFailure, psycopg.errors.QueryCanceled) as e:
+                # A hot-standby recovery conflict surfaces as either SerializationFailure (the
+                # transaction was aborted — "terminating connection due to conflict with recovery")
+                # or QueryCanceled (the statement was canceled — "canceling statement due to conflict
+                # with recovery", e.g. a replica reconnect) depending on the conflict and the server.
+                # Both are the same transient condition and recover on reconnect. Any other
+                # QueryCanceled here is a statement_timeout and must re-raise. QueryCanceled subclasses
+                # OperationalError, so this clause must precede the connection-dropped handler below.
                 if "conflict with recovery" not in "".join(e.args):
                     raise
                 # Connection is dead; close defensively before reconnecting.
@@ -2873,7 +2880,7 @@ def postgres_source(
                 if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
                     raise _recovery_conflict_abort_error(setup_recovery_conflicts) from e
                 logger.debug(
-                    f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
+                    f"Recovery conflict during table setup ({e}). Reconnecting and retrying "
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
                 )
                 time.sleep(min(2 * setup_recovery_conflicts, 30))
