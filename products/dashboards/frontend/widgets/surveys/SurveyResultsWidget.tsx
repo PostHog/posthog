@@ -80,6 +80,22 @@ function formatAnswer(answer: unknown): string {
     if (answer === null || answer === undefined) {
         return ''
     }
+    // Multi-select answers can arrive as a JSON-encoded array string — render the
+    // choices comma-separated rather than showing the raw `["a","b"]` payload.
+    if (typeof answer === 'string') {
+        const trimmed = answer.trim()
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            try {
+                const parsed = JSON.parse(trimmed)
+                if (Array.isArray(parsed)) {
+                    return parsed.map((item) => String(item)).join(', ')
+                }
+            } catch {
+                // Not valid JSON — fall through and show the string as-is.
+            }
+        }
+        return answer
+    }
     return String(answer)
 }
 
