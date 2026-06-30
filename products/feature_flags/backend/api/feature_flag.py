@@ -62,7 +62,12 @@ from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
@@ -552,23 +557,46 @@ def check_flag_limits_for_team(
         )
 
 
-class RemoteConfigThrottle(BurstRateThrottle):
+# Default per-key and per-team cap for remote_config. Both throttles below respect
+# per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
+REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
+
+
+def _apply_remote_config_team_rate_override(throttle, view) -> None:
+    # Raise or lower a specific team's remote_config cap via REMOTE_CONFIG_RATE_LIMITS. On any
+    # lookup/parse failure, leave the default rate in place rather than failing the request.
+    team_id = throttle.safely_get_team_id_from_view(view)
+    if team_id:
+        try:
+            custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+            if custom_rate:
+                num_requests, duration = throttle.parse_rate(custom_rate)
+                throttle.rate = custom_rate
+                throttle.num_requests = num_requests
+                throttle.duration = duration
+        except Exception:
+            logger.exception("Error getting team-specific rate limit for team %s", team_id)
+
+
+class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
+    # PersonalApiKeyRateThrottle would let through.
     scope = "feature_flag_remote_config"
-    rate = "600/minute"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
+        _apply_remote_config_team_rate_override(self, view)
+        return super().allow_request(request, view)
 
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
+class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential.
+    scope = "feature_flag_remote_config_psak_team"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
+
+    def allow_request(self, request, view):
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
@@ -4055,7 +4083,7 @@ class FeatureFlagViewSet(
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
-        throttle_classes=[RemoteConfigThrottle],
+        throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
