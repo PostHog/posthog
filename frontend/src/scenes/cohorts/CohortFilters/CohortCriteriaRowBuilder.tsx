@@ -3,6 +3,8 @@ import './CohortCriteriaRowBuilder.scss'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -38,6 +40,20 @@ export function CohortCriteriaRowBuilder({
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
     const rowShape = ROWS[type]
+
+    // A criterion type with no ROWS entry (e.g. a backend-only type reaching the editor before
+    // processCohortCriteria normalizes it). Render nothing rather than crash, but surface it so
+    // a future unknown type doesn't silently vanish from the editor. Reported in an effect, not
+    // during render, so it fires once per `type` instead of on every re-render.
+    useEffect(() => {
+        if (!rowShape) {
+            posthog.captureException(new Error(`CohortCriteriaRowBuilder: no ROWS entry for type "${type}"`))
+        }
+    }, [type, rowShape])
+
+    if (!rowShape) {
+        return <></>
+    }
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
