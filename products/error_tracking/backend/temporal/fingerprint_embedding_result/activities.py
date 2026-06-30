@@ -29,6 +29,62 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 PREFERRED_EMBEDDING_MODEL = "text-embedding-3-large-3072"
 AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
 
+TARGET_EMBEDDING_QUERY_BY_MODEL = {
+    "text-embedding-3-large-3072": """
+        SELECT embedding
+        FROM document_embeddings_text_embedding_3_large_3072
+        WHERE document_type = 'fingerprint'
+        AND rendering = {rendering}
+        AND document_id = {fingerprint}
+        AND product = 'error_tracking'
+        AND team_id = {team_id}
+        AND timestamp >= {min_timestamp}
+        AND timestamp <= {max_timestamp}
+        ORDER BY inserted_at DESC
+        LIMIT 1
+        """,
+    "text-embedding-3-small-1536": """
+        SELECT embedding
+        FROM document_embeddings_text_embedding_3_small_1536
+        WHERE document_type = 'fingerprint'
+        AND rendering = {rendering}
+        AND document_id = {fingerprint}
+        AND product = 'error_tracking'
+        AND team_id = {team_id}
+        AND timestamp >= {min_timestamp}
+        AND timestamp <= {max_timestamp}
+        ORDER BY inserted_at DESC
+        LIMIT 1
+        """,
+}
+
+CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
+    "text-embedding-3-large-3072": """
+        SELECT document_id, cosineDistance({target_embedding}, embedding) AS distance
+        FROM document_embeddings_text_embedding_3_large_3072
+        WHERE document_type = 'fingerprint'
+        AND rendering = {rendering}
+        AND document_id != {fingerprint}
+        AND product = 'error_tracking'
+        AND team_id = {team_id}
+        AND timestamp >= {min_timestamp}
+        ORDER BY distance ASC
+        LIMIT 3
+        """,
+    "text-embedding-3-small-1536": """
+        SELECT document_id, cosineDistance({target_embedding}, embedding) AS distance
+        FROM document_embeddings_text_embedding_3_small_1536
+        WHERE document_type = 'fingerprint'
+        AND rendering = {rendering}
+        AND document_id != {fingerprint}
+        AND product = 'error_tracking'
+        AND team_id = {team_id}
+        AND timestamp >= {min_timestamp}
+        ORDER BY distance ASC
+        LIMIT 3
+        """,
+}
+
 
 class TargetFingerprintEmbeddingNotFoundError(RuntimeError):
     pass
@@ -73,6 +129,14 @@ def _model_specific_embeddings_table_name(model_name: str) -> str:
     raise ValueError(f"Invalid embedding model: {model_name}")
 
 
+def _model_specific_query(query_by_model: dict[str, str], model_name: str) -> str:
+    _model_specific_embeddings_table_name(model_name)
+    query = query_by_model.get(model_name)
+    if query is None:
+        raise ValueError(f"No query configured for embedding model: {model_name}")
+    return query
+
+
 def _parse_timestamp(timestamp: str) -> datetime:
     parsed = parse_datetime(timestamp)
     if parsed is None:
@@ -85,21 +149,8 @@ def _target_embedding_query(
     model_name: str,
     embedding_timestamp: datetime,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
-    table_name = _model_specific_embeddings_table_name(model_name)
     return parse_select(
-        f"""
-        SELECT embedding
-        FROM {table_name}
-        WHERE document_type = 'fingerprint'
-        AND rendering = {{rendering}}
-        AND document_id = {{fingerprint}}
-        AND product = 'error_tracking'
-        AND team_id = {{team_id}}
-        AND timestamp >= {{min_timestamp}}
-        AND timestamp <= {{max_timestamp}}
-        ORDER BY inserted_at DESC
-        LIMIT 1
-        """,
+        _model_specific_query(TARGET_EMBEDDING_QUERY_BY_MODEL, model_name),
         placeholders={
             "fingerprint": ast.Constant(value=inputs.fingerprint),
             "rendering": ast.Constant(value=inputs.rendering),
@@ -115,21 +166,9 @@ def _closest_fingerprints_query(
     model_name: str,
     target_embedding: list[float],
 ) -> ast.SelectQuery | ast.SelectSetQuery:
-    table_name = _model_specific_embeddings_table_name(model_name)
     min_timestamp = _parse_timestamp(inputs.timestamp) - timedelta(days=30)
     return parse_select(
-        f"""
-        SELECT document_id, cosineDistance({{target_embedding}}, embedding) AS distance
-        FROM {table_name}
-        WHERE document_type = 'fingerprint'
-        AND rendering = {{rendering}}
-        AND document_id != {{fingerprint}}
-        AND product = 'error_tracking'
-        AND team_id = {{team_id}}
-        AND timestamp >= {{min_timestamp}}
-        ORDER BY distance ASC
-        LIMIT 3
-        """,
+        _model_specific_query(CLOSEST_FINGERPRINTS_QUERY_BY_MODEL, model_name),
         placeholders={
             "fingerprint": ast.Constant(value=inputs.fingerprint),
             "rendering": ast.Constant(value=inputs.rendering),
