@@ -529,7 +529,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         ),
     )
 
-    @admin.action(description="Duplicate selected requests (as new drafts)")
+    @admin.action(permissions=["add"], description="Duplicate selected requests (as new drafts)")
     def duplicate_requests(self, request, queryset):
         """Copy each selected request into a fresh draft, noting it's a copy of the original."""
         created = 0
