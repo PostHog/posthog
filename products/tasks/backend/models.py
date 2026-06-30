@@ -58,6 +58,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
+        ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
@@ -343,6 +344,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
+        wizard_config: dict | None = None,
+        pending_user_message: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -490,6 +493,17 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if inactivity_timeout_seconds is not None:
             extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
+        # Marks this as a cloud setup-wizard run: the workflow runs the wizard in the sandbox before
+        # the agent (see run_wizard activity / TaskProcessingContext.wizard_config).
+        if wizard_config is not None:
+            extra_state["wizard_config"] = wizard_config
+
+        # The first message handed to the agent once its server is ready (forward_pending_user_message
+        # reads it from run state). Without it a background run boots the agent idle — it never gets a
+        # prompt and just sits there while relay_sandbox_events waits for events that never come.
+        if pending_user_message:
+            extra_state["pending_user_message"] = pending_user_message
+
         return task, extra_state
 
     @staticmethod
@@ -567,6 +581,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        wizard_config: dict | None = None,
+        pending_user_message: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -593,6 +609,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            wizard_config=wizard_config,
+            pending_user_message=pending_user_message,
         )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)

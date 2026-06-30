@@ -549,6 +549,9 @@ tools:
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
             Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
             (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-findings-summary:
+        operation: signals_scout_runs_findings_summary
+        enabled: false
     signals-scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
