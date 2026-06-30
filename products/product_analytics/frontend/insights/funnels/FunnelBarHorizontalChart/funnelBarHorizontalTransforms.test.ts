@@ -387,58 +387,82 @@ describe('buildFunnelBarHorizontalData', () => {
         })
 
         describe('with breakdown', () => {
-            // Breakdown + compare: nested_breakdown is paired [value0 current, value0 previous, …], so each
-            // (value, period) gets its own bar capped at that bar's entry level — its headroom vs the
-            // largest series is a volume gap, left empty, not drop-off — paired by value, previous dimmed.
+            // Breakdown × compare renders two stacks per step — a current stack and a previous stack,
+            // each composed by breakdown value and scaled to the larger period's first-step total. The
+            // stacked layout reads from raw counts, so fromBasisStep is unused here.
+            const nestedVariant = (
+                breakdown_value: string,
+                compare_label: 'current' | 'previous',
+                count: number
+            ): FunnelStepWithConversionMetrics => makeStep({ count, fromBasisStep: 0, breakdown_value, compare_label })
             const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
+                // step 0: current total 100 (mobile 60 + desktop 40), previous total 60 (mobile 40 + desktop 20)
                 makeStep({
-                    count: 140,
-                    fromBasisStep: 1,
+                    count: 100,
+                    order: 0,
+                    fromBasisStep: 0,
                     compare_label: 'current',
                     nested_breakdown: [
-                        makeStep({ count: 100, fromBasisStep: 1, breakdown_value: 'mobile', compare_label: 'current' }),
-                        makeStep({
-                            count: 80,
-                            fromBasisStep: 0.8,
-                            breakdown_value: 'mobile',
-                            compare_label: 'previous',
-                        }),
-                        makeStep({
-                            count: 40,
-                            fromBasisStep: 1,
-                            breakdown_value: 'desktop',
-                            compare_label: 'current',
-                        }),
-                        makeStep({
-                            count: 25,
-                            fromBasisStep: 0.625,
-                            breakdown_value: 'desktop',
-                            compare_label: 'previous',
-                        }),
+                        nestedVariant('mobile', 'current', 60),
+                        nestedVariant('mobile', 'previous', 40),
+                        nestedVariant('desktop', 'current', 40),
+                        nestedVariant('desktop', 'previous', 20),
+                    ],
+                }),
+                // step 1: current total 40, previous total 25
+                makeStep({
+                    count: 40,
+                    order: 1,
+                    fromBasisStep: 0,
+                    compare_label: 'current',
+                    nested_breakdown: [
+                        nestedVariant('mobile', 'current', 30),
+                        nestedVariant('mobile', 'previous', 20),
+                        nestedVariant('desktop', 'current', 10),
+                        nestedVariant('desktop', 'previous', 5),
                     ],
                 }),
             ]
 
-            it('caps each (breakdown value, period) bar at its own entry, leaving the headroom empty', () => {
-                const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
+            it('builds a current stack and a previous stack per step, composed by breakdown value', () => {
+                const result = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
 
-                expect(step.bars).toHaveLength(4)
-                // Each value's current bar is that value's leader (100%); previous is proportional
-                // within its own value (mobile 80, desktop 62.5) — not a global scale.
-                expect(step.bars.map((bar) => bar.series[0].data[0])).toEqual([100, 80, 100, 62.5])
-                expect(step.bars.map((bar) => bar.series[0].meta?.breakdownIndex)).toEqual([0, 1, 2, 3])
-                // Each bar ends at its own step-0 entry (drop-off filler 0), so the headroom up to 100%
-                // is empty — not filled to 100% as a drop-off as it was before.
-                expect(step.bars.map((bar) => bar.series[1].data[0])).toEqual([0, 0, 0, 0])
+                expect(result.every((step) => step.bars.length === 2)).toBe(true)
+                // Each stack: one segment per breakdown value (mobile, desktop) + a drop-off filler.
+                // Segments carry their nested index; the per-period filler is null (inert).
+                expect(result[0].bars[0].series.map((s) => s.meta?.breakdownIndex)).toEqual([0, 2, null])
+                expect(result[0].bars[1].series.map((s) => s.meta?.breakdownIndex)).toEqual([1, 3, null])
             })
 
-            it('dims each breakdown value’s previous-period bar', () => {
-                const getColor = jest.fn((v: FunnelStepWithConversionMetrics) =>
-                    v.compare_label === 'previous' ? '#dimmed' : '#solid'
-                )
-                const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, { ...options, getColor })
+            it('scales both stacks to the larger period’s first step, leaving the shorter period’s headroom empty', () => {
+                const result = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
 
-                expect(step.bars.map((bar) => bar.series[0].color)).toEqual(['#solid', '#dimmed', '#solid', '#dimmed'])
+                // basis = max(100, 60) = 100. Current stack fills the column (60 + 40, filler 0);
+                // previous stack tops out at 60 (40 + 20), so the 60→100 headroom is left empty.
+                expect(result[0].bars[0].series.map((s) => s.data[0])).toEqual([60, 40, 0])
+                expect(result[0].bars[1].series.map((s) => s.data[0])).toEqual([40, 20, 0])
+            })
+
+            it('caps each stack’s drop-off filler at its own period entry across steps', () => {
+                const result = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
+
+                // Step 1 current (30 + 10 = 40) drops off up to the current entry (100) → filler 60.
+                expect(result[1].bars[0].series.map((s) => s.data[0])).toEqual([30, 10, 60])
+                // Step 1 previous (20 + 5 = 25) drops off only up to the previous entry (60) → filler 35;
+                // the 60→100 headroom stays empty.
+                expect(result[1].bars[1].series.map((s) => s.data[0])).toEqual([20, 5, 35])
+            })
+
+            it('colors segments per breakdown value, dimming the previous stack', () => {
+                const getColor = jest.fn(
+                    (s: FunnelStepWithConversionMetrics) =>
+                        `${String(s.breakdown_value)}${s.compare_label === 'previous' ? '-dim' : ''}`
+                )
+                const result = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, { ...options, getColor })
+
+                // Current stack uses each value's vivid color; previous stack uses the dimmed color.
+                expect(result[0].bars[0].series.slice(0, 2).map((s) => s.color)).toEqual(['mobile', 'desktop'])
+                expect(result[0].bars[1].series.slice(0, 2).map((s) => s.color)).toEqual(['mobile-dim', 'desktop-dim'])
             })
         })
     })

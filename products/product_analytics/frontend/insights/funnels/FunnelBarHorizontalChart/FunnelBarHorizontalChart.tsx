@@ -102,6 +102,12 @@ export function FunnelBarHorizontalChart({
                     const isOptional = isStepOptional(stepIndex + 1)
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
+                        // Breakdown × compare stacks render a per-period aggregate drop-off filler
+                        // (breakdownIndex null) — there's no single series to open, so it's inert; the
+                        // value segments above still route per (value, period).
+                        if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
+                            return
+                        }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
                         // route the matching period series (converted vs. dropped-off) — handled before the
                         // generic drop-off branch, which would otherwise open the aggregate step.
