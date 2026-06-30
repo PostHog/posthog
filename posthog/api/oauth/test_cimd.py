@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache as real_cache
 from django.test import SimpleTestCase
+from django.utils.html import escape
 
 import requests
 from parameterized import parameterized
@@ -361,6 +362,43 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertEqual(app.name, "Updated Name")
         self.assertEqual(app.logo_uri, "https://example.com/new-logo.png")
+
+    @parameterized.expand(
+        [
+            ("script_tag", "<script>alert(1)</script>"),
+            ("attribute_breakout", '"><img src=x onerror=alert(1)>'),
+            ("ampersand_preserved", "Acme & Co"),
+            ("over_length_after_escape", "<" * 300),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_client_name_from_metadata_is_html_escaped(self, _name, payload, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(client_name=payload), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        expected = escape(payload)[:255]
+        self.assertEqual(app.name, expected)
+        self.assertNotIn("<", app.name)
+        self.assertNotIn(">", app.name)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_escapes_client_name_idempotently(self, mock_get, _url_mock):
+        payload = "<script>alert(1)</script>"
+        mock_get.return_value = _mock_response(_make_metadata(client_name="Safe Name"), headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        # Refresh twice with the same script payload — each call needs its own response because
+        # _mock_response's iter_content is a one-shot iterator. Re-escaping the raw metadata each
+        # time must not compound (it escapes the metadata value, not the already-escaped app.name).
+        for _ in range(2):
+            mock_get.return_value = _mock_response(_make_metadata(client_name=payload), headers={})
+            refresh_cimd_metadata_task(VALID_CIMD_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertEqual(app.name, escape(payload))
+        self.assertNotIn("<", app.name)
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_refresh_task_handles_fetch_failure_gracefully(self, mock_get, _url_mock):

@@ -3,6 +3,8 @@ import hashlib
 
 from posthog.test.base import APIBaseTest
 
+from django.utils.html import escape
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -363,6 +365,30 @@ class TestDynamicClientRegistration(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["client_name"], "My Analytics Dashboard")
+
+    @parameterized.expand(
+        [
+            ("script_tag", "<script>alert(1)</script>"),
+            ("attribute_breakout", '"><img src=x onerror=alert(1)>'),
+            ("ampersand_preserved", "Acme & Co"),
+            ("over_length_after_escape", "<" * 255),
+        ]
+    )
+    def test_client_name_is_html_escaped_when_stored(self, _name, payload):
+        response = self.client.post(
+            "/oauth/register/",
+            {"client_name": payload, "redirect_uris": ["https://example.com/callback"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Escaped once at ingestion and capped to the model's name column.
+        expected = escape(payload)[:255]
+        app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
+        self.assertEqual(app.name, expected)
+        self.assertNotIn("<", app.name)
+        self.assertNotIn(">", app.name)
+        self.assertEqual(response.json()["client_name"], expected)
 
     @parameterized.expand(
         [
