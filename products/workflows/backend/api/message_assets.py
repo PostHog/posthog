@@ -8,17 +8,24 @@ from rest_framework import serializers
 from posthog.clickhouse.client.execute import sync_execute
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
+    from posthog.models import Team
 
 
 WORKFLOW_EMAIL_ASSETS_UI_FLAG = "workflow-email-assets-ui"
 
 
-def workflow_email_assets_ui_enabled(team: "Team", user: "User") -> bool:
+def workflow_email_assets_ui_enabled(team: "Team", user: "AbstractBaseUser | AnonymousUser") -> bool:
+    # DRF's `request.user` is User | AnonymousUser. Permissions reject anonymous before
+    # we get here, but typing it broadly lets callers pass `request.user` without casting.
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
     return bool(
         posthoganalytics.feature_enabled(
             WORKFLOW_EMAIL_ASSETS_UI_FLAG,
-            str(user.distinct_id),
+            str(distinct_id),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
             group_properties={"organization": {"id": str(team.organization_id)}},
             only_evaluate_locally=False,
