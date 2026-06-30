@@ -198,7 +198,9 @@ export class KeyedRateLimiterService implements KeyedRateLimiter {
                     `KeyedRateLimiterService(${this.config.name}): missing bucketSize/refillRate/ttlSeconds for ${req.id}`
                 )
             }
-            const now = req.now ?? Math.round(Date.now() / 1000)
+            // Fractional default to match the contract: rounding to whole seconds
+            // can over-refill across a rounding boundary, the bug this path fixes.
+            const now = req.now ?? Date.now() / 1000
             const totalCost = req.costs.reduce((a, b) => a + b, 0)
             return { req, bucketSize, refillRate, ttlSeconds, now, totalCost }
         })
