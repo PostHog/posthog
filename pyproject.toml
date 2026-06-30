@@ -533,6 +533,9 @@ ignore_imports = [
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
     "products.tracing.backend.presentation.views -> products.tracing.backend.has_spans_query_runner",
+    # Saved-views ModelViewSet needs the model class for its serializer; same accepted pattern as
+    # logs' views_api. TODO: route through facade with the broader presentation cleanup.
+    "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",

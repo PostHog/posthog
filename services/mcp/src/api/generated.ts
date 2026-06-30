@@ -34418,6 +34418,39 @@ export namespace Schemas {
     }
 
     /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type TracingViewFilters = { [key: string]: unknown };
+
+    export interface TracingView {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: TracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at: string;
+      /** User who created the view. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracingViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingView[];
+    }
+
+    /**
      * Insight enriched with view-count and recent-viewer fields, used by the trending action.
      */
     export interface TrendingInsight {
@@ -41468,6 +41501,30 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type PatchedTracingViewFilters = { [key: string]: unknown };
+
+    export interface PatchedTracingView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: PatchedTracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at?: string;
+      /** User who created the view. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
@@ -58255,6 +58312,17 @@ export namespace Schemas {
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
+    export type EnvironmentsTracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUserInterviewTopicsListParams = {
     /**
      * Number of results to return per page.
@@ -65585,6 +65653,17 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type TracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 

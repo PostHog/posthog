@@ -35,6 +35,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { SavedViewsButton } from './savedViews/SavedViewsButton'
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
@@ -191,6 +192,7 @@ export function TracingFilterBar(): JSX.Element {
                             onClick={() => runQuery()}
                             loading={spansLoading}
                         />
+                        <SavedViewsButton />
                     </div>
                 </div>
                 <TracingAppliedFilters />
