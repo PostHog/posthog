@@ -101,6 +101,9 @@ tools:
     persons-partial-update:
         operation: persons_partial_update
         enabled: false
+    persons-emails-retrieve:
+        operation: persons_emails_retrieve
+        enabled: false
     persons-properties-at-time-retrieve:
         operation: persons_properties_at_time_retrieve
         enabled: false

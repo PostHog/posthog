@@ -40,6 +40,7 @@ def workflow_email_assets_ui_enabled(team: "Team", user: "AbstractBaseUser | Ano
 _COLLAPSED_AGGREGATES = """
     invocation_id,
     action_id,
+    argMax(function_id, version) AS latest_function_id,
     argMax(parent_run_id, version) AS latest_parent_run_id,
     argMax(kind, version) AS latest_kind,
     argMax(distinct_id, version) AS latest_distinct_id,
@@ -54,6 +55,7 @@ _COLLAPSED_AGGREGATES = """
 _OUTER_COLUMNS = """
     invocation_id,
     action_id,
+    latest_function_id,
     latest_parent_run_id,
     latest_kind,
     latest_distinct_id,
@@ -69,6 +71,7 @@ _OUTER_COLUMNS = """
 class MessageAsset:
     invocation_id: str
     action_id: str
+    function_id: str
     parent_run_id: str
     kind: str
     distinct_id: str
@@ -83,6 +86,10 @@ class MessageAssetSerializer(serializers.Serializer):
     invocation_id = serializers.CharField(help_text="The workflow run this email was sent in.")
     action_id = serializers.CharField(
         help_text="The email step (action node) within the workflow that sent this email."
+    )
+    function_id = serializers.CharField(
+        help_text="The workflow id that sent this email — used to navigate from a person's "
+        "Emails tab back into the originating workflow."
     )
     parent_run_id = serializers.CharField(
         help_text="The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs."
@@ -156,18 +163,45 @@ class MessageAssetContentRequestSerializer(serializers.Serializer):
     )
 
 
+class PersonMessageAssetsRequestSerializer(serializers.Serializer):
+    after = serializers.CharField(
+        required=False,
+        default="-30d",
+        help_text="Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. "
+        "Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.",
+    )
+    before = serializers.CharField(
+        required=False,
+        help_text="End of the time range, matched on sent time. Same format as 'after'. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        max_value=500,
+        min_value=1,
+        help_text="Maximum number of emails to return (1-500, default 50).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of emails to skip, for pagination.",
+    )
+
+
 def _build_asset(row: tuple) -> MessageAsset:
     return MessageAsset(
         invocation_id=row[0],
         action_id=row[1],
-        parent_run_id=row[2],
-        kind=row[3],
-        distinct_id=row[4],
-        person_id=row[5],
-        recipient=row[6],
-        subject=row[7],
-        status=row[8],
-        sent_at=row[9],
+        function_id=row[2],
+        parent_run_id=row[3],
+        kind=row[4],
+        distinct_id=row[5],
+        person_id=row[6],
+        recipient=row[7],
+        subject=row[8],
+        status=row[9],
+        sent_at=row[10],
     )
 
 
@@ -215,6 +249,51 @@ def fetch_message_assets(
     if search:
         where.append("(recipient ILIKE %(search)s OR subject ILIKE %(search)s)")
         kwargs["search"] = f"%{search}%"
+    if after:
+        where.append("sent_at >= toDateTime64(%(after)s, 6)")
+        kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    if before:
+        where.append("sent_at <= toDateTime64(%(before)s, 6)")
+        kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+    query = f"""
+        SELECT {_OUTER_COLUMNS}
+        FROM (
+            SELECT {_COLLAPSED_AGGREGATES}
+            FROM message_assets
+            WHERE {" AND ".join(where)}
+            GROUP BY invocation_id, action_id
+        )
+        WHERE latest_is_deleted = 0
+        ORDER BY latest_sent_at DESC
+        LIMIT %(limit)s OFFSET %(offset)s
+    """
+
+    results = cast(list, sync_execute(query, kwargs))
+    return [_build_asset(row) for row in results]
+
+
+def fetch_message_assets_for_person(
+    team_id: int,
+    person_id: str,
+    limit: int,
+    offset: int = 0,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+) -> list[MessageAsset]:
+    where = [
+        "team_id = %(team_id)s",
+        "person_id = %(person_id)s",
+        # Standalone hog_function email destinations aren't surfaced anywhere yet,
+        # so this endpoint only returns workflow-step rows.
+        "function_kind = 'hog_flow'",
+    ]
+    kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "person_id": person_id,
+        "limit": limit,
+        "offset": offset,
+    }
     if after:
         where.append("sent_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
