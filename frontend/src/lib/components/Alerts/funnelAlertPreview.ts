@@ -1,21 +1,40 @@
-import { AlertConditionType, InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightsThresholdBounds, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
 import { AlertConfig, isFunnelsAlertConfig } from './types'
 
 export interface FunnelAlertPreviewValue {
     label: string | null // breakdown value; null for a non-breakdown funnel
-    rate: number // 0–100
+    rate: number // 0–100 — the period the alert evaluates (latest, or last complete for relative)
     breaching: boolean
+    previousRate?: number // relative only: the prior period's rate the change is measured against
 }
 
 /** Advisory preview, mirroring the backend funnel strategies
  * (products/alerts/backend/evaluation/funnel_strategies.py) — keep in sync if you change the backend math. */
 export type FunnelAlertPreview =
     | { status: 'no-data' }
-    // `relative`: the alert fires on the period-over-period change, so the breach verdict can't be
-    // previewed from a single rate — the banner shows the latest rate without an absolute ok/breach tag.
+    // `relative`: the alert fires on the period-over-period change. The values carry the last complete
+    // period and the one before it, and `breaching` reflects the change against the threshold.
     | { status: 'ok'; values: FunnelAlertPreviewValue[]; isBreakdown: boolean; hasBounds: boolean; relative?: boolean }
+
+/** Period-over-period change the alert evaluates, mirroring the backend comparator's `_relative_value`:
+ * an absolute threshold compares the raw percentage-point change; a percentage threshold the ratio. */
+function _relativeChange(
+    conditionType: AlertConditionType,
+    thresholdType: InsightThresholdType | undefined,
+    anchor: number,
+    previous: number
+): number {
+    const numerator = conditionType === AlertConditionType.RELATIVE_INCREASE ? anchor - previous : previous - anchor
+    if (thresholdType !== InsightThresholdType.PERCENTAGE) {
+        return numerator
+    }
+    if (previous === 0) {
+        return anchor === 0 ? 0 : Infinity
+    }
+    return numerator / previous
+}
 
 interface FunnelStep {
     count: number
@@ -33,18 +52,30 @@ interface FunnelTrendsSeries {
 function _deriveTrendsPreview(
     series: FunnelTrendsSeries[],
     bounds: InsightsThresholdBounds | null | undefined,
-    relative: boolean
+    thresholdType: InsightThresholdType | undefined,
+    conditionType: AlertConditionType | undefined
 ): FunnelAlertPreview {
+    const relative =
+        conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
     const values: FunnelAlertPreviewValue[] = series.map((s) => {
-        const last = s.data?.[s.data.length - 1]
-        const rate = typeof last === 'number' ? last : 0
-        // A relative alert fires on the change vs the prior period, not the absolute rate — don't
-        // claim an absolute breach the alert wouldn't actually evaluate.
-        return {
-            label: _breakdownLabel(s.breakdown_value),
-            rate,
-            breaching: relative ? false : valueBreachesBounds(rate, bounds),
+        // A gap period can be null; coerce to 0 to match the backend (the runner already fills 0).
+        const data = (s.data ?? []).map((value) => (typeof value === 'number' ? value : 0))
+        const label = _breakdownLabel(s.breakdown_value)
+        if (!relative) {
+            // Absolute: evaluate the latest period.
+            const rate = data.length > 0 ? data[data.length - 1] : 0
+            return { label, rate, breaching: valueBreachesBounds(rate, bounds) }
         }
+        // Relative: compare the last complete period (the latest is still in progress) against the one
+        // before it — the same anchor the backend uses.
+        const anchorIndex = data.length - 2
+        const rate = anchorIndex >= 0 ? data[anchorIndex] : (data[0] ?? 0)
+        const previousRate = anchorIndex - 1 >= 0 ? data[anchorIndex - 1] : undefined
+        const breaching =
+            previousRate === undefined
+                ? false
+                : valueBreachesBounds(_relativeChange(conditionType!, thresholdType, rate, previousRate), bounds)
+        return { label, rate, previousRate, breaching }
     })
     return {
         status: 'ok',
@@ -98,10 +129,9 @@ export function deriveFunnelAlertPreview(
     config: AlertConfig | null | undefined,
     bounds: InsightsThresholdBounds | null | undefined,
     isTrendsFunnel: boolean,
-    conditionType?: AlertConditionType
+    conditionType?: AlertConditionType,
+    thresholdType?: InsightThresholdType
 ): FunnelAlertPreview | null {
-    const isRelative =
-        conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
     if (!isFunnelsAlertConfig(config)) {
         return null
     }
@@ -117,9 +147,9 @@ export function deriveFunnelAlertPreview(
         // the "not loaded yet" hint.
         return { status: 'no-data' }
     }
-    // A trends funnel returns conversion-rate time series rather than step lists; read the latest period.
+    // A trends funnel returns conversion-rate time series rather than step lists.
     if (isTrendsFunnel) {
-        return _deriveTrendsPreview(result, bounds, isRelative)
+        return _deriveTrendsPreview(result, bounds, thresholdType, conditionType)
     }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])

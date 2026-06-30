@@ -426,12 +426,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 (state, logicProps) => s.alertForm(state, logicProps)?.config,
                 (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
                 (state, logicProps) => s.alertForm(state, logicProps)?.condition?.type,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.type,
             ],
             (
                 insightData: Record<string, any> | null,
                 config: AlertConfig | null | undefined,
                 bounds: InsightsThresholdBounds | null | undefined,
-                conditionType: AlertConditionType | undefined
+                conditionType: AlertConditionType | undefined,
+                thresholdType: InsightThresholdType | undefined
             ): FunnelAlertPreview | null =>
                 props.insightAlertKind === 'funnels'
                     ? deriveFunnelAlertPreview(
@@ -439,7 +441,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           config,
                           bounds,
                           !!props.insightIsTrendsFunnel,
-                          conditionType
+                          conditionType,
+                          thresholdType
                       )
                     : null,
         ],

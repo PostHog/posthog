@@ -87,20 +87,6 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         )
     }
     const format = (rate: number): string => `${rate.toFixed(1)}%`
-    if (preview.relative) {
-        // The alert fires on the period-over-period change; we can't predict that from the latest rate
-        // alone, so show the rate as context without an absolute breach/ok verdict.
-        const rates = preview.values.map((value) => value.rate)
-        const headline = preview.isBreakdown
-            ? `${format(Math.min(...rates))}–${format(Math.max(...rates))}`
-            : format(preview.values[0].rate)
-        return (
-            <LemonBanner type="info" className="w-full">
-                Currently <strong>{headline}</strong>. This alert compares the most recent complete period against the
-                one before it (the in-progress period is skipped), so the change it evaluates isn't previewed here.
-            </LemonBanner>
-        )
-    }
     const breaching = preview.values.filter((value) => value.breaching)
     const wouldFire = breaching.length > 0
     // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.
@@ -109,6 +95,34 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
             {wouldFire ? 'breach' : 'ok'}
         </LemonTag>
     ) : null
+
+    if (preview.relative) {
+        // Relative alerts evaluate the change between the most recent complete period and the one
+        // before it (the in-progress period is skipped); `breaching` already reflects that change.
+        const first = preview.values[0]
+        const hasPrior = preview.values.some((value) => value.previousRate !== undefined)
+        return (
+            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                {statusTag}
+                {!hasPrior ? (
+                    <>Needs at least two complete periods to evaluate the change — extend the date range.</>
+                ) : preview.isBreakdown ? (
+                    <>
+                        Across {preview.values.length} breakdown values, comparing the most recent complete period
+                        against the one before it
+                        {wouldFire ? `: ${breaching.map((value) => value.label ?? 'conversion').join(', ')}` : ''}.
+                    </>
+                ) : (
+                    <>
+                        Most recent complete period <strong>{format(first.rate)}</strong> vs{' '}
+                        <strong>{format(first.previousRate as number)}</strong> before it (the in-progress period is
+                        skipped).
+                    </>
+                )}
+                {!preview.hasBounds ? <> Set a threshold to preview whether it would fire.</> : null}
+            </LemonBanner>
+        )
+    }
 
     if (preview.isBreakdown) {
         const rates = preview.values.map((value) => value.rate)

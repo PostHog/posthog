@@ -838,17 +838,38 @@ describe('alertFormLogic', () => {
             ).toEqual(expected)
         })
 
-        it('trends funnel: a relative condition shows the rate but no absolute breach verdict', () => {
+        it('trends funnel: relative condition evaluates the last complete period vs the prior one', () => {
+            // [40, 30, 5]: 5 is the in-progress period (skipped); the alert compares 30 against 40.
             const preview = deriveFunnelAlertPreview(
-                { result: [trend([10, 25, 40])] },
+                { result: [trend([40, 30, 5])] },
                 FROM_START,
-                { lower: 50 },
+                { upper: 8 },
                 true,
-                AlertConditionType.RELATIVE_DECREASE
+                AlertConditionType.RELATIVE_DECREASE,
+                InsightThresholdType.ABSOLUTE
+            )
+            // Dropped 10 points (40 → 30), which is more than the 8-point upper bound → breach.
+            expect(preview).toEqual({
+                status: 'ok',
+                values: [{ label: null, rate: 30, previousRate: 40, breaching: true }],
+                isBreakdown: false,
+                hasBounds: true,
+                relative: true,
+            })
+        })
+
+        it('trends funnel: relative condition with only one complete period flags no prior', () => {
+            const preview = deriveFunnelAlertPreview(
+                { result: [trend([30, 20])] }, // only one complete period (20 is in progress)
+                FROM_START,
+                { upper: 5 },
+                true,
+                AlertConditionType.RELATIVE_DECREASE,
+                InsightThresholdType.ABSOLUTE
             )
             expect(preview).toEqual({
                 status: 'ok',
-                values: [value(null, 40, false)],
+                values: [{ label: null, rate: 30, breaching: false }],
                 isBreakdown: false,
                 hasBounds: true,
                 relative: true,
