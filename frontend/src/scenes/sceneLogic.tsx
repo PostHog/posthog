@@ -572,6 +572,14 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             if (user) {
+                // A password reset link carries its own token and is a valid destination even for a
+                // logged-in user (e.g. when an admin shares a reset link), so load it directly rather
+                // than running the logged-in redirects below that would bounce it to the homepage.
+                if (sceneId === Scene.PasswordResetComplete) {
+                    actions.loadScene(sceneId, sceneKey, params, method)
+                    return
+                }
+
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
                     if (sceneId === Scene.Login) {

@@ -30,6 +30,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.PasswordResetComplete]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -68,6 +69,21 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
         })
+    })
+
+    it('loads the password reset page when logged in instead of bouncing to the homepage', async () => {
+        // The onlyUnauthenticated guard would otherwise redirect a logged-in user away, breaking
+        // admin-shared reset links. A reset link carries its own token, so it must still load.
+        await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+            sceneId: Scene.DataManagement,
+        })
+        router.actions.push(urls.passwordResetComplete('user-uuid', 'reset-token'))
+        await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+            sceneId: Scene.PasswordResetComplete,
+        })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.passwordResetComplete('user-uuid', 'reset-token')
+        )
     })
 
     it('persists the loaded scenes', async () => {

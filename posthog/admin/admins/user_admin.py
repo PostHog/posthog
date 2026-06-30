@@ -36,8 +36,7 @@ class UserChangeForm(DjangoUserChangeForm):
         password_reset_token = password_reset_token_generator.make_token(self.instance)
         self.fields["password"].help_text = (
             "Raw passwords are not stored, so there is no way to see this user's password, but you can send them "
-            f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
-            "(it only works when logged out)."
+            f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a>.'
         )
 
     def clean_is_staff(self):
