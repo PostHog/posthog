@@ -205,11 +205,6 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.method == "POST" and cfg.paginator_kind in ("cursor", "next_url"):
-        # POST list endpoints (`/companies/list`) take `per_page` in the body.
-        # The next-URL paginator preserves the POST method and body when it
-        # follows `pages.next`, so the body just needs to be set once.
-        endpoint["json"] = {"per_page": cfg.page_size}
     elif cfg.paginator_kind in ("cursor", "next_url"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
@@ -487,6 +482,12 @@ def intercom_source(
         # of re-handshaking per request.
         session = _make_intercom_session(access_token)
         items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
+    elif cfg.paginator_kind == "scroll":
+        # The Scroll API doesn't fit the framework paginators (the cursor is a
+        # `scroll_param`, not a request mutation), so `companies` walks it with a
+        # custom iterator. One session is reused across the whole scroll walk.
+        session = _make_intercom_session(access_token)
+        items = lambda: _iter_companies(session)
     else:
         config: RESTAPIConfig = {
             "client": {

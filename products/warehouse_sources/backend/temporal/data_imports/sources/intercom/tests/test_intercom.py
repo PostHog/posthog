@@ -222,19 +222,6 @@ class TestGetResource:
         assert _endpoint(resource)["params"]["created_at_after"] == expected_cursor
         assert resource["write_disposition"] == expected_disposition
 
-    def test_post_list_endpoint_sets_per_page_body(self):
-        resource = get_resource(
-            "companies",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            db_incremental_field_last_value=None,
-        )
-
-        endpoint = _endpoint(resource)
-        assert endpoint["method"] == "POST"
-        assert endpoint["json"] == {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
-        assert resource["write_disposition"] == "replace"
-
     @pytest.mark.parametrize(
         "endpoint_name,expected_model",
         [("company_attributes", "company"), ("contact_attributes", "contact")],
@@ -588,3 +575,23 @@ class TestIntercomSource:
         assert response.primary_keys == cfg.primary_keys
         assert response.partition_keys == [cfg.partition_key]
         assert response.sort_mode == cfg.sort_mode
+
+    def test_companies_routes_through_scroll_api(self):
+        # `companies` must walk the un-capped Scroll API, never `POST /companies/list`
+        # (capped at 10,000 — paging past it returns `400 page limit reached`). This
+        # guards the dispatch: if the endpoint config reverts to a list/next_url
+        # paginator it would 400 on large workspaces. The walk itself is covered by
+        # `test_iter_companies_walks_scroll`.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
+        ]
+
+        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+            response = intercom_source(access_token="token", endpoint="companies", team_id=1, job_id="job-1")
+            companies = list(response.items())
+
+        assert [c["id"] for c in companies] == ["co1"]
+        urls = [call.args[0] for call in mock_session.get.call_args_list]
+        assert urls and all(url.endswith("/companies/scroll") for url in urls)
