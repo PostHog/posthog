@@ -202,7 +202,7 @@ export interface QueryTab {
     draft?: DataWarehouseSavedQueryDraft
 }
 
-export type SqlEditorSource = 'insight' | 'endpoint'
+export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
 
 export interface DataWarehouseAccessControlModalProps {
     resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
@@ -2212,7 +2212,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
-            if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
+            if (
+                searchParams.source === 'endpoint' ||
+                searchParams.source === 'insight' ||
+                searchParams.source === 'view'
+            ) {
                 actions.setEditorSource(searchParams.source)
             }
             if (searchParams.dashboard) {
