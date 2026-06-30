@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.34 — 2026-06-30
+
+### Patch changes
+
+- [889dd51553](https://github.com/PostHog/posthog/commit/889dd5155315fa05b3cb369f3e461c6f51cc61c1) Strip sourceMappingURL comments when deleting uploaded source maps — Thanks @hpouillot!
+
 ## 0.7.33 — 2026-06-25
 
 ### Patch changes

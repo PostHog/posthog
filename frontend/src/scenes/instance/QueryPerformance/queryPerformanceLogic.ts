@@ -34,11 +34,20 @@ export interface SlowestQuery {
     experiment_metric_events_path: string
     experiment_query_surface: string
     experiment_precompute_table: string
+    experiment_precompute_skip_reason: string
+    experiment_scan_date_from: string
+    experiment_scan_date_to: string
+    precompute_window_start: string
+    precompute_window_end: string
     experiment_query_group_id: string
     experiment_metric_type: string
     experiment_funnel_order_type: string | null
     experiment_id: number | null
     total_duration_ms: number
+    read_bytes: number
+    read_rows: number
+    exception_code: number
+    memory_usage: number
     sub_queries: SlowestQuery[]
 }
 

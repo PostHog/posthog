@@ -3534,6 +3534,20 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
 
+        it('lights the optimistic boot indicator before the open POST and clears it once the SSE opens', async () => {
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['setSandboxRunOpening', 'openSandboxSse'])
+
+            // openSandboxSse clears the optimistic flag via the reducer, so it never sticks on success.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
+        })
+
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
             jest.spyOn(api.conversations, 'open').mockRejectedValue(new Error('boom'))
 
@@ -3545,6 +3559,8 @@ describe('maxThreadLogic', () => {
             }).toDispatchActions(['pushSandboxError', 'decrActiveStreamingThreads'])
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+            // The boot indicator must not stick once the failed send unwinds.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
             expect(
                 runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>
