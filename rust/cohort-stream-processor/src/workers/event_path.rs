@@ -432,6 +432,18 @@ fn collect_behavioral_applies(
                 .behavioral_by_event_name
                 .get(event_name)
                 .map_or(&[][..], Vec::as_slice);
+            // The event's name bucket and `behavioral_always_eval` must stay disjoint: a shared hash
+            // would be evaluated twice (duplicate `Apply`, double state write) and would inflate the
+            // subtrahend below, silently under-reporting the skip count. `behavioral_always_eval` is
+            // empty today so this short-circuits to O(1); it trips in tests the moment a future change
+            // routes a hash into both.
+            debug_assert!(
+                filters
+                    .behavioral_always_eval
+                    .iter()
+                    .all(|hash| !matched.contains(hash)),
+                "behavioral_always_eval overlaps the event-name bucket for {event_name:?}",
+            );
             let skipped = filters
                 .behavioral_conditions
                 .len()
