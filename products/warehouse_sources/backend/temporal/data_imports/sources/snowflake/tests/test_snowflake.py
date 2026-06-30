@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
@@ -347,8 +348,7 @@ class TestConnect:
             with impl.connect(_make_config()):
                 pass
             network_timeout = mock_connect.call_args.kwargs["network_timeout"]
-            assert isinstance(network_timeout, int)
-            assert network_timeout > 0
+            assert network_timeout == _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
 
 
 class TestSourceRequiresSsl:
