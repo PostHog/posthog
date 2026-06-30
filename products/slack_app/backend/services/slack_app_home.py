@@ -1458,7 +1458,6 @@ def _resolve_tasks_state(
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.models import Task
 
     slack_team_id = integration.integration_id
     # `-updated_at` advances on each thread reply, so "latest activity"
@@ -1486,11 +1485,7 @@ def _resolve_tasks_state(
         return TasksState()
 
     task_ids_ordered = [m["task_id"] for m in mappings]
-    tasks = list(
-        Task.objects.filter(id__in=task_ids_ordered, team_id__in=accessible_team_ids).only(
-            "id", "team_id", "title", "repository"
-        )
-    )
+    tasks = tasks_facade.get_tasks_by_ids(task_ids_ordered, accessible_team_ids)
     if not tasks:
         return TasksState()
 
@@ -1509,7 +1504,7 @@ def _resolve_tasks_state(
         if t is None:
             continue
         run = runs_by_task.get(str(t.id))
-        mapping: dict[str, Any] = mapping_by_task.get(str(t.id), {})
+        mapping = mapping_by_task.get(str(t.id), {})
         all_items.append(
             TaskItem(
                 title=t.title,
