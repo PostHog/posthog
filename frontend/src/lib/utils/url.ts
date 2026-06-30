@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { safeStringify } from 'lib/utils/json'
+import { stringifyWithBigInts } from 'lib/utils/json'
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
     if (!obj) {
@@ -10,7 +10,7 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
         }
-        val = typeof val === 'object' ? safeStringify(val) : val
+        val = typeof val === 'object' ? stringifyWithBigInts(val) : val
         return encodeURIComponent(val)
     }
 

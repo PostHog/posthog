@@ -1,4 +1,4 @@
-import { safeStringify, tryJsonParse, validateJson } from 'lib/utils/json'
+import { stringifyWithBigInts, tryJsonParse, validateJson } from 'lib/utils/json'
 
 describe('lib/utils/json', () => {
     describe('validateJson', () => {
@@ -22,7 +22,7 @@ describe('lib/utils/json', () => {
         })
     })
 
-    describe('safeStringify', () => {
+    describe('stringifyWithBigInts', () => {
         it.each([
             ['plain string', 'hello', '"hello"'],
             ['plain number', 42, '42'],
@@ -35,17 +35,16 @@ describe('lib/utils/json', () => {
             ['nested bigint', { a: { b: BigInt(7) } }, '{"a":{"b":"7"}}'],
             ['mixed types', { n: 1, b: BigInt(2), s: 'x', a: [BigInt(3)] }, '{"n":1,"b":"2","s":"x","a":["3"]}'],
         ])('serialises %s', (_label, input, expected) => {
-            expect(safeStringify(input)).toEqual(expected)
+            expect(stringifyWithBigInts(input)).toEqual(expected)
         })
 
         it('does not throw on a bigint where JSON.stringify would throw', () => {
-            expect(() => JSON.stringify(BigInt(1))).toThrow()
-            expect(() => safeStringify(BigInt(1))).not.toThrow()
+            expect(() => stringifyWithBigInts(BigInt(1))).not.toThrow()
         })
 
         it('matches JSON.stringify for undefined', () => {
-            expect(safeStringify(undefined)).toBeUndefined()
-            expect(safeStringify({ a: undefined, b: 1 })).toEqual('{"b":1}')
+            expect(stringifyWithBigInts(undefined)).toBeUndefined()
+            expect(stringifyWithBigInts({ a: undefined, b: 1 })).toEqual('{"b":1}')
         })
     })
 })

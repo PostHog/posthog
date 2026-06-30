@@ -31,7 +31,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { safeStringify } from 'lib/utils/json'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -1394,10 +1393,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ?.values.featureFlags.results.find((flag) => flag.id === props.id)
 
                         // If we've got a cached flag and the filters have changed, we've updated the release conditions
-                        if (
-                            cachedFlag &&
-                            safeStringify(cachedFlag?.filters) !== safeStringify(values.featureFlag.filters)
-                        ) {
+                        if (cachedFlag && !objectsEqual(cachedFlag?.filters, values.featureFlag.filters)) {
                             globalSetupLogic
                                 .findMounted()
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
