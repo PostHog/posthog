@@ -6,6 +6,13 @@ from posthog.models import OrganizationMembership
 
 
 class TestProductEnablementAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The endpoint's admin-gated recipes (conversations, replay masking) need an admin caller;
+        # the member-denial path is covered by test_admin_gated_products_require_project_admin.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/product_enablement/"
 
