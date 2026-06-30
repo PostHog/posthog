@@ -115,9 +115,6 @@ class LegacyEventsListQuery:
         self.user = user
         self.modifiers: HogQLQueryModifiers = create_default_modifiers_for_team(team)
         self.database = Database.create_for(team=team, user=user, modifiers=self.modifiers)
-        # Force UTC so the events API always returns raw UTC timestamps regardless of
-        # the project timezone setting. The API contract is UTC; display-layer conversion
-        # is the client's responsibility.
         self.database._timezone = "UTC"
 
     def run(
