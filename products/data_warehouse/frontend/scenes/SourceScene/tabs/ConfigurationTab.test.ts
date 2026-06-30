@@ -7,7 +7,7 @@ describe('isGoogleServiceAccountAuthNotYetOnIntegrations', () => {
         const source = {
             source_type: 'BigQuery',
             job_inputs: {},
-        } as ExternalDataSource
+        } as unknown as ExternalDataSource
 
         expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(true)
     })
@@ -18,7 +18,7 @@ describe('isGoogleServiceAccountAuthNotYetOnIntegrations', () => {
             job_inputs: {
                 google_cloud_service_account_integration_id: 7,
             },
-        } as ExternalDataSource
+        } as unknown as ExternalDataSource
 
         expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(false)
     })
@@ -29,7 +29,7 @@ describe('isGoogleServiceAccountAuthNotYetOnIntegrations', () => {
             job_inputs: {
                 google_cloud_service_account_integration_id: 7,
             },
-        } as ExternalDataSource
+        } as unknown as ExternalDataSource
 
         expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(false)
     })
