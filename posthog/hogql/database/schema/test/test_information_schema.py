@@ -20,6 +20,7 @@ from posthog.models.scoping import team_scope
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 
 def _field(name: str) -> ast.Field:
@@ -355,6 +356,50 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    def test_warehouse_column_statistics_are_merged(self):
+        # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,
+        # keyed by table id + column (like descriptions). A warehouse column without stats stays NULL.
+        credentials = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            row_count=42,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+            },
+        )
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnStatistics.objects.create(
+                team=self.team,
+                table=table,
+                column_name="id",
+                null_fraction=0.25,
+                min_value="ch_001",
+                max_value="ch_999",
+                has_min_max=True,
+            )
+
+        rows = (
+            execute_hogql_query(
+                """
+                SELECT column_name, null_fraction, min_value, max_value
+                FROM system.information_schema.columns
+                WHERE table_name = 'stripe_charges'
+                ORDER BY column_name
+                """,
+                team=self.team,
+            ).results
+            or []
+        )
+        by_column = {row[0]: row[1:] for row in rows}
+        assert by_column["id"] == [0.25, "ch_001", "ch_999"]
+        # Profiled stats absent for this column → all NULL.
+        assert by_column["amount"] == [None, None, None]
 
     def test_ordinal_positions_are_unique_within_a_table(self):
         # `events` exposes nested virtual-table columns (e.g. `group_0.*`); their ordinals must
