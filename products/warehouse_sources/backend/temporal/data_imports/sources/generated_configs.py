@@ -436,7 +436,8 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BloggerSourceConfig(config.Config):
-    pass
+    api_key: str
+    blog_id: str
 
 
 @config.config
@@ -551,7 +552,8 @@ class CampaignMonitorSourceConfig(config.Config):
 
 @config.config
 class CampaynSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -747,7 +749,11 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CoinApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    exchange_rate_base_asset: str | None = None
+    symbol_id: str | None = None
+    period_id: str | None = None
+    start_date: str | None = None
 
 
 @config.config
@@ -1001,7 +1007,8 @@ class DynamoDBSourceConfig(config.Config):
 
 @config.config
 class EConomicSourceConfig(config.Config):
-    pass
+    app_secret_token: str
+    agreement_grant_token: str
 
 
 @config.config
@@ -1164,7 +1171,8 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FleetioSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_token: str
 
 
 @config.config
