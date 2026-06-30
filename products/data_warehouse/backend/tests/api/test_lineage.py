@@ -69,7 +69,6 @@ class TestLineage(APIBaseTest):
             for q in context.captured_queries
             if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
         ]
-        # One extra over the BFS lookups for the batched latest-job query (joins the saved query table)
         self.assertLessEqual(len(view_queries), 8, f"Expected at most 8 queries, got {len(view_queries)}")
 
     def test_get_upstream_with_datawarehouse_table(self):
@@ -234,9 +233,7 @@ class TestLineage(APIBaseTest):
             data = response.json()
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        # latest job wins, not the May 1 job nor the stale model field
         self.assertTrue(nodes["final_q"]["last_run_at"].startswith("2026-06-30T10:00:00"))
-        # base_q has no job, so it falls back to the model field
         self.assertTrue(nodes["base_q"]["last_run_at"].startswith("2026-04-29T09:00:00"))
 
         job_queries = [q for q in context.captured_queries if "posthog_datamodelingjob" in q["sql"].lower()]
