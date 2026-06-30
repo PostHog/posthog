@@ -1034,37 +1034,55 @@ AnalyzeChunksWorkflow, ReviewPerspectivesWorkflow, ValidateIssuesWorkflow]` + `A
   placeholder, matching today — publish is off, so a partial review has no blast radius); the head_sha pin is
   **conditional step 16**, its own tasks-owned change, skipped unless actually needed.
 
-- **Future cost optimization (not scheduled) — collapse per-call sandboxes into one multi-step session.** Today
-  every stage call (chunk-analysis, each perspective review, each validation, dedup) spins up its **own** sandbox
-  via a fresh `run_sandbox_review` single-turn `MultiTurnSession` — N sandboxes per review, each paying cold-start
-  - repo-checkout cost. Worth exploring later: run a stage's calls (or even a whole chunk's analyze → review →
-    validate chain) as **sequential steps inside one long-lived multi-turn session in the same sandbox**, so the
-    checkout + agent boot amortize across steps and intermediate context can stay warm. **First concrete candidate: analyze-chunk → issue-search for the same chunk**,
-    run as two steps in one session so the analyze output feeds the search directly without re-establishing context.
-    Tensions to weigh first: it
-    trades the current **per-call isolation + independent parallelism** (each sandbox fails / retries / scales on its
-    own) for **fewer, fatter sessions** (shared failure blast radius, harder fan-out, ordering constraints), and the
-    `head_sha`-pinned checkout must still hold for every step. Purely a future idea to evaluate against real
-    sandbox-cost numbers — **do not implement now**; revisit after the Temporal single-turn workflow (step 15) lands
-    and per-sandbox cost is measurable.
+- **Cost optimization — collapse per-call sandboxes into warm multi-step sessions (PARTLY BUILT).** A single review
+  fans out N single-turn `run_sandbox_review` sandboxes, each paying a cold-start + repo-checkout. The fix is to run
+  a stage's calls as **sequential turns inside one long-lived warm session** (`start_sandbox_session` →
+  `continue_sandbox_session` → `end_sandbox_session`, the executor helpers) so checkout + agent boot amortize and
+  context stays warm across turns. **✅ Realized for VALIDATE (2026-06-29):** one warm session **per chunk**, fixing
+  the chunk and walking its issues as turns (one verdict/turn, resume-aware via `load_run_validations`) — collapsed
+  per-issue → per-chunk-with-findings. The analyze→review candidate is **moot** (analyze stage removed entirely).
+  - **NEXT candidate — per-PERSPECTIVE warm review session (the mirror of the validate change).** Today review fans
+    out `P × C` isolated single-turn sandboxes (e2e #66840: 3 perspectives × 4 chunks = **12** review sandboxes).
+    Instead, run **one warm session per perspective**, fixing the perspective and walking the chunks as sequential
+    turns (turn 1 = chunk 1, turn 2 = chunk 2, …; stable chunk-id order). Collapses `P × C → P` warm sessions
+    (#66840: 12 → 3), checkout/boot paid once per perspective. **Why it's safe:** the perspective stays **constant**
+    within a session — this is NOT the rejected "merge all perspectives into one pass" (that bled the lenses together);
+    each chunk is still its own turn with its own `IssuesReview` output, exactly like the per-issue verdicts in the
+    validate session. **The context win the maintainer flagged:** chunks of one PR are related, so when the session
+    reaches chunk N the agent has already seen chunks 1..N-1 (shared types, cross-chunk contracts, the PR's overall
+    shape) — new files, still related, so each turn re-establishes less context. Reuses the warm-session executor
+    helpers AND the **existing** resume infra: `perspective_result` artefacts are already keyed by `(pass_number,
+chunk_id)`, so `load_perspective_results` already gives per-chunk skip-resume for free (split done/pending chunks
+    like the validator splits done/pending issues). First chunk = full `build_review_prompt`; later chunks = a lean
+    follow-up (the perspective skill + prior chunks are already in-session). Tensions to weigh: cross-chunk context
+    **within** a perspective is mostly a feature (catches cross-chunk issues / shared-contract violations) but could
+    anchor — measure finding quality; chunks are reviewed **sequentially per perspective** (slower per perspective,
+    far fewer sandboxes; cross-perspective stays parallel — 3 sessions at once); the failure floor becomes
+    per-perspective (coarser); dedup still runs after across perspectives + chunks. **Do not implement now — note
+    only**; sequel to the validate change once its cost/quality is measured.
 - **Evaluate GPT-5.5 (or non-Claude models) as the sandbox model for some steps (not scheduled).** Every sandbox
   step runs on Claude today; the executor already takes a per-call `model` (`MultiTurnSession.start(model=…)`), so
   A/B-ing GPT-5.5 as the main model for specific steps (e.g. chunking or validation) where a cheaper/different model
   may match quality is a per-step config experiment, not a refactor. Measure finding quality + cost per step.
+- **Split the sandbox model by step — OpenAI Codex for the reviewers + dedup, Claude for the validators (not scheduled).** The executor already takes a per-call `model` (`MultiTurnSession.start(model=…)`), so each step can run on a different model. Candidate split: move the **perspective reviewers** and the **dedup** step to **OpenAI Codex** (issue-finding / code reading), while keeping **Claude** for the **validators** (the keep/drop judgment against the team's criteria, where Claude's calibration is the current baseline). Per-step model config, not a refactor — A/B finding quality + cost per step before committing. Sibling of the GPT-5.5 note above.
 - **Improve the chunking prompt — it over-splits small PRs (not scheduled).** Observed: a ~155-line PR was split
   into 2 chunks needlessly, doubling the per-chunk fan-out (2× agents / tokens / sandboxes across analyze + every
   perspective + validate). Bias `CHUNKING_SYSTEM_PROMPT` / `prompts/chunking/` toward fewer, larger chunks — a small
   PR should usually be one chunk; pairs with the conditional "skip chunking below a size threshold" gate. Pure
   prompt/heuristic tuning; measure chunk count vs PR size.
-- **Surface findings that can't be positioned on a diff line (not scheduled).** A valid finding on a **changed
-  file but an unchanged line** (e.g. `email.py:240` when the PR's diff only touches 220–227) survives scope-cleaning
-  (its file is in the diff) but is **silently dropped at publish**: `_find_valid_comment_position` requires the
-  finding's start line to be one of the diff's changed lines, so no inline comment is built and `publish_review`
-  returns `posted=False` (nothing posted). Observed on #66456 — 2 legitimate `should_fix` findings on `email.py:240`
-  (transaction rollback, row-lock hold) were lost this way. Find a way to still post these line-less findings:
-  e.g. a file-level review comment (GitHub's `subject_type=file`), anchoring to the nearest changed line in the
-  finding's range, or rolling them into a "Findings outside the changed lines" section of the review body instead of
-  dropping them. Weigh the noise trade-off (off-diff findings are more likely to be context the author didn't touch).
+- **NEXT-NEXT — surface valid findings that can't be positioned on a diff line (the step after the per-perspective
+  review session above).** A valid finding on a **changed file but an unchanged line** (e.g. `email.py:240` when the
+  PR's diff only touches 220–227) survives scope-cleaning (its file is in the diff) but is **silently dropped at
+  publish**: `_find_valid_comment_position` requires the finding's start line to be one of the diff's changed lines,
+  so no inline comment is built. The finding still lives in the report DB — it's correct and important, it just has
+  nowhere on the diff to anchor. Observed twice now: #66456 (2 `should_fix` findings on `email.py:240` — transaction
+  rollback, row-lock hold) and **#66840 (2 of 6 valid findings — `serializers.py:704` unvalidated Slack target, the
+  verbatim agent-draft render — posted only 4 of 6 inline)**. Find a way to still surface these line-less-but-valid
+  findings: a **file-level review comment** (GitHub's `subject_type=file`), **anchoring to the nearest changed line**
+  in the finding's range, or rolling them into a **"Findings outside the changed lines" section of the review body**
+  rather than dropping them. Weigh the noise trade-off (off-diff findings are more likely to be context the author
+  didn't touch) — favor the body-section option first (lowest risk, no mis-anchored inline comments). The count of
+  dropped findings is already knowable at publish time (valid findings minus posted inline), so the gap is measurable.
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
 
@@ -1923,20 +1941,33 @@ Tests: `test_split_pr_into_chunks.py::TestPlanDeterministicChunks` (parameterize
 - **New `publish_review` management command** (`--pr-url --team-id`): parses the PR, loads the `(team, repository, pr_number)` report, errors clearly if no review exists / no run completed (`run_count == 0`) / no `head_sha`, resolves the team's GitHub App installation token, **best-effort warns if the PR head moved** past the reviewed commit, then publishes the **latest completed turn** (`run_index == run_count`, at the report's reviewed `head_sha`). No Temporal, no sandbox.
 - Tests: `test_publish_review_command.py` (no-review error, never-completed error, happy-path arg resolution = `run_index`/`head_sha`/owner-repo-number/token) + the existing idempotency suite now covers `publish_persisted_review` through `_publish`. **User commits manually — not yet committed.**
 
+##### ✅ BUILT 2026-06-29 — per-chunk warm validate session + ANALYZE stage removed (cost optimization) (uncommitted; 271 tests + ruff + ty + tach green; e2e ✅ #66840)
+
+Two cost cuts, both validated on a real 1465-line multi-chunk PR (#66840). Goal: stop paying a cold-start + repo-checkout per LLM call where calls share context.
+
+- **Validate: per-issue fan-out → one warm multi-turn session PER CHUNK.** New executor helpers (`reviewer/sandbox/executor.py`): `start_sandbox_session` / `continue_sandbox_session` / `end_sandbox_session` over the Tasks-facade `MultiTurnSession` (`start` + `send_followup` + `end`); the caller drives turns and ends in a `finally`. `validate_chunk_activity` opens **one sandbox per chunk** and validates its issues as sequential turns — **one verdict per turn** (NOT the old "neutered" all-issues-in-one-output batch; each issue keeps its own independent judgment). Checkout/boot paid once per chunk instead of once per issue. `ValidateIssuesWorkflow` fans out per chunk (`_chunk_id_of` groups survivors by the `{pass}-{chunk}-{issue}` id), bounded by the semaphore.
+- **Skip-resume (the maintainer's fix, not redo-on-retry).** `load_run_validations(team, report, run_index, issues)` (persistence.py) reconstructs `IssueValidation` from each persisted `ValidationVerdict` (lossless), keyed by live issue id, scoped to `run_index` via the issue_key prefix, latest-wins. The activity splits issues into `done` / `pending` and validates **only `pending`** — a retry (or crash-recovery re-run) re-researches nothing already judged; a crash-after-complete does zero sandbox work. Raises on session-OPEN failure (Temporal retries + the floor catches a real outage); a single later issue's turn failure is best-effort skipped (the run continues, like the old per-issue drop).
+- **Body sourced from the DB, not the workflow return.** `build_body` (`_build_and_finalize` → `load_run_validations`) reads verdicts from the same `validation_verdict` rows publish reads, so a chunk that exhausts retries after partial progress can't show different findings in the body vs the posted comments. Dropped the `validations_json` threading through the workflow.
+- **ANALYZE stage removed entirely.** The reviewer already self-investigates from the diff + `<pr_intent>` (its mandated 40%-investigation step), and the chunker's `key_changes` already gives the body its per-chunk narrative — the analysis was a redundant, lossy summary costing C sandbox turns + tokens injected into every `P×C` review prompt. Deleted: `analyze_chunk_activity`, `AnalyzeChunksWorkflow`, `tools/chunk_analysis.py`, `models/chunk_analysis.py`, `prompts/chunk_analysis/`, `ChunkAnalysisArtefact` + its registry entry + the `ArtefactType.CHUNK_ANALYSIS` enum member (migration **0007**, a choices-only `AlterField` — old rows stay readable, nothing queries them), `persist/load_chunk_analyses`. `build_review_prompt` dropped its `analysis` param + the `CHUNK_ANALYSIS_CONTEXT` prompt block; `build_review_body` dropped `analyses` + the "Full analysis" section + `_placeholder_analysis`, and now **skips chunks with no validated finding** (no analysis narrative left to justify rendering an empty chunk). Investigated whether to keep analyze for `C>1`: no — the reviewer never needed it at any C; the per-chunk distinction was a body concern already covered by `key_changes`.
+- **Verification.** 271 tests + ruff + ty + tach green. Adversarial 4-dimension review (validate-session / resume-consistency / analyze-removal / temporal-determinism), each finding independently verified: **0 real bugs** — every `must_fix` claim (over-count, 30-min timeout, payload size, heartbeat, wedged session) traced and dismissed; only confirmed = stale "analyze" comments (fixed) + an honest-count nit (fixed: increment only on a real persist). **e2e ✅ #66840** (1465 additions / 21 files → **4 chunks**): **0 `chunk_analysis` artefacts**, 12 `perspective_result` (3×4), **3 `validation-c{1,2,3}` warm sessions → 19 verdicts** (vs 19 sandboxes under the old design; chunk 4 had no survivor → no session), 6 valid findings (sharp: REST-send auth bypass, unvalidated Slack target, verbatim agent-draft render, silent draft revert). Published via the standalone `publish_review` command (zero recompute): 4 inline comments (2 of 6 unpositionable on the diff — pre-existing behavior) + promo + watermark set.
+- **NEXT (note only, in Deferred/future):** the **per-PERSPECTIVE warm review session** — fix the perspective, walk the chunks as turns (`P×C → P` sessions, #66840: 12 → 3), reusing the existing `(pass_number, chunk_id)`-keyed `perspective_result` resume. The mirror of this validate change. **User commits manually — not yet committed.**
+
 ---
 
 ## Pipeline
 
 The orchestration is a Temporal workflow: `ReviewPRWorkflow` (`backend/temporal/workflow.py`) drives the setup
-activities → three fan-out **child workflows** (analyze / perspective review / validate) → finishing activities,
-each stage an activity in `backend/temporal/activities.py`. Only small values cross boundaries (`report_id` +
-`head_sha` + unit keys / JSON issue slices); every activity reloads its inputs from the per-turn `pr_snapshot`
-artefact, so no big payload hits Temporal's ~2 MiB cap. State persists to Postgres (`ReviewReport` +
-`ReviewReportArtefact`); there is **no on-disk store**. Each fan-out child bounds its per-unit sandbox activities
-with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` (`constants.py`) + `gather(return_exceptions=True)` —
-there is no module-level semaphore. The expensive, turn-stable sandbox stages (chunk / analyze / perspective
-review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of re-calling the
-sandbox; dedup and validation recompute.
+activities → two fan-out **child workflows** (perspective review / validate) → finishing activities, each stage an
+activity in `backend/temporal/activities.py`. Only small values cross boundaries (`report_id` + `head_sha` + unit
+keys / JSON issue slices); every activity reloads its inputs from the per-turn `pr_snapshot` artefact, so no big
+payload hits Temporal's ~2 MiB cap. State persists to Postgres (`ReviewReport` + `ReviewReportArtefact`); there is
+**no on-disk store**. Each fan-out child bounds its per-unit sandbox activities with a fresh
+`asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` (`constants.py`) + `gather(return_exceptions=True)` — there is no
+module-level semaphore. The expensive, turn-stable sandbox stages (chunk / perspective review) are **idempotent via
+a head_sha-scoped DB resume** — a re-run reuses their rows instead of re-calling the sandbox; dedup recomputes,
+while validation resumes per issue off its persisted verdicts (`load_run_validations`). The validator runs one warm
+multi-turn session per chunk (one verdict per turn); there is **no separate analyze stage** (the reviewer
+self-investigates from the diff + the PR intent).
 
 See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the visual flow. Compact form:
 
@@ -1945,18 +1976,17 @@ flowchart TD
     PR["PR URL"] --> FETCH["1. Fetch PR data (GitHub API)"]
     FETCH --> SCHEMA["2. Generate JSON schemas from Pydantic models"]
     SCHEMA --> CHUNK{{"3. Chunk PR (sandbox)"}}
-    CHUNK --> ANALYZE{{"4. Per-chunk analysis (sandbox, parallel)"}}
-    ANALYZE --> L1{{"5a. Perspective — Logic & Correctness"}}
-    ANALYZE --> L2{{"5b. Perspective — Contracts & Security"}}
-    ANALYZE --> L3{{"5c. Perspective — Performance & Reliability"}}
-    L1 --> COMBINE["6. Combine issues (local, stamps source_perspective)"]
+    CHUNK --> L1{{"4a. Perspective — Logic & Correctness"}}
+    CHUNK --> L2{{"4b. Perspective — Contracts & Security"}}
+    CHUNK --> L3{{"4c. Perspective — Performance & Reliability"}}
+    L1 --> COMBINE["5. Combine issues (local, stamps source_perspective)"]
     L2 --> COMBINE
     L3 --> COMBINE
-    COMBINE --> CLEAN["7. Scope clean (local)"]
-    CLEAN --> DEDUP{{"8. Deduplicate (pre-filter + sandbox)"}}
-    DEDUP --> VALIDATE{{"9. Per-issue validation (sandbox)"}}
-    VALIDATE --> MD["10. Build review body + finalize (DB)"]
-    MD --> PUBLISH["11. Publish PR review (GitHub API, DB-driven)"]
+    COMBINE --> CLEAN["6. Scope clean (local)"]
+    CLEAN --> DEDUP{{"7. Deduplicate (pre-filter + sandbox)"}}
+    DEDUP --> VALIDATE{{"8. Per-chunk validation (warm session, parallel)"}}
+    VALIDATE --> MD["9. Build review body + finalize (DB)"]
+    MD --> PUBLISH["10. Publish PR review (GitHub API, DB-driven)"]
 ```
 
 ### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
@@ -1979,12 +2009,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
 4. **Chunk the PR** — `split_pr_into_chunks` (1 sandbox call, validates `ChunksList`) groups changed files
    into logically reviewable chunks ordered by review priority. Returns the `ChunksList`; persists a
    `chunk_set` row (and resumes from it on a re-run of the same head).
-5. **Per-chunk analysis** — `analyze_chunks` (1 sandbox call per chunk, **parallel** via `asyncio.gather`)
-   returns a `dict[chunk_id, ChunkAnalysis]` (a `goal` narrative per chunk). Informational; best-effort (logs
-   and continues on partial failure). Persists/resumes per-chunk `chunk_analysis` rows.
-6. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
+5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (8):
+   each with **no cross-perspective context** — overlap is left to dedup (7):
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
@@ -1993,15 +2020,15 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `load_perspectives_for_run(team_id)` pins each one's current `LLMSkill` version for the run. Delivery is
    **pull** — the prompt instructs the sandbox agent to `skill-get(review-hog-perspective-…, version=N)` over
    MCP and apply that perspective's focus, rather than splicing the focus text into the prompt. Each
-   perspective×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{pass}-c{chunk}`),
-   with the chunk's `ChunkAnalysis.goal` injected as `CHUNK_ANALYSIS_CONTEXT`. Returns
-   `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `perspective_result` rows. (The `pass` ordinal
-   = the perspective's 1-based position in `PERSPECTIVES`.)
+   perspective×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{pass}-c{chunk}`);
+   the reviewer self-investigates the chunk from the diff + `<pr_intent>` (no separate analysis pass is fed in).
+   Returns `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `perspective_result` rows. (The `pass`
+   ordinal = the perspective's 1-based position in `PERSPECTIVES`.)
 
-7. **Combine + scope-clean** — `combine_issues(perspective_results)` flattens every perspective×chunk `Issue`
+6. **Combine + scope-clean** — `combine_issues(perspective_results)` flattens every perspective×chunk `Issue`
    (stamping `source_perspective` from the ordinal), then `clean_issues(issues, pr_files)` drops issues whose
    file/lines don't overlap the PR diff. Both pure, in-process.
-8. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
+7. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
    another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
    call (and a zero-candidate run skips the sandbox). Colliding candidates go to the single sandbox dedupe call
@@ -2009,15 +2036,19 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context (step 14).
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
-9. **Validate** — the `ValidateIssuesWorkflow` child fans out one sandbox call per issue (concurrent, bounded by
-   its `asyncio.Semaphore`); each `validate_issue_activity` returns an `IssueValidation` and persists its own
-   `validation_verdict` row via `persist_verdict` (paired to findings by `issue_key`). The keep/drop **criteria are pulled, not baked**: the prompt instructs the
+8. **Validate** — the `ValidateIssuesWorkflow` child groups the survivors by chunk and fans out **one warm
+   multi-turn session per chunk** (concurrent across chunks, bounded by its `asyncio.Semaphore`):
+   `validate_chunk_activity` opens one sandbox, validates the chunk's issues as **sequential turns (one verdict per
+   turn)**, and persists each `validation_verdict` row via `persist_verdict` (paired to findings by `issue_key`).
+   **Resume-aware:** `load_run_validations` splits the chunk's issues into already-judged / pending, so a retry
+   re-researches only the pending ones. The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
-10. **Build report + finalize** — `build_review_body(chunks, analyses, issues, validations)` renders the
-    public body in-process; `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the
-    run watermark.
-11. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
+9. **Build report + finalize** — `build_review_body(chunks, issues, validations)` renders the public body
+   in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads); chunks with
+   no validated finding are skipped. `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps
+   the run watermark.
+10. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
     and the inline comments from the valid finding/verdict rows (`load_valid_findings`), posts a standalone
     "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the reviewed `head_sha`**
     via `commit=`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in
@@ -2029,9 +2060,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
 
 ## Sandbox execution layer
 
-All LLM work funnels through one helper, `run_sandbox_review(...)`, in
-`backend/reviewer/sandbox/executor.py`. The five LLM steps (chunking, chunk analysis, issues review,
-deduplication, validation) call it with a prompt, the Pydantic model to validate against, and a `step_name`.
+Most LLM work funnels through one helper, `run_sandbox_review(...)`, in `backend/reviewer/sandbox/executor.py`.
+The single-turn steps (chunking, issues review, deduplication) call it with a prompt, the Pydantic model to
+validate against, and a `step_name`. Validation instead drives a **warm multi-turn session** per chunk via the
+sibling helpers `start_sandbox_session` / `continue_sandbox_session` / `end_sandbox_session` (one verdict per turn).
 
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
