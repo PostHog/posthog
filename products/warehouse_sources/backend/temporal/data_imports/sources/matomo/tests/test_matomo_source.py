@@ -52,11 +52,28 @@ class TestMatomoSource:
             "401 Client Error: Unauthorized for url: https://myorg.matomo.cloud/index.php",
             "403 Client Error: Forbidden for url: https://myorg.matomo.cloud/index.php",
             "Matomo API error: You can't access this resource",
+            # Host unreachable through the egress proxy: the SSL handshake to the proxy
+            # times out and `requests` raises this wrapped ProxyError (the exact string
+            # that minted the error-tracking issue this fix addresses).
+            "HTTPSConnectionPool(host='ana.example.com', port=443): Max retries exceeded with url: "
+            "/index.php (Caused by ProxyError('Cannot connect to proxy.', "
+            "TimeoutError('_ssl.c:1015: The handshake operation timed out')))",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_unreachable_host_routes_to_friendly_message(self):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        error = (
+            "HTTPSConnectionPool(host='ana.example.com', port=443): Max retries exceeded with url: "
+            "/index.php (Caused by ProxyError('Cannot connect to proxy.', "
+            "TimeoutError('_ssl.c:1015: The handshake operation timed out')))"
+        )
+        friendly = [message for key, message in non_retryable_errors.items() if key in error]
+        assert friendly, "Unreachable-host error should match a non-retryable key"
+        assert all(message is not None and "reach your Matomo instance" in message for message in friendly)
 
     def test_non_retryable_errors_does_not_match_server_errors(self):
         non_retryable_errors = self.source.get_non_retryable_errors()

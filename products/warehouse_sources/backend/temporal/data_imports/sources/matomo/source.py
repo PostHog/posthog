@@ -50,10 +50,24 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         return ["host"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Outbound requests to the user-supplied instance go through the egress proxy. When
+        # the host is unreachable the proxy hop fails — the TLS handshake times out, the
+        # connection is refused, or DNS doesn't resolve — and `requests` surfaces it as a
+        # ProxyError/ConnectionError wrapped in "Max retries exceeded with url". That's the
+        # customer's instance or network, not a transient PostHog-side fault, so route it to
+        # a clear user-facing error instead of reraising a cryptic SSL traceback into error
+        # tracking and churning Temporal retries.
+        unreachable = (
+            "Couldn't reach your Matomo instance. Check that the instance URL is correct "
+            "and that your Matomo server is reachable from the public internet."
+        )
         return {
             "401 Client Error: Unauthorized for url": "Matomo authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url": "Matomo denied access. Please check your API token's permissions for this site.",
             "Matomo API error:": None,
+            "Cannot connect to proxy": unreachable,
+            "Max retries exceeded with url": unreachable,
+            "The handshake operation timed out": unreachable,
         }
 
     @property
