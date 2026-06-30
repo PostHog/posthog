@@ -45,6 +45,7 @@ the row lists both.
 | Source              | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | adroll              | HTTP                        | requests                                                        | ✅                          |
+| agilecrm            | HTTP                        | requests                                                        | ✅                          |
 | aircall             | HTTP                        | requests                                                        | ✅                          |
 | airtable            | HTTP                        | requests                                                        | ✅                          |
 | algolia             | HTTP                        | requests                                                        | ✅                          |
@@ -293,7 +294,6 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
-- agilecrm
 - aha
 - ahrefs
 - airbyte
