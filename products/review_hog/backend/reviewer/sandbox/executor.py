@@ -71,3 +71,59 @@ async def run_sandbox_review(
     full_prompt = f"{system_prompt}\n\n{prompt}"
     context = CustomPromptSandboxContext(team_id=team_id, user_id=user_id, repository=repository)
     return await _run_prompt(full_prompt, context, model_to_validate, branch=branch, step_name=step_name)
+
+
+async def start_sandbox_session(
+    *,
+    team_id: int,
+    user_id: int,
+    repository: str,
+    branch: str,
+    prompt: str,
+    system_prompt: str,
+    model_to_validate: type[_ModelT],
+    step_name: str = "",
+) -> tuple[MultiTurnSession, _ModelT]:
+    """Open a multi-turn sandbox session and return it with its first validated turn.
+
+    The caller drives further turns via ``continue_sandbox_session`` and MUST ``end_sandbox_session``
+    it (usually in a ``finally``). ``start`` self-ends if the first turn fails to validate, so a raised
+    exception never leaves the caller a live session to clean up.
+    """
+    full_prompt = f"{system_prompt}\n\n{prompt}"
+    context = CustomPromptSandboxContext(team_id=team_id, user_id=user_id, repository=repository)
+    try:
+        return await MultiTurnSession.start(
+            prompt=full_prompt,
+            context=context,
+            model=model_to_validate,
+            branch=branch or None,
+            step_name=step_name,
+        )
+    except Exception:
+        logger.exception("Sandbox session start failed")
+        raise
+
+
+async def continue_sandbox_session(
+    session: MultiTurnSession,
+    *,
+    prompt: str,
+    model_to_validate: type[_ModelT],
+    label: str = "",
+) -> _ModelT:
+    """Run a follow-up turn on a live session and return its validated output.
+
+    The session already holds the prior turns' context, so the prompt carries only the new ask (no
+    system prompt). Raises on failure — the caller's ``finally`` ends the session.
+    """
+    try:
+        return await session.send_followup(prompt, model_to_validate, label=label)
+    except Exception:
+        logger.exception("Sandbox session follow-up failed")
+        raise
+
+
+async def end_sandbox_session(session: MultiTurnSession) -> None:
+    """End a session opened by ``start_sandbox_session`` (call in a ``finally``)."""
+    await session.end()
