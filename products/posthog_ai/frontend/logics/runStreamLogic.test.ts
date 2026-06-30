@@ -1397,6 +1397,48 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('streamPhase provisioning during open', () => {
+        it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
+            expect(logic.values.streamPhase).toEqual('idle')
+
+            // The conversations/open POST has started — no SSE/run status yet.
+            logic.actions.setRunOpening(true)
+            expect(logic.values.sseStatus).toEqual('idle')
+            expect(logic.values.currentRunStatus).toEqual(null)
+            expect(logic.values.streamPhase).toEqual('provisioning')
+        })
+
+        it.each([
+            ['a stream error', (): void => logic.actions.handleStreamError({ errorTitle: 'x', retryable: true })],
+            ['an injected error item', (): void => logic.actions.pushErrorItem('boom')],
+        ])('clears the optimistic flag on %s', (_case, act) => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.runOpening).toEqual(true)
+
+            act()
+            expect(logic.values.runOpening).toEqual(false)
+        })
+
+        it('clears the optimistic flag once the SSE opens (openSseForRun)', async () => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.runOpening).toEqual(true)
+
+            // openSseForRun runs an async listener that opens a stream — await it so no work leaks.
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.runOpening).toEqual(false)
+        })
+
+        it('lets run_started win over the optimistic flag (thinking, not provisioning)', () => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.streamPhase).toEqual('provisioning')
+
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.streamPhase).toEqual('thinking')
+        })
+    })
+
     describe('terminal-status handling', () => {
         it('closes the SSE and stops reconnects on a terminal task_run_state', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })

@@ -5491,6 +5491,7 @@ export namespace Schemas {
       Cohorts: 'cohorts',
       CohortsWithAll: 'cohorts_with_all',
       DataWarehouse: 'data_warehouse',
+      DataWarehouseSourceTables: 'data_warehouse_source_tables',
       DataWarehouseProperties: 'data_warehouse_properties',
       DataWarehousePersonProperties: 'data_warehouse_person_properties',
       Elements: 'elements',
@@ -17859,6 +17860,24 @@ export namespace Schemas {
     }
 
     /**
+     * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+     *
+     * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+     * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+     * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+     * reviewer is never silently dropped.
+     */
+    export interface SuggestedReviewer {
+      /**
+         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
+      user_uuid?: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -17880,6 +17899,11 @@ export namespace Schemas {
          * @nullable
          */
       append_note?: string | null;
+      /**
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EditReportResponse {
@@ -17889,6 +17913,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether a note artefact was appended. */
       note_appended: boolean;
+      /** Whether the report's suggested reviewers were replaced. */
+      reviewers_set: boolean;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -18168,8 +18194,11 @@ export namespace Schemas {
          * @nullable
          */
       priority_explanation?: string | null;
-      /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
-      suggested_reviewers?: string[];
+      /**
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EmitReportResponse {

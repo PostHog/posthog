@@ -217,9 +217,9 @@ class TestPromptBuilder(BaseTest):
         assert "inbox-reports-list" in prompt
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt
-        # Reviewer routing only works with a real GitHub login, so the prompt must point the scout
-        # at the resolver tool rather than letting it guess a handle.
-        assert "org-member-get-github-login" in prompt
+        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login) so the prompt
+        # steers the scout toward that route rather than guessing a handle.
+        assert "user_uuid" in prompt
         # The report channel teaches that the `report:` scratchpad entry is a pointer
         # into the inbox, not a copy of the report — the inbox stays the source of
         # truth, so the scout retrieves the live report before editing. Dropping this
@@ -257,16 +257,16 @@ class TestPromptBuilder(BaseTest):
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
-        # `signals-scout-emit-report`, and the author-time sections (suggested reviewers, writing a
-        # report) are dropped since it can't author.
+        # `signals-scout-emit-report`, and the standalone author-time sections (the suggested-reviewers
+        # deep-dive, writing a report) are dropped since it can't author. It still learns it can SET
+        # reviewers via edit (the routing rescue), folded into the editing guidance — not the H1 section.
         prompt = self._report_prompt_for(["edit_report"])
         assert "signals-scout-edit-report" in prompt
         assert "signals-scout-emit-report" not in prompt
         assert "Editing existing reports" in prompt
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
-        # The reviewer-resolution guidance rides the author-time section, so it drops with it.
-        assert "org-member-get-github-login" not in prompt
+        assert "suggested_reviewers" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

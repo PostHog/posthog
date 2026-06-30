@@ -45,6 +45,7 @@ the row lists both.
 | Source              | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | adroll              | HTTP                        | requests                                                        | ✅                          |
+| agilecrm            | HTTP                        | requests                                                        | ✅                          |
 | aircall             | HTTP                        | requests                                                        | ✅                          |
 | airtable            | HTTP                        | requests                                                        | ✅                          |
 | algolia             | HTTP                        | requests                                                        | ✅                          |
@@ -67,6 +68,7 @@ the row lists both.
 | blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
+| breezometer         | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
 | brex                | HTTP                        | requests                                                        | ✅                          |
 | bugsnag             | HTTP                        | requests                                                        | ✅                          |
@@ -79,6 +81,7 @@ the row lists both.
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
+| churnkey            | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
 | coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
@@ -291,7 +294,6 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
-- agilecrm
 - aha
 - ahrefs
 - airbyte
@@ -327,7 +329,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintrust
 - branch
-- breezometer
 - breezy_hr
 - bunny
 - buzzsprout
@@ -344,7 +345,6 @@ doesn't conflict with concurrent PRs.
 - chatwoot
 - chift
 - chorus
-- churnkey
 - cin7
 - cisco_meraki
 - clarifai

@@ -533,32 +533,52 @@ def google_ads_source(
     )
 
 
-# Google flags both ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request
-# never reached a healthy backend) and ``INTERNAL`` ("Internal error encountered." from the
-# backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
+# Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never
+# reached a healthy backend), ``INTERNAL`` ("Internal error encountered." from the backend), and
+# ``RESOURCE_EXHAUSTED`` ("Resource has been exhausted (e.g. check quota)." — a quota/rate-limit
+# rejection) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
 # succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
 # would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
 # checkpoint — and avoids the captured error-tracking noise.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
-_TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
+_TRANSIENT_GRPC_STATUS_CODES = frozenset(
+    {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL, grpc.StatusCode.RESOURCE_EXHAUSTED}
+)
+
+# A client-side "Received message larger than max" abort also carries ``RESOURCE_EXHAUSTED`` (see the
+# receive-limit note at the top of this module), but it is deterministic — a retry re-requests the
+# same oversized page and fails identically — so it is excluded from the transient set. Raising the
+# receive limit, not retrying, is what addresses it.
+_RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
 
     The gapic transport usually surfaces these as ``google.api_core.exceptions.ServiceUnavailable``
-    / ``InternalServerError``, but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns
-    the ``StatusCode``) can also propagate. The Google Ads SDK additionally re-wraps the transport
-    error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata
-    (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the gRPC status then lives
-    on the wrapped ``error``, so we unwrap and inspect it too.
+    / ``InternalServerError`` / ``ResourceExhausted``, but the raw ``grpc`` ``_InactiveRpcError``
+    (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
+    re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
+    the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
+    # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
+    if isinstance(candidate, google_api_exceptions.ResourceExhausted):
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     code = getattr(candidate, "code", None)
-    return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
+    if not callable(code):
+        return False
+    status = code()
+    if status not in _TRANSIENT_GRPC_STATUS_CODES:
+        return False
+    if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
+    return True
 
 
 _T = typing.TypeVar("_T")
