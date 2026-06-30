@@ -1,3 +1,6 @@
+import io
+import json
+import zipfile
 from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
@@ -18,6 +21,14 @@ from products.tasks.backend.logic.services.living_artifacts import (
     register_s3_manifest_artifact,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+
+
+def _xlsx_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("xl/workbook.xml", "<workbook/>")
+    return buffer.getvalue()
 
 
 class FakeDocumentConnectorAdapter:
@@ -303,10 +314,67 @@ class TestLivingArtifacts(TestCase):
         slack_integration.missing_scopes.assert_called_with(frozenset({"files:write"}))
         self.assertEqual(mock_post.return_value.raise_for_status.call_count, 2)
 
-    @patch("posthog.storage.object_storage.read_bytes", return_value=b"source workbook")
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_presents_xlsx_payload_with_xlsx_filename(self, mock_integration_for_mapping, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,files:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.side_effect = [
+            {"upload_url": "https://files.slack.test/upload/1", "file_id": "F1"},
+            {"files": [{"id": "F1", "title": "report.xlsx"}]},
+        ]
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="report.zip",
+            artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=_xlsx_bytes(),
+            content_type="application/zip",
+        )
+
+        self.assertEqual(artifact.name, "report.xlsx")
+        self.assertEqual(
+            artifact.versions[0]["content_type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(
+            artifact.location["content_type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(slack.api_call.call_args_list[0].kwargs["data"]["filename"], "report.xlsx")
+        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
+        self.assertEqual(json.loads(complete_payload["files"])[0]["title"], "report.xlsx")
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @patch("posthog.storage.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_uploads_source_artifact(self, mock_integration_for_mapping, mock_post, mock_read_bytes):
+        workbook_bytes = _xlsx_bytes()
+        mock_read_bytes.return_value = workbook_bytes
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -332,36 +400,41 @@ class TestLivingArtifacts(TestCase):
         slack_integration.client = slack
         slack_integration.missing_scopes.return_value = set()
         mock_integration_for_mapping.return_value = slack_integration
-        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.bin"
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.zip"
         self.task_run.artifacts = [
             {
                 "id": "artifact-1",
-                "name": "report.bin",
+                "name": "report.zip",
                 "source": "agent_output",
-                "size": 15,
-                "content_type": "application/octet-stream",
+                "size": len(workbook_bytes),
+                "content_type": "application/zip",
                 "storage_path": storage_path,
             }
         ]
         self.task_run.save(update_fields=["artifacts", "updated_at"])
 
-        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         artifact = create_living_artifact(
             run=self.task_run,
-            name="report.xlsx",
+            name="report.zip",
             artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
             adapter=TaskArtifact.Adapter.SLACK_FILE,
-            content_type=content_type,
             source_artifact_id="artifact-1",
         )
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
-        self.assertEqual(artifact.versions[0]["content_type"], content_type)
+        self.assertEqual(artifact.name, "report.xlsx")
+        self.assertEqual(
+            artifact.versions[0]["content_type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
         self.assertEqual(artifact.versions[0]["source_artifact_id"], "artifact-1")
         self.assertEqual(artifact.metadata["slack_file_permalink"], "https://slack.test/files/F1")
         mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
-        self.assertEqual(mock_post.call_args.kwargs["data"], b"source workbook")
-        self.assertEqual(mock_post.call_args.kwargs["headers"]["Content-Type"], content_type)
+        self.assertEqual(mock_post.call_args.kwargs["data"], workbook_bytes)
+        self.assertEqual(
+            mock_post.call_args.kwargs["headers"]["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_requires_file_scope(self, mock_integration_for_mapping):

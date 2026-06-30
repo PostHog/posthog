@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
 import os
 import json
 import uuid
+import zipfile
 import mimetypes
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +29,8 @@ SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"
 DEFAULT_DOCUMENT_CONTENT_TYPE = "text/markdown; charset=utf-8"
 DEFAULT_BINARY_CONTENT_TYPE = "application/octet-stream"
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+XLSX_EXTENSION = ".xlsx"
 
 
 @dataclass(frozen=True)
@@ -180,6 +184,11 @@ def create_living_artifact(
         source_artifact_id=source_artifact_id,
         source_storage_path=source_storage_path,
     )
+    name, content_payload = _normalize_spreadsheet_artifact_name_and_type(
+        name=name,
+        artifact_type=artifact_type,
+        content=content_payload,
+    )
     selected_adapter = _resolve_adapter(adapter, artifact_type)
     artifact_id = uuid.uuid4()
     commit = selected_adapter.create(
@@ -225,21 +234,27 @@ def edit_living_artifact(
     run = artifact.task_run
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
+    next_name = name or artifact.name
     content_payload = resolve_artifact_content(
         run=run,
-        name=name or artifact.name,
+        name=next_name,
         content=content,
         content_bytes=content_bytes,
         content_type=content_type,
         source_artifact_id=source_artifact_id,
         source_storage_path=source_storage_path,
     )
+    next_name, content_payload = _normalize_spreadsheet_artifact_name_and_type(
+        name=next_name,
+        artifact_type=artifact.artifact_type,
+        content=content_payload,
+    )
     existing_content = selected_adapter.open(artifact)
     next_content = selected_adapter.apply_edit(existing_content, content_payload.body)
     commit = selected_adapter.commit(
         artifact=artifact,
         run=run,
-        name=name or artifact.name,
+        name=next_name,
         content=next_content,
         content_bytes=content_payload.content_bytes,
         version=next_version,
@@ -251,7 +266,7 @@ def edit_living_artifact(
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         versions = list(locked.versions or [])
         versions.append(commit.version)
-        locked.name = name or locked.name
+        locked.name = next_name
         locked.adapter = commit.adapter
         locked.location = commit.location
         locked.metadata = {**(locked.metadata or {}), **(metadata or {}), **commit.metadata}
@@ -339,6 +354,57 @@ def resolve_artifact_content(
         content_bytes=raw,
         source_artifact=source_artifact,
     )
+
+
+def _normalize_spreadsheet_artifact_name_and_type(
+    *,
+    name: str,
+    artifact_type: str,
+    content: ArtifactContent,
+) -> tuple[str, ArtifactContent]:
+    if artifact_type != TaskArtifact.ArtifactType.SPREADSHEET:
+        return name, content
+    if not _is_xlsx_artifact(name, content.content_type, content.content_bytes):
+        return name, content
+
+    normalized_name = _with_xlsx_extension(name)
+    normalized_body = normalized_name if content.body == name else content.body
+    return normalized_name, replace(
+        content,
+        title=normalized_name,
+        body=normalized_body,
+        content_type=XLSX_CONTENT_TYPE,
+    )
+
+
+def _is_xlsx_artifact(name: str, content_type: str, content_bytes: bytes | None) -> bool:
+    normalized_content_type = str(content_type or "").split(";")[0].strip().lower()
+    if normalized_content_type == XLSX_CONTENT_TYPE:
+        return True
+    if name.lower().endswith(XLSX_EXTENSION):
+        return True
+    return _is_xlsx_payload(content_bytes)
+
+
+def _is_xlsx_payload(content_bytes: bytes | None) -> bool:
+    if not content_bytes or not content_bytes.startswith(b"PK"):
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
+            names = set(archive.namelist())
+    except zipfile.BadZipFile:
+        return False
+    return "[Content_Types].xml" in names and "xl/workbook.xml" in names
+
+
+def _with_xlsx_extension(name: str) -> str:
+    safe_name = os.path.basename(name).strip() or "artifact"
+    if safe_name.lower().endswith(XLSX_EXTENSION):
+        return safe_name
+    base, ext = os.path.splitext(safe_name)
+    if not base:
+        base = safe_name.removesuffix(ext) or "artifact"
+    return f"{base}{XLSX_EXTENSION}"
 
 
 def get_task_artifacts_for_run(run: TaskRun) -> list[TaskArtifact]:
