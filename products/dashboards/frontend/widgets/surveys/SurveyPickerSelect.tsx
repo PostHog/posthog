@@ -3,7 +3,10 @@ import './SurveyPickerSelect.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
+import { urls } from 'scenes/urls'
 
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
@@ -94,6 +97,15 @@ export function SurveyPickerSelect({
             onFocus={() => ensureOptionsLoaded()}
             onInputChange={(text) => setSearch(text)}
             onChange={(values) => onChange(values.length > 0 ? values[0] : null)}
+            action={{
+                // Open the create flow in a new tab so the dashboard (and this tile's selection) is kept.
+                onClick: () => window.open(urls.survey('new'), '_blank', 'noopener,noreferrer'),
+                children: (
+                    <span className="flex items-center gap-1">
+                        <IconPlus /> New survey
+                    </span>
+                ),
+            }}
             data-attr={dataAttr}
         />
     )
