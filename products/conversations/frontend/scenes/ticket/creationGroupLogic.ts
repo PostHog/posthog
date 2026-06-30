@@ -31,7 +31,13 @@ export const creationGroupLogic = kea<creationGroupLogicType>([
                     if (props.groupTypeIndex === null || !props.groupKey) {
                         return null
                     }
-                    const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
+                    // skip_create_notebook: this is a read-only display lookup; without it `groups/find`
+                    // lazily creates the group's CRM notebook as a side effect.
+                    const params = {
+                        group_type_index: props.groupTypeIndex,
+                        group_key: props.groupKey,
+                        skip_create_notebook: true,
+                    }
                     try {
                         // `groups/find` is a cross-product (groups) endpoint with no conversations-generated client.
                         // nosemgrep: prefer-codegen-api

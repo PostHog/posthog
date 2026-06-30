@@ -11,6 +11,8 @@ import { ActorType, GroupActorType } from '~/types'
 import { creationGroupLogic } from './creationGroupLogic'
 
 const HIGHLIGHT_LABEL = 'Ticket origin'
+const STALE_TOOLTIP =
+    "This group was active when the ticket was created, but it's no longer in the person's recent related groups."
 
 interface RelatedGroupsPanelProps {
     personUuid: string
@@ -87,6 +89,7 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
                             highlightGroupKey={organizationId}
                             highlightLabel={HIGHLIGHT_LABEL}
                             highlightStale={showFallback}
+                            highlightStaleTooltip={STALE_TOOLTIP}
                             extraActors={extraActors}
                         />
                     ),

@@ -18,11 +18,14 @@ export interface RelatedGroupsProps {
     type?: 'person' | 'group'
     pageSize?: number
     embedded?: boolean
-    /** Tag the group row whose key matches this value (e.g. the group a ticket was created with). */
+    /** Tag the group row whose key matches this value with `highlightLabel`. */
     highlightGroupKey?: string | null
+    /** Label for the tag on the highlighted row. Required for the tag to render. */
     highlightLabel?: string
-    /** Mark the highlighted row as stale (e.g. a ticket-origin group no longer in the live related list). */
+    /** Also show a "Stale" tag on the highlighted row. */
     highlightStale?: boolean
+    /** Tooltip shown on the "Stale" tag (caller supplies the context-specific wording). */
+    highlightStaleTooltip?: string
     /** Extra group rows to append (deduped by id), e.g. a group not in the live related list. */
     extraActors?: ActorType[]
 }
@@ -34,8 +37,9 @@ export function RelatedGroups({
     pageSize,
     embedded = false,
     highlightGroupKey,
-    highlightLabel = 'Ticket origin',
+    highlightLabel,
     highlightStale = false,
+    highlightStaleTooltip,
     extraActors,
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
@@ -68,13 +72,13 @@ export function RelatedGroups({
                     return (
                         <div className="flex items-center gap-2">
                             <GroupActorDisplay actor={actor} />
-                            {isHighlighted && (
+                            {isHighlighted && highlightLabel && (
                                 <LemonTag type="muted" size="small">
                                     {highlightLabel}
                                 </LemonTag>
                             )}
                             {isHighlighted && highlightStale && (
-                                <Tooltip title="This group was active when the ticket was created, but it's no longer in the person's recent related groups.">
+                                <Tooltip title={highlightStaleTooltip}>
                                     <LemonTag type="warning" size="small">
                                         Stale
                                     </LemonTag>
