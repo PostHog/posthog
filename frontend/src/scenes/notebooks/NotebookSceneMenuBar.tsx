@@ -38,8 +38,9 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showTableOfContents, isExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setShowTableOfContents, setIsExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { showTableOfContents, isExpanded, isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo } =
+        useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canDelete = !isLocalOnly && !notebook?.is_template
@@ -127,8 +128,10 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarCheckboxItem
-                    checked={isExpanded}
-                    onCheckedChange={(checked) => setIsExpanded(checked)}
+                    checked={isMarkdownNotebook ? isMarkdownExpanded : isExpanded}
+                    onCheckedChange={(checked) =>
+                        isMarkdownNotebook ? setIsMarkdownExpanded(checked) : setIsExpanded(checked)
+                    }
                     data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
                 >
                     Fill content width
