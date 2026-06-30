@@ -231,15 +231,19 @@ describe('QueryToolCatalog', () => {
 })
 
 describe('buildActiveEnvironmentContextPrompt', () => {
+    const org = { id: 'org_1', name: 'Acme' } satisfies Partial<CachedOrg> as unknown as CachedOrg
     const project = {
         id: 1,
         name: 'My App',
         timezone: 'America/New_York',
         api_token: 'token_1',
         person_on_events_querying_enabled: false,
-    } as unknown as CachedProject
-    const org = { id: 'org_1', name: 'Acme' } as unknown as CachedOrg
-    const user = { first_name: 'Jane', last_name: 'Doe', email: 'jane@acme.com' } as unknown as CachedUser
+    } satisfies Partial<CachedProject> as unknown as CachedProject
+    const user = {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@acme.com',
+    } satisfies Partial<CachedUser> as unknown as CachedUser
 
     it('renders the full project + org line when both are present', () => {
         const result = buildActiveEnvironmentContextPrompt(user, org, project)
