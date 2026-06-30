@@ -582,6 +582,8 @@ export interface OrganizationDomainType {
     id_jag_issuer_url?: string | null
     id_jag_jwks_url?: string | null
     id_jag_allowed_clients?: string[]
+    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {

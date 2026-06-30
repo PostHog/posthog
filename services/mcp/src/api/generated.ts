@@ -27151,6 +27151,64 @@ export namespace Schemas {
       results: IdentityMatchingRun[];
     }
 
+    export interface IdentityProviderConfig {
+      readonly id: string;
+      /**
+         * Display name for this IdP configuration (e.g. 'Okta production').
+         * @maxLength 255
+         */
+      name?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Whether SAML is fully configured on this config. */
+      readonly has_saml: boolean;
+      /**
+         * SAML IdP entity ID (issuer).
+         * @maxLength 512
+         * @nullable
+         */
+      saml_entity_id?: string | null;
+      /**
+         * SAML single sign-on (ACS) URL the IdP redirects to.
+         * @maxLength 512
+         * @nullable
+         */
+      saml_acs_url?: string | null;
+      /**
+         * SAML IdP X.509 signing certificate (PEM).
+         * @nullable
+         */
+      saml_x509_cert?: string | null;
+      /** Whether SCIM is enabled and a bearer token is set on this config. */
+      readonly has_scim: boolean;
+      /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+      scim_enabled?: boolean;
+      /**
+         * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+         * @nullable
+         */
+      readonly scim_bearer_token: string | null;
+      /** Whether ID-JAG (XAA) is configured on this config. */
+      readonly has_id_jag: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /**
+         * Allowed ID-JAG client IDs. Empty list allows any client_id.
+         * @items.maxLength 256
+         */
+      id_jag_allowed_clients?: string[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -30379,19 +30437,25 @@ export namespace Schemas {
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml: boolean;
       /**
+         * SAML IdP entity ID (issuer).
          * @maxLength 512
          * @nullable
          */
       saml_entity_id?: string | null;
       /**
+         * SAML single sign-on (ACS) URL.
          * @maxLength 512
          * @nullable
          */
       saml_acs_url?: string | null;
-      /** @nullable */
+      /**
+         * SAML IdP X.509 signing certificate (PEM).
+         * @nullable
+         */
       saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim: boolean;
+      /** Whether SCIM provisioning is enabled for this domain. */
       scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url: string | null;
@@ -30416,6 +30480,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+         * @nullable
+         */
+      identity_provider_config?: string | null;
     }
 
     export interface OrganizationFeatureFlagRow {
@@ -31475,6 +31544,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFunctionTemplate[];
+    }
+
+    export interface PaginatedIdentityProviderConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: IdentityProviderConfig[];
     }
 
     export interface PaginatedInsightList {
@@ -37848,6 +37926,64 @@ export namespace Schemas {
       orders?: PatchedHogFunctionRearrangeOrders;
     }
 
+    export interface PatchedIdentityProviderConfig {
+      readonly id?: string;
+      /**
+         * Display name for this IdP configuration (e.g. 'Okta production').
+         * @maxLength 255
+         */
+      name?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /** Whether SAML is fully configured on this config. */
+      readonly has_saml?: boolean;
+      /**
+         * SAML IdP entity ID (issuer).
+         * @maxLength 512
+         * @nullable
+         */
+      saml_entity_id?: string | null;
+      /**
+         * SAML single sign-on (ACS) URL the IdP redirects to.
+         * @maxLength 512
+         * @nullable
+         */
+      saml_acs_url?: string | null;
+      /**
+         * SAML IdP X.509 signing certificate (PEM).
+         * @nullable
+         */
+      saml_x509_cert?: string | null;
+      /** Whether SCIM is enabled and a bearer token is set on this config. */
+      readonly has_scim?: boolean;
+      /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+      scim_enabled?: boolean;
+      /**
+         * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+         * @nullable
+         */
+      readonly scim_bearer_token?: string | null;
+      /** Whether ID-JAG (XAA) is configured on this config. */
+      readonly has_id_jag?: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /**
+         * Allowed ID-JAG client IDs. Empty list allows any client_id.
+         * @items.maxLength 256
+         */
+      id_jag_allowed_clients?: string[];
+    }
+
     /**
      * @nullable
      */
@@ -38583,19 +38719,25 @@ export namespace Schemas {
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml?: boolean;
       /**
+         * SAML IdP entity ID (issuer).
          * @maxLength 512
          * @nullable
          */
       saml_entity_id?: string | null;
       /**
+         * SAML single sign-on (ACS) URL.
          * @maxLength 512
          * @nullable
          */
       saml_acs_url?: string | null;
-      /** @nullable */
+      /**
+         * SAML IdP X.509 signing certificate (PEM).
+         * @nullable
+         */
       saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim?: boolean;
+      /** Whether SCIM provisioning is enabled for this domain. */
       scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url?: string | null;
@@ -38620,6 +38762,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+         * @nullable
+         */
+      identity_provider_config?: string | null;
     }
 
     /**
@@ -47051,6 +47198,13 @@ export namespace Schemas {
       url: string;
       /** Form fields that must be submitted verbatim with the file upload */
       fields: S3PresignedPostFields;
+    }
+
+    export interface SCIMTokenResponse {
+      /** Whether SCIM is enabled for this config. */
+      scim_enabled: boolean;
+      /** Newly generated plaintext SCIM bearer token. Only returned once. */
+      scim_bearer_token: string;
     }
 
     /**
@@ -59194,6 +59348,17 @@ export namespace Schemas {
      * Teams to compare, in priority order. Defaults to all accessible teams in the org.
      */
     team_ids?: number[];
+    };
+
+    export type IdentityProviderConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type OrgOrganizationsIntegrationsListParams = {
