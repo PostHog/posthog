@@ -186,6 +186,9 @@ def replan_backfill(schema_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+BOOTSTRAP_BATCH_SIZE = 1000
+
+
 def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
     """Create state rows for enabled teams' schemas that have none.
 
@@ -193,21 +196,28 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
     - full_refresh: every run's batch 0 replaces the table completely.
     - no Delta table yet: the first sync creates everything.
     - cdc: the sink rejects CDC batches outright; do not block the queue on it.
+
+    Memory-bounded: a single team can own tens of thousands of schemas, so we
+    anti-join in Postgres to skip schemas that already have a state row, stream
+    the rest with a server-side cursor instead of materializing the whole set,
+    and flush in fixed batches so the in-flight list never grows unbounded.
     """
-    schemas = ExternalDataSchema.objects.exclude(deleted=True).select_related("team")
+    schemas = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .exclude(id__in=DuckgresSinkSchemaState.objects.values("schema_id"))
+        .values("id", "team_id", "sync_type", "table_id")
+    )
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
-    existing = {str(s) for s in DuckgresSinkSchemaState.objects.all().values_list("schema_id", flat=True)}
 
+    created = 0
     to_create: list[DuckgresSinkSchemaState] = []
-    for schema in schemas:
-        if str(schema.id) in existing:
-            continue
-        needs_backfill = schema.sync_type not in ("full_refresh", "cdc", None) and schema.table_id is not None
+    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+        needs_backfill = schema["sync_type"] not in ("full_refresh", "cdc", None) and schema["table_id"] is not None
         to_create.append(
             DuckgresSinkSchemaState(
-                team_id=schema.team_id,
-                schema_id=schema.id,
+                team_id=schema["team_id"],
+                schema_id=schema["id"],
                 state=(
                     DuckgresSinkSchemaState.State.PENDING_BACKFILL
                     if needs_backfill
@@ -215,9 +225,16 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
                 ),
             )
         )
+        if len(to_create) >= BOOTSTRAP_BATCH_SIZE:
+            DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
+            created += len(to_create)
+            to_create = []
+
     if to_create:
         DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
-        logger.info("duckgres_backfill_bootstrapped", created=len(to_create))
+        created += len(to_create)
+    if created:
+        logger.info("duckgres_backfill_bootstrapped", created=created)
 
 
 def _plan_pending(team_ids: list[int] | None) -> None:
