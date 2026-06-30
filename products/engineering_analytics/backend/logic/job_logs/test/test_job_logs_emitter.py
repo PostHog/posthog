@@ -5,22 +5,35 @@ from opentelemetry.sdk._logs.export import InMemoryLogExporter
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
+from products.engineering_analytics.backend.logic.job_logs.thinning import ThinnedLine
 
 _ATTRS = {"job_id": 42, "run_id": 7, "branch": "main", "conclusion": "failure"}
 
 
-def _emit(archive: str, attributes=_ATTRS):
+def _lines(archive: str) -> list[ThinnedLine]:
+    # An un-thinned archive: every line kept, numbered 1..N (the small-log passthrough shape).
+    return [ThinnedLine(text, index + 1) for index, text in enumerate(archive.splitlines())]
+
+
+def _emit_lines(lines: list[ThinnedLine], attributes=_ATTRS):
     exporter = InMemoryLogExporter()
     with JobLogsEmitter(exporter=exporter) as emitter:
-        emitted = emitter.emit_log_archive(archive, attributes=attributes)
+        emitted = emitter.emit_log_archive(lines, attributes=attributes)
     return emitted, [d.log_record for d in exporter.get_finished_logs()]
+
+
+def _emit(archive: str, attributes=_ATTRS):
+    return _emit_lines(_lines(archive), attributes)
 
 
 def _encode_one(*, trace_id, span_id):
     exporter = InMemoryLogExporter()
     with JobLogsEmitter(exporter=exporter) as emitter:
         emitter.emit_log_archive(
-            "2026-06-25T09:14:02.000000Z ##[error]boom", attributes=_ATTRS, trace_id=trace_id, span_id=span_id
+            [ThinnedLine("2026-06-25T09:14:02.000000Z ##[error]boom", 1)],
+            attributes=_ATTRS,
+            trace_id=trace_id,
+            span_id=span_id,
         )
     encoded = encode_logs(exporter.get_finished_logs())  # must not raise
     return encoded.resource_logs[0].scope_logs[0].log_records[0]
@@ -70,9 +83,28 @@ def test_emits_per_line_with_parsed_timestamp_severity_and_attributes():
         "##[error]Process completed with exit code 1",
     ]
     assert [r.severity_text for r in records] == ["INFO", "WARN", "ERROR"]
-    assert all(dict(r.attributes) == _ATTRS for r in records)
+    assert all(all(record.attributes[key] == value for key, value in _ATTRS.items()) for record in records)
     expected_ns = int(datetime(2026, 6, 25, 9, 14, 2, 123456, tzinfo=UTC).timestamp() * 1_000_000_000)
     assert records[0].timestamp == expected_ns
+
+
+def test_stamps_seq_and_orig_line_so_thinned_lines_stay_anchored_and_ordered():
+    # The thinned log drops most lines, so each kept line carries its original 1-based position
+    # (orig_line) — the only durable anchor once the full log expires — and every record carries seq
+    # (emit order) so the reader can order them. Omission markers (no original line) carry seq but no
+    # orig_line. Without this the failure region looks contiguous and unlocatable in the real log.
+    _, records = _emit_lines(
+        [
+            ThinnedLine("2026-06-25T09:14:02.000000Z first", 1),
+            ThinnedLine("... 4810 lines omitted ...", None),
+            ThinnedLine("2026-06-25T09:14:50.000000Z ##[error]boom", 4812),
+        ]
+    )
+    assert [r.body for r in records] == ["first", "... 4810 lines omitted ...", "##[error]boom"]
+    assert [r.attributes["seq"] for r in records] == [0, 1, 2]
+    assert records[0].attributes["orig_line"] == 1
+    assert "orig_line" not in records[1].attributes  # a marker has no original line
+    assert records[2].attributes["orig_line"] == 4812
 
 
 def test_skips_blank_lines():
@@ -86,17 +118,18 @@ def test_drops_non_scalar_attributes():
     # OTEL attributes accept scalars only; a Mapping-valued attribute must be dropped, not crash
     # or serialize garbage, while scalar attributes survive.
     _, records = _emit("2026-06-25T09:14:02.000000Z x", attributes={"job_id": 1, "nested": {"a": 1}})
-    assert dict(records[0].attributes) == {"job_id": 1}
+    assert records[0].attributes["job_id"] == 1
+    assert "nested" not in records[0].attributes
 
 
 def test_noop_when_unconfigured():
     # With no exporter, endpoint, or token, the emitter must be a safe no-op (return 0, no crash)
     # so the worker is harmless until the Logs lane is wired in.
-    assert JobLogsEmitter().emit_log_archive("2026-06-25T09:14:02.000000Z x", attributes=_ATTRS) == 0
+    assert JobLogsEmitter().emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0
 
 
 def test_noop_when_token_missing():
     # Endpoint set but no token must also no-op — we never emit unauthenticated (it would 401 and
     # the records would be lost), and a half-configured lane shouldn't crash the worker.
     emitter = JobLogsEmitter(endpoint="http://localhost:8010/i/v1/logs", token=None)
-    assert emitter.emit_log_archive("2026-06-25T09:14:02.000000Z x", attributes=_ATTRS) == 0
+    assert emitter.emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0

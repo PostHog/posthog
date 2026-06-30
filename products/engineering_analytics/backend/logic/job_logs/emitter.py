@@ -22,6 +22,8 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import TraceFlags
 
+from products.engineering_analytics.backend.logic.job_logs.thinning import ThinnedLine
+
 logger = structlog.get_logger(__name__)
 
 _SERVICE_NAME = "github-ci-logs"
@@ -89,29 +91,37 @@ class JobLogsEmitter:
 
     def emit_log_archive(
         self,
-        archive_text: str,
+        lines: list[ThinnedLine],
         *,
         attributes: Mapping[str, object],
         trace_id: str | int | None = 0,
         span_id: str | int | None = 0,
     ) -> int:
-        """Emit one Logs record per non-empty line. Returns the number of records emitted.
+        """Emit one Logs record per non-empty thinned line. Returns the number of records emitted.
 
         ``trace_id``/``span_id`` map the GitHub run/job onto OTLP trace/span so the Logs UI can group
         a whole workflow run (trace) and isolate one job (span); unmappable ids fall back to 0
         (unset). They MUST be set: the encoder treats 0 as unset and calls ``int(trace_flags)``, so
         the SDK's None default would crash serialization of the whole batch and nothing would land.
+
+        Each record carries ``seq`` (its 0-based position in the emitted output) and, for a kept line,
+        ``orig_line`` (its 1-based line in the full pre-thinning log). ``seq`` is the read-side sort
+        key — omission markers carry no timestamp, so timestamp can't order them; ``orig_line`` is the
+        durable anchor back to the original (which isn't stored and expires).
         """
         if not self._enabled:
             return 0
-        attrs = {key: value for key, value in attributes.items() if isinstance(value, _SCALAR)}
+        base_attrs = {key: value for key, value in attributes.items() if isinstance(value, _SCALAR)}
         trace, span = _otel_id(trace_id, 16), _otel_id(span_id, 8)
         emitted = 0
-        for raw in archive_text.splitlines():
-            match = _LINE.match(raw)
-            body, timestamp = (match.group("body"), _parse_ns(match.group("ts"))) if match else (raw, None)
+        for line in lines:
+            match = _LINE.match(line.text)
+            body, timestamp = (match.group("body"), _parse_ns(match.group("ts"))) if match else (line.text, None)
             if not body.strip():
                 continue
+            attrs: dict[str, object] = {**base_attrs, "seq": emitted}
+            if line.original_line_number is not None:
+                attrs["orig_line"] = line.original_line_number
             severity_text, severity_number = _severity(body)
             self._logger.emit(
                 LogRecord(
