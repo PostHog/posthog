@@ -7095,20 +7095,6 @@
             "readOnlyHint": true
         }
     },
-    "signals-scout-config-run": {
-        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota and 409 if a run for this scout is already in progress. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Run a scout now",
-        "title": "Run a scout now",
-        "required_scopes": ["signal_scout:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "signals-scout-config-sync": {
         "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned configs.",
         "category": "Signals",
@@ -7191,6 +7177,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "signals-scout-run-now": {
+        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota and 409 if a run for this scout is already in progress. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a scout now",
+        "title": "Run a scout now",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "signals-scout-runs-emission-reports": {

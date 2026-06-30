@@ -376,7 +376,7 @@ tools:
             `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
             scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update`
             to tune them.
-    signals-scout-config-run:
+    signals-scout-run-now:
         operation: signals_scout_config_run
         enabled: true
         scopes:
