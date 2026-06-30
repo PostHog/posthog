@@ -400,7 +400,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     </LemonCard>
 
                     {/* Related Groups Panel */}
-                    {person?.uuid && <RelatedGroupsPanel personUuid={person.uuid} />}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
 
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}

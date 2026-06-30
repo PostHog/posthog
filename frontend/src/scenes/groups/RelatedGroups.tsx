@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconPerson } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -17,6 +18,9 @@ export interface RelatedGroupsProps {
     type?: 'person' | 'group'
     pageSize?: number
     embedded?: boolean
+    /** Tag the group row whose key matches this value (e.g. the group a ticket was created with). */
+    highlightGroupKey?: string | null
+    highlightLabel?: string
 }
 
 export function RelatedGroups({
@@ -25,6 +29,8 @@ export function RelatedGroups({
     type,
     pageSize,
     embedded = false,
+    highlightGroupKey,
+    highlightLabel = 'Active at creation',
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const dataSource = type === 'person' ? relatedPeople : relatedActors
@@ -50,7 +56,17 @@ export function RelatedGroups({
             key: 'id',
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
-                    return <GroupActorDisplay actor={actor} />
+                    const isHighlighted = highlightGroupKey != null && actor.group_key === highlightGroupKey
+                    return (
+                        <div className="flex items-center gap-2">
+                            <GroupActorDisplay actor={actor} />
+                            {isHighlighted && (
+                                <LemonTag type="highlight" size="small">
+                                    {highlightLabel}
+                                </LemonTag>
+                            )}
+                        </div>
+                    )
                 }
                 return <PersonDisplay person={actor} withIcon={false} />
             },
