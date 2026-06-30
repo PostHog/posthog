@@ -31,6 +31,7 @@ import {
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -197,7 +198,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                       handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps, LIFECYCLE_PERSONS_MODAL_OPTIONS)
                   }
                 : undefined
-            return <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows onRowClick={onRowClick} />
+            return quillTooltipEnabled ? (
+                <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows onRowClick={onRowClick} />
+            ) : (
+                <TrendsTooltip {...sharedProps} onRowClick={onRowClick} />
+            )
         },
         [
             timezone,

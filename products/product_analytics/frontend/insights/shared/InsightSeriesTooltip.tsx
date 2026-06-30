@@ -36,7 +36,6 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     breakdownFilter?: BreakdownFilter
     dateRange?: DateRange
     trendsFilter?: TrendsFilter | null
-    formula?: string | null
     showPercentView?: boolean
     isPercentStackView?: boolean
     baseCurrency?: CurrencyCode
@@ -158,7 +157,8 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             if (renderSeriesOverride) {
                 return renderSeriesOverride(datum)
             }
-            const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+            const hasBreakdown =
+                datum.breakdown_value !== undefined && datum.breakdown_value !== null && datum.breakdown_value !== ''
             if (hasBreakdown || datum.compare_label) {
                 const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
                 if (hasMultipleEvents && (hasBreakdown || datum.compare_label)) {
