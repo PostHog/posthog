@@ -965,106 +965,112 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 ])
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
-export const AgentSpecSchema = z
-    .object({
-        /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
-        models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
-        triggers: z
-            .array(TriggerSchema)
-            .describe(
-                'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
-            )
-            .default([]),
-        tools: z
-            .array(ToolRefSchema)
-            .describe(
-                'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
-            )
-            .default([]),
-        mcps: z
-            .array(McpRefSchema)
-            .describe(
-                'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
-            )
-            .default([]),
-        skills: z
-            .array(SkillRefSchema)
-            .describe(
-                'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
-            )
-            .default([]),
-        identity_providers: z
-            .array(IdentityProviderConfigSchema)
-            .describe(
-                'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
-            )
-            .default([]),
-        /**
-         * The ONE provider that gates admission and is the source-of-truth identity.
-         * Must reference an `identity_providers[]` entry that establishes identity.
-         * When set, every inbound request (regardless of transport) must resolve a
-         * verified identity from this provider before a session runs — the ingress
-         * either finds a durable transport→identity binding, verifies a per-request
-         * credential, or returns an auth block. When unset, the transport claim is
-         * the identity (passthrough / public agents). All OTHER identity_providers
-         * link as secondary credentials to the authoritative (canonical) identity.
-         */
-        authoritative_provider: z
-            .string()
-            .min(1)
-            .describe(
-                'The ONE identity_providers[] id that gates admission and is the canonical identity. When set, every inbound request must resolve a verified identity from it before a session runs (transport-independent). Unset = transport claim is the identity (passthrough/public).'
-            )
-            .optional(),
-        secrets: z
-            .array(SecretRefSchema)
-            .describe(
-                'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
-            )
-            .default([]),
-        limits: SpecLimitsSchema.default({
-            max_turns: 50,
-            max_tool_calls: 200,
-            max_wall_seconds: 15 * 60,
-            max_memory_mb: 512,
-            max_cpu_cores: 0.25,
-        }),
-        reasoning: ReasoningEffortSchema.describe(
-            'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'
-        ).optional(),
-        framework_prompt: FrameworkPromptConfigSchema.describe(
-            'Advanced: tune or pin the framework-injected system-prompt preamble. Rarely needed.'
-        ).optional(),
-        resume: ResumeConfigSchema.describe(
-            'Per-agent resumability — keep completed sessions reachable longer than the platform default (e.g. a Slack thread watched across a whole sprint).'
-        ).optional(),
-    })
-    .superRefine((spec, ctx) => {
-        // authoritative_provider must reference an identity_providers[] entry that can
-        // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
-        // either 500s (unknown) or soft-locks (no subject) at runtime.
-        if (!spec.authoritative_provider) {
-            return
-        }
-        const provider = spec.identity_providers.find((p) => p.id === spec.authoritative_provider)
-        if (!provider) {
-            ctx.addIssue({
-                code: 'custom',
-                path: ['authoritative_provider'],
-                message: `authoritative_provider "${spec.authoritative_provider}" must reference an identity_providers[] id`,
-            })
-            return
-        }
-        const establishesIdentity =
-            provider.kind === 'posthog' || (provider.kind === 'oauth2' && !!provider.userinfo_url)
-        if (!establishesIdentity) {
-            ctx.addIssue({
-                code: 'custom',
-                path: ['authoritative_provider'],
-                message: `authoritative_provider "${spec.authoritative_provider}" must establish identity (kind posthog, or oauth2 with userinfo_url)`,
-            })
-        }
-    })
+/**
+ * Base object shape, before the cross-field superRefine. Exported so the
+ * author-facing `TypedSpecSchema` (storage/typed-bundle.ts) can guard its key
+ * set against this single source of truth — a top-level field added here that
+ * the author slice doesn't pass through would be strict-rejected by the
+ * authoring API. The parity test in typed-bundle.test.ts enforces that.
+ */
+export const AgentSpecObjectSchema = z.object({
+    /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
+    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
+    triggers: z
+        .array(TriggerSchema)
+        .describe(
+            'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
+        )
+        .default([]),
+    tools: z
+        .array(ToolRefSchema)
+        .describe(
+            'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
+        )
+        .default([]),
+    mcps: z
+        .array(McpRefSchema)
+        .describe(
+            'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
+        )
+        .default([]),
+    skills: z
+        .array(SkillRefSchema)
+        .describe(
+            'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
+        )
+        .default([]),
+    identity_providers: z
+        .array(IdentityProviderConfigSchema)
+        .describe(
+            'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
+        )
+        .default([]),
+    /**
+     * The ONE provider that gates admission and is the source-of-truth identity.
+     * Must reference an `identity_providers[]` entry that establishes identity.
+     * When set, every inbound request (regardless of transport) must resolve a
+     * verified identity from this provider before a session runs — the ingress
+     * either finds a durable transport→identity binding, verifies a per-request
+     * credential, or returns an auth block. When unset, the transport claim is
+     * the identity (passthrough / public agents). All OTHER identity_providers
+     * link as secondary credentials to the authoritative (canonical) identity.
+     */
+    authoritative_provider: z
+        .string()
+        .min(1)
+        .describe(
+            'The ONE identity_providers[] id that gates admission and is the canonical identity. When set, every inbound request must resolve a verified identity from it before a session runs (transport-independent). Unset = transport claim is the identity (passthrough/public).'
+        )
+        .optional(),
+    secrets: z
+        .array(SecretRefSchema)
+        .describe(
+            'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
+        )
+        .default([]),
+    limits: SpecLimitsSchema.default({
+        max_turns: 50,
+        max_tool_calls: 200,
+        max_wall_seconds: 15 * 60,
+        max_memory_mb: 512,
+        max_cpu_cores: 0.25,
+    }),
+    reasoning: ReasoningEffortSchema.describe(
+        'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'
+    ).optional(),
+    framework_prompt: FrameworkPromptConfigSchema.describe(
+        'Advanced: tune or pin the framework-injected system-prompt preamble. Rarely needed.'
+    ).optional(),
+    resume: ResumeConfigSchema.describe(
+        'Per-agent resumability — keep completed sessions reachable longer than the platform default (e.g. a Slack thread watched across a whole sprint).'
+    ).optional(),
+})
+
+export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // authoritative_provider must reference an identity_providers[] entry that can
+    // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
+    // either 500s (unknown) or soft-locks (no subject) at runtime.
+    if (!spec.authoritative_provider) {
+        return
+    }
+    const provider = spec.identity_providers.find((p) => p.id === spec.authoritative_provider)
+    if (!provider) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must reference an identity_providers[] id`,
+        })
+        return
+    }
+    const establishesIdentity = provider.kind === 'posthog' || (provider.kind === 'oauth2' && !!provider.userinfo_url)
+    if (!establishesIdentity) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must establish identity (kind posthog, or oauth2 with userinfo_url)`,
+        })
+    }
+})
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type ModelEntry = z.infer<typeof ModelEntrySchema>
