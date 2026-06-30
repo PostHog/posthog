@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai import (
+    BASE_URLS,
     AssemblyAIResumeConfig,
     assemblyai_source,
     validate_credentials as validate_assemblyai_credentials,
@@ -43,6 +44,12 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ASSEMBLYAI
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored API key is sent to. Retargeting it must re-require the
+        # secret so a preserved key can't be aimed at a different regional endpoint without re-entry.
+        return ["region"]
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -94,10 +101,9 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # AssemblyAI returns 401 for a missing/invalid token. There's no scope/permission model, so a
         # 401 is always a credential problem retrying can't fix. Match the stable status text + host.
-        return {
-            "401 Client Error: Unauthorized for url: https://api.assemblyai.com": "Your AssemblyAI API key is invalid or has been revoked. Create a new key in the AssemblyAI dashboard, then reconnect.",
-            "401 Client Error: Unauthorized for url: https://api.eu.assemblyai.com": "Your AssemblyAI API key is invalid or has been revoked. Create a new key in the AssemblyAI dashboard, then reconnect.",
-        }
+        # Derive from BASE_URLS so a newly added region stays covered without updating two places.
+        user_message = "Your AssemblyAI API key is invalid or has been revoked. Create a new key in the AssemblyAI dashboard, then reconnect."
+        return {f"401 Client Error: Unauthorized for url: {url}": user_message for url in BASE_URLS.values()}
 
     def get_schemas(
         self,

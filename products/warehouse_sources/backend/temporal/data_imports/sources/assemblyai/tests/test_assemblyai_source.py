@@ -31,6 +31,10 @@ class TestAssemblyAISource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.ASSEMBLYAI
 
+    def test_connection_host_fields_includes_region(self):
+        # `region` selects the host the stored API key is sent to, so editing it must re-require the secret.
+        assert self.source.connection_host_fields == ["region"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
