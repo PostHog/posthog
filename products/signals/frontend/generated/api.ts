@@ -23,6 +23,7 @@ import type {
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
+    PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -180,6 +181,28 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+/**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const signalsReportsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalReportContentUpdateApi?: PatchedSignalReportContentUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalReportContentUpdateApi),
     })
 }
 

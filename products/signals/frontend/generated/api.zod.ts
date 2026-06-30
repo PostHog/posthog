@@ -19,6 +19,35 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const signalsReportsPartialUpdateBodyTitleMax = 300
+
+export const signalsReportsPartialUpdateBodySummaryMax = 10000
+
+export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodyTitleMax)
+            .optional()
+            .describe('New human-facing title for the report. Omit to leave the title unchanged.'),
+        summary: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodySummaryMax)
+            .optional()
+            .describe(
+                "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged."
+            ),
+    })
+    .describe(
+        'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
+    )
+
+/**
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the

@@ -1305,6 +1305,7 @@ dependencies = [
  "httpmock",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "mockito",
  "moka",
  "natord",

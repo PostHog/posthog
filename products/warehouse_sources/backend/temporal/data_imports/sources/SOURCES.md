@@ -50,12 +50,14 @@ the row lists both.
 | algolia             | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads          | HTTP                        | requests                                                        | ✅                          |
 | amplitude           | HTTP                        | requests                                                        | ✅                          |
+| apify_dataset       | HTTP                        | requests                                                        | ✅                          |
 | apollo              | HTTP                        | requests                                                        | ✅                          |
 | appsflyer           | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana               | HTTP                        | requests                                                        | ✅                          |
 | ashby               | HTTP                        | requests                                                        | ✅                          |
 | attentive           | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| aviationstack       | HTTP                        | requests                                                        | ✅                          |
 | azure_devops        | HTTP                        | requests                                                        | ✅                          |
 | bamboohr            | HTTP                        | requests                                                        | ✅                          |
 | beamer              | HTTP                        | requests                                                        | ✅                          |
@@ -65,6 +67,7 @@ the row lists both.
 | blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
+| breezometer         | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
 | brex                | HTTP                        | requests                                                        | ✅                          |
 | bugsnag             | HTTP                        | requests                                                        | ✅                          |
@@ -77,6 +80,7 @@ the row lists both.
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
+| churnkey            | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
 | coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
@@ -304,7 +308,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- apify_dataset
 - appcues
 - appfigures
 - appfollow
@@ -313,7 +316,6 @@ doesn't conflict with concurrent PRs.
 - apptivo
 - assemblyai
 - auth0
-- aviationstack
 - awin
 - aws_cloudtrail
 - azure_blob
@@ -327,7 +329,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintrust
 - branch
-- breezometer
 - breezy_hr
 - bunny
 - buzzsprout
@@ -344,7 +345,6 @@ doesn't conflict with concurrent PRs.
 - chatwoot
 - chift
 - chorus
-- churnkey
 - cin7
 - cisco_meraki
 - clarifai

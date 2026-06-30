@@ -395,7 +395,13 @@ def get_direct_connection_metadata(
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
     except Exception as error:
-        capture_exception(error)
+        # Connection metadata is best-effort — we fall back below regardless. An expected
+        # user/upstream connection failure (unreachable or misconfigured host, refused connection,
+        # bad credentials) is the customer's to fix and is already surfaced by credential
+        # validation, so don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
+        _, is_expected_source_error = _classify_refresh_schemas_error(source_impl, error)
+        if not is_expected_source_error:
+            capture_exception(error)
         return fallback or {}
 
     return metadata if isinstance(metadata, dict) else (fallback or {})
@@ -2465,12 +2471,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+                data={"message": error_message},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2581,8 +2587,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
             return Response(

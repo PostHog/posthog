@@ -44612,6 +44612,7 @@
                 "cohorts",
                 "cohorts_with_all",
                 "data_warehouse",
+                "data_warehouse_source_tables",
                 "data_warehouse_properties",
                 "data_warehouse_person_properties",
                 "elements",
