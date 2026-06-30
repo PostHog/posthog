@@ -259,11 +259,16 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    @staticmethod
+    def _normalize_primary_keys(data: pa.Table, primary_keys: Sequence[Any]) -> list[str]:
+        """Normalize declared primary keys and keep only those actually present in the batch."""
+        return [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
         """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
-        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+        dedupe_keys = self._normalize_primary_keys(data, primary_keys)
         if not dedupe_keys:
             return data
         if use_partitioning:
@@ -277,6 +282,94 @@ class DeltaTableHelper:
                 f"(keys={dedupe_keys}) from a batch of {data.num_rows} before writing"
             )
         return deduped
+
+    async def _merge_into_deltalake(
+        self,
+        delta_table: deltalake.DeltaTable,
+        data: pa.Table,
+        normalized_primary_keys: list[str],
+        use_partitioning: bool,
+        commit_properties: deltalake.CommitProperties | None,
+        progress_callback: Callable[[], None] | None,
+        *,
+        update_matched: bool,
+    ) -> None:
+        """Merge `data` into the Delta table keyed on `normalized_primary_keys`.
+
+        `update_matched=True` is a full upsert (incremental sync): rows whose key already
+        exists are overwritten, new keys inserted. `update_matched=False` inserts only keys
+        not already present (append sync): existing rows are left untouched and re-delivered
+        rows are de-duplicated rather than stacked as duplicates.
+        """
+
+        def _execute(merger: Any) -> dict:
+            if update_matched:
+                merger = merger.when_matched_update_all()
+            return merger.when_not_matched_insert_all().execute()
+
+        predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
+        if use_partitioning:
+            predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
+
+            # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
+            unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
+
+            await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
+
+            # Only tag the FINAL partition merge with `commit_properties`. Intermediate
+            # merges must remain untagged so a crash mid-loop doesn't leave behind a
+            # tagged commit that would cause `has_batch_been_committed` to skip the
+            # remaining partitions on Kafka redelivery (which would lose data).
+            last_partition_index = len(unique_partitions) - 1
+            for i, partition in enumerate(unique_partitions):
+                partition_predicate_ops = predicate_ops.copy()
+                partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+                predicate = " AND ".join(partition_predicate_ops)
+
+                filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+
+                await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
+
+                merge_commit_properties = commit_properties if i == last_partition_index else None
+
+                def _do_merge(
+                    filtered_table: pa.Table,
+                    predicate: str,
+                    merge_commit_properties: deltalake.CommitProperties | None,
+                ):
+                    return _execute(
+                        delta_table.merge(
+                            source=filtered_table,
+                            source_alias="source",
+                            target_alias="target",
+                            predicate=predicate,
+                            streamed_exec=True,
+                            commit_properties=merge_commit_properties,
+                        )
+                    )
+
+                merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
+
+                await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+
+                if progress_callback:
+                    progress_callback()
+        else:
+            # Single merge call → safe to tag directly; this is the terminal commit.
+            def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
+                return _execute(
+                    delta_table.merge(
+                        source=data,
+                        source_alias="source",
+                        target_alias="target",
+                        predicate=" AND ".join(predicate_ops),
+                        streamed_exec=False,
+                        commit_properties=commit_properties,
+                    )
+                )
+
+            merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
+            await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
     async def write_to_deltalake(
         self,
@@ -332,87 +425,18 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            existing_delta_table = delta_table
-
             await self._logger.adebug(f"write_to_deltalake: merging...")
 
-            # Normalize keys and check the keys actually exist in the dataset
-            py_table_column_names = data.column_names
-            normalized_primary_keys: list[str] = []
-            for x in primary_keys:
-                n = normalize_column_name(x)
-                if n in py_table_column_names:
-                    normalized_primary_keys.append(n)
-
-            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
-            if use_partitioning:
-                predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
-
-                # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
-
-                await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
-
-                # Only tag the FINAL partition merge with `commit_properties`. Intermediate
-                # merges must remain untagged so a crash mid-loop doesn't leave behind a
-                # tagged commit that would cause `has_batch_been_committed` to skip the
-                # remaining partitions on Kafka redelivery (which would lose data).
-                last_partition_index = len(unique_partitions) - 1
-                for i, partition in enumerate(unique_partitions):
-                    partition_predicate_ops = predicate_ops.copy()
-                    partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                    predicate = " AND ".join(partition_predicate_ops)
-
-                    filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
-
-                    await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
-
-                    merge_commit_properties = commit_properties if i == last_partition_index else None
-
-                    def _do_merge(
-                        filtered_table: pa.Table,
-                        predicate: str,
-                        merge_commit_properties: deltalake.CommitProperties | None,
-                    ):
-                        return (
-                            existing_delta_table.merge(
-                                source=filtered_table,
-                                source_alias="source",
-                                target_alias="target",
-                                predicate=predicate,
-                                streamed_exec=True,
-                                commit_properties=merge_commit_properties,
-                            )
-                            .when_matched_update_all()
-                            .when_not_matched_insert_all()
-                            .execute()
-                        )
-
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
-
-                    await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-
-                    if progress_callback:
-                        progress_callback()
-            else:
-                # Single merge call → safe to tag directly; this is the terminal commit.
-                def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
-                    return (
-                        existing_delta_table.merge(
-                            source=data,
-                            source_alias="source",
-                            target_alias="target",
-                            predicate=" AND ".join(predicate_ops),
-                            streamed_exec=False,
-                            commit_properties=commit_properties,
-                        )
-                        .when_matched_update_all()
-                        .when_not_matched_insert_all()
-                        .execute()
-                    )
-
-                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
-                await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+            normalized_primary_keys = self._normalize_primary_keys(data, primary_keys)
+            await self._merge_into_deltalake(
+                delta_table,
+                data,
+                normalized_primary_keys,
+                use_partitioning,
+                commit_properties,
+                progress_callback,
+                update_matched=True,
+            )
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)
@@ -461,28 +485,52 @@ class DeltaTableHelper:
                     commit_properties=commit_properties,
                 )
         elif write_type == "append":
-            if delta_table is None:
-                storage_options = self._get_credentials()
-                delta_uri = await self._get_delta_table_uri()
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable.create,
-                    table_uri=delta_uri,
-                    schema=data.schema,
-                    storage_options=storage_options,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
+            normalized_primary_keys = self._normalize_primary_keys(data, primary_keys) if primary_keys else []
+
+            if delta_table is not None and not self._is_first_sync and normalized_primary_keys:
+                # Append sources (e.g. Stripe) fetch only rows past a watermark, but boundary
+                # overlaps, earliest-backfill re-fetches, re-syncs after a non-reset delete, and
+                # one-off bulk re-appends all re-deliver rows we already hold. A blind append
+                # stacks those as duplicates — silently doubling historical rows. When the source
+                # declares a primary key and the table already exists, merge on it and insert only
+                # unseen keys (never update existing rows, preserving append semantics) so
+                # re-delivered rows are de-duplicated instead of stacked.
+                data = await self._dedupe_incremental_batch(data, primary_keys, use_partitioning)
+
+                await self._logger.adebug(f"write_to_deltalake: write_type = append (dedup merge)")
+
+                await self._merge_into_deltalake(
+                    delta_table,
+                    data,
+                    normalized_primary_keys,
+                    use_partitioning,
+                    commit_properties,
+                    progress_callback,
+                    update_matched=False,
                 )
+            else:
+                if delta_table is None:
+                    storage_options = self._get_credentials()
+                    delta_uri = await self._get_delta_table_uri()
+                    delta_table = await asyncio.to_thread(
+                        deltalake.DeltaTable.create,
+                        table_uri=delta_uri,
+                        schema=data.schema,
+                        storage_options=storage_options,
+                        partition_by=PARTITION_KEY if use_partitioning else None,
+                    )
 
-            await self._logger.adebug(f"write_to_deltalake: write_type = append")
+                await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
-            await asyncio.to_thread(
-                _write_deltalake,
-                delta_table,
-                data,
-                partition_by=PARTITION_KEY if use_partitioning else None,
-                mode="append",
-                schema_mode="merge",
-                commit_properties=commit_properties,
-            )
+                await asyncio.to_thread(
+                    _write_deltalake,
+                    delta_table,
+                    data,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="append",
+                    schema_mode="merge",
+                    commit_properties=commit_properties,
+                )
 
         delta_table = await self.get_delta_table()
         assert delta_table is not None

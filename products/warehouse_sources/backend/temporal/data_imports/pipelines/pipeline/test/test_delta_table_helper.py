@@ -495,6 +495,56 @@ class TestIncrementalBatchDeduplication:
         assert final.column("name").to_pylist() == ["second_copy"]
 
 
+class TestAppendPrimaryKeyDeduplication:
+    """Append syncs (e.g. Stripe) must not stack rows they already hold.
+
+    Append sources fetch only rows past a watermark, but boundary overlaps, the
+    earliest-backfill re-fetch, re-syncs after a non-reset delete, and one-off bulk
+    re-appends all re-deliver rows already in the table. A blind `mode="append"` stacks
+    those as duplicates, silently doubling historical rows (the invoice/revenue-doubling
+    bug). When the source declares a primary key, the append write must insert only
+    unseen keys.
+    """
+
+    @pytest.mark.parametrize("partitioned", [False, True], ids=["flat", "partitioned"])
+    @pytest.mark.asyncio
+    async def test_append_with_primary_keys_dedupes_against_existing_table(
+        self, partitioned: bool, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        if partitioned:
+            deltalake.write_deltalake(
+                delta_path,
+                pa.table({"id": [1, 2], "name": ["one", "two"], PARTITION_KEY: ["p0", "p0"]}),
+                partition_by=PARTITION_KEY,
+            )
+        else:
+            deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["one", "two"]}))
+
+        helper = _make_local_helper(delta_path)
+        # id=2 is already in the table (re-delivered after a watermark overlap / re-sync);
+        # id=3 is genuinely new. A blind append would stack a second id=2 row.
+        batch_dict: dict[str, Any] = {"id": [2, 3], "name": ["two_again", "three"]}
+        if partitioned:
+            batch_dict[PARTITION_KEY] = ["p0", "p0"]
+        batch = pa.table(batch_dict)
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="append",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table().sort_by("id")
+        # No duplicate id=2: the re-delivered key is dropped, only the unseen id=3 is inserted.
+        assert final.column("id").to_pylist() == [1, 2, 3]
+        # Insert-only (not upsert): the existing id=2 row keeps its original value.
+        name_by_id = dict(zip(final.column("id").to_pylist(), final.column("name").to_pylist()))
+        assert name_by_id[2] == "two"
+        assert name_by_id[3] == "three"
+
+
 class TestUnpartitionedTableWithPartitionKeyColumn:
     """A Delta table can carry `_ph_partition_key` in its schema while its
     partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in

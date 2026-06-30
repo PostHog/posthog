@@ -901,7 +901,11 @@ function DangerZoneSection({
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
-    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
+    const hasDeleteAndResync =
+        schema.incremental ||
+        schema.sync_type === 'append' ||
+        schema.sync_type === 'webhook' ||
+        schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {
