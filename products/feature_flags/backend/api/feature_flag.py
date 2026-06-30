@@ -62,7 +62,12 @@ from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
@@ -552,9 +557,16 @@ def check_flag_limits_for_team(
         )
 
 
-class RemoteConfigThrottle(BurstRateThrottle):
+# Default per-key and per-team cap for remote_config. Per-team overrides come from
+# REMOTE_CONFIG_RATE_LIMITS and only apply to the per-key throttle below.
+REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
+
+
+class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
+    # PersonalApiKeyRateThrottle would let through.
     scope = "feature_flag_remote_config"
-    rate = "600/minute"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
         logger = logging.getLogger(__name__)
@@ -570,6 +582,14 @@ class RemoteConfigThrottle(BurstRateThrottle):
                 logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
         return super().allow_request(request, view)
+
+
+class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential — real SDK
+    # volume hits the Rust flags service, not this endpoint.
+    scope = "feature_flag_remote_config_psak_team"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
 
 class EvaluationTagsChecker:
@@ -4055,7 +4075,7 @@ class FeatureFlagViewSet(
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
-        throttle_classes=[RemoteConfigThrottle],
+        throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
