@@ -1,4 +1,9 @@
-import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertyDisplayTypeEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 // The backend stores the granular display type directly, so the form value maps 1:1 to the API.
 // This file holds only the UI metadata (label + whether the big-number switch applies).
@@ -25,4 +30,33 @@ export function labelForDisplayType(displayType: CustomPropertyDisplayTypeEnumAp
 // Drives the big-number switch: it's only shown — and only meaningful in the payload — for numeric types.
 export function isNumericDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): boolean {
     return DISPLAY_TYPE_OPTIONS.find((option) => option.value === displayType)?.isNumeric ?? false
+}
+
+const EMPTY_VALUE = '—'
+
+// Formats a custom property value (always a string off the JSON column) for display per its
+// definition's display type. Date/datetime/boolean are handled by the cell (TZLabel / icon),
+// so this returns the raw string for them and focuses on the numeric formats.
+export function formatCustomPropertyValue(
+    raw: string | null | undefined,
+    definition: Pick<CustomPropertyDefinitionApi, 'display_type' | 'is_big_number'>
+): string {
+    if (raw === null || raw === undefined || raw === '') {
+        return EMPTY_VALUE
+    }
+    const numeric = Number(raw)
+    const isNumber = Number.isFinite(numeric)
+    switch (definition.display_type) {
+        case 'currency':
+            return isNumber ? humanFriendlyCurrency(numeric) : raw
+        case 'percent':
+            return isNumber ? percentage(numeric) : raw
+        case 'number':
+            if (!isNumber) {
+                return raw
+            }
+            return definition.is_big_number ? humanFriendlyLargeNumber(numeric) : humanFriendlyNumber(numeric)
+        default:
+            return raw
+    }
 }
