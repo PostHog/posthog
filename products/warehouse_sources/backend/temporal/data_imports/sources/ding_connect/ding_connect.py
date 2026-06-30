@@ -74,7 +74,7 @@ def validate_credentials(api_key: str) -> bool:
     # GetBalance is the cheapest call that proves both the key is valid and an account is attached.
     url = f"{DING_CONNECT_BASE_URL}/api/V1/GetBalance"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=30)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=30)
         return response.status_code == 200
     except Exception:
         return False
@@ -85,7 +85,7 @@ def _flatten_transfer_record(record: dict[str, Any]) -> dict[str, Any]:
     transfer_id = record.get("TransferId")
     if isinstance(transfer_id, dict):
         record = {**record}
-        record["TransferRef"] = transfer_id.get("TransferRef")
+        record["TransferRef"] = transfer_id["TransferRef"]
         record["DistributorRef"] = transfer_id.get("DistributorRef")
     return record
 
@@ -161,7 +161,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = DING_CONNECT_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.paginated:
         yield from _get_transfer_record_rows(session, config, headers, logger, resumable_source_manager)

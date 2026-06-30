@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
@@ -41,7 +42,7 @@ def _collect(endpoint: str, responses: list[dict[str, Any]], manager: _FakeResum
         return queue.pop(0)
 
     monkeypatch.setattr(ding_connect, "_request", fake_request)
-    monkeypatch.setattr(ding_connect, "make_tracked_session", lambda: MagicMock())
+    monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: MagicMock())
 
     rows: list = []
     for page in get_rows("key", endpoint, MagicMock(), manager):  # type: ignore[arg-type]
@@ -60,6 +61,12 @@ class TestFlattenTransferRecord:
     def test_missing_transfer_id_is_left_untouched(self) -> None:
         record = {"SkuCode": "SKU"}
         assert _flatten_transfer_record(record) == {"SkuCode": "SKU"}
+
+    def test_missing_transfer_ref_fails_fast(self) -> None:
+        # TransferRef is the primary key, so a TransferId object without it must raise rather than
+        # silently writing a row with a None primary key.
+        with pytest.raises(KeyError):
+            _flatten_transfer_record({"TransferId": {"DistributorRef": "DR1"}})
 
 
 class TestRowFromSingleObject:
@@ -138,7 +145,7 @@ class TestTransferRecordsPagination:
             return self._page(["TR9"], there_are_more=False)
 
         monkeypatch.setattr(ding_connect, "_request", fake_request)
-        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda: MagicMock())
+        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: MagicMock())
 
         manager = _FakeResumableManager(DingConnectResumeConfig(skip=200))
         list(get_rows("key", "TransferRecords", MagicMock(), manager))  # type: ignore[arg-type]
@@ -152,14 +159,49 @@ class TestValidateCredentials:
         for status_code, expected in [(200, True), (401, False), (500, False)]:
             session = MagicMock()
             session.get.return_value = MagicMock(status_code=status_code)
-            monkeypatch.setattr(ding_connect, "make_tracked_session", lambda session=session: session)
+            monkeypatch.setattr(ding_connect, "make_tracked_session", lambda *args, session=session, **kwargs: session)
             assert validate_credentials("key") is expected
 
     def test_network_error_is_invalid(self, monkeypatch: Any) -> None:
         session = MagicMock()
         session.get.side_effect = Exception("boom")
-        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda: session)
+        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: session)
         assert validate_credentials("key") is False
+
+
+class TestApiKeyRedaction:
+    # The api_key travels in a request header, so every tracked session that carries it must
+    # redact it from HTTP observer logs and captures.
+    def test_get_rows_redacts_api_key(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_make_tracked_session(**kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(ding_connect, "make_tracked_session", fake_make_tracked_session)
+        monkeypatch.setattr(
+            ding_connect,
+            "_request",
+            lambda *args, **kwargs: {"Items": [], "ResultCode": 1, "ErrorCodes": []},
+        )
+
+        list(get_rows("secret-key", "Countries", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
+        assert captured["redact_values"] == ("secret-key",)
+
+    def test_validate_credentials_redacts_api_key(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_make_tracked_session(**kwargs: Any) -> Any:
+            captured.update(kwargs)
+            session = MagicMock()
+            session.get.return_value = MagicMock(status_code=200)
+            return session
+
+        monkeypatch.setattr(ding_connect, "make_tracked_session", fake_make_tracked_session)
+
+        validate_credentials("secret-key")
+        assert captured["redact_values"] == ("secret-key",)
 
 
 class TestSourceResponse:
