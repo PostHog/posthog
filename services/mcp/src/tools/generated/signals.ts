@@ -537,21 +537,6 @@ const signalsScoutConfigList = (): ToolBase<
     },
 })
 
-const SignalsScoutRunNowSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
-
-const signalsScoutRunNow = (): ToolBase<typeof SignalsScoutRunNowSchema, unknown> => ({
-    name: 'signals-scout-run-now',
-    schema: SignalsScoutRunNowSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunNowSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
-        })
-        return result
-    },
-})
-
 const SignalsScoutConfigSyncSchema = z.object({})
 
 const signalsScoutConfigSync = (): ToolBase<
@@ -747,6 +732,21 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             query: {
                 force_refresh: params.force_refresh,
             },
+        })
+        return result
+    },
+})
+
+const SignalsScoutRunNowSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
+
+const signalsScoutRunNow = (): ToolBase<typeof SignalsScoutRunNowSchema, unknown> => ({
+    name: 'signals-scout-run-now',
+    schema: SignalsScoutRunNowSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunNowSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
         })
         return result
     },
@@ -950,13 +950,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-list': signalsScoutConfigList,
-    'signals-scout-run-now': signalsScoutRunNow,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
+    'signals-scout-run-now': signalsScoutRunNow,
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
