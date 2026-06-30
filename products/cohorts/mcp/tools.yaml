@@ -136,7 +136,9 @@ tools:
             offset:
                 cast: string-int
             search:
-                description: Find cohorts by name or description. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.
+                description:
+                    Find cohorts by name or description. Fuzzy trigram match (tolerates typos and partial words), exact matches
+                    ordered first.
             hide_behavioral_cohorts:
                 description: Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.
         ui_app: cohort-list
