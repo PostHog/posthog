@@ -1,13 +1,6 @@
 from typing import Any, cast
 
-from posthog.schema import (
-    AlertCondition,
-    AlertConditionType,
-    FunnelConversionMetric,
-    FunnelsAlertConfig,
-    FunnelsQuery,
-    FunnelVizType,
-)
+from posthog.schema import FunnelConversionMetric, FunnelsAlertConfig, FunnelsQuery, FunnelVizType
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ComparableSeries, SeriesPoint
 
@@ -36,7 +29,7 @@ class FunnelVizStrategy:
         Default: nothing to reject — only the steps funnel has a per-step config to range-check."""
         return None
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
         """Normalize the funnel query result into one ``ComparableSeries`` per breakdown value."""
         raise NotImplementedError
 
@@ -61,7 +54,7 @@ class StepsFunnelStrategy(FunnelVizStrategy):
                 "conversion_from_previous is undefined at the first step; use conversion_from_start instead"
             )
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
         # A steps funnel is a single snapshot, so the condition is always absolute (enforced upstream).
         breakdowns = _steps_per_breakdown(_current_period_only(result))
         return [
@@ -83,12 +76,13 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
     unit = _CONVERSION_RATE_UNIT
     supports_relative_conditions = True
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
         series_dicts = _require_series_list(_current_period_only(result), "trends")
-        # Absolute alerts read the latest period. Relative alerts compare the last *complete* period
-        # against the one before it — anchoring on the latest (possibly partial) period would diff a
-        # partial rate against a complete one. This mirrors the trends-insight default.
-        anchor_latest = condition.type == AlertConditionType.ABSOLUTE_VALUE
+        # By default evaluate the last *complete* period — the latest one is still in progress, so
+        # anchoring there would read a partial rate (and, for relative, diff a partial against a complete
+        # one). check_ongoing_interval opts into that in-progress period. The anchor is the same for
+        # absolute and relative conditions; relative then diffs it against the period before it.
+        anchor_current = bool(config.check_ongoing_interval)
         series: list[ComparableSeries] = []
         for entry in series_dicts:
             if not isinstance(entry, dict):
@@ -101,7 +95,7 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
             if not points:
                 # No periods in range — represent as a single missing point so the comparator skips it.
                 points = [SeriesPoint(date=None, value=None)]
-            current_index = max(len(points) - 1 if anchor_latest else len(points) - 2, 0)
+            current_index = max(len(points) - 1 if anchor_current else len(points) - 2, 0)
             label = _label_for_breakdown(entry.get("breakdown_value"))
             series.append(ComparableSeries(label=label, points=points, current_index=current_index))
         return series

@@ -5122,6 +5122,8 @@ export interface FunnelsAlertConfig {
     /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
     funnel_step?: integer | null
     metric: FunnelConversionMetric
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */

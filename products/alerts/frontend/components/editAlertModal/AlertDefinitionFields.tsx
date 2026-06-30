@@ -1,7 +1,7 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import {
@@ -97,26 +97,24 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     ) : null
 
     if (preview.relative) {
-        // Relative alerts evaluate the change between the most recent complete period and the one
-        // before it (the in-progress period is skipped); `breaching` already reflects that change.
+        // Relative alerts evaluate the change between the period being checked and the one before it
+        // (the checkbox controls whether that's the in-progress period); `breaching` reflects the change.
         const first = preview.values[0]
         const hasPrior = preview.values.some((value) => value.previousRate !== undefined)
         return (
             <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
                 {statusTag}
                 {!hasPrior ? (
-                    <>Needs at least two complete periods to evaluate the change — extend the date range.</>
+                    <>Needs at least two periods to evaluate the change — extend the date range.</>
                 ) : preview.isBreakdown ? (
                     <>
-                        Across {preview.values.length} breakdown values, comparing the most recent complete period
-                        against the one before it
+                        Across {preview.values.length} breakdown values, comparing each period against the one before it
                         {wouldFire ? `: ${breaching.map((value) => value.label ?? 'conversion').join(', ')}` : ''}.
                     </>
                 ) : (
                     <>
-                        Most recent complete period <strong>{format(first.rate)}</strong> vs{' '}
-                        <strong>{format(first.previousRate as number)}</strong> before it (the in-progress period is
-                        skipped).
+                        Evaluating <strong>{format(first.rate)}</strong> against{' '}
+                        <strong>{format(first.previousRate as number)}</strong> (the prior period).
                     </>
                 )}
                 {!preview.hasBounds ? <> Set a threshold to preview whether it would fire.</> : null}
@@ -181,10 +179,31 @@ export function FunnelsDefinitionFields({
 }): JSX.Element {
     const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
     if (isTrendsFunnel) {
+        // A trends funnel charts the overall conversion rate over time, so there's no per-step choice;
+        // the only option is whether to evaluate the current (in-progress) period or wait for it to complete.
         return (
-            <div className="flex flex-wrap gap-3 items-center">
-                <div>Alert on the overall conversion rate</div>
-                <FunnelAlertPreviewBanner preview={funnelPreview} />
+            <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-wrap gap-3 items-center">
+                    <div>Alert on the overall conversion rate</div>
+                    <FunnelAlertPreviewBanner preview={funnelPreview} />
+                </div>
+                <div className="flex items-center gap-1">
+                    <LemonCheckbox
+                        data-attr="alertForm-funnel-check-ongoing-interval"
+                        checked={!!config?.check_ongoing_interval}
+                        onChange={(checked) =>
+                            config && onSetAlertFormValue('config', { ...config, check_ongoing_interval: checked })
+                        }
+                        label="Evaluate the current (in-progress) period"
+                    />
+                    <Tooltip
+                        title="By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint."
+                        placement="right"
+                        delayMs={0}
+                    >
+                        <IconInfo className="text-muted" />
+                    </Tooltip>
+                </div>
             </div>
         )
     }

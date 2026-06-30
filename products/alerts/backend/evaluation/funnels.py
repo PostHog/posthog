@@ -52,7 +52,7 @@ class FunnelsExtractor:
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
-        series = strategy.to_series(calculation_result.result, config, condition)
+        series = strategy.to_series(calculation_result.result, config)
         return ExtractionResult(
             series=series,
             is_breakdown=len(series) > 1,

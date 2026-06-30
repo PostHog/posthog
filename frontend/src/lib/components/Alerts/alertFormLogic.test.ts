@@ -791,22 +791,24 @@ describe('alertFormLogic', () => {
             ).toEqual(expected)
         })
 
-        // Trends funnels return a conversion-rate time series; the alert evaluates the latest period.
+        // Trends funnels return a conversion-rate time series; the alert evaluates the last complete
+        // period by default, or the latest in-progress one when check_ongoing_interval is set.
         const trend = (data: (number | null)[], breakdown_value: unknown = null): Record<string, any> => ({
             data,
             days: data.map((_, i) => `d${i}`),
             breakdown_value,
         })
+        const ongoing = { ...FROM_START, check_ongoing_interval: true } as const
         it.each([
             [
-                'latest period is the evaluated rate',
+                'default evaluates the last complete period (the latest is in progress)',
                 { result: [trend([10, 25, 40])] },
                 { lower: 50 },
-                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+                { status: 'ok', values: [value(null, 25, true)], isBreakdown: false, hasBounds: true },
             ],
             [
-                'a null latest period coerces to 0%',
-                { result: [trend([10, null])] },
+                'a null anchored period coerces to 0%',
+                { result: [trend([null, 25])] },
                 undefined,
                 { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: false },
             ],
@@ -819,10 +821,10 @@ describe('alertFormLogic', () => {
                         { ...trend([8, 30], ['Chrome']), compare_label: 'previous' },
                     ],
                 },
-                { lower: 30 },
+                { lower: 8 },
                 {
                     status: 'ok',
-                    values: [value('Chrome', 40, false), value('Safari', 20, true)],
+                    values: [value('Chrome', 10, false), value('Safari', 5, true)],
                     isBreakdown: true,
                     hasBounds: true,
                 },
@@ -838,8 +840,18 @@ describe('alertFormLogic', () => {
             ).toEqual(expected)
         })
 
+        it('trends funnel: check_ongoing_interval evaluates the latest (in-progress) period', () => {
+            const preview = deriveFunnelAlertPreview({ result: [trend([10, 25, 40])] }, ongoing, { lower: 30 }, true)
+            expect(preview).toEqual({
+                status: 'ok',
+                values: [value(null, 40, false)],
+                isBreakdown: false,
+                hasBounds: true,
+            })
+        })
+
         it('trends funnel: relative condition evaluates the last complete period vs the prior one', () => {
-            // [40, 30, 5]: 5 is the in-progress period (skipped); the alert compares 30 against 40.
+            // [40, 30, 5]: 5 is the in-progress period (skipped by default); the alert compares 30 against 40.
             const preview = deriveFunnelAlertPreview(
                 { result: [trend([40, 30, 5])] },
                 FROM_START,
@@ -852,6 +864,25 @@ describe('alertFormLogic', () => {
             expect(preview).toEqual({
                 status: 'ok',
                 values: [{ label: null, rate: 30, previousRate: 40, breaching: true }],
+                isBreakdown: false,
+                hasBounds: true,
+                relative: true,
+            })
+        })
+
+        it('trends funnel: relative with check_ongoing_interval diffs the in-progress period', () => {
+            // check_ongoing → anchor the latest period (5) against the prior one (30): a 25-point drop.
+            const preview = deriveFunnelAlertPreview(
+                { result: [trend([40, 30, 5])] },
+                ongoing,
+                { upper: 8 },
+                true,
+                AlertConditionType.RELATIVE_DECREASE,
+                InsightThresholdType.ABSOLUTE
+            )
+            expect(preview).toEqual({
+                status: 'ok',
+                values: [{ label: null, rate: 5, previousRate: 30, breaching: true }],
                 isBreakdown: false,
                 hasBounds: true,
                 relative: true,

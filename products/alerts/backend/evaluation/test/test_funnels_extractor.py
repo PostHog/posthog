@@ -41,8 +41,13 @@ def _extract(
         return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz), IF_STALE)
 
 
-def _config(metric: str = "conversion_from_start", funnel_step: int | None = None) -> dict:
-    return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": funnel_step}
+def _config(
+    metric: str = "conversion_from_start", funnel_step: int | None = None, check_ongoing_interval: bool | None = None
+) -> dict:
+    config: dict = {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": funnel_step}
+    if check_ongoing_interval is not None:
+        config["check_ongoing_interval"] = check_ongoing_interval
+    return config
 
 
 @pytest.mark.parametrize(
@@ -107,22 +112,33 @@ def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
     return series
 
 
-def test_trends_funnel_evaluates_latest_period():
-    # A trends funnel is a time series of conversion rates; the alert evaluates the most recent period.
+def test_trends_funnel_defaults_to_last_complete_period():
+    # The latest period is still in progress, so by default the alert evaluates the last complete one.
     result = _extract([_trends_series([10.0, 25.0, 40.0])], viz="trends")
     assert result.subject == "The funnel conversion rate"
     assert result.unit == "%"
     assert result.is_breakdown is False
-    assert result.series[0].points[result.series[0].current_index].value == 40.0
+    series = result.series[0]
+    assert series.current_index == 1
+    assert series.points[series.current_index].value == 25.0
+
+
+def test_trends_funnel_check_ongoing_interval_evaluates_latest_period():
+    result = _extract([_trends_series([10.0, 25.0, 40.0])], viz="trends", config=_config(check_ongoing_interval=True))
+    series = result.series[0]
+    assert series.current_index == 2
+    assert series.points[series.current_index].value == 40.0
 
 
 def test_trends_funnel_breakdown_yields_one_series_per_value():
+    # check_ongoing_interval so the anchor is the latest (only) interesting point per breakdown.
     result = _extract(
         [
             _trends_series([10.0, 40.0], breakdown_value=["Chrome"]),
             _trends_series([5.0, 20.0], breakdown_value=["Safari"]),
         ],
         viz="trends",
+        config=_config(check_ongoing_interval=True),
     )
     assert result.is_breakdown is True
     assert {s.label: s.points[s.current_index].value for s in result.series} == {"Chrome": 40.0, "Safari": 20.0}
@@ -131,7 +147,7 @@ def test_trends_funnel_breakdown_yields_one_series_per_value():
 def test_trends_funnel_compare_evaluates_current_period_only():
     current = {**_trends_series([10.0, 40.0]), "compare_label": "current"}
     previous = {**_trends_series([8.0, 30.0]), "compare_label": "previous"}
-    result = _extract([current, previous], viz="trends")
+    result = _extract([current, previous], viz="trends", config=_config(check_ongoing_interval=True))
     assert len(result.series) == 1
     assert result.series[0].points[result.series[0].current_index].value == 40.0
 
@@ -142,14 +158,28 @@ def test_trends_funnel_empty_result_raises_extraction_error():
 
 
 def test_trends_funnel_relative_anchors_on_last_complete_period():
-    # Relative conditions compare the last *complete* period (not the latest, possibly-partial one)
-    # against the period before it, so the anchor is the second-to-last point.
+    # By default a relative condition compares the last *complete* period (the second-to-last point)
+    # against the one before it — anchoring on the in-progress latest period would diff a partial rate.
     result = _extract(
         [_trends_series([10.0, 20.0, 40.0])], viz="trends", condition_type=AlertConditionType.RELATIVE_INCREASE
     )
     series = result.series[0]
     assert series.current_index == 1
     assert series.points[series.current_index].value == 20.0
+
+
+def test_trends_funnel_relative_check_ongoing_interval_anchors_on_latest_period():
+    # check_ongoing_interval applies to relative conditions too: anchor the latest period and diff it
+    # against the one before (today vs the prior period).
+    result = _extract(
+        [_trends_series([10.0, 20.0, 40.0])],
+        viz="trends",
+        condition_type=AlertConditionType.RELATIVE_INCREASE,
+        config=_config(check_ongoing_interval=True),
+    )
+    series = result.series[0]
+    assert series.current_index == 2
+    assert series.points[series.current_index].value == 40.0
 
 
 def test_unsupported_viz_raises():

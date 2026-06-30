@@ -53,7 +53,8 @@ function _deriveTrendsPreview(
     series: FunnelTrendsSeries[],
     bounds: InsightsThresholdBounds | null | undefined,
     thresholdType: InsightThresholdType | undefined,
-    conditionType: AlertConditionType | undefined
+    conditionType: AlertConditionType | undefined,
+    checkOngoing: boolean
 ): FunnelAlertPreview {
     const relative =
         conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
@@ -61,15 +62,14 @@ function _deriveTrendsPreview(
         // A gap period can be null; coerce to 0 to match the backend (the runner already fills 0).
         const data = (s.data ?? []).map((value) => (typeof value === 'number' ? value : 0))
         const label = _breakdownLabel(s.breakdown_value)
+        // By default the latest period is still in progress, so anchor on the last complete one;
+        // check_ongoing_interval anchors on the latest instead. Same anchor for absolute and relative.
+        const anchorIndex = checkOngoing ? data.length - 1 : data.length - 2
+        const rate = anchorIndex >= 0 ? data[anchorIndex] : (data[0] ?? 0)
         if (!relative) {
-            // Absolute: evaluate the latest period.
-            const rate = data.length > 0 ? data[data.length - 1] : 0
             return { label, rate, breaching: valueBreachesBounds(rate, bounds) }
         }
-        // Relative: compare the last complete period (the latest is still in progress) against the one
-        // before it — the same anchor the backend uses.
-        const anchorIndex = data.length - 2
-        const rate = anchorIndex >= 0 ? data[anchorIndex] : (data[0] ?? 0)
+        // Relative: diff the anchor against the period before it (same as the backend comparator).
         const previousRate = anchorIndex - 1 >= 0 ? data[anchorIndex - 1] : undefined
         const breaching =
             previousRate === undefined
@@ -149,7 +149,7 @@ export function deriveFunnelAlertPreview(
     }
     // A trends funnel returns conversion-rate time series rather than step lists.
     if (isTrendsFunnel) {
-        return _deriveTrendsPreview(result, bounds, thresholdType, conditionType)
+        return _deriveTrendsPreview(result, bounds, thresholdType, conditionType, !!config.check_ongoing_interval)
     }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])
