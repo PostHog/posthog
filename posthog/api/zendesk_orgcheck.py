@@ -36,38 +36,34 @@ def ensure_zendesk_organization(request: Request) -> Response:
         org_name = data.get("organization_name")
         user = cast(User, request.user)
 
-        # Validate that the user can only submit for their own organization
+        # Validate that the user can only submit for their own organization.
+        # A stale User.current_organization_id can legitimately diverge for users in
+        # multiple orgs, so this is an expected branch — log it, don't report it.
         if user.current_organization_id and str(org_id) != str(user.current_organization_id):
-            capture_exception(
-                Exception("User attempted to create Zendesk organization for different organization"),
-                {
-                    "user_org_id": user.current_organization_id,
-                    "requested_org_id": org_id,
-                    "user_email": user.email,
-                },
+            logger.warning(
+                "Zendesk org creation requested for a different organization",
+                user_org_id=user.current_organization_id,
+                requested_org_id=org_id,
+                user_email=user.email,
             )
             return Response({"status": "success"})
 
         if not org_id or not org_name:
-            capture_exception(
-                Exception("Missing organization_id or organization_name in Zendesk org creation request"),
-                {
-                    "org_id": org_id,
-                    "org_name": org_name,
-                    "user_email": user.email,
-                },
+            logger.warning(
+                "Missing organization_id or organization_name in Zendesk org creation request",
+                org_id=org_id,
+                org_name=org_name,
+                user_email=user.email,
             )
             return Response({"status": "success"})
 
         subdomain = settings.ZENDESK_SUBDOMAIN
         if not subdomain:
-            capture_exception(
-                Exception("ZENDESK_SUBDOMAIN not configured for Zendesk org creation"),
-                {
-                    "org_id": org_id,
-                    "org_name": org_name,
-                    "user_email": user.email,
-                },
+            logger.warning(
+                "ZENDESK_SUBDOMAIN not configured for Zendesk org creation",
+                org_id=org_id,
+                org_name=org_name,
+                user_email=user.email,
             )
             return Response({"status": "success"})
 
