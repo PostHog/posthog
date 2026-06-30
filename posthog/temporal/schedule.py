@@ -577,12 +577,20 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Daily Temporal-based usage report run at 04:45 UTC.
+    """Daily Temporal-based usage report run at 02:45 UTC.
 
-    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
-    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
-    side. The workflow writes per-org usage data to S3 and sends a single SQS
-    pointer to the billing service.
+    Runs an hour *before* the legacy Celery beat for `send_org_usage_reports`
+    (03:45 UTC) so the workflow's OFFLINE ClickHouse fan-out happens while the
+    cluster is quiet, rather than contending with the still-running legacy task
+    for the shared `default_new` 30-simultaneous-query quota. The earlier "an
+    hour after" placement (04:45 UTC) overlapped in practice because the legacy
+    task runs long, and the combined load tripped a transient Code 202 ("Too
+    many simultaneous queries"). The workflow writes per-org usage data to S3
+    and sends a single SQS pointer to the billing service.
+
+    Changing the time here is enough to move the schedule: on every deploy
+    `init_schedules` re-runs this builder, and the `a_update_schedule` branch
+    below reconciles the live schedule's spec to match.
     """
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -597,8 +605,8 @@ async def create_run_usage_reports_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at 04:45 UTC",
-                    hour=[ScheduleRange(start=4, end=4)],
+                    comment="Daily at 02:45 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
                     minute=[ScheduleRange(start=45, end=45)],
                 )
             ]

@@ -88,3 +88,28 @@ async def test_run_usage_reports_schedule_input_is_json_serializable() -> None:
     revived = RunUsageReportsInputs(**decoded)
     assert revived.organization_ids is None
     assert revived.at is None
+
+
+@pytest.mark.asyncio
+async def test_run_usage_reports_schedule_runs_before_legacy_celery_task() -> None:
+    # Regression guard: scheduling the workflow at/after the legacy
+    # `send_org_usage_reports` Celery beat (03:45 UTC) re-overlaps the OFFLINE
+    # ClickHouse fan-outs and reintroduces the shared-quota contention. It must
+    # start in the quiet window ahead of the legacy task.
+    from posthog.temporal.schedule import create_run_usage_reports_schedule
+
+    captured: dict = {}
+
+    async def fake_create_schedule(client, schedule_id, schedule, trigger_immediately=False):
+        captured["schedule"] = schedule
+
+    with (
+        patch("posthog.temporal.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
+        patch("posthog.temporal.schedule.a_create_schedule", new=fake_create_schedule),
+    ):
+        await create_run_usage_reports_schedule(MagicMock())
+
+    calendar = captured["schedule"].spec.calendars[0]
+    run_at = (calendar.hour[0].start, calendar.minute[0].start)
+    # Legacy `send_org_usage_reports` Celery beat runs at 03:45 UTC.
+    assert run_at < (3, 45), f"v2 workflow must start before the legacy usage-report task, got {run_at}"

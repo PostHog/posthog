@@ -45,6 +45,24 @@ from posthog.utils import get_previous_day
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
 
+# Gather queries route to the shared OFFLINE ClickHouse user (`default_new`),
+# which has a cluster-wide cap of 30 simultaneous queries. Our 4-wide fan-out
+# does not bound that cluster total, so when other offline workloads run
+# alongside us the cap is breached and queries fail with a transient Code 202
+# ("Too many simultaneous queries", surfaced as `ClickHouseAtCapacity`). These
+# gather queries are idempotent reads, so rather than failing the whole workflow
+# after a few quick attempts we ride out the saturation window with exponential
+# backoff and a generous attempt budget. Temporal applies jitter to each
+# computed interval server-side, so the fan-out's retries don't re-thunder the
+# cluster in lockstep. The `maximum_interval` cap keeps late attempts from
+# drifting into multi-minute waits.
+GATHER_QUERY_RETRY_POLICY = common.RetryPolicy(
+    maximum_attempts=10,
+    initial_interval=timedelta(seconds=15),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=2),
+)
+
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: Optional[datetime] = None) -> WorkflowContext:
     """Compute the period and S3 layout context. Pure function so it's safe
@@ -155,10 +173,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             run_query_to_s3,
             RunQueryToS3Inputs(ctx=ctx, query_name=spec.name),
             start_to_close_timeout=timedelta(minutes=spec.timeout_minutes),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=30),
-            ),
+            retry_policy=GATHER_QUERY_RETRY_POLICY,
             heartbeat_timeout=timedelta(minutes=2),
             summary=spec.name,
         )

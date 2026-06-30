@@ -6,12 +6,14 @@ can be verified without standing up real ClickHouse / Postgres / S3.
 """
 
 import uuid
+from collections import defaultdict
 
 import pytest
 
 import temporalio.worker
 from temporalio import activity
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -109,4 +111,61 @@ async def test_workflow_runs_query_then_aggregate() -> None:
     assert set(scheduled_summaries.values()) == set(expected_names)
     assert len(scheduled_summaries) == len(expected_names)
 
+    assert result == expected_aggregate.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_workflow_rides_out_repeated_transient_query_failures() -> None:
+    # Regression guard: the gather-query retry budget must outlast a ClickHouse
+    # saturation window. Fail one query more times than the old 3-attempt budget
+    # allowed; the workflow must still complete instead of raising.
+    flaky_query = QUERIES[0].name
+    failures_before_success = 5  # exceeds the old maximum_attempts=3
+    attempts: dict[str, int] = defaultdict(int)
+    expected_aggregate = AggregateResult(
+        chunk_keys=["chunks/chunk_0000.jsonl.gz"],
+        manifest_key="manifest.json",
+        total_orgs=1,
+        total_orgs_with_usage=1,
+    )
+
+    @activity.defn(name="run-usage-report-query")
+    async def flaky_query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
+        if inputs.query_name == flaky_query:
+            attempts[inputs.query_name] += 1
+            if attempts[inputs.query_name] <= failures_before_success:
+                raise ApplicationError("Code: 202. DB::Exception: Too many simultaneous queries")
+        return RunQueryToS3Result(
+            query_name=inputs.query_name,
+            s3_key=f"queries/{inputs.query_name}.json",
+            duration_ms=1,
+        )
+
+    @activity.defn(name="aggregate-and-chunk-org-reports")
+    async def aggregate_mock(inputs: AggregateInputs) -> AggregateResult:
+        return expected_aggregate
+
+    @activity.defn(name="usage-reports-enqueue-pointer-message")
+    async def pointer_mock(inputs: EnqueuePointerInputs) -> None:
+        return None
+
+    task_queue = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RunUsageReportsWorkflow],
+            activities=[flaky_query_mock, aggregate_mock, pointer_mock],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                RunUsageReportsWorkflow.run,
+                RunUsageReportsInputs(at="2026-05-04T12:00:00+00:00"),
+                id=workflow_id,
+                task_queue=task_queue,
+            )
+
+    # The flaky query was retried past the old 3-attempt budget and then succeeded.
+    assert attempts[flaky_query] == failures_before_success + 1
     assert result == expected_aggregate.model_dump()
