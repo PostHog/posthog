@@ -4364,8 +4364,20 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
         ]
     )
     def test_files_write_requestable(self, _name, kind, requested_scope, expected):
-        config = {"scope": "chat:write"} if kind == "slack" else {"installation_id": "12345"}
+        config = {"team": {"name": "Test Workspace"}} if kind == "slack" else {"installation_id": "12345"}
         integration = Integration.objects.create(team=self.team, kind=kind, config=config)
-        with patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope):
+        # Serializing a Slack integration resolves display_name via the Slack OAuth app config, which
+        # isn't set in CI; stub it so retrieve doesn't 500 before files_write_requestable is reached.
+        with (
+            patch(
+                "posthog.models.integration.get_instance_settings",
+                return_value={
+                    "SLACK_APP_CLIENT_ID": "test-client-id",
+                    "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+                    "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+                },
+            ),
+            patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope),
+        ):
             res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
         assert res.json()["files_write_requestable"] is expected
