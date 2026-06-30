@@ -154,7 +154,9 @@ function SurveyResponseRow({ response }: { response: SurveyResultsWidgetResponse
         <div className="flex flex-col gap-1 rounded border p-2">
             <div className="flex items-center justify-between gap-2 text-xs text-muted">
                 <PersonDisplay
-                    person={{ distinct_id: response.distinct_id }}
+                    // `properties` must be present (even empty) for PersonDisplay to render the
+                    // link to the person page — asLink and the Link branch both gate on it.
+                    person={{ distinct_id: response.distinct_id, properties: {} }}
                     displayName={response.person_display_name ?? undefined}
                     withIcon
                     noPopover
