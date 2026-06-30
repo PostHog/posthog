@@ -2190,7 +2190,7 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
-    await sync_to_async(schema.refresh_from_db)()
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partition_format == "day", "repartition should have switched the table to daily partitions"
     assert schema.repartition_pending is None, "the activity should have consumed the pending repartition"
 
@@ -2201,6 +2201,7 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
             .first()
         )
     )()
+    assert job is not None
     folder_path = await sync_to_async(job.folder_path)()
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_repartition/")
     keys = [obj["Key"] for obj in s3_objects["Contents"]]

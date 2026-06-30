@@ -142,7 +142,7 @@ async def maybe_flag_for_repartition(
         if max_bytes <= budget:
             return
 
-        if not is_auto_repartition_enabled(schema):
+        if not await asyncio.to_thread(is_auto_repartition_enabled, schema):
             await logger.adebug("repartition: over budget but controller disabled", schema_id=str(schema.id))
             return
 

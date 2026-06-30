@@ -86,8 +86,9 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
     sizes = actions.column("size_bytes").to_pylist()
 
     partition_column = f"partition.{PARTITION_KEY}"
+    keys: list[str | None]
     if partition_column in columns:
-        keys = actions.column(partition_column).to_pylist()
+        keys = list(actions.column(partition_column).to_pylist())
     else:
         keys = [None] * len(sizes)
 
@@ -138,11 +139,11 @@ def select_repartition_target(
         ), "selected"
 
     if mode == "numerical":
-        current = schema.partition_size
-        if not current:
+        current_size = schema.partition_size
+        if not current_size:
             return None, "numerical_no_size"
-        new_size = max(1, math.floor(current * target_partition_bytes / max_bytes))
-        if new_size >= current:
+        new_size = max(1, math.floor(current_size * target_partition_bytes / max_bytes))
+        if new_size >= current_size:
             return None, "numerical_cannot_shrink"
         return RepartitionTarget(
             partition_keys=keys, trigger_reason="", partition_mode="numerical", partition_size=new_size
