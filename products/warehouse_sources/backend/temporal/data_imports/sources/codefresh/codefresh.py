@@ -72,6 +72,16 @@ def _flatten(item: dict[str, Any], flatten_key: Optional[str]) -> dict[str, Any]
     return item
 
 
+def _transform_row(item: dict[str, Any], config: CodefreshEndpointConfig) -> dict[str, Any]:
+    """Flatten the row, then drop any redacted fields. Redaction runs after flattening so a key that
+    only surfaces once a nested object is lifted (and a top-level key of the same name) are both
+    caught."""
+    row = _flatten(item, config.flatten_key)
+    if config.redact_keys:
+        row = {k: v for k, v in row.items() if k not in config.redact_keys}
+    return row
+
+
 @retry(
     retry=retry_if_exception_type((CodefreshRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -109,7 +119,7 @@ def _iter_offset(
         if not items:
             break
 
-        yield [_flatten(item, config.flatten_key) for item in items]
+        yield [_transform_row(item, config) for item in items]
 
         # A short page is the last page. We don't save state on it: there's nothing left to resume to.
         if len(items) < config.page_size:
@@ -151,7 +161,7 @@ def _iter_page(
         if not items:
             break
 
-        yield [_flatten(item, config.flatten_key) for item in items]
+        yield [_transform_row(item, config) for item in items]
 
         if not pagination.get("nextPage"):
             break
@@ -173,7 +183,7 @@ def get_rows(
 
     if config.pagination == "none":
         data = _fetch_page(session, _build_url(config.path), headers, logger)
-        items = [_flatten(item, config.flatten_key) for item in _extract_items(data, config.data_key)]
+        items = [_transform_row(item, config) for item in _extract_items(data, config.data_key)]
         if items:
             yield items
         return

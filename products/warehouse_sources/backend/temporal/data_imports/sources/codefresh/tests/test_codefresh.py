@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.
     _flatten,
     _iter_offset,
     _iter_page,
+    _transform_row,
     codefresh_source,
     get_rows,
     validate_credentials,
@@ -91,6 +92,24 @@ class TestFlatten:
     def test_flatten_key_absent_is_passthrough(self) -> None:
         item = {"id": "1"}
         assert _flatten(item, "metadata") == item
+
+
+class TestTransformRow:
+    def test_redacts_configured_keys(self) -> None:
+        config = CodefreshEndpointConfig(
+            name="projects", path="/projects", pagination="offset", redact_keys=["variables"]
+        )
+        row = _transform_row({"id": "p1", "variables": [{"key": "TOKEN", "value": "secret"}]}, config)
+        assert row == {"id": "p1"}
+
+    def test_no_redact_keys_is_passthrough(self) -> None:
+        config = CodefreshEndpointConfig(name="builds", path="/workflow", pagination="page")
+        row = _transform_row({"id": "b1", "variables": ["x"]}, config)
+        assert row == {"id": "b1", "variables": ["x"]}
+
+    def test_projects_endpoint_redacts_variables(self) -> None:
+        # The configured projects endpoint must strip variables, which can hold plaintext secrets.
+        assert "variables" in CODEFRESH_ENDPOINTS["projects"].redact_keys
 
 
 def _offset_config(page_size: int = 2) -> CodefreshEndpointConfig:
