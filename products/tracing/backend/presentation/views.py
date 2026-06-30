@@ -41,7 +41,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..date_window import normalize_tracing_date_range
 from ..facade.api import (
     annotate_self_time,
     run_attribute_breakdown_query,
@@ -59,6 +58,7 @@ from ..logic import (
     run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+from .date_window import normalize_tracing_date_range
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -69,12 +69,7 @@ class _TracingDateRangeSerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text=(
-            "Start of the date range. Accepts an ISO 8601 timestamp or a relative window "
-            "of the form <number><unit>, where unit is s (seconds), m (minutes), h (hours), "
-            "d (days), or w (weeks) — e.g. -90s, -30m, -6h, -7d, -2w. Note that for tracing, "
-            "m means minutes (not months). Defaults to -1h."
-        ),
+        help_text="Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
     )
     date_to = serializers.CharField(
         required=False,

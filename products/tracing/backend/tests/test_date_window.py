@@ -3,7 +3,7 @@ import pytest
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.tracing.backend.date_window import normalize_tracing_date_range, normalize_tracing_window
+from products.tracing.backend.presentation.date_window import normalize_tracing_date_range, normalize_tracing_window
 
 
 class TestNormalizeTracingWindow:
