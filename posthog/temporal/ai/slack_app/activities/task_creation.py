@@ -22,6 +22,7 @@ _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
 - For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY`; choose adapter `slack_canvas`, `slack_message`, `slack_file`, `document_connector`, or `s3`. Use `adapter=slack_file` with `content_base64` for binary deliverables such as .xlsx/.pdf/.docx, or `source_artifact_id` / `source_storage_path` for a file already uploaded as a run artifact. To update a prior deliverable, GET the returned artifact id or POST new `content`, `content_base64`, or source artifact fields to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
+- When the living-artifact response includes a URL, permalink, or Slack attachment, include that in your Slack answer instead of only saying that the artifact was created.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead."""
 
 # Cap on how many messages a single follow-up update block can carry. Threads with

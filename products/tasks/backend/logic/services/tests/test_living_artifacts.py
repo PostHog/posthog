@@ -194,13 +194,23 @@ class TestLivingArtifacts(TestCase):
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_CANVAS)
         self.assertEqual(artifact.location["canvas_id"], "F123")
+        self.assertEqual(artifact.location["url"], "https://app.slack.com/docs/T123/F123")
+        self.assertEqual(artifact.metadata["slack_canvas_url"], "https://app.slack.com/docs/T123/F123")
         self.assertEqual(updated.current_version, 2)
+        self.assertEqual(updated.location["url"], "https://app.slack.com/docs/T123/F123")
         self.assertEqual(slack.api_call.call_args_list[0].args[0], "canvases.create")
         self.assertEqual(slack.api_call.call_args_list[1].args[0], "canvases.edit")
         edit_payload = slack.api_call.call_args_list[1].kwargs["json"]
         edit_change = edit_payload["changes"][0]
         self.assertEqual(edit_change["operation"], "replace")
         self.assertEqual(edit_change["document_content"]["markdown"], "# Updated report")
+        slack.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            thread_ts="1111.1",
+            text="Created Slack canvas <https://app.slack.com/docs/T123/F123|Report canvas> (`F123`).",
+            unfurl_links=False,
+            unfurl_media=False,
+        )
         slack_integration.missing_scopes.assert_called()
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")

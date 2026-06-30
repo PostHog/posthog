@@ -724,14 +724,18 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
                     "document_content": {"type": "markdown", "markdown": markdown},
                 },
             )
-            canvas_id = response.get("canvas_id")
+            canvas_id = str(response.get("canvas_id") or "")
             if not canvas_id:
                 raise ValueError("Slack canvas delivery did not return a canvas id")
-            _post_canvas_created_message(slack, mapping, name, canvas_id)
+            canvas_url = _slack_canvas_url(response, mapping.slack_workspace_id, canvas_id)
+            _post_canvas_created_message(slack, mapping, name, canvas_id, canvas_url)
         else:
-            canvas_id = (artifact.location or {}).get("canvas_id")
+            canvas_id = str((artifact.location or {}).get("canvas_id") or "")
             if not canvas_id:
                 raise ValueError("Slack canvas artifact is missing a canvas id")
+            canvas_url = (artifact.location or {}).get("url") or _slack_canvas_url(
+                None, mapping.slack_workspace_id, canvas_id
+            )
             slack.api_call(
                 "canvases.edit",
                 json={
@@ -751,10 +755,15 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
             "thread_ts": mapping.thread_ts,
             "canvas_id": canvas_id,
         }
+        if canvas_url:
+            location["url"] = canvas_url
         return ArtifactCommit(
             adapter=self.adapter,
             location=location,
-            metadata={"slack_workspace_id": mapping.slack_workspace_id},
+            metadata={
+                "slack_workspace_id": mapping.slack_workspace_id,
+                **({"slack_canvas_url": canvas_url} if canvas_url else {}),
+            },
             version=_version_payload(
                 version=version,
                 run=run,
@@ -945,14 +954,40 @@ def _slack_file_initial_comment(name: str, version: int) -> str:
     return f"Uploaded version {version} of *{name}*."
 
 
-def _post_canvas_created_message(slack: Any, mapping: Any, name: str, canvas_id: str | None) -> None:
+def _slack_canvas_url(response: dict[str, Any] | None, workspace_id: str | None, canvas_id: str | None) -> str | None:
+    if response:
+        for key in ("url", "permalink", "canvas_url"):
+            url = response.get(key)
+            if isinstance(url, str) and url.startswith("https://"):
+                return url
+        canvas = response.get("canvas")
+        if isinstance(canvas, dict):
+            for key in ("url", "permalink", "canvas_url"):
+                url = canvas.get(key)
+                if isinstance(url, str) and url.startswith("https://"):
+                    return url
+    if workspace_id and canvas_id:
+        return f"https://app.slack.com/docs/{workspace_id}/{canvas_id}"
+    return None
+
+
+def _escape_slack_mrkdwn_text(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _post_canvas_created_message(
+    slack: Any, mapping: Any, name: str, canvas_id: str | None, canvas_url: str | None
+) -> None:
     if not canvas_id:
         return
+    escaped_name = _escape_slack_mrkdwn_text(name).replace("|", " ")
+    escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
+    canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
     try:
         slack.chat_postMessage(
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
-            text=f"Created Slack canvas *{name}* (`{canvas_id}`).",
+            text=f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`).",
             unfurl_links=False,
             unfurl_media=False,
         )
