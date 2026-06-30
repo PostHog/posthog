@@ -264,10 +264,11 @@ main failure mode here, so the discipline is **search, then decide**:
   as genuinely new (author a fresh report and repoint your `report:` pointer at it).
 - **Author only when it's genuinely new.** A materially new issue — or a known one with
   new evidence that changes the verdict, or a relapse whose prior report is no longer
-  live — warrants a fresh report. Never retry an `emit_report` that looked like it
-  failed: a retry that actually succeeded the first time silently doubles the report.
-  If unsure whether it landed, look it up with `inbox-reports-list` rather than
-  re-emitting."""
+  live — warrants a fresh report. Neither `emit_report` nor `edit_report` is idempotent —
+  never retry a call that looked like it failed: a retried `emit_report` that actually
+  landed silently doubles the report, and a retried `edit_report(append_note=...)` appends
+  a second note. If unsure whether it landed, re-read with `inbox-reports-list` /
+  `inbox-reports-retrieve` rather than re-sending."""
 
 _AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
 
@@ -312,8 +313,9 @@ report your evidence bears on, then keep it current:
   Rewrite `title`/`summary` only on a report you own, and only when the framing is
   genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set
-  `suggested_reviewers` to route it to an owner — each reviewer a bare lowercase
-  `github_login`, or a PostHog `user_uuid` the server resolves for you. If the owner
+  `suggested_reviewers` to route it to an owner — each reviewer an object, `{github_login}`
+  (a bare lowercase login, no `@`) or `{user_uuid}` (the server resolves it for you), never
+  a bare string. If the owner
   isn't already named in the report, call `signals-scout-members-list` to look up this
   project's members (each carries a resolved `github_login`; the org-scoped
   `org-member-get-github-login` / `org-members-list` tools aren't available in a scout
@@ -349,7 +351,7 @@ Treat it as an **index into the inbox, never a copy of the report**:
 _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 
 This is the single highest-leverage field you set. `suggested_reviewers` (a list of
-reviewers, each a `github_login` and/or a PostHog `user_uuid`) is what actually
+reviewer **objects**, each `{github_login}` and/or `{user_uuid}` — never a bare string) is what actually
 **routes** a report to the people who can act on it — and, paired with `priority` +
 `repository`, is what lets an immediately-actionable report open a draft PR
 automatically (autostart). A report with no suggested reviewers still surfaces in the
@@ -358,10 +360,11 @@ inbox, but it routes to no one, so it tends to sit unactioned.
 - **Always try to set `suggested_reviewers`.** Spend real effort identifying who
   owns the affected area — lean on the evidence you already gathered (code owners,
   recent authors on the relevant surface, the team that owns the product) to name
-  the right owner. You can identify each reviewer two ways: a bare lowercase
-  `github_login`, or — when your evidence already names a PostHog user (an account
-  owner, an entity's creator) — that user's `user_uuid`, which the server resolves to
-  their linked GitHub login for you. Treat "I couldn't find an owner" as a last
+  the right owner. Each reviewer is an object, identifiable two ways: by `github_login`
+  (a bare lowercase login — `{github_login: "octocat"}`, no `@`, no display name), or —
+  when your evidence already names a PostHog user (an account owner, an entity's
+  creator) — by `user_uuid` (`{user_uuid: "..."}`), which the server resolves to their
+  linked GitHub login for you. Treat "I couldn't find an owner" as a last
   resort, not a default.
 - **Don't guess a `github_login`.** The inbox routes by matching it exactly, so a
   guessed, mis-cased, or display-name handle reaches no one. When you only know the
