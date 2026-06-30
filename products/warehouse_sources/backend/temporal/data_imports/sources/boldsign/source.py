@@ -130,10 +130,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
     def validate_credentials(
         self, config: BoldSignSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_boldsign_credentials(config.region, config.api_key):
-            return True, None
-
-        return False, "Invalid BoldSign API key"
+        return validate_boldsign_credentials(config.region, config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BoldSignResumeConfig]:
         return ResumableSourceManager[BoldSignResumeConfig](inputs, BoldSignResumeConfig)

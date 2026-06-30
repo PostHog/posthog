@@ -38,7 +38,8 @@ class BoldSignResumeConfig:
     # Page-number position for standard pagination.
     page: int = 1
     # Set once we cross the 10,000-record page cap on document/list and switch to cursor paging.
-    next_cursor: int | None = None
+    # BoldSign describes this as an opaque value; the concrete type (int vs str) is unverified.
+    next_cursor: str | int | None = None
     # Running total used to know when to switch to cursor paging.
     records_fetched: int = 0
 
@@ -83,19 +84,27 @@ def _fetch_page(
     return response.json()
 
 
-def validate_credentials(region: str, api_key: str) -> bool:
+def validate_credentials(region: str, api_key: str) -> tuple[bool, str | None]:
     """Confirm the API key is genuine with one cheap, low-privilege list call."""
     url = f"{_base_url(region)}/v1/document/list"
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             url,
             headers=_get_headers(api_key),
             params={"Page": 1, "PageSize": 1},
             timeout=10,
         )
-        return response.status_code == 200
-    except Exception:
-        return False
+    except Exception as e:
+        # A network error (timeout, connection failure) is not an auth problem — surface the
+        # real cause instead of misreporting it as an invalid key and sending the user on a
+        # fruitless key-rotation hunt during a transient outage.
+        return False, f"Could not reach BoldSign: {e}"
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code in (401, 403):
+        return False, "Invalid BoldSign API key"
+    return False, f"Unexpected response from BoldSign (status {response.status_code})"
 
 
 def get_rows(
@@ -108,7 +117,7 @@ def get_rows(
     config = BOLDSIGN_ENDPOINTS[endpoint]
     url = f"{_base_url(region)}{config.path}"
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     if not config.paginated:
         data = _fetch_page(session, url, headers, dict(config.extra_params), logger)

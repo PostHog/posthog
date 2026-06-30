@@ -114,8 +114,9 @@ class TestBoldSignSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid BoldSign API key"),
+            ((True, None), True, None),
+            ((False, "Invalid BoldSign API key"), False, "Invalid BoldSign API key"),
+            ((False, "Could not reach BoldSign: timed out"), False, "Could not reach BoldSign: timed out"),
         ],
     )
     @mock.patch(
