@@ -534,9 +534,9 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
 def _safe_dispatch_slack_permission_request(task_run: TaskRunModel, event_data: dict) -> None:
     """Post Slack approval controls for sandbox permission requests when this is a Slack run."""
     try:
-        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
+        from products.slack_app.backend.services.agent_permissions import handle_slack_permission_request_for_task_run
 
-        post_slack_permission_request_for_task_run(task_run, event_data)
+        handle_slack_permission_request_for_task_run(task_run, event_data)
     except Exception:
         logger.warning(
             "relay_sandbox_events_slack_permission_prompt_failed",

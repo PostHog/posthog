@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -18,6 +20,7 @@ from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_ACTION_SELECT,
     SLACK_PERMISSION_CONTEXT_KIND,
     _permission_prompt_dedupe_key,
+    handle_slack_permission_request_for_task_run,
     post_slack_permission_request_for_task_run,
 )
 from products.tasks.backend.models import Task, TaskRun
@@ -87,6 +90,19 @@ class TestSlackAgentPermissionPrompt(TestCase):
                 "params": {key: value for key, value in event.items() if key != "type"},
             },
         }
+
+    def _posthog_exec_permission_event(self, tool_name: str, request_id: str = "perm-1") -> dict:
+        event = self._permission_event()
+        event["requestId"] = request_id
+        event["toolCall"] = {
+            "title": f"Call {tool_name}",
+            "rawInput": {
+                "toolName": "mcp__posthog__exec",
+                "description": f"Call {tool_name}",
+                "command": f'call --json {tool_name} {{"id": "artifact-1"}}',
+            },
+        }
+        return event
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
     def test_posts_threaded_permission_prompt(self, mock_slack_cls: MagicMock) -> None:
@@ -171,3 +187,51 @@ class TestSlackAgentPermissionPrompt(TestCase):
         card = blocks[0]
         assert card["type"] == "card"
         assert len(card["body"]["text"]) <= 200
+
+    def test_auto_approves_non_destructive_posthog_tool_without_prompt(self) -> None:
+        event = self._posthog_exec_permission_event("tasks-runs-living-artifacts-create")
+
+        with (
+            patch("products.slack_app.backend.services.agent_permissions.SlackIntegration") as mock_slack_cls,
+            patch(
+                "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+                return_value="jwt-token",
+            ) as mock_create_token,
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as mock_send_command,
+        ):
+            mock_send_command.return_value = SimpleNamespace(success=True, status_code=200, error=None)
+
+            handle_slack_permission_request_for_task_run(self.task_run, event)
+
+        mock_slack_cls.assert_not_called()
+        mock_create_token.assert_called_once()
+        mock_send_command.assert_called_once()
+        assert mock_send_command.call_args.args[0] == self.task_run
+        assert mock_send_command.call_args.kwargs["method"] == "permission_response"
+        assert mock_send_command.call_args.kwargs["params"] == {"requestId": "perm-1", "optionId": "allow"}
+        assert mock_send_command.call_args.kwargs["auth_token"] == "jwt-token"
+
+    def test_posts_prompt_for_destructive_posthog_tool(self) -> None:
+        event = self._posthog_exec_permission_event("skill-file-delete")
+
+        with (
+            patch("products.slack_app.backend.services.agent_permissions.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as mock_send_command,
+        ):
+            handle_slack_permission_request_for_task_run(self.task_run, event)
+
+        mock_send_command.assert_not_called()
+        mock_slack_cls.return_value.client.chat_postMessage.assert_called_once()
+
+    def test_posts_prompt_for_destructive_shell_command(self) -> None:
+        event = self._permission_event()
+        event["toolCall"]["rawInput"]["command"] = "rm -rf report.xlsx"
+
+        with (
+            patch("products.slack_app.backend.services.agent_permissions.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as mock_send_command,
+        ):
+            handle_slack_permission_request_for_task_run(self.task_run, event)
+
+        mock_send_command.assert_not_called()
+        mock_slack_cls.return_value.client.chat_postMessage.assert_called_once()
