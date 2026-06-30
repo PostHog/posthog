@@ -2724,6 +2724,19 @@
                   "schema_valid": true,
                   "table": "account_notebooks",
                   "type": "lazy_table"
+              },
+              "custom_properties": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties",
+                  "id": "custom_properties",
+                  "name": "custom_properties",
+                  "schema_valid": true,
+                  "table": "account_custom_properties",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -5871,6 +5884,36 @@
                   "hogql_value": "description",
                   "id": null,
                   "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "null_fraction": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "null_fraction",
+                  "id": null,
+                  "name": "null_fraction",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "min_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "min_value",
+                  "id": null,
+                  "name": "min_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "max_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "max_value",
+                  "id": null,
+                  "name": "max_value",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -11111,6 +11154,19 @@
                   "schema_valid": true,
                   "table": "account_notebooks",
                   "type": "lazy_table"
+              },
+              "custom_properties": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties",
+                  "id": "custom_properties",
+                  "name": "custom_properties",
+                  "schema_valid": true,
+                  "table": "account_custom_properties",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -14258,6 +14314,36 @@
                   "hogql_value": "description",
                   "id": null,
                   "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "null_fraction": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "null_fraction",
+                  "id": null,
+                  "name": "null_fraction",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "min_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "min_value",
+                  "id": null,
+                  "name": "min_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "max_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "max_value",
+                  "id": null,
+                  "name": "max_value",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

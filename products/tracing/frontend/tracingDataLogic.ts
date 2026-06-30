@@ -481,13 +481,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as SparklineRow[],
             {
                 fetchSparkline: async () => {
-                    // Like the count, the sparkline depends only on the data scope (date range,
-                    // services, filters) — not on view mode, sort, or compare. Skip the re-fetch (and its
-                    // spinner overlay) when a Traces/Spans toggle re-runs the query without changing scope.
+                    // The sparkline counts root spans in 'traces' mode and every span in 'spans' mode
+                    // (via rootSpans below), so it depends on the data scope (date range, services,
+                    // filters) AND the view mode — but not on sort or compare. Skip the re-fetch (and
+                    // its spinner overlay) only when a sort/compare toggle re-runs the query without
+                    // changing scope or view mode.
                     const scopeKey = JSON.stringify([
                         values.utcDateRange,
                         values.filters.serviceNames,
                         values.filters.filterGroup,
+                        values.filters.viewMode,
                     ])
                     if (scopeKey === cache.sparklineScope) {
                         return values.rawSparklineData
@@ -502,6 +505,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
                     )

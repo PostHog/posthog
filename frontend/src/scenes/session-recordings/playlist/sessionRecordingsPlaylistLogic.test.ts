@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -20,6 +22,7 @@ import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecording
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
@@ -1290,6 +1293,40 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = getDefaultFilters(undefined, pinnedFilters)
             const firstGroup = result.filter_group.values[0] as any
             expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+    })
+
+    describe('relevance sort experiment', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const mockFlags = (flags: Record<string, string | boolean>): void => {
+            jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
+        }
+
+        const cases: [string, Record<string, string | boolean>, string][] = [
+            [
+                'test arm defaults to relevance',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
+                'surfacing_score',
+            ],
+            [
+                'control arm keeps recency',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+            ],
+            ['not enrolled keeps recency', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
+            [
+                'surfacing-score rollout flag forces relevance',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
+                'surfacing_score',
+            ],
+        ]
+
+        it.each(cases)('%s', (_name, flags, expectedOrder) => {
+            mockFlags(flags)
+            expect(getDefaultFilters().order).toBe(expectedOrder)
         })
     })
 
