@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Error};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::error::UserError;
 
@@ -61,11 +61,13 @@ impl StagingGuard {
         let used = staging_dir_bytes(&self.staging_dir).await;
         if used > self.max_bytes {
             crate::metrics::staging_guard_tripped();
+            const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+            let used_gib = used as f64 / GIB;
+            let limit_gib = self.max_bytes as f64 / GIB;
             let user_msg = format!(
-                "Staging disk limit exceeded ({used} bytes used, limit {} bytes). This import \
-                 part is too large to process on a single worker -- split the import into smaller \
-                 date ranges or parts.",
-                self.max_bytes
+                "Staging disk limit exceeded ({used_gib:.1} GiB used, limit {limit_gib:.1} GiB). \
+                 This import part is too large to process on a single worker -- split the import \
+                 into smaller date ranges or parts."
             );
             return Err(Error::msg(format!(
                 "staging dir {} at {used} bytes exceeds limit {}",
@@ -156,8 +158,11 @@ pub async fn sweep_staging_dir(path: &Path) -> Result<u64, Error> {
 pub async fn staging_dir_bytes(path: &Path) -> u64 {
     match compute_dir_size(path).await {
         Ok(bytes) => bytes,
+        // Fail open: a stat failure must not block imports. Log at warn! so a
+        // persistent failure (EACCES, the path vanishing) is operator-visible
+        // rather than silently disabling the guard.
         Err(e) => {
-            debug!("Failed to compute staging dir size: {e}");
+            warn!("Failed to compute staging dir size, treating as 0: {e}");
             0
         }
     }
@@ -294,12 +299,31 @@ mod tests {
 
         let guard = StagingGuard::new(root.path().to_path_buf(), 1024);
         let err = guard.check().await.unwrap_err();
-        // Surfaces an actionable user-facing message (so the job pauses, not evicts).
-        assert!(get_user_message(&err).contains("Staging disk limit exceeded"));
+        // Surfaces an actionable user-facing message (so the job pauses, not evicts),
+        // reported in GiB rather than raw bytes.
+        let msg = get_user_message(&err);
+        assert!(msg.contains("Staging disk limit exceeded"));
+        assert!(
+            msg.contains("GiB"),
+            "expected GiB-formatted message, got: {msg}"
+        );
 
         // Under-limit passes.
         let ok_guard = StagingGuard::new(root.path().to_path_buf(), 1024 * 1024);
         ok_guard.check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_staging_guard_fail_open_on_stat_error() {
+        // Point the guard at a file, not a directory, so read_dir fails. The
+        // guard must fail open (Ok, treating usage as 0) rather than erroring or
+        // panicking -- a stat failure must never block imports.
+        let root = TempDir::new().unwrap();
+        let not_a_dir = root.path().join("regular-file");
+        tokio::fs::write(&not_a_dir, b"data").await.unwrap();
+
+        let guard = StagingGuard::new(not_a_dir, 1024);
+        guard.check().await.unwrap();
     }
 
     #[tokio::test]
