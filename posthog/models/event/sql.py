@@ -565,22 +565,6 @@ VALUES
 )
 
 
-SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    events
-WHERE
-    team_id = %(team_id)s
-    {property_exists_filter}
-    {parsed_date_from}
-    {parsed_date_to}
-    {event_filter}
-    {value_filter}
-{order_by_clause}
-LIMIT 10
-"""
-
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
 SELECT toUInt16(0) AS total, {date_to_truncated} - {interval_func}(number) AS day_start

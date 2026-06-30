@@ -74,7 +74,7 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
             <LemonProgress percent={yesPct} />
             <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
-                    <LemonTag type="success">Yes</LemonTag>
+                    <LemonTag type="highlight">Yes</LemonTag>
                     <span className="tabular-nums">
                         {yesTotal} ({yesPct}%)
                     </span>

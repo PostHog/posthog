@@ -435,6 +435,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         using_database: str = "default",
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
+        stop_traversal_at_static: bool = False,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -468,6 +469,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     cohort,
                                     using_database=using_database,
                                     seen_cohorts_cache=seen_cohorts_cache,
+                                    stop_traversal_at_static=stop_traversal_at_static,
                                 )
                             ]
                         )

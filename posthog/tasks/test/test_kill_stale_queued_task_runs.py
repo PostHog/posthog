@@ -33,11 +33,18 @@ class TestKillStaleQueuedTaskRuns(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-    def _make_run(self, status: str, age: datetime.timedelta) -> "TaskRun":
+    def _make_run(
+        self,
+        status: str,
+        age: datetime.timedelta,
+        updated_age: datetime.timedelta | None = None,
+    ) -> "TaskRun":
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = TaskRun.objects.create(task=self.task, team=self.team, status=status)
-        past = timezone.now() - age
-        TaskRun.objects.filter(pk=run.pk).update(created_at=past, updated_at=past)
+        now = timezone.now()
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - age, updated_at=now - (updated_age if updated_age is not None else age)
+        )
         run.refresh_from_db()
         return run
 
@@ -76,6 +83,34 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.completed_at)
+        self.assertIsNone(run.error_message)
+
+    def test_hard_cap_reaps_ancient_run_with_bumped_updated_at(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(hours=2),
+        )
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        self.assertIsNotNone(run.completed_at)
+
+    def test_hard_cap_spares_ancient_run_touched_within_grace(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(minutes=10),
+        )
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.error_message)
 
     @parameterized.expand(

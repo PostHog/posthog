@@ -155,7 +155,7 @@ long-running, agent-friendly part.
 
 1. **Update [`HogQLLexer.*.g4`](../../../posthog/hogql/grammar/) and
     [`HogQLParser.g4`](../../../posthog/hogql/grammar/HogQLParser.g4).**
-    Run `pnpm grammar:build` to regenerate the Python and C++ ANTLR
+    Run `pnpm grammar:build` to regenerate the C++ ANTLR
     artefacts:
 
     ```bash
@@ -165,9 +165,9 @@ long-running, agent-friendly part.
     That step requires the `antlr` 4.13.2 binary on `PATH`;
     instructions in
     [`posthog/hogql/grammar/README.md`](../../../posthog/hogql/grammar/README.md).
-    The script rewrites `common/hogql_parser/HogQL{Lexer,Parser}.{cpp,h,interp,tokens}`
-    and the matching Python files. Both backends now recognise the
-    new shape.
+    The script rewrites `common/hogql_parser/HogQL{Lexer,Parser}.{cpp,h,interp,tokens}`.
+    The C++ parser now recognises the new shape (the Rust parser is
+    hand-written, so update it to match in the steps below).
 
 2. **Pick the AST emission.** Decide what JSON the cpp visitor should
     return for the new shape. Either reuse an existing AST node or add
@@ -187,7 +187,7 @@ long-running, agent-friendly part.
     `parser_test_factory` suite in
     [`posthog/hogql/test/_test_parser.py`](../../../posthog/hogql/test/_test_parser.py).
     The factory runs every test against `cpp-json`, `rust-json`, and
-    `python`; on a fresh grammar change the test passes on cpp and
+    `rust-py`; on a fresh grammar change the test passes on cpp and
     fails on rust. That fail is the starting state for the parity
     loop.
 
@@ -271,8 +271,8 @@ read.
 
 ```bash
 hogli test posthog/hogql/test/test_parser_cpp_json.py
-hogli test posthog/hogql/test/test_parser_python.py
 hogli test posthog/hogql/test/test_parser_rust_json.py
+hogli test posthog/hogql/test/test_parser_rust_py.py
 ```
 
 The behaviour suite + regression pins live in
@@ -468,5 +468,5 @@ Backends live in `posthog/hogql/constants.HogQLParserBackend`:
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `cpp-json`                | Production default. ANTLR-based, oracle for everything below.                  |
 | `rust-json`               | This crate. ~15× / ~50× faster, behaviour identical (modulo the long tail).    |
-| `python`                  | Pure-Python ANTLR fallback. Slower; useful for debugging visitor changes.      |
-| `cpp-with-rust-shadow`    | Production-default in TEST. Parses with cpp, shadow-parses with rust, raises  on mismatch (TEST) / logs at 1% sample (prod). |
+| `rust-py`                 | This crate, returning `posthog.hogql.ast` dataclasses directly via PyO3 (no JSON round-trip). Production primary. |
+| `cpp-with-rust-shadow`    | Parses with cpp, shadow-parses with rust, raises  on mismatch (TEST) / logs at 1% sample (prod). |

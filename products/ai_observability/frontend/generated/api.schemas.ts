@@ -405,6 +405,7 @@ export interface EvaluationConditionApi {
  * * `fireworks` - Fireworks
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -416,6 +417,7 @@ export const LLMProviderEnumApi = {
     Fireworks: 'fireworks',
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
+    Minimax: 'minimax',
 } as const
 
 /**
@@ -2073,7 +2075,8 @@ export interface TaggerModelConfigurationApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2125,7 +2128,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2426,6 +2430,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     AzureOpenai: 'azure_openai',
     Fireworks: 'fireworks',
     Gemini: 'gemini',
+    Minimax: 'minimax',
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',

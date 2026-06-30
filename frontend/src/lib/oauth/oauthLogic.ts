@@ -65,7 +65,7 @@ export const oauthLogic = kea<oauthLogicType>([
         handleCallback: async ({ code, state }) => {
             const { pendingAuth } = values
             if (!pendingAuth) {
-                actions.setLoginError('No pending OAuth flow found — please start the login again.')
+                actions.setLoginError('No pending OAuth flow found. Please start the login again.')
                 return
             }
             try {
@@ -95,7 +95,7 @@ export const oauthLogic = kea<oauthLogicType>([
             if (searchParams.code) {
                 actions.handleCallback(searchParams.code, searchParams.state)
             } else if (!searchParams.error) {
-                actions.setLoginError('No authorization code received — please start the login again.')
+                actions.setLoginError('No authorization code received. Please start the login again.')
             }
         },
     })),
