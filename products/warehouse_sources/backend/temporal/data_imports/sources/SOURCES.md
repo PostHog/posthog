@@ -56,6 +56,7 @@ the row lists both.
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
+| assemblyai              | HTTP                        | requests                                                        | ✅                          |
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
@@ -114,6 +115,7 @@ the row lists both.
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
+| dropbox_sign            | HTTP                        | requests                                                        | ✅                          |
 | drip                    | HTTP                        | requests                                                        | ✅                          |
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
@@ -317,7 +319,6 @@ doesn't conflict with concurrent PRs.
 - apple_search_ads
 - appstack
 - apptivo
-- assemblyai
 - auth0
 - awin
 - aws_cloudtrail
@@ -377,7 +378,6 @@ doesn't conflict with concurrent PRs.
 - dolibarr
 - dremio
 - dropbox
-- dropbox_sign
 - dwolla
 - dynamics365
 - dynamodb
