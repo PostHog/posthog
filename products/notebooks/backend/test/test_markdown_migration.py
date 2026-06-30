@@ -86,6 +86,83 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "juheapi" not in markdown
         assert "hideFilters" in markdown
 
+    def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bullet_list",
+                    "content": [
+                        {
+                            "type": "list_item",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "first"}]}],
+                        }
+                    ],
+                },
+                {
+                    "type": "ordered_list",
+                    "content": [
+                        {
+                            "type": "list_item",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "step"}]}],
+                        }
+                    ],
+                },
+                {
+                    "type": "code_block",
+                    "attrs": {"language": "sql"},
+                    "content": [
+                        {"type": "text", "text": "select 1"},
+                        {"type": "hardBreak"},
+                        {"type": "text", "text": "select 2"},
+                    ],
+                },
+                {
+                    "type": "table",
+                    "content": [
+                        {
+                            "type": "table_row",
+                            "content": [
+                                {
+                                    "type": "table_header",
+                                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Metric"}]}],
+                                },
+                                {
+                                    "type": "table_cell",
+                                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Value"}]}],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "type": "callout",
+                    "attrs": {"emoji": "!"},
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "text", "text": "Heads", "marks": [{"type": "strong"}]},
+                                {"type": "text", "text": " and "},
+                                {"type": "text", "text": "note", "marks": [{"type": "em"}]},
+                            ],
+                        }
+                    ],
+                },
+                {"type": "ph-link", "attrs": {"href": "https://app.posthog.com/cohorts/37958"}},
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert "- first" in markdown
+        assert "1. step" in markdown
+        assert "```sql\nselect 1\nselect 2\n```" in markdown
+        assert "| Metric | Value |" in markdown
+        assert "| --- | --- |" in markdown
+        assert "> ! **Heads** and *note*" in markdown
+        assert "[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)" in markdown
+
 
 class TestNotebookMarkdownMigration(BaseTest):
     def test_stats_count_all_notebooks_for_optional_team_scope(self) -> None:
