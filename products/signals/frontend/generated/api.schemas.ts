@@ -489,6 +489,27 @@ export interface PatchedSignalScoutConfigApi {
 }
 
 /**
+ * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
+ */
+export interface ScoutMemberApi {
+    /** The member's stable PostHog user UUID. A durable identifier for this person across runs. */
+    user_uuid: string
+    /** The member's email — use to match a finding's owner by name/email. */
+    email: string
+    /** The member's first name (may be empty). */
+    first_name: string
+    /** The member's last name (may be empty). */
+    last_name: string
+    /** Org membership level: 1 = member, 8 = admin, 15 = owner. Higher levels administer the org. */
+    level: number
+    /**
+     * The member's resolved GitHub login (lowercased), or null when they have no linked GitHub identity. This is the value to put in a report's `suggested_reviewers` once you've matched the finding's owner to this row; a null login can't be routed to, so pick a different owner or leave `suggested_reviewers` empty.
+     * @nullable
+     */
+    github_login: string | null
+}
+
+/**
  * A team's enforced scout run caps and current usage.
  *
  * These are the values the coordinator actually applies at dispatch (resolved per-team override →

@@ -715,6 +715,25 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
     },
 })
 
+const SignalsScoutMembersListSchema = z.object({})
+
+const signalsScoutMembersList = (): ToolBase<
+    typeof SignalsScoutMembersListSchema,
+    WithPostHogUrl<Schemas.ScoutMember[]>
+> => ({
+    name: 'signals-scout-members-list',
+    schema: SignalsScoutMembersListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutMembersListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutMember[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/members/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
 const signalsScoutProjectProfileGet = (): ToolBase<
@@ -939,6 +958,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
+    'signals-scout-members-list': signalsScoutMembersList,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,

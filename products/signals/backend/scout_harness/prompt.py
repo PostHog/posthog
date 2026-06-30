@@ -334,11 +334,15 @@ unactioned.
   a default.
 - **Resolve the GitHub login — never guess it.** Entries must be bare, lowercase
   GitHub logins, and the inbox routes by matching them exactly, so a guessed,
-  mis-cased, or display-name handle reaches no one. The owner you identify is
-  usually a PostHog member, not a handle: call `org-member-get-github-login` with
-  their user UUID (from `org-members-list`, or `@me`) to turn that member into
-  their linked GitHub login. If you can't resolve a confident login, leave the
-  field empty rather than inventing one.
+  mis-cased, or display-name handle reaches no one. Call `signals-scout-members-list`
+  to get this project's members — each row carries the member's resolved
+  `github_login` plus their `email` and name. Identify the owner (often the
+  `created_by` on an entity you already fetched, or whoever the evidence points to),
+  match them to their row by email/name, and use that `github_login` verbatim. Do
+  **not** reach for `org-member-get-github-login` / `org-members-list` — those
+  org-scoped tools are not available in a scout run; `signals-scout-members-list` is
+  the in-run path. If a member has a null `github_login`, or you can't confidently
+  match an owner, leave the field empty rather than inventing one.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass

@@ -31,6 +31,7 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMemberApi,
     ScoutMetadataApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
@@ -490,6 +491,21 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutMembersListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/members/`
+}
+
+/**
+ * Return the people who can review work on this project — one row per org member with their `user_uuid`, `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members and pick the owner, then pass their `user_uuid` (preferred) or `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Strictly team-scoped.
+ * @summary List project members for reviewer routing
+ */
+export const signalsScoutMembersList = async (projectId: string, options?: RequestInit): Promise<ScoutMemberApi[]> => {
+    return apiMutator<ScoutMemberApi[]>(getSignalsScoutMembersListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

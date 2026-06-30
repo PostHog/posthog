@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 32 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -455,6 +455,18 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Return the people who can review work on this project — one row per org member with their `user_uuid`, `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members and pick the owner, then pass their `user_uuid` (preferred) or `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Strictly team-scoped.
+ * @summary List project members for reviewer routing
+ */
+export const SignalsScoutMembersListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(

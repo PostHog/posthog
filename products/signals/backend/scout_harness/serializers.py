@@ -1410,3 +1410,29 @@ class ScoutMetadataSerializer(serializers.Serializer):
         help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
     )
     limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Members (reviewer routing) --------------------------------------------
+
+
+class ScoutMemberSerializer(serializers.Serializer):
+    """One project member's routing identity, for picking a `suggested_reviewers` entry on a report."""
+
+    user_uuid = serializers.CharField(
+        help_text="The member's stable PostHog user UUID. A durable identifier for this person across runs."
+    )
+    email = serializers.EmailField(help_text="The member's email — use to match a finding's owner by name/email.")
+    first_name = serializers.CharField(help_text="The member's first name (may be empty).")
+    last_name = serializers.CharField(help_text="The member's last name (may be empty).")
+    level = serializers.IntegerField(
+        help_text="Org membership level: 1 = member, 8 = admin, 15 = owner. Higher levels administer the org."
+    )
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's resolved GitHub login (lowercased), or null when they have no linked GitHub "
+            "identity. This is the value to put in a report's `suggested_reviewers` once you've matched the "
+            "finding's owner to this row; a null login can't be routed to, so pick a different owner or leave "
+            "`suggested_reviewers` empty."
+        ),
+    )

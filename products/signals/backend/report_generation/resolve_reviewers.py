@@ -238,6 +238,62 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     return user_uuid_to_login
 
 
+@dataclass
+class OrgMemberIdentity:
+    """One org member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
+
+    user_uuid: str
+    email: str
+    first_name: str
+    last_name: str
+    level: int
+    github_login: str | None
+
+
+def list_org_members_for_team(team_id: int) -> list[OrgMemberIdentity]:
+    """Every member of the team's org, with their UUID/email/name/level and resolved GitHub login.
+
+    Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
+    that can't read an owner off a fetched entity's ``created_by`` and has no cached
+    ``reviewer:<area>`` memory or inbox precedent. Two queries — the membership roster, then the
+    GitHub identity prefetch for the same users (``get_github_login`` reads the same prefetched
+    relations the reviewer resolver uses, so a member with no linked GitHub identity gets a null
+    login rather than dropping out). Scoped to the team's org, so it returns exactly the people who
+    (on an open project) can act on the team — the same boundary reviewer resolution already uses.
+    """
+    try:
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+    except Team.DoesNotExist:
+        return []
+
+    memberships = list(
+        OrganizationMembership.objects.filter(organization_id=org_id).select_related("user").order_by("user_id")
+    )
+    if not memberships:
+        return []
+
+    login_by_uuid: dict[str, str] = {}
+    users = User.objects.filter(pk__in=[membership.user.pk for membership in memberships]).prefetch_related(
+        *_github_identity_prefetches()
+    )
+    for user in users:
+        login = user.get_github_login()
+        if login:
+            login_by_uuid[str(user.uuid)] = login.lower()
+
+    return [
+        OrgMemberIdentity(
+            user_uuid=str(membership.user.uuid),
+            email=membership.user.email,
+            first_name=membership.user.first_name,
+            last_name=membership.user.last_name,
+            level=membership.level,
+            github_login=login_by_uuid.get(str(membership.user.uuid)),
+        )
+        for membership in memberships
+    ]
+
+
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:
     """Map normalized GitHub login -> org member ``User`` (same identity rules as ``User.get_github_login()``).
 

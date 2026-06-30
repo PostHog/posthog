@@ -9,9 +9,12 @@ from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models import OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -1423,3 +1426,48 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         _make_run(self.team)
         body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 5}}).json()
         assert body["limits"]["runs_today"] == 1
+
+
+class TestScoutHarnessMembersAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _authenticate_as_scout(self)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def test_lists_org_members_with_resolved_github_login(self) -> None:
+        # self.user has a GitHub identity (login lowercased on resolution); a second org member has
+        # none, so their `github_login` is null rather than dropping out of the roster.
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-self", extra_data={"login": "OctoCat"})
+        User.objects.create_and_join(self.organization, "second@posthog.com", None, first_name="Sec")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        by_email = {row["email"]: row for row in response.json()}
+        assert by_email[self.user.email]["github_login"] == "octocat"
+        assert by_email[self.user.email]["user_uuid"] == str(self.user.uuid)
+        assert by_email["second@posthog.com"]["github_login"] is None
+
+    def test_does_not_leak_members_from_another_org(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        User.objects.create_and_join(other_org, "outsider@example.com", None)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        emails = {row["email"] for row in response.json()}
+        assert self.user.email in emails
+        assert "outsider@example.com" not in emails
+
+    @parameterized.expand([("session", None), ("public_read_token", "read_only")])
+    def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:
+        # The roster is gated on the internal `signal_scout_internal` scope object, so neither a
+        # logged-in session (the CSRF / PAK class) nor a public `read_only` MCP token — which lacks
+        # any `signal_scout_internal` scope — can reach it; only the sandbox's internal-scoped token
+        # can. Guards against the scope_object being downgraded to the public `signal_scout`, which
+        # would leak member emails / logins to any team member holding a `signal_scout:read` PAK.
+        if scopes is None:
+            self.client.credentials()
+            self.client.force_login(self.user)
+        else:
+            _authenticate_as_scout(self, scopes=scopes)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN

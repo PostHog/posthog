@@ -218,8 +218,9 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt
         # Reviewer routing only works with a real GitHub login, so the prompt must point the scout
-        # at the resolver tool rather than letting it guess a handle.
-        assert "org-member-get-github-login" in prompt
+        # at the in-run members tool (which returns resolved logins) rather than letting it guess a
+        # handle or reach for the org-scoped resolver that's stripped from a scout run.
+        assert "signals-scout-members-list" in prompt
         # The report channel teaches that the `report:` scratchpad entry is a pointer
         # into the inbox, not a copy of the report — the inbox stays the source of
         # truth, so the scout retrieves the live report before editing. Dropping this
@@ -266,7 +267,7 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         # The reviewer-resolution guidance rides the author-time section, so it drops with it.
-        assert "org-member-get-github-login" not in prompt
+        assert "signals-scout-members-list" not in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

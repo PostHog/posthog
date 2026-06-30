@@ -461,6 +461,25 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    signals-scout-members-list:
+        operation: signals_scout_members_list
+        enabled: true
+        scopes:
+            - signal_scout_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List project members for reviewer routing
+        description: >
+            Return the people who can review work on this project — one row per member with their `user_uuid`,
+            `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null when they have no
+            linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read
+            off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox
+            precedent, list members, match the owner by email/name, then put their resolved `github_login`
+            in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report`. Strictly
+            team-scoped.
     signals-scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false
