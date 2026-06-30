@@ -272,12 +272,12 @@ tools:
             Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
             most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
             sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential
-            fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name, should_sync (bool),
-            sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
-            primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first.
-            Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk),
-            and your own databases (Postgres, MySQL, BigQuery).
+            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
+            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
+            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
+            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
+            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
+            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
             - account_id

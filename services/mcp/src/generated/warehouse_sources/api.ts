@@ -2372,3 +2372,12 @@ export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.objec
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const ExternalDataSourcesWizardRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    source_type: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types."
+        ),
+})

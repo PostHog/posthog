@@ -55571,6 +55571,13 @@ export namespace Schemas {
     source_type?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
+     */
+    source_type?: string;
+    };
+
     export type EnvironmentsFileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -61811,6 +61818,13 @@ export namespace Schemas {
     search?: string;
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
+    export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string;
     };
