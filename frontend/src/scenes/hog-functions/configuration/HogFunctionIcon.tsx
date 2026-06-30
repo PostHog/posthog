@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { IconUpload } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, Popover, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonSkeleton, Popover, lemonToast } from '@posthog/lemon-ui'
 
 import { HogFunctionIconLogicProps, hogFunctionIconLogic } from './hogFunctionIconLogic'
 
@@ -46,8 +46,8 @@ export function HogFunctionIconEditable({
     size = 'medium',
     ...props
 }: HogFunctionIconLogicProps & { size?: 'small' | 'medium' | 'large' }): JSX.Element {
-    const { possibleIconsLoading, showPopover, possibleIcons, searchTerm } = useValues(hogFunctionIconLogic(props))
-    const { setShowPopover, setSearchTerm } = useActions(hogFunctionIconLogic(props))
+    const { showPopover } = useValues(hogFunctionIconLogic(props))
+    const { setShowPopover } = useActions(hogFunctionIconLogic(props))
 
     const content = (
         <span
@@ -76,6 +76,7 @@ export function HogFunctionIconEditable({
                                 void fileToBase64(files[0])
                                     .then((dataURI) => {
                                         props.onChange?.(dataURI)
+                                        setShowPopover(false)
                                     })
                                     .catch(() => {
                                         lemonToast.error('Error uploading image')
@@ -87,37 +88,6 @@ export function HogFunctionIconEditable({
                                 </LemonButton>
                             }
                         />
-                    </div>
-
-                    <LemonInput
-                        size="small"
-                        type="search"
-                        placeholder="Search for company logos"
-                        fullWidth
-                        value={searchTerm ?? ''}
-                        onChange={setSearchTerm}
-                        prefix={possibleIconsLoading ? <Spinner /> : undefined}
-                    />
-
-                    <div className="flex flex-wrap gap-2">
-                        {possibleIcons?.map((icon) => (
-                            <span
-                                key={icon.id}
-                                className="cursor-pointer"
-                                onClick={() => {
-                                    const nonTempUrl = icon.url.replace('&temp=true', '')
-                                    props.onChange?.(nonTempUrl)
-                                    setShowPopover(false)
-                                }}
-                            >
-                                <HogFunctionIcon src={icon.url} />
-                            </span>
-                        )) ??
-                            (possibleIconsLoading ? (
-                                <LemonSkeleton className="w-14 h-14" repeat={4} />
-                            ) : (
-                                'No icons found'
-                            ))}
                     </div>
                 </div>
             }

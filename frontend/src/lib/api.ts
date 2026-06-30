@@ -154,7 +154,6 @@ import {
     HeatmapScreenshotType,
     HeatmapStatus,
     HeatmapType,
-    HogFunctionIconResponse,
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -4037,10 +4036,6 @@ const api = {
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
-        },
-
-        async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
-            return await new ApiRequest().hogFunctions().withAction('icons').withQueryString(params).get()
         },
 
         async createTestInvocation(

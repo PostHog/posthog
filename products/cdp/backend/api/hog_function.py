@@ -23,7 +23,6 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
@@ -603,26 +602,6 @@ class HogFunctionViewSet(
             queryset = queryset.filter(combined_q)
 
         return queryset
-
-    @action(detail=False, methods=["GET"])
-    def icons(self, request: Request, *args, **kwargs):
-        query = request.GET.get("query")
-        if not query:
-            return Response([])
-
-        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
-
-        return Response(icons)
-
-    @action(detail=False, methods=["GET"])
-    def icon(self, request: Request, *args, **kwargs):
-        id = request.GET.get("id")
-        if not id:
-            raise serializers.ValidationError("id is required")
-
-        icon_service = CDPIconsService()
-
-        return icon_service.get_icon_http_response(id)
 
     @extend_schema(
         request=HogFunctionInvocationSerializer,

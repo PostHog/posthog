@@ -7087,12 +7087,6 @@ export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
     sub_template_id?: HogFunctionSubTemplateIdType
 }
 
-export type HogFunctionIconResponse = {
-    id: string
-    name: string
-    url: string
-}
-
 export enum HogWatcherState {
     healthy = 1,
     overflowed = 2,

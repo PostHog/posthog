@@ -366,28 +366,6 @@ export const hogFunctionsRerunCreate = async (
     })
 }
 
-export const getHogFunctionsIconRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/hog_functions/icon/`
-}
-
-export const hogFunctionsIconRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsIconRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFunctionsIconsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/hog_functions/icons/`
-}
-
-export const hogFunctionsIconsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsIconsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getHogFunctionsRearrangePartialUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_functions/rearrange/`
 }
