@@ -117,6 +117,7 @@ class TestProductEnablementAPI(APIBaseTest):
         self._enable(["error_tracking", "conversations"])
 
         log = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="updated").latest("created_at")
+        assert log.detail is not None
         changed_fields = {change["field"] for change in log.detail["changes"]}
         self.assertIn("autocapture_exceptions_opt_in", changed_fields)
         self.assertIn("conversations_enabled", changed_fields)
