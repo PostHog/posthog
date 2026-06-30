@@ -1,4 +1,5 @@
 import re
+import base64
 from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -9,6 +10,7 @@ import jwt
 import structlog
 import posthoganalytics
 from jwt.algorithms import RSAAlgorithm
+from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework import authentication
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
@@ -89,6 +91,9 @@ class MultitenantSAMLAuth(SAMLAuth):
     """
 
     def auth_complete(self, *args, **kwargs):
+        # attempt to recover from missing relay state in idp-initiated SAML
+        self._recover_idp_initiated_relay_state()
+
         try:
             result = super().auth_complete(*args, **kwargs)
             saml_logger.info("saml_auth_complete")
@@ -99,6 +104,80 @@ class MultitenantSAMLAuth(SAMLAuth):
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
             saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
+
+    def _recover_idp_initiated_relay_state(self) -> None:
+        """
+        SP-initiated logins carry a RelayState holding the `OrganizationDomain` UUID, which
+        is how we route an assertion to the right tenant. IdP-initiated logins don't: the IdP
+        either omits RelayState (Azure AD) or sends its own value (e.g. an app URL). When the
+        RelayState doesn't map to a verified domain, recover the tenant from the Response's
+        <Issuer> (the IdP entity ID, stored as `saml_entity_id`) and inject a RelayState so the
+        rest of the flow — including signature validation — proceeds unchanged.
+        """
+        data = self.strategy.request_data()
+        saml_response = data.get("SAMLResponse")
+        if not saml_response:
+            return
+
+        if self._relay_state_points_to_domain(data.get("RelayState")):
+            return  # SP-initiated: RelayState already identifies the tenant
+
+        issuer = self._extract_response_issuer(saml_response)
+        if not issuer:
+            return
+
+        # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous match —
+        # never guess which tenant an unsolicited assertion belongs to.
+        matches = list(
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
+            OrganizationDomain.objects.verified_domains().filter(saml_entity_id=issuer).exclude(saml_entity_id="")
+        )
+        if len(matches) != 1:
+            if len(matches) > 1:
+                saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(matches))
+            return
+
+        organization_domain = matches[0]
+        if not organization_domain.has_saml:
+            return
+
+        saml_logger.info(
+            "saml_idp_initiated_relay_state_recovered",
+            domain=organization_domain.domain,
+            organization_id=str(organization_domain.organization_id),
+        )
+        # Inject the resolved RelayState in place so the standard flow routes (and labels the
+        # response with) the correct tenant.
+        post = self.strategy.request.POST
+        was_mutable = post._mutable
+        post._mutable = True
+        post["RelayState"] = str(organization_domain.id)
+        post._mutable = was_mutable
+
+    def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
+        if not relay_state_str:
+            return False
+        candidate = self.parse_relay_state(relay_state_str).get("idp")
+        if not candidate:
+            return False
+        try:
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing check by domain UUID)
+            return OrganizationDomain.objects.verified_domains().filter(id=candidate).exists()
+        except (DjangoValidationError, ValueError):
+            return False  # not a valid UUID (e.g. an IdP-supplied URL)
+
+    @staticmethod
+    def _extract_response_issuer(saml_response_b64: str) -> str | None:
+        # POST-binding SAMLResponse is base64-encoded (not deflated). Parsing is XXE-safe
+        # (onelogin forbids DTDs/entities); the signature is still verified afterwards.
+        try:
+            document = OneLogin_Saml2_XML.to_etree(base64.b64decode(saml_response_b64))
+            issuer_nodes = OneLogin_Saml2_XML.query(document, "/samlp:Response/saml:Issuer")
+        except Exception:
+            return None
+        if not issuer_nodes:
+            return None
+        return (OneLogin_Saml2_XML.element_text(issuer_nodes[0]) or "").strip() or None
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
         if organization_domain_or_id is None:
