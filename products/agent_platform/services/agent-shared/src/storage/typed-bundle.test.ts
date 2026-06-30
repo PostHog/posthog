@@ -33,20 +33,23 @@ describe('deriveSkillDescription', () => {
 })
 
 describe('TypedSpecSchema ↔ AgentSpec key parity', () => {
-    // `skills`/`tools` are server-derived at freeze, so the author slice
-    // intentionally omits them. Everything else on the canonical schema must
-    // be passed through, or the strict authoring API rejects it at PUT /spec
-    // with "Unrecognized key" while the runtime never sees a valid spec — the
-    // exact failure mode `authoritative_provider` hit. This test fails the
-    // moment someone adds a top-level field to AgentSpecSchema without a
-    // matching passthrough in TypedSpecSchema.
+    // The author slice must carry EXACTLY the canonical top-level fields minus
+    // the server-derived `skills`/`tools`. Enforcing exact parity (not just a
+    // superset) catches drift in both directions:
+    //   - a new canonical field with no author passthrough → PUT /spec strict-
+    //     rejects it with "Unrecognized key" and the runtime never sees a valid
+    //     spec (the failure `authoritative_provider` hit);
+    //   - a stray author-only key with no canonical counterpart → dead cruft
+    //     that freeze silently strips anyway (the `auth` field that used to be
+    //     here).
     const SERVER_DERIVED = new Set(['skills', 'tools'])
 
-    it('passes through every canonical author-facing top-level field', () => {
-        const canonicalAuthorKeys = Object.keys(AgentSpecObjectSchema.shape).filter((k) => !SERVER_DERIVED.has(k))
-        const authorKeys = new Set(Object.keys(TypedSpecSchema.shape))
-        const missing = canonicalAuthorKeys.filter((k) => !authorKeys.has(k))
-        expect(missing).toEqual([])
+    it('carries exactly the canonical author-facing top-level fields', () => {
+        const canonicalAuthorKeys = Object.keys(AgentSpecObjectSchema.shape)
+            .filter((k) => !SERVER_DERIVED.has(k))
+            .sort()
+        const authorKeys = Object.keys(TypedSpecSchema.shape).sort()
+        expect(authorKeys).toEqual(canonicalAuthorKeys)
     })
 
     it('accepts authoritative_provider and still rejects unknown keys', () => {

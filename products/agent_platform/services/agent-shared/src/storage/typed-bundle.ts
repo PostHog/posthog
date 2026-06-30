@@ -118,7 +118,6 @@ export const TypedSpecSchema = z
         // array silently rejected host-scoped secrets at bundle PUT.
         secrets: z.array(SecretRefSchema).optional(),
         limits: z.unknown().optional(),
-        auth: z.unknown().optional(),
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),
         resume: z.unknown().optional(),
