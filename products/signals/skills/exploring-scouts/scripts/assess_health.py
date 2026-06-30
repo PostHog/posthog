@@ -5,7 +5,7 @@
 Pure formatter — no network I/O. Answers the "is my scout actually working / earning
 its cost?" question, which (unlike a single-run report or a point-in-time fleet survey)
 needs reasoning across a *window* of runs. Judges each scout on the five dimensions from
-the exploring-signals-scouts health playbook: cadence adherence, success rate, emit rate,
+the exploring-scouts health playbook: cadence adherence, success rate, emit rate,
 run duration, and memory growth.
 
 Inputs (`call --json` payloads saved to a file):

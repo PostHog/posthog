@@ -99,6 +99,13 @@ class TestGoogleAdsValidateConfig:
         }
         assert len(self._manager_id_errors(job_inputs)) == 1
 
+    @pytest.mark.parametrize("is_mcc_account", [False, True, None])
+    def test_non_dict_is_mcc_account_does_not_crash(self, is_mcc_account):
+        # API callers may send is_mcc_account as a plain bool instead of the switch-group dict;
+        # validate_config must not crash trying to read `.get("enabled")` off it.
+        job_inputs = {"customer_id": "1234567890", "is_mcc_account": is_mcc_account}
+        assert self._manager_id_errors(job_inputs) == []
+
 
 class TestGoogleAdsNonRetryableErrors:
     def setup_method(self):
@@ -355,6 +362,24 @@ class TestValidateCredentials:
 
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
+
+    def test_transient_google_side_error_returns_retry_message(self):
+        # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
+        # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = (
+            google_api_exceptions.InternalServerError("500 Internal error encountered.")
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "try again" in (message or "")
+        assert "Internal error encountered" not in (message or "")
 
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
@@ -859,7 +884,11 @@ class TestGetIntegrationDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH),
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
@@ -867,15 +896,46 @@ class TestGetIntegrationDbResilience:
         # Evicted up front, then again after the failed query marked the connection unusable.
         assert close.call_count == 2
 
-    def test_reraises_when_retry_also_fails(self):
-        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+    def test_rides_out_pool_wait_timeout_then_succeeds(self):
+        integration = object()
+        # A saturated connection pooler rejects the query with a wait timeout (surfaced as an
+        # OperationalError); the previous immediate single retry hit the same saturation, so we
+        # back off and retry a few times before giving up.
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(OperationalError):
                 _get_integration(integration_id=1, team_id=2)
 
-        # One retry only — the second failure propagates so Temporal still retries the activity.
-        assert get.call_count == 2
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert get.call_count == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
         get = mock.Mock(side_effect=Integration.DoesNotExist())

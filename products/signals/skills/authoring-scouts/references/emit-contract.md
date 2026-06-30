@@ -1,10 +1,11 @@
 # The emit contract
 
 How a scout calls `signals-scout-emit-signal`, and how to write a scout's **Decide**
-section so it emits well-calibrated findings. This mirrors the contract the canonical fleet
-runs on (`signals-scout-general/references/emit.md`) — author your scout so its findings
-fit this shape. The harness validates request shape but does **not** grade prose quality;
-that's on the scout.
+section so it emits well-calibrated findings. This is the contract the signal-emitting fleet
+runs on — author your scout so its findings fit this shape. (The canonical generalist,
+`signals-scout-general`, is report-only and authors `SignalReport`s directly instead; see its
+`references/report.md`.) The harness validates request shape but does **not** grade prose
+quality; that's on the scout.
 
 ## Fields
 
