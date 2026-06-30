@@ -47,7 +47,22 @@ class TestNotebookMarkdownConversion(BaseTest):
                 },
                 {
                     "type": "query",
-                    "attrs": {"query": '{"kind":"HogQLQuery","query":"select 1"}', "view": True, "edit": False},
+                    "attrs": {
+                        "query": '{"kind":"HogQLQuery","query":"select 1"}',
+                        "view": True,
+                        "edit": False,
+                        "chartSettings": {"yAxis": [{"settings": {"formatting": {"decimalPlaces": 1.0}}}]},
+                    },
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "invalid link",
+                            "marks": [{"type": "link", "attrs": {"href": "https://www.juheapi.com）：≈"}}],
+                        }
+                    ],
                 },
             ],
         }
@@ -65,6 +80,10 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert '<ref id="mark-1">** about activation**</ref>' in markdown
         assert '<Comment ref="mark-1" replies={[]} />' in markdown
         assert 'query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select 1"}}}' in markdown
+        assert '"decimalPlaces":1' in markdown
+        assert '"decimalPlaces":1.0' not in markdown
+        assert "invalid link" in markdown
+        assert "juheapi" not in markdown
         assert "hideFilters" in markdown
 
 

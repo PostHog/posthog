@@ -1,5 +1,6 @@
 import re
 import json
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -574,8 +575,22 @@ def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) 
 
 def _serialize_prop_value(value: NotebookPropValue) -> str:
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return "{" + json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "}"
+        return _json_stringify(value)
+    return "{" + _json_stringify(value) + "}"
+
+
+def _json_stringify(value: NotebookPropValue) -> str:
+    return json.dumps(_normalize_json_numbers(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def _normalize_json_numbers(value: NotebookPropValue) -> NotebookPropValue:
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_normalize_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_json_numbers(item) for key, item in value.items()}
+    return value
 
 
 def _serialize_code_node(text: str, language: str | None = None) -> str:
@@ -597,7 +612,10 @@ def sanitize_notebook_link_href(href: str) -> str | None:
     trimmed_href = href.strip()
     if not re.match(r"^https?://\S+$", trimmed_href, flags=re.IGNORECASE):
         return None
-    parsed = urlparse(trimmed_href)
+    try:
+        parsed = urlparse(trimmed_href)
+    except ValueError:
+        return None
     return trimmed_href if parsed.scheme in ("http", "https") and parsed.netloc else None
 
 
