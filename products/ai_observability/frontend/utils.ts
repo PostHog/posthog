@@ -248,6 +248,12 @@ export function eventLabel(event: LLMTraceEvent): string {
     return asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
 }
 
+const TRACE_STEP_EVENT_TYPES = new Set(['$ai_generation', '$ai_span', '$ai_embedding'])
+
+export function getTraceStepCount(trace: Partial<Pick<LLMTrace, 'events'>>): number {
+    return trace.events?.filter((event) => TRACE_STEP_EVENT_TYPES.has(event.event)).length ?? 0
+}
+
 export function formatAiErrorForDisplay(value: unknown): string {
     if (typeof value === 'string') {
         return value || 'Unknown error'

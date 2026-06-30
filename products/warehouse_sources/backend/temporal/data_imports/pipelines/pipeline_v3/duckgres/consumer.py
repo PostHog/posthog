@@ -99,8 +99,18 @@ class DuckgresBatchConsumerAdapter:
         if self._team_ids_fetched_at is not None and now - self._team_ids_fetched_at < ENABLEMENT_REFRESH_SECONDS:
             return self._team_ids
         try:
+            first_resolution = self._team_ids_fetched_at is None
+            previous = self._team_ids
             self._team_ids = await sync_to_async(duckgres_sink_team_ids, thread_sensitive=False)()
             self._team_ids_fetched_at = now
+            if first_resolution or self._team_ids != previous:
+                # Only on the first resolution or an actual change — the refresh
+                # itself runs every ~60s and would otherwise spam.
+                logger.info(
+                    "duckgres_sink_enabled_teams_resolved",
+                    first_resolution=first_resolution,
+                    team_count=None if self._team_ids is None else len(self._team_ids),
+                )
         except Exception as e:
             logger.exception("duckgres_sink_enablement_refresh_failed")
             capture_exception(e)
@@ -130,16 +140,34 @@ class DuckgresBatchConsumerAdapter:
         SINK_BLOCKED_BACKLOG.set(blocked)
         SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
 
+        block_list_was_unset = self._blocked_schema_ids is None
         try:
             # Backfill planner: bootstrap/plan/reconcile schema priming, then
             # refresh the live-batch block list it derives from.
             await sync_to_async(run_backfill_planner, thread_sensitive=False)(team_ids)
             self._blocked_schema_ids = await sync_to_async(compute_blocked_schema_ids, thread_sensitive=False)(team_ids)
+            if block_list_was_unset:
+                # First successful planner pass: the sink can now claim live
+                # batches (fetch returns [] until this happens).
+                logger.info(
+                    "duckgres_backfill_block_list_ready",
+                    blocked_schema_count=len(self._blocked_schema_ids),
+                )
         except Exception as e:
             # An app-DB blip must not crash the poll loop; keep the previous
             # block list (or keep claiming nothing if we never had one).
             logger.exception("duckgres_backfill_planner_failed")
             capture_exception(e)
+
+        # Heartbeat: confirms the ~30s maintenance pass (enablement set, supersede
+        # sweep, planner) actually ran. Bounded to one line per maintenance tick.
+        logger.info(
+            "duckgres_maintenance_ran",
+            team_count=None if team_ids is None else len(team_ids),
+            eligible_backlog=backlog,
+            blocked_backlog=blocked,
+            blocked_schema_count=None if self._blocked_schema_ids is None else len(self._blocked_schema_ids),
+        )
 
     async def fetch_and_lock(
         self,

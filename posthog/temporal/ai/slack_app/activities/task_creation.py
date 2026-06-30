@@ -490,6 +490,10 @@ def create_posthog_code_task_for_repo_activity(
         is_ext_shared_channel=inputs.is_ext_shared_channel,
     )
 
+    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+
+    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         created = tasks_facade.create_and_run_task(
@@ -507,6 +511,9 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes=posthog_mcp_scopes,
             initial_permission_mode=autonomy_policy.initial_permission_mode,
+            runtime_adapter=ai_prefs.runtime_adapter,
+            model=ai_prefs.model,
+            reasoning_effort=ai_prefs.reasoning_effort,
         )
     except Exception as e:
         logger.exception(

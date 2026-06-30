@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -133,6 +134,10 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
+
+
+SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
 def _is_internal_debug_team(team_id: int | None) -> bool:
@@ -763,6 +768,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
         return task_id
 
     def _user_id(self) -> int | None:
@@ -1782,7 +1791,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filtered.append(entry)
 
         matching_count = len(filtered)
-        page = filtered[offset : offset + limit]
+
+        page: list = []
+        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
+        for entry in filtered[offset : offset + limit]:
+            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
+            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
+                break
+            page.append(entry)
+            page_bytes += entry_bytes
+
         has_more = offset + len(page) < matching_count
 
         response = JsonResponse(page, safe=False)

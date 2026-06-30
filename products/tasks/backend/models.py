@@ -349,8 +349,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        model: str | None = None,
         runtime_adapter: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -477,6 +478,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
                 initial_permission_mode = "auto"
 
+        if reasoning_effort:
+            extra_state["reasoning_effort"] = reasoning_effort
+
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
         if ai_stage:
@@ -574,8 +578,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        model: str | None = None,
         runtime_adapter: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -600,8 +605,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             internal=internal,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
-            model=model,
             runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,

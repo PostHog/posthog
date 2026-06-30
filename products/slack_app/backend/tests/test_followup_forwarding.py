@@ -254,7 +254,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_explicit_event_id_in_workflow_id(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -676,7 +676,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         new_run = self.TaskRun.objects.get(id=call_kwargs["run_id"])
         assert new_run.state["task_kind"] == self.Task.TaskKind.GENERAL
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
