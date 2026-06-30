@@ -133,6 +133,7 @@ class InsightRagContextNode(AssistantNode):
                 ):
                     response = runner.run(
                         ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                        user=self._user,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
@@ -180,6 +181,7 @@ class InsightRagContextNode(AssistantNode):
         """
         TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            user=self._user,
             analytics_props={"source": EventSource.POSTHOG_AI},
         )
 

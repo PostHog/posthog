@@ -69,7 +69,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
 
         # Check run was called with the correct execution mode
         mock_runner_instance.run.assert_called_once_with(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, analytics_props=ANY
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, user=self.user, analytics_props=ANY
         )
 
     def test_injects_action(self, cohere_mock, embed_mock):

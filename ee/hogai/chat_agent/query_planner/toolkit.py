@@ -233,6 +233,7 @@ class TaxonomyAgentToolkit:
         ):
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                user=self._user,
                 analytics_props={"source": EventSource.POSTHOG_AI},
             )
         return response, verbose_name
@@ -432,6 +433,7 @@ class TaxonomyAgentToolkit:
         ):
             response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                user=self._user,
                 analytics_props={"source": EventSource.POSTHOG_AI},
             )
 

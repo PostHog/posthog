@@ -102,7 +102,7 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team, limit=query.limit, offset=query.offset)
+            return format_events_yaml([], team, limit=query.limit, offset=query.offset, user=toolkit._user)
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"

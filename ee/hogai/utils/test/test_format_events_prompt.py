@@ -379,5 +379,21 @@ class TestFormatEventsPrompt(BaseTest):
         mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(), self.team)
         mock_runner_class.return_value.run.assert_called_once_with(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            user=None,
+            analytics_props=ANY,
+        )
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_xml_threads_user_to_runner(self, mock_runner_class):
+        # The user must reach run() so "query executed" is captured under the identified
+        # distinct_id rather than falling back to the team UUID (an anonymous person).
+        self._setup_mock_runner(mock_runner_class, [])
+
+        events_in_context: list[MaxEventContext] = []
+        format_events_xml(events_in_context, self.team, user=self.user)
+
+        mock_runner_class.return_value.run.assert_called_once_with(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            user=self.user,
             analytics_props=ANY,
         )
