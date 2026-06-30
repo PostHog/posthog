@@ -28472,6 +28472,13 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface LogsAlertSimulateError {
+      /** Human-readable explanation of why the simulation could not complete, safe to show to the user. */
+      detail: string;
+      /** Machine-readable error category — one of 'server_busy', 'query_performance', 'invalid_query', 'cancelled', 'unknown'. */
+      code: string;
+    }
+
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
       filters: LogsAlertFilters;

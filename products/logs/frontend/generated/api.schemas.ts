@@ -774,6 +774,13 @@ export interface LogsAlertSimulateResponseApi {
     threshold_operator: string
 }
 
+export interface LogsAlertSimulateErrorApi {
+    /** Human-readable explanation of why the simulation could not complete, safe to show to the user. */
+    detail: string
+    /** Machine-readable error category — one of 'server_busy', 'query_performance', 'invalid_query', 'cancelled', 'unknown'. */
+    code: string
+}
+
 export interface _DateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
