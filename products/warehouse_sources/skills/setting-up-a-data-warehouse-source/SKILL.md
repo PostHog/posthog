@@ -41,6 +41,35 @@ hand-pick which tables sync or set non-default sync types per table.
 | `external-data-sources-list`                           | After creation, confirm the source is listed and see its initial status                                                   |
 | `external-data-schemas-list`                           | See per-table sync status once the source is created                                                                      |
 
+## Pre-flight: credential gotchas that cause most failures
+
+Surface these **before** collecting credentials — they're the top reasons setup fails on the first try. Validating
+against them up front avoids burning credential prompts on retries.
+
+- **The host must be reachable from PostHog's network.** `localhost`, `127.0.0.1`, and private/RFC-1918 hosts
+  (`10.x`, `192.168.x`, `172.16–31.x`) are rejected — PostHog runs the connection from its own infrastructure, not the
+  user's machine. Serverless/managed Postgres (Neon, Supabase, RDS behind strict rules) often also needs PostHog's
+  egress IPs allowlisted first. If the DB isn't publicly reachable, route to the browser deep-link
+  (`data-warehouse-source-connect-link`) or an SSH tunnel rather than collecting credentials that can't validate.
+- **Supabase is Postgres — don't collect it twice.** Use the **Session pooler** connection, not the direct host (the
+  direct host is IPv6-only). The pooler host looks like `aws-0-<region>.pooler.supabase.com`, the **username** must be
+  `postgres.<project-ref>`, and the **port is 6543** (not 5432). The password is the **database** password (Settings →
+  Database), which is distinct from the `anon`/`service_role` JWT keys and from the Supabase account password. If
+  `SUPABASE_URL` is in the project env, derive the project ref from `db.<ref>.supabase.co` to pre-fill these instead of
+  asking the user to guess.
+- **Many SaaS sources need a specific key type or plan** — get the right one before the create call fails:
+  - **Stripe** — a _restricted_ key (`rk_live_…`), not the standard secret key (`sk_live_…`).
+  - **RevenueCat** — a v2 secret key (`sk_…`) with the read scopes enabled.
+  - **Sentry** — an internal-integration token, not a DSN and not a personal auth token.
+  - **Convex** — requires the Professional plan.
+  - **Twilio** — API Key SID + Secret, not the account auth token.
+  - **Mailchimp** — the key carries its datacenter suffix (`key-usX`).
+  - For send-only services (Resend, Mailgun), the key already in the project env is often restricted; the warehouse
+    import needs a full/read-access key.
+- **Never pass an unresolved secret reference.** If a credential field is still a `{"secretRef": ...}` object, PostHog
+  can't resolve it — the create/db-schema/setup calls reject it with a clear error. Resolve it to the real value
+  first, or collect credentials via `data-warehouse-source-connect-link` and pass the resulting `credential_id`.
+
 ## Recommended: one-step setup
 
 Most setups should use this path — it avoids the most common failures (skipping db-schema, malformed `schemas`,
@@ -102,7 +131,10 @@ to `external-data-sources-create` — you need the db-schema response to build a
 
 ### Step 1 — Discover the source type
 
-Call `external-data-sources-wizard` (no params). The response is a dict keyed by source type. Each entry describes:
+Call `external-data-sources-wizard` **with `source_type` set to the kind(s) you need** (comma-separated, e.g.
+`Postgres,Stripe`). The unfiltered response describes every supported source and is hundreds of KB — large enough to
+blow your context budget. Only omit `source_type` when you genuinely need to enumerate every available type, and
+expect a big payload if you do. The response is a dict keyed by source type. Each entry describes:
 
 - `name` — the canonical source_type string you'll pass to later calls (e.g. `"Postgres"`, `"Stripe"`, `"Hubspot"`).
 - `label` / `caption` — human-readable.
