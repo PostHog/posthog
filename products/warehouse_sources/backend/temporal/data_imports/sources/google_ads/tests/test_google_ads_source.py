@@ -866,7 +866,11 @@ class TestGetIntegrationDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH),
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
@@ -874,15 +878,46 @@ class TestGetIntegrationDbResilience:
         # Evicted up front, then again after the failed query marked the connection unusable.
         assert close.call_count == 2
 
-    def test_reraises_when_retry_also_fails(self):
-        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+    def test_rides_out_pool_wait_timeout_then_succeeds(self):
+        integration = object()
+        # A saturated connection pooler rejects the query with a wait timeout (surfaced as an
+        # OperationalError); the previous immediate single retry hit the same saturation, so we
+        # back off and retry a few times before giving up.
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(OperationalError):
                 _get_integration(integration_id=1, team_id=2)
 
-        # One retry only — the second failure propagates so Temporal still retries the activity.
-        assert get.call_count == 2
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert get.call_count == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
         get = mock.Mock(side_effect=Integration.DoesNotExist())
