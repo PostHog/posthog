@@ -62,6 +62,7 @@ the row lists both.
 | bigmailer           | HTTP                        | requests                                                        | ✅                          |
 | bigquery            | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads            | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
@@ -321,7 +322,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- blogger
 - bluetally
 - boldsign
 - box
