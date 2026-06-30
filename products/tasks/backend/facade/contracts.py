@@ -31,6 +31,7 @@ class TaskDTO:
     title: str
     description: str
     origin_product: str
+    task_kind: str
     repository: str | None
     internal: bool
     archived: bool
@@ -104,6 +105,7 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    task_kind: str
     repository: str | None
     github_integration: int | None
     github_user_integration: UUID | None

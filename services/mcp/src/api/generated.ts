@@ -41498,6 +41498,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `coding` - Coding
+     * * `general` - General
+     */
+    export type TaskKindEnum = typeof TaskKindEnum[keyof typeof TaskKindEnum];
+
+
+    export const TaskKindEnum = {
+      Coding: 'coding',
+      General: 'general',
+    } as const;
+
+    /**
      * * `implementation` - Implementation
      */
     export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
@@ -41540,6 +41552,11 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
+      /** Task execution kind: 'coding' for code/PR work or 'general' for non-coding AI coworker work.
+       *
+       * * `coding` - Coding
+       * * `general` - General */
+      task_kind?: TaskKindEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
@@ -52196,6 +52213,11 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
+      /** Task execution kind: 'coding' for code/PR work or 'general' for non-coding AI coworker work.
+       *
+       * * `coding` - Coding
+       * * `general` - General */
+      task_kind?: TaskKindEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255

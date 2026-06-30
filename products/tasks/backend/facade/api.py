@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskKind = Task.TaskKind
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -93,6 +94,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskKind",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -198,6 +200,7 @@ def _task_to_dto(task: Task) -> contracts.TaskDTO:
         title=task.title,
         description=task.description,
         origin_product=task.origin_product,
+        task_kind=task.task_kind,
         repository=task.repository,
         internal=task.internal,
         archived=task.archived,
@@ -366,6 +369,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        task_kind=task.task_kind,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -651,6 +655,7 @@ def create_and_run_task(
     description: str,
     origin_product: "Task.OriginProduct",
     user_id: int,
+    task_kind: "Task.TaskKind" = Task.TaskKind.CODING,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
@@ -673,6 +678,7 @@ def create_and_run_task(
         description=description,
         origin_product=origin_product,
         user_id=user_id,
+        task_kind=task_kind,
         repository=repository,
         create_pr=create_pr,
         mode=mode,
@@ -2769,6 +2775,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
     warm_model = validated_data.pop("model", None)
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
+    validated_data.setdefault("task_kind", Task.TaskKind.CODING)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2854,11 +2861,12 @@ def update_task(
         return None
 
     validated_data = dict(validated_data)
-    # Immutable after creation; origin_product controls visibility, signal_report is set-once.
+    # Immutable after creation; origin_product controls visibility, task_kind drives execution behavior, and signal_report is set-once.
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    validated_data.pop("task_kind", None)
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:

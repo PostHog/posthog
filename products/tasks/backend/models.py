@@ -79,6 +79,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
 
+    class TaskKind(models.TextChoices):
+        CODING = "coding", "Coding"
+        GENERAL = "general", "General"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -88,6 +92,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    task_kind = models.CharField(
+        max_length=20,
+        choices=TaskKind,
+        default=TaskKind.CODING,
+        db_default=TaskKind.CODING,
+        help_text="Whether this task is a coding task or a general AI coworker task.",
+    )
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -222,6 +233,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "title": self.title,
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
+                "task_kind": self.task_kind,
                 "repository": self.repository,
             }
             if properties:
@@ -331,6 +343,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        task_kind: "Task.TaskKind" = TaskKind.CODING,
         repository: str | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -375,6 +388,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         task_stub = Task(
             team=team,
             origin_product=origin_product,
+            task_kind=task_kind,
             created_by=created_by,
             repository=repository,
             github_integration=github_integration,
@@ -423,6 +437,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             title=title,
             description=description,
             origin_product=origin_product,
+            task_kind=task_kind,
             created_by=created_by,
             github_integration=github_integration,
             github_user_integration=github_user_integration,
@@ -433,6 +448,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
 
         extra_state: dict[str, Any] = {}
+        extra_state["task_kind"] = task_kind
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
         if interaction_origin:
@@ -518,6 +534,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        task_kind: "Task.TaskKind" = TaskKind.CODING,
         repository: str | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -542,6 +559,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             description=description,
             origin_product=origin_product,
             user_id=user_id,
+            task_kind=task_kind,
             repository=repository,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -564,6 +582,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        task_kind: "Task.TaskKind" = TaskKind.CODING,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
@@ -596,6 +615,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             description=description,
             origin_product=origin_product,
             user_id=user_id,
+            task_kind=task_kind,
             repository=repository,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
