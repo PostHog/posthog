@@ -2,13 +2,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCloud, IconInfo, IconTerminal } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconCloud, IconGithub, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -22,7 +23,10 @@ import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
 import { onboardingLogic } from './onboardingLogic'
+import { activeCloudRunLogic, type CloudRunHandle } from './sdks/OnboardingInstallStep/activeCloudRunLogic'
+import { installationProgressLogic } from './sdks/OnboardingInstallStep/installationProgressLogic'
 import { WizardCloudRunBlock } from './sdks/OnboardingInstallStep/WizardCloudRunBlock'
+import { wizardCloudRunLogic } from './sdks/OnboardingInstallStep/wizardCloudRunLogic'
 import { WizardCommandBlock } from './sdks/OnboardingInstallStep/WizardCommandBlock'
 import { WizardFrameworkBadges } from './sdks/OnboardingInstallStep/WizardModeShell'
 import { useWizardTakeoverActive, WizardProgressTracker } from './sdks/OnboardingInstallStep/WizardProgressTracker'
@@ -172,24 +176,41 @@ function tint(color: string): string {
     return color.replace(/\)$/, ' / 0.12)')
 }
 
-// Card status reflects both config and the SDK: turned-on sources can't actually collect until the
-// posthog-js SDK is installed, so they read as "Needs install" rather than "Active" until then.
-function statusFor(active: boolean, sdkInstalled: boolean): { type: 'muted' | 'success' | 'warning'; label: string } {
+// Card status reflects config, the SDK, and any in-flight install. The install delivers the SDK every
+// source needs, so while it runs a turned-on source is "Installing" and a turned-off one reads
+// "Available" — turn it on and it gets installed too. Otherwise it's "Active" once events arrive,
+// "Needs install" if on with nothing running, or "Off".
+function statusFor(
+    active: boolean,
+    sdkInstalled: boolean,
+    installing: boolean
+): { type: 'muted' | 'success' | 'warning' | 'primary'; label: string; loading?: boolean } {
     if (!active) {
-        return { type: 'muted', label: 'Off' }
+        return installing ? { type: 'muted', label: 'Available' } : { type: 'muted', label: 'Off' }
+    }
+    if (installing) {
+        return { type: 'primary', label: 'Installing', loading: true }
     }
     return sdkInstalled ? { type: 'success', label: 'Active' } : { type: 'warning', label: 'Needs install' }
 }
 
-function ToolCard({ source, sdkInstalled }: { source: ToolSource; sdkInstalled: boolean }): JSX.Element {
+function ToolCard({
+    source,
+    sdkInstalled,
+    installing,
+}: {
+    source: ToolSource
+    sdkInstalled: boolean
+    installing: boolean
+}): JSX.Element {
     const product = availableOnboardingProducts[source.productKey as keyof typeof availableOnboardingProducts]
     const color = product?.iconColor ?? 'var(--color-text-secondary)'
-    const status = statusFor(source.active, sdkInstalled)
+    const status = statusFor(source.active, sdkInstalled, installing)
 
     return (
         <div
             className={cn(
-                'flex flex-col gap-3 p-4 rounded-lg border transition-colors',
+                'flex h-full flex-col gap-3 p-4 rounded-lg border transition-colors',
                 source.active ? 'border-accent' : 'border-primary',
                 source.wide && 'sm:col-span-2'
             )}
@@ -206,7 +227,9 @@ function ToolCard({ source, sdkInstalled }: { source: ToolSource; sdkInstalled: 
                     <p className="m-0 text-sm font-semibold">{toSentenceCase(product?.name ?? source.productKey)}</p>
                     {source.note && <p className="m-0 text-xs text-muted">{source.note}</p>}
                 </div>
-                <LemonTag type={status.type}>{status.label}</LemonTag>
+                <LemonTag type={status.type} icon={status.loading ? <Spinner textColored /> : undefined}>
+                    {status.label}
+                </LemonTag>
             </div>
             <div className="flex flex-col gap-2">
                 {source.toggles.map((toggle) => (
@@ -229,7 +252,108 @@ function ToolCard({ source, sdkInstalled }: { source: ToolSource; sdkInstalled: 
     )
 }
 
+interface CodebaseAccess {
+    connected: boolean
+    /** GitHub org/account the integration is connected to, shown in the connected state. */
+    displayName: string | null
+    /** OAuth URL to connect GitHub (activate codebase access) from here. */
+    connectUrl: string
+}
+
+// Codebase access is a context source too — agents read the connected repo. Unlike the SDK-backed
+// sources it doesn't ride the install; it's live as soon as GitHub is connected, so a user who skipped
+// connecting during install can turn it on here.
+function CodebaseAccessCard({ codebase }: { codebase: CodebaseAccess }): JSX.Element {
+    return (
+        <div
+            className={cn(
+                'flex h-full flex-col gap-3 p-4 rounded-lg border transition-colors',
+                codebase.connected ? 'border-accent' : 'border-primary'
+            )}
+        >
+            <div className="flex items-center gap-3">
+                <div
+                    className="size-9 rounded-md flex items-center justify-center shrink-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: tint('rgb(100 116 139)') }}
+                >
+                    <IconGithub className="text-lg" />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="m-0 text-sm font-semibold">Codebase access</p>
+                    <p className="m-0 text-xs text-muted">Let agents read your code to find and fix issues.</p>
+                </div>
+                <LemonTag type={codebase.connected ? 'success' : 'muted'}>
+                    {codebase.connected ? 'Active' : 'Off'}
+                </LemonTag>
+            </div>
+            {codebase.connected ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted mt-auto">
+                    <IconCheckCircle className="text-success" />
+                    <span>Connected{codebase.displayName ? ` to ${codebase.displayName}` : ''}</span>
+                </div>
+            ) : (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconGithub />}
+                    to={codebase.connectUrl}
+                    disableClientSideRouting
+                    className="self-start mt-auto"
+                >
+                    Connect GitHub
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 function SourcesStep(): JSX.Element {
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    // GitHub connection drives the codebase-access source, available whether or not a run is in flight.
+    const { githubIntegration, connectGitHubUrl } = useValues(wizardCloudRunLogic)
+    const codebase: CodebaseAccess = {
+        connected: !!githubIntegration,
+        displayName: githubIntegration?.display_name ?? null,
+        connectUrl: connectGitHubUrl,
+    }
+    // Subscribe to the install stream only when a run exists — keeps this step from opening an SSE for
+    // everyone who never triggered one.
+    return activeCloudRun ? (
+        <SourcesStepWithRun run={activeCloudRun} codebase={codebase} />
+    ) : (
+        <SourcesStepInner installing={false} repository={null} codebase={codebase} />
+    )
+}
+
+// While a cloud run is connecting/running, the sources it would feed aren't live yet. Pass that down
+// along with the repo it's landing in, so the step can name the install target once.
+function SourcesStepWithRun({ run, codebase }: { run: CloudRunHandle; codebase: CodebaseAccess }): JSX.Element {
+    const { installationProgress } = useValues(
+        installationProgressLogic({ mode: 'cloud', runId: run.runId, taskId: run.taskId })
+    )
+    const { selectedRepository } = useValues(wizardCloudRunLogic)
+    const installing = installationProgress.phase === 'connecting' || installationProgress.phase === 'running'
+    return (
+        <SourcesStepInner
+            installing={installing}
+            repository={installing ? selectedRepository : null}
+            codebase={codebase}
+        />
+    )
+}
+
+// Exported for Storybook: the presentational sources step takes `installing`, the install's repo, and the
+// codebase-access state as props, so stories can render every state without standing up the live logics.
+export function SourcesStepInner({
+    installing,
+    repository,
+    codebase,
+}: {
+    installing: boolean
+    repository: string | null
+    codebase: CodebaseAccess
+}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -310,7 +434,6 @@ function SourcesStep(): JSX.Element {
         {
             productKey: ProductKey.WEB_ANALYTICS,
             active: autocaptureOn && hasAuthorizedDomain,
-            wide: true,
             toggles: [
                 {
                     label: 'Web vitals',
@@ -339,20 +462,26 @@ function SourcesStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <p className="text-sm text-muted m-0">
-                Active sources feed context to PostHog. Turn on what's relevant — you can change these any time.
+                {!installing ? (
+                    "Active sources feed context to PostHog. Turn on what's relevant — you can change these any time."
+                ) : repository ? (
+                    <>
+                        Installing PostHog into <span className="font-mono text-default">{repository}</span>. Turn on
+                        anything you want included.
+                    </>
+                ) : (
+                    'Installing PostHog. Turn on anything you want included.'
+                )}
             </p>
-            {!sdkInstalled && (
-                <div className="flex items-start gap-2 rounded-md border border-dashed border-primary p-3 text-xs text-muted">
-                    <IconInfo className="shrink-0 mt-0.5 text-sm" />
-                    <span>
-                        These collect data through the PostHog SDK. Turn on what you want now — they'll start the moment
-                        it's installed.
-                    </span>
-                </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <CodebaseAccessCard codebase={codebase} />
                 {sources.map((source) => (
-                    <ToolCard key={source.productKey} source={source} sdkInstalled={sdkInstalled} />
+                    <ToolCard
+                        key={source.productKey}
+                        source={source}
+                        sdkInstalled={sdkInstalled}
+                        installing={installing}
+                    />
                 ))}
             </div>
         </div>
