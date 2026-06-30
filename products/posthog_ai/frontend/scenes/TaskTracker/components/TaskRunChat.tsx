@@ -82,9 +82,9 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                             </Composer.Field>
                             <Composer.Footer>
-                                {/* Model/effort picker: a live config switch while the run is in progress, and
-                                the config for the next run once it's terminal. Selection lives in the bound
-                                runInteractionLogic. */}
+                                {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
+                                applied when the message is sent — synced to the running agent on a follow-up,
+                                or used to seed the next run once terminal. */}
                                 <ComposerModelEffortPickers
                                     selectedModel={selectedModel}
                                     selectedEffort={selectedEffort}

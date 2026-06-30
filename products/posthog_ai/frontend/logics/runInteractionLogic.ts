@@ -94,14 +94,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         clearQueue: true,
         // Internal: drain the staged "Up next" message when the agent is idle.
         flushQueue: true,
-        // Live-switch the running agent's model / reasoning effort via a `set_config_option` command. The
-        // override is held client-side (the backend doesn't persist live changes back to the run state).
+        // Pick the model / reasoning effort for the next message. Selection is held client-side only and
+        // synced to the running agent (via `set_config_option`) at send time — not on each pick. The backend
+        // doesn't persist live changes back to the run state, so the override is the source of truth.
         setModel: (model: string) => ({ model }),
         setEffort: (effort: string) => ({ effort }),
-        // Internal: drop the optimistic override (e.g. the command failed) so the display falls back to the
-        // run's stored value.
-        resetModelOverride: true,
-        resetEffortOverride: true,
+        // Internal: record the model / effort last synced to the agent session, so a send only fires a
+        // `set_config_option` when the pick actually differs from what the session is already running.
+        setSentModel: (model: string) => ({ model }),
+        setSentEffort: (effort: string) => ({ effort }),
     }),
 
     reducers({
@@ -143,14 +144,26 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setModel: (_, { model }) => model,
-                resetModelOverride: () => null,
             },
         ],
         effortOverride: [
             null as string | null,
             {
                 setEffort: (_, { effort }) => effort,
-                resetEffortOverride: () => null,
+            },
+        ],
+        // The model/effort last synced to the agent session via `set_config_option`. null means "not synced
+        // yet this session" — the active config is then the run's stored value (or the default).
+        sentModel: [
+            null as string | null,
+            {
+                setSentModel: (_, { model }) => model,
+            },
+        ],
+        sentEffort: [
+            null as string | null,
+            {
+                setSentEffort: (_, { effort }) => effort,
             },
         ],
     }),
@@ -245,6 +258,32 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 actions.resetComposerForm()
             }
             try {
+                // Sync the picked model/effort to the agent session first, but only what the user actually
+                // changed since the last sync — mid-run config lives as session state, so it must go via a
+                // `set_config_option` command before the message rather than ride inside `user_message`. A
+                // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
+                // successful sync so the next send retries an unsent change.
+                const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
+                const activeEffort = resolveEffortForModel(
+                    values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
+                    activeModel
+                )
+                if (values.selectedModel !== activeModel) {
+                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                        jsonrpc: '2.0',
+                        method: 'set_config_option',
+                        params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
+                    })
+                    actions.setSentModel(values.selectedModel)
+                }
+                if (values.selectedEffort !== activeEffort) {
+                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                        jsonrpc: '2.0',
+                        method: 'set_config_option',
+                        params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
+                    })
+                    actions.setSentEffort(values.selectedEffort)
+                }
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
                     method: 'user_message',
@@ -273,41 +312,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             actions.flushQueue()
         },
 
-        setModel: async ({ model }) => {
-            if (values.isTerminal || values.currentProjectId == null) {
-                return
-            }
-            try {
-                await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                    jsonrpc: '2.0',
-                    method: 'set_config_option',
-                    params: { configId: MODEL_CONFIG_ID, value: model },
-                })
-                // The new model may not support the current effort — clamp and sync to the backend if so.
-                const currentEffort = values.effortOverride ?? props.currentEffort
-                const resolvedEffort = resolveEffortForModel(currentEffort, model)
-                if (resolvedEffort !== currentEffort) {
-                    actions.setEffort(resolvedEffort)
-                }
-            } catch {
-                actions.resetModelOverride()
-                lemonToast.error('Failed to switch model. Please try again.')
-            }
-        },
-
-        setEffort: async ({ effort }) => {
-            if (values.isTerminal || values.currentProjectId == null) {
-                return
-            }
-            try {
-                await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                    jsonrpc: '2.0',
-                    method: 'set_config_option',
-                    params: { configId: EFFORT_CONFIG_ID, value: effort },
-                })
-            } catch {
-                actions.resetEffortOverride()
-                lemonToast.error('Failed to switch effort. Please try again.')
+        // The new model may not support the current effort — clamp the override so it never holds an
+        // unsupported value. No network here: the pick is synced to the agent at send time.
+        setModel: ({ model }) => {
+            const currentEffort = values.effortOverride ?? props.currentEffort
+            const resolvedEffort = resolveEffortForModel(currentEffort, model)
+            if (resolvedEffort !== currentEffort) {
+                actions.setEffort(resolvedEffort)
             }
         },
 
