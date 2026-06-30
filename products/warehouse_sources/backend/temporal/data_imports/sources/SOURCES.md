@@ -76,6 +76,7 @@ the row lists both.
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
+| coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools       | HTTP                        | requests                                                        | ✅                          |
@@ -104,6 +105,7 @@ the row lists both.
 | docuseal            | HTTP                        | requests                                                        | ✅                          |
 | doit                | HTTP                        | requests                                                        | ✅                          |
 | drip                | HTTP                        | requests                                                        | ✅                          |
+| e_conomic           | HTTP                        | requests                                                        | ✅                          |
 | easypost            | HTTP                        | requests                                                        | ✅                          |
 | easypromos          | HTTP                        | requests                                                        | ✅                          |
 | freshdesk           | HTTP                        | requests                                                        | ✅                          |
@@ -351,7 +353,6 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - codefresh
-- coin_api
 - concord
 - configcat
 - constant_contact
@@ -379,7 +380,6 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - dynamics365
 - dynamodb
-- e_conomic
 - ebay
 - eloqua
 - employment_hero

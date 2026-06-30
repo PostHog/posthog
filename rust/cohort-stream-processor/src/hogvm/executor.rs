@@ -13,6 +13,27 @@ use tracing::debug;
 
 use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
 
+/// HogVM stack ceiling for cohort evaluation. `with_defaults` caps the stack at 128, far below real
+/// cohort bytecode: a `person.properties.X IN (...)` leaf compiles to a tuple build that pushes every
+/// list element before `In` pops them, so peak depth ≈ list size. Production catalogs already hold
+/// IN-lists of several thousand elements (largest observed ~8.6k), which overflow 128 and silently
+/// match nobody. A correctness floor, not a tuning knob — it must exceed real list sizes regardless
+/// of environment.
+const COHORT_HOGVM_MAX_STACK_DEPTH: usize = 32_768;
+/// Step ceiling. Cohort filter bytecode is loop-free, so step count ≈ program length and raising this
+/// cannot cause a runaway; kept above the stack ceiling so a max-size tuple build can't trip it.
+const COHORT_HOGVM_MAX_STEPS: usize = 131_072;
+
+/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons plus the raised
+/// stack/step ceilings. Both construction sites route through this so production and the parity path
+/// share identical limits — a large `IN`-list must not overflow in one and succeed in the other.
+fn cohort_execution_context(program: Program) -> ExecutionContext {
+    ExecutionContext::with_defaults(program)
+        .with_coercing_comparisons()
+        .with_max_stack_depth(COHORT_HOGVM_MAX_STACK_DEPTH)
+        .with_max_steps(COHORT_HOGVM_MAX_STEPS)
+}
+
 /// The classified outcome of evaluating one program; [`CohortEvaluator::evaluate`] collapses this to
 /// a `bool` but the variants preserve *why* a non-match happened.
 #[derive(Debug)]
@@ -43,7 +64,7 @@ impl CohortEvaluator {
         // A bare header is a valid program; `set_program` replaces this seed before the first evaluation.
         let seed = Program::new(vec![Value::from("_H"), Value::from(1)])
             .expect("a bare bytecode header is a valid program");
-        let context = ExecutionContext::with_defaults(seed).with_coercing_comparisons();
+        let context = cohort_execution_context(seed);
         Self { context }
     }
 
@@ -87,9 +108,7 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
         Ok(program) => program,
         Err(error) => return classify_failure(error),
     };
-    let context = ExecutionContext::with_defaults(program)
-        .with_globals(globals)
-        .with_coercing_comparisons();
+    let context = cohort_execution_context(program).with_globals(globals);
     run(&context)
 }
 
@@ -138,10 +157,12 @@ mod tests {
     const OP_LT: i64 = 15;
     const OP_TRUE: i64 = 29;
     const OP_FALSE: i64 = 30;
+    const OP_IN: i64 = 21;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
     // Fixtures terminate explicitly with RETURN, mirroring what the catalog loader stores.
     const OP_RETURN: i64 = 38;
+    const OP_TUPLE: i64 = 44;
 
     fn header() -> Vec<Value> {
         vec![json!("_H"), json!(1)]
@@ -330,5 +351,78 @@ mod tests {
         assert!(!evaluate(&bc, globals(json!(5))));
         assert!(evaluate(&bc, globals(json!("20"))));
         assert!(!evaluate(&bc, globals(json!("05"))));
+    }
+
+    /// `header + N×(OP_INTEGER, i) + OP_TUPLE N` — the exact shape a `person.properties.X IN (...)`
+    /// leaf compiles its list to. Building the tuple pushes all N elements before they are popped, so
+    /// peak stack depth ≈ N.
+    fn tuple_build_program(n: i64) -> Vec<Value> {
+        let mut bc = header();
+        for i in 0..n {
+            bc.extend_from_slice(&[json!(OP_INTEGER), json!(i)]);
+        }
+        bc.extend_from_slice(&[json!(OP_TUPLE), json!(n), json!(OP_RETURN)]);
+        bc
+    }
+
+    #[test]
+    fn large_tuple_overflows_at_default_depth_but_evaluates_in_cohort_context() {
+        // N comfortably above the 128 default, small enough to be instant.
+        let prog = tuple_build_program(200);
+
+        // Control: the production default depth (128) must StackOverflow on the tuple build, pinning
+        // the exact failure the raised ceiling fixes.
+        let program = Program::new(prog.clone()).expect("valid program");
+        let control = ExecutionContext::with_defaults(program);
+        assert!(
+            matches!(sync_execute(&control, false), Err(failure) if matches!(failure.error, VmError::StackOverflow)),
+            "expected StackOverflow at the default depth of 128",
+        );
+
+        // Fix, free-function site (parity path): no overflow. A tuple result coerces to false, so we
+        // only assert `Matched`, i.e. not a `VmError`.
+        assert!(matches!(
+            evaluate_detailed(&prog, json!({})),
+            EvalOutcome::Matched(_)
+        ));
+
+        // Fix, reused-evaluator site (production hot path): likewise no overflow.
+        let mut evaluator = CohortEvaluator::new();
+        evaluator.set_globals(json!({}));
+        assert!(matches!(
+            evaluator.evaluate_detailed(Arc::new(prog)),
+            EvalOutcome::Matched(_)
+        ));
+    }
+
+    /// `<needle> IN (0..n)` over integer literals. The compiler emits `right, left, op` and `In` pops
+    /// the needle (top) then the haystack, so the n-element tuple is built first, then the needle.
+    fn int_in_list_program(n: i64, needle: i64) -> Vec<Value> {
+        let mut bc = header();
+        for i in 0..n {
+            bc.extend_from_slice(&[json!(OP_INTEGER), json!(i)]);
+        }
+        bc.extend_from_slice(&[json!(OP_TUPLE), json!(n)]);
+        bc.extend_from_slice(&[
+            json!(OP_INTEGER),
+            json!(needle),
+            json!(OP_IN),
+            json!(OP_RETURN),
+        ]);
+        bc
+    }
+
+    #[test]
+    fn large_in_list_membership_is_correct_at_raised_depth() {
+        // A 200-element list overflows the default depth; at the cohort ceiling it must yield correct
+        // membership both ways — proving the raise restores correctness, not just silences the error.
+        assert!(matches!(
+            evaluate_detailed(&int_in_list_program(200, 5), json!({})),
+            EvalOutcome::Matched(true)
+        ));
+        assert!(matches!(
+            evaluate_detailed(&int_in_list_program(200, 9999), json!({})),
+            EvalOutcome::Matched(false)
+        ));
     }
 }

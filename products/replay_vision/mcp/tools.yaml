@@ -24,6 +24,12 @@ tools:
     vision-actions-retrieve:
         operation: vision_actions_retrieve
         enabled: false
+    vision-actions-runs-list:
+        operation: vision_actions_runs_list
+        enabled: false
+    vision-actions-runs-retrieve:
+        operation: vision_actions_runs_retrieve
+        enabled: false
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
