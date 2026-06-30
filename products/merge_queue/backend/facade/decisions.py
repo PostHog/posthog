@@ -12,6 +12,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
+from uuid import UUID
 
 from products.merge_queue.backend.facade.types import PRRef
 from products.merge_queue.backend.models import Strategy
@@ -64,7 +65,7 @@ class ConflictDecision:
 
 @dataclass(frozen=True)
 class TrialResult:  # input to triage
-    trial_id: int
+    trial_id: UUID
     pr: PRRef
     partition: str
     failing_tests: list[str]

@@ -29,7 +29,7 @@ with workflow.unsafe.imports_passed_through():
 
 @dataclass
 class TrialWorkflowInputs:
-    trial_id: int
+    trial_id: str
 
 
 @temporalio.workflow.defn(name="merge-queue-trial")

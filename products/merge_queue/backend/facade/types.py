@@ -7,6 +7,7 @@ surfaces, and the shadow harness import, so it carries no Django imports.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
 
 class ActorKind(StrEnum):
@@ -52,7 +53,7 @@ class SlotStatus:
     partition: str
     state: str  # SlotState value
     position: int  # 0-based index in the partition line
-    current_trial_id: int | None
+    current_trial_id: UUID | None
     projected_base_sha: str | None
 
 

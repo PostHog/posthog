@@ -13,6 +13,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from products.merge_queue.backend.temporal.activities import RecordResultInput, SuiteResult, TrialRef
 from products.merge_queue.backend.temporal.trial_workflow import TrialWorkflow, TrialWorkflowInputs
 
+_TRIAL_ID = "01900000-0000-7000-8000-000000000099"
+
 
 async def _run_workflow(*, passed: bool, failing: list[str]) -> tuple[bool, list]:
     """Drive TrialWorkflow against fake activities; return (result, ordered call log)."""
@@ -41,7 +43,7 @@ async def _run_workflow(*, passed: bool, failing: list[str]) -> tuple[bool, list
         ):
             result = await env.client.execute_workflow(
                 TrialWorkflow.run,
-                TrialWorkflowInputs(trial_id=99),
+                TrialWorkflowInputs(trial_id=_TRIAL_ID),
                 id=str(uuid.uuid4()),
                 task_queue=settings.MERGE_QUEUE_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -58,7 +60,7 @@ class TestTrialWorkflow:
         assert result is passed
         # mark running → run suite → record, in order, all for the same trial
         assert calls == [
-            ("mark", 99),
-            ("suite", 99),
-            ("record", 99, passed, failing),
+            ("mark", _TRIAL_ID),
+            ("suite", _TRIAL_ID),
+            ("record", _TRIAL_ID, passed, failing),
         ]

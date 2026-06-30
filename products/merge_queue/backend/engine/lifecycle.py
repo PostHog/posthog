@@ -17,6 +17,7 @@ currently shadow — it records, it does not act.
 
 import logging
 from collections.abc import Callable
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -49,19 +50,19 @@ from products.merge_queue.backend.shadow import ShadowGuard
 logger = logging.getLogger(__name__)
 
 # ---- injected collaborators (defaults keep the engine importable & testable) ----
-TrialLauncher = Callable[[int], None]
+TrialLauncher = Callable[[UUID], None]
 MasterHeadResolver = Callable[[str], str]
 
 _oracle = flaky.default_oracle()
 _shadow = ShadowGuard(github=None)  # currently shadow — record, don't act
 
 
-def _default_launcher(trial_id: int) -> None:
+def _default_launcher(trial_id: UUID) -> None:
     # noqa: PLC0415 — keep temporalio off the engine's import path; load it only when a
     # trial is actually dispatched (the web process imports lifecycle, not Temporal).
     from products.merge_queue.backend.temporal.client import start_trial_workflow  # noqa: PLC0415
 
-    start_trial_workflow(trial_id)
+    start_trial_workflow(str(trial_id))
 
 
 def _no_master_head(repo: str) -> str:
@@ -189,7 +190,7 @@ def start_trial(slot: Slot, strategy: Strategy, *, flaky_retried: bool = False) 
     return trial
 
 
-def on_trial_finished(trial_id: int, *, passed: bool, failing_tests: list[str] | None = None) -> None:
+def on_trial_finished(trial_id: str | UUID, *, passed: bool, failing_tests: list[str] | None = None) -> None:
     """Resolve a finished trial: green → GREEN (maybe merge); red → triage (retry or eject)."""
     trial = Trial.objects.select_related("partition").get(id=trial_id)
     slot = trial.slots.select_related("enrollment", "partition").first()

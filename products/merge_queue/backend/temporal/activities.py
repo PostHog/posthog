@@ -23,7 +23,7 @@ from products.merge_queue.backend.models import Trial, TrialState
 
 @dataclass
 class TrialRef:
-    trial_id: int
+    trial_id: str
 
 
 @dataclass
@@ -35,7 +35,7 @@ class SuiteResult:
 
 @dataclass
 class RecordResultInput:
-    trial_id: int
+    trial_id: str
     passed: bool
     failing_tests: list[str] = field(default_factory=list)
 

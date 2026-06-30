@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 
 import pytest
 
@@ -52,7 +53,8 @@ class _Cowboy:
 
 
 def _triage_input(failing: list[str]) -> TrialResult:
-    return TrialResult(trial_id=1, pr=PR, partition="default", failing_tests=failing, attempt=1, log_ref=None)
+    trial_id = UUID("01900000-0000-7000-8000-000000000001")
+    return TrialResult(trial_id=trial_id, pr=PR, partition="default", failing_tests=failing, attempt=1, log_ref=None)
 
 
 class TestDeterministicDefaults:

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 
 from products.merge_queue.backend.engine import lifecycle
@@ -11,7 +13,7 @@ class EngineEnv:
     """Installs deterministic engine collaborators and captures launched trials."""
 
     def __init__(self):
-        self.launched: list[int] = []
+        self.launched: list[UUID] = []
         self.flaky: set[str] = set()
 
     def set_flaky(self, *test_ids: str) -> None:

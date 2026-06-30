@@ -11,11 +11,11 @@ from posthog.temporal.common.client import sync_connect
 from products.merge_queue.backend.temporal.trial_workflow import TrialWorkflow, TrialWorkflowInputs
 
 
-def trial_workflow_id(trial_id: int) -> str:
+def trial_workflow_id(trial_id: str) -> str:
     return f"merge-queue-trial-{trial_id}"
 
 
-def start_trial_workflow(trial_id: int) -> None:
+def start_trial_workflow(trial_id: str) -> None:
     """Start the trial workflow without waiting for it (called from the sync engine)."""
     client = sync_connect()
     asyncio.run(
