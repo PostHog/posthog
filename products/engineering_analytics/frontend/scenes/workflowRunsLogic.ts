@@ -19,8 +19,8 @@ import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`). When the list comes back this full
-// it's almost certainly truncated, so the header labels its run rollups as "recent" rather than full-window.
+// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`). A full list is likely truncated, so
+// the header labels run rollups "recent" rather than full-window.
 const RUN_LIST_LIMIT = 200
 
 /** A workflow run mapped to the shared RunsTable shape: the RunRowBase fields the table needs, plus the
@@ -98,8 +98,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
-                // Lazy: fetched only when a run row is first expanded. Keyed by run+attempt; reads the
-                // post-await values.runJobs so two near-simultaneous first-expands don't clobber each other.
+                // Lazy: fetched only on first expand. Keyed by run+attempt; reads the post-await
+                // values.runJobs so two near-simultaneous first-expands don't clobber each other.
                 loadJobs: async ({
                     runId,
                     runAttempt,
@@ -137,8 +137,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     }),
 
     selectors({
-        // Pass props through as values so the scene reads the repo/workflow identity (for the title and
-        // links) without reaching into logic internals, and can preserve `?source=` on outbound links.
+        // Pass props through as values so the scene reads repo/workflow identity (title, links) without
+        // reaching into logic internals, and can preserve `?source=` on outbound links.
         sourceId: [() => [(_, p: WorkflowRunsLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
         repoOwner: [() => [(_, p: WorkflowRunsLogicProps) => p.repoOwner], (repoOwner): string => repoOwner],
         repoName: [() => [(_, p: WorkflowRunsLogicProps) => p.repoName], (repoName): string => repoName],
@@ -146,8 +146,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             () => [(_, p: WorkflowRunsLogicProps) => p.workflowName],
             (workflowName): string => workflowName,
         ],
-        // Runs mapped to the shared RunsTable row shape so this page reuses the same runs → jobs table the
-        // PR detail page uses.
+        // Runs mapped to the shared RunsTable row shape, reusing the same runs → jobs table the PR detail uses.
         runRows: [
             (s) => [s.runs],
             (runs: WorkflowRunDetailApi[]): WorkflowRunRow[] =>
@@ -166,8 +165,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         ],
         // Verdict + headline stats for the health strip above the chart.
         healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
-        // The runs list is capped server-side; when hit, the header's run rollups are over the most recent
-        // runs only (cost still comes from the full-window aggregate), so it labels them as such.
+        // Runs list is capped server-side; when hit, run rollups cover only the most recent runs (cost
+        // still comes from the full-window aggregate), so the header labels them as such.
         runsTruncated: [(s) => [s.runRows], (runRows): boolean => runRows.length >= RUN_LIST_LIMIT],
         // Billable minutes + estimated cost summed across runner tiers, for the strip's cost rollup.
         costSummary: [
@@ -195,7 +194,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             (repoOwner, repoName, workflowName): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

@@ -11864,6 +11864,59 @@ export namespace Schemas {
       failing_ci: number;
     }
 
+    export interface CIFailureLogLine {
+      /**
+         * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
+         * @nullable
+         */
+      original_line: number | null;
+      /** The log line text, or the omission-marker text. */
+      text: string;
+    }
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface CIJobFailureLog {
+      /** The thinned failure-log lines in original order, with omission markers. */
+      lines: CIFailureLogLine[];
+      /** GitHub Actions job id of the failed job. */
+      job_id: number;
+      /** Workflow run id the job belongs to. */
+      run_id: number;
+      /** Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs. */
+      conclusion: string;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      branch: string;
+      /** Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown. */
+      original_total_lines: number;
+      /** Number of lines returned for this job (after the per-job cap). */
+      line_count: number;
+      /** True when the job had more failure lines than the per-job cap. */
+      truncated: boolean;
+    }
+
+    export interface CIFailureLogs {
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** Failed CI jobs with their thinned failure logs, grouped by job. */
+      jobs: CIJobFailureLog[];
+      /** Pull request number the failure logs are for. */
+      pr_number: number;
+      /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
+      runs_attributed: number;
+      /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+      logs_available: boolean;
+      /** True when the overall line cap across all jobs was hit. */
+      truncated: boolean;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -12949,6 +13002,8 @@ export namespace Schemas {
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set: readonly number[];
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
     }
@@ -14025,6 +14080,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * A place that uses a custom property definition (read-only).
+     */
+    export interface CustomPropertyReference {
+      /** Id of the referring entity (e.g. the workflow id). */
+      readonly id: string;
+      /** Display name of the referring entity. */
+      readonly name: string;
+      /** Status of the referring entity (e.g. workflow status). */
+      readonly status: string;
+      /** Kind of reference. Currently always 'workflow'. */
+      readonly type: string;
+    }
+
+    /**
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
@@ -14060,6 +14129,8 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references: readonly CustomPropertyReference[];
     }
 
     /**
@@ -25056,6 +25127,7 @@ export namespace Schemas {
      * * `posthog_ticket_tags` - posthog_ticket_tags
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
+     * * `customer_analytics_account_properties` - customer_analytics_account_properties
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -25075,6 +25147,7 @@ export namespace Schemas {
       PosthogTicketTags: 'posthog_ticket_tags',
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
+      CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -30639,15 +30712,6 @@ export namespace Schemas {
       excluded_jobs: number;
     }
 
-    export interface RepoRef {
-      /** Code host provider, e.g. 'github'. */
-      provider: string;
-      /** Repository owner or organization. */
-      owner: string;
-      /** Repository name. */
-      name: string;
-    }
-
     export interface PullRequest {
       /** The pull request author. */
       author: Author;
@@ -35848,6 +35912,8 @@ export namespace Schemas {
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set?: readonly number[];
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
     }
@@ -36033,6 +36099,8 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references?: readonly CustomPropertyReference[];
     }
 
     export interface PatchedCustomerJourney {
@@ -55729,6 +55797,13 @@ export namespace Schemas {
     source_type?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
+     */
+    source_type?: string;
+    };
+
     export type EnvironmentsFileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -60283,6 +60358,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Match against cohort `name`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type CohortsPersonsRetrieveParams = {
@@ -61188,6 +61267,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsCiFailureLogsParams = {
+    /**
+     * Pull request number whose CI failure logs to fetch.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrCostParams = {
     /**
      * Pull request number to estimate cost for.
@@ -61969,6 +62063,13 @@ export namespace Schemas {
     search?: string;
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
+    export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string;
     };

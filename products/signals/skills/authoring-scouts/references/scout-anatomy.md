@@ -127,9 +127,10 @@ close-out), 3 (orient), 7 (decide), 8 (disqualifiers), and 10 (close out). Secti
 
 ## References
 
-The generalist is report-only and carries `references/report.md` (the report channel) and
-`references/conventions.md` (the four-states author/edit classifier + scratchpad vocab); the
-emit contract the signal-emitting fleet reasons in terms of lives in
+The generalist is report-only and carries `references/conventions.md` (the four-states
+author/edit classifier + scratchpad vocab); the report-channel contract itself rides in the
+harness prompt (injected into every report-channel scout), so a report scout bundles no copy of
+it. The emit contract the signal-emitting fleet reasons in terms of lives in
 [`emit-contract.md`](emit-contract.md) in this skill. For a **per-team** scout you usually don't need to bundle
 your own copies — the canonical scout already encodes the conventions inline, and your
 scout body can too. Bundle a reference only when you have genuinely surface-specific depth
