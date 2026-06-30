@@ -198,7 +198,7 @@ For complex investigations, combine multiple query types. For example, use `quer
 
 Defined group types: organization, project
 
-You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).
+You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
 Project timezone: America/New_York.
 The user's name is Jane Doe (jane@acme.com).
 

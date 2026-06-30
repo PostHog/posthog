@@ -13002,6 +13002,8 @@ export namespace Schemas {
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set: readonly number[];
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
     }
@@ -14078,6 +14080,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * A place that uses a custom property definition (read-only).
+     */
+    export interface CustomPropertyReference {
+      /** Id of the referring entity (e.g. the workflow id). */
+      readonly id: string;
+      /** Display name of the referring entity. */
+      readonly name: string;
+      /** Status of the referring entity (e.g. workflow status). */
+      readonly status: string;
+      /** Kind of reference. Currently always 'workflow'. */
+      readonly type: string;
+    }
+
+    /**
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
@@ -14113,6 +14129,8 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references: readonly CustomPropertyReference[];
     }
 
     /**
@@ -17928,11 +17946,11 @@ export namespace Schemas {
      */
     export interface SuggestedReviewer {
       /**
-         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.
+         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
+      /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
     }
 
@@ -20060,6 +20078,11 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /**
+         * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
     }
 
     /**
@@ -20072,6 +20095,8 @@ export namespace Schemas {
       window_days: number;
       /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
+      /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+      other_enabled_scanners_monthly: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -23750,6 +23775,22 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     */
+    export interface FleetFindingsSummary {
+      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      count: number;
+      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      scout_count: number;
+      /**
+         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * @nullable
+         */
+      latest_at: string | null;
+    }
+
     export interface FolderInstructions {
       /** Unique identifier for this instructions version. */
       readonly id: string;
@@ -25093,6 +25134,7 @@ export namespace Schemas {
      * * `posthog_ticket_tags` - posthog_ticket_tags
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
+     * * `customer_analytics_account_properties` - customer_analytics_account_properties
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -25112,6 +25154,7 @@ export namespace Schemas {
       PosthogTicketTags: 'posthog_ticket_tags',
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
+      CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -30560,6 +30603,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -30576,6 +30620,7 @@ export namespace Schemas {
 
 
     export const OriginProductEnum = {
+      Onboarding: 'onboarding',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -35876,6 +35921,8 @@ export namespace Schemas {
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set?: readonly number[];
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
     }
@@ -36061,6 +36108,8 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references?: readonly CustomPropertyReference[];
     }
 
     export interface PatchedCustomerJourney {
@@ -41240,6 +41289,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -51831,6 +51881,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -60318,6 +60369,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Match against cohort `name`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type CohortsPersonsRetrieveParams = {
@@ -65399,6 +65454,15 @@ export namespace Schemas {
      * @minLength 1
      */
     skill_name?: string;
+    };
+
+    export type SignalsScoutRunsFindingsSummaryParams = {
+    /**
+     * Lookback window in hours over runs' `created_at` (default 72, hard cap 168).
+     * @minimum 1
+     * @maximum 168
+     */
+    window_hours?: number;
     };
 
     export type SignalsScoutScratchpadSearchParams = {
