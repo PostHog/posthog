@@ -18,6 +18,7 @@ Do NOT:
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
+from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
@@ -46,6 +47,7 @@ from products.customer_analytics.backend.models import (
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
+    CustomPropertySource,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -784,6 +786,105 @@ def delete_custom_property_definition(
     )
     definition.delete()
     return True
+
+
+# --- CustomPropertySource ---
+
+
+class CustomPropertySourceValidationError(Exception):
+    """Raised when a source's saved_query isn't a usable view for the team, or the definition is
+    already source-backed (→ 400)."""
+
+
+def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.CustomPropertySourceView:
+    return contracts.CustomPropertySourceView(
+        id=source.id,
+        definition=source.definition_id,
+        saved_query=source.saved_query_id,
+        source_column=source.source_column,
+        key_column=source.key_column,
+        is_enabled=source.is_enabled,
+        consecutive_failures=source.consecutive_failures,
+        last_synced_at=source.last_synced_at,
+        last_sync_error=source.last_sync_error,
+        created_at=source.created_at,
+        created_by=source.created_by_id,
+        updated_at=source.updated_at,
+    )
+
+
+def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
+    """Whether the saved query exists for this team and isn't soft-deleted. Uses ``apps.get_model`` so
+    customer_analytics never imports data_modeling (which isn't a dependency)."""
+    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+    return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
+
+
+def list_custom_property_sources(
+    team_id: int, offset: int, limit: int
+) -> tuple[list[contracts.CustomPropertySourceView], int]:
+    """Custom-property sources for the team, newest first. Returns ``(page, total_count)``."""
+    queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_custom_property_source_view(s) for s in page], total_count
+
+
+def get_custom_property_source(team_id: int, source_id: str) -> contracts.CustomPropertySourceView | None:
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    return _to_custom_property_source_view(source) if source is not None else None
+
+
+def create_custom_property_source(
+    *,
+    team_id: int,
+    definition_id: str | UUID,
+    saved_query_id: str | UUID,
+    source_column: str,
+    key_column: str,
+    is_enabled: bool,
+    user: "User",
+) -> contracts.CustomPropertySourceView:
+    if not _saved_query_belongs_to_team(team_id, saved_query_id):
+        raise CustomPropertySourceValidationError("Saved query not found for this team.")
+    try:
+        source = CustomPropertySource.objects.for_team(team_id).create(
+            team_id=team_id,
+            created_by=user,
+            definition_id=definition_id,
+            saved_query_id=saved_query_id,
+            source_column=source_column,
+            key_column=key_column,
+            is_enabled=is_enabled,
+        )
+    except IntegrityError:
+        raise CustomPropertySourceValidationError("This custom property already has a source.")
+    return _to_custom_property_source_view(source)
+
+
+def update_custom_property_source(
+    *, team_id: int, source_id: str, fields: dict[str, Any]
+) -> contracts.CustomPropertySourceView | None:
+    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
+    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
+    when no source matches."""
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    if source is None:
+        return None
+    reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    for attr, value in fields.items():
+        setattr(source, attr, value)
+    if reenabling:
+        source.consecutive_failures = 0
+        source.last_sync_error = None
+    source.save()
+    return _to_custom_property_source_view(source)
+
+
+def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
+    """Delete a team-scoped source. Returns False when none matched (→ 404)."""
+    deleted, _ = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).delete()
+    return deleted > 0
 
 
 # --- CustomerJourney ---

@@ -34,6 +34,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
+    CustomPropertySourceView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -315,6 +316,78 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
         ]
+
+
+class CustomPropertySourceSerializer(DataclassSerializer):
+    """Binds a materialized data-warehouse view column to a custom property definition; the view's
+    values are synced onto matching accounts on each materialization."""
+
+    id = serializers.UUIDField(read_only=True)
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition this source feeds. One source per definition."
+    )
+    saved_query = serializers.UUIDField(
+        help_text="UUID of the data-warehouse saved query (materialized view) to read values from."
+    )
+    source_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the source syncs. Auto-disabled after repeated failures or a missing view; "
+            "re-enabling resets the failure count."
+        ),
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True, help_text="Consecutive failed sync runs; the source auto-disables at the cap."
+    )
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent sync run finished."
+    )
+    last_sync_error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary from the last run, or null if it succeeded."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertySourceView
+        ref_name = "CustomPropertySource"
+        fields = [
+            "id",
+            "definition",
+            "saved_query",
+            "source_column",
+            "key_column",
+            "is_enabled",
+            "consecutive_failures",
+            "last_synced_at",
+            "last_sync_error",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class CustomPropertySourceUpdateSerializer(serializers.Serializer):
+    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+    they are intentionally absent — only these reach the facade's update."""
+
+    source_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."
+    )
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
