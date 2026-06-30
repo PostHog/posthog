@@ -8,32 +8,44 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 const HOGFUNCTION_METRIC_KEYS = ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'] as const
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
         description: 'Total number of events processed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failure',
         description: 'Total number of events that had errors during processing',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     filtered: {
         name: 'Filtered',
         description: 'Total number of events that were filtered out',
-        color: getColorVar('muted'),
+        get color() {
+            return getColorVar('muted')
+        },
     },
     disabled_permanently: {
         name: 'Disabled',
         description:
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     quota_limited: {
         name: 'Quota Limited',
         description: 'Total number of invocations blocked due to quota limits',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
 }
 

@@ -34,16 +34,22 @@ const SECTION_LABELS: Record<WebhookSection, string> = {
 
 const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Received',
         description: 'Total number of webhook events received and processed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failed',
         description: 'Total number of webhook events that had errors during processing',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
 }
 

@@ -10,26 +10,36 @@ export const DATA_WAREHOUSE_APP_SOURCE = 'warehouse_source_sync'
 
 const DATA_WAREHOUSE_METRIC_KEYS = ['succeeded', 'failed', 'billing_limited', 'rows_synced'] as const
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 const DATA_WAREHOUSE_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Successful syncs',
         description: 'Total number of sync jobs that completed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failed syncs',
         description: 'Total number of sync jobs that failed',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     billing_limited: {
         name: 'Billing limited',
         description: 'Total number of sync jobs blocked due to billing limits',
-        color: getColorVar('warning'),
+        get color() {
+            return getColorVar('warning')
+        },
     },
     rows_synced: {
         name: 'Rows synced',
         description: 'Total number of rows imported from the source',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
 }
 
