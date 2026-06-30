@@ -15,9 +15,10 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql.direct_sql.snowflake_adapter import validate_snowflake_account_id
 from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
