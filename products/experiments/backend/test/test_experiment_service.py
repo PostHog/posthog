@@ -5672,3 +5672,20 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
         )
         assert experiment.metrics is not None
         assert len(experiment.metrics) == 1
+
+    def test_attaching_saved_metric_on_restricted_table_is_denied(self):
+        # A saved metric on the denied table (authored by someone with access) can't be smuggled in
+        # by attaching it via saved_metrics_ids.
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="DW saved metric",
+            query=self._dw_metric(),
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW via saved metric",
+                feature_flag_key="dw-saved",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )

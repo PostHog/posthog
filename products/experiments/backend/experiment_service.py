@@ -766,7 +766,12 @@ class ExperimentService:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
         enforce_warehouse_metric_access(
-            [*(metrics or []), *(metrics_secondary or []), *(secondary_metrics or [])],
+            [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *(secondary_metrics or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
             team=self.team,
             user=self.user,
         )
@@ -1086,6 +1091,20 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
+        """Query definitions of the attached saved metrics, so their tables get the same warehouse
+        access check as inline metrics."""
+        if not saved_metrics_ids:
+            return []
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return []
+        return [
+            sm.query
+            for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
+            if sm.query
+        ]
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -2037,7 +2056,11 @@ class ExperimentService:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
 
         enforce_warehouse_metric_access(
-            [*(update_data.get("metrics") or []), *(update_data.get("metrics_secondary") or [])],
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
             team=self.team,
             user=self.user,
         )
