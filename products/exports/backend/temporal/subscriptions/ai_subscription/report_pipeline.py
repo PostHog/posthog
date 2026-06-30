@@ -68,9 +68,15 @@ QUERY_FAILED_PREFIX = "Query failed to run"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
-# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
+# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently, bounded by
+# _MAX_CONCURRENT_STEPS.
 _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
+
+# The planner may emit up to MAX_QUERY_PLAN_STEPS steps; bound how many run their ClickHouse query at
+# once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
+# queue and run as slots free up — every step still executes.
+_MAX_CONCURRENT_STEPS = 5
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
 # failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
@@ -258,6 +264,8 @@ async def _run_steps(
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
+    # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
+    step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
 
     # Scale each step's result cap so the combined results stay within the synthesis budget even at the
     # max plan size; a small plan still gets the full per-step backstop.
@@ -333,7 +341,12 @@ async def _run_steps(
             QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
         )
 
-    step_results = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+        # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
+        async with step_semaphore:
+            return await run_step(step)
+
+    step_results = await asyncio.gather(*(run_step_bounded(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
     diagnostics = [diag for _, diag in step_results]
     failed_count = sum(1 for diag in diagnostics if not diag.ok)

@@ -53,7 +53,8 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
 
     # Combined into a single test method: NonAtomicBaseTest doesn't roll back Postgres state
     # between test methods in the same class, so per-method org/membership creates collide.
-    # Two assertions in one test gives reliable isolation while keeping both flows covered.
+    # Three scenarios in one test keep that isolation while covering the happy, degrade, and
+    # first-ever-per-user flows.
     @patch(f"{_RP}.MaxChatOpenAI")
     @patch(f"{_RP}.build_enriched_prompt")
     async def test_real_hogql_flows_into_synthesis_and_invalid_hogql_degrades(
