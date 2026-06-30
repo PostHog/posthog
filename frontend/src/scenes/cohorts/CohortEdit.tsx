@@ -562,7 +562,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 onClick={() => {
                                                     downloadFile(
                                                         new File(
-                                                            ['distinct_id,email\nexample_id,example@posthog.com'],
+                                                            ['example_distinct_id_1\nexample_distinct_id_2'],
                                                             'posthog_cohort_template.csv',
                                                             { type: 'text/csv' }
                                                         )
