@@ -554,6 +554,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_check_query",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_error_classifier",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
