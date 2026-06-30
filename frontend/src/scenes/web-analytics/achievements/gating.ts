@@ -1,10 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { UserType } from '~/types'
-
-export function isWebAnalyticsAchievementsEnabled(featureFlags: FeatureFlagsSet, user?: UserType | null): boolean {
-    if (user?.web_analytics_achievements_opt_out) {
+export function isWebAnalyticsAchievementsEnabled(featureFlags: FeatureFlagsSet, optedOut?: boolean): boolean {
+    if (optedOut) {
         return false
     }
     return (

@@ -1884,7 +1884,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'web-analytics-achievements',
                 title: 'Web analytics achievements',
-                description: 'Show playful achievement badges and streaks on the Web analytics dashboard.',
+                description:
+                    'Show playful achievement badges and streaks on the Web analytics dashboard. Applies to your current project.',
                 component: <WebAnalyticsAchievementsSetting />,
                 flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
                 keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],

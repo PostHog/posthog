@@ -21,7 +21,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import type {
     AchievementDefinitionApi,
@@ -31,6 +30,7 @@ import type {
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [
@@ -454,8 +454,8 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
 
 export function WebAnalyticsAchievementsModal(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
-    if (!isWebAnalyticsAchievementsEnabled(featureFlags, user)) {
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
+    if (!isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)) {
         return null
     }
     return <WebAnalyticsAchievementsModalInner />

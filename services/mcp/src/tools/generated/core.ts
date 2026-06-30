@@ -577,9 +577,6 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
         }
-        if (params.web_analytics_achievements_opt_out !== undefined) {
-            body['web_analytics_achievements_opt_out'] = params.web_analytics_achievements_opt_out
-        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,

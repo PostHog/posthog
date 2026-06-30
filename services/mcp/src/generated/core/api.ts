@@ -858,8 +858,4 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
-    web_analytics_achievements_opt_out: zod
-        .boolean()
-        .optional()
-        .describe('When true, the user has opted out of the Web analytics achievements gamification UI.'),
 })

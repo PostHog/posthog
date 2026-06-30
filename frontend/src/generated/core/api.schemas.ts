@@ -3383,8 +3383,6 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** When true, the user has opted out of the Web analytics achievements gamification UI. */
-    web_analytics_achievements_opt_out?: boolean
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3487,8 +3485,6 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** When true, the user has opted out of the Web analytics achievements gamification UI. */
-    web_analytics_achievements_opt_out?: boolean
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null

@@ -260,13 +260,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
-    web_analytics_achievements_opt_out = models.BooleanField(
-        default=False,
-        db_default=False,
-        null=False,
-        blank=False,
-        help_text="When true, the user has opted out of the Web analytics achievements gamification UI.",
-    )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
     ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices

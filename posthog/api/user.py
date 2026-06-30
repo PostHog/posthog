@@ -297,7 +297,6 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
-            "web_analytics_achievements_opt_out",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",
@@ -912,7 +911,6 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
-        "web_analytics_achievements_opt_out",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
