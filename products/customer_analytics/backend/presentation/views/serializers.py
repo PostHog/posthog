@@ -34,6 +34,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
+    CustomPropertyReference,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -265,6 +266,20 @@ class AccountNotebookSerializer(DataclassSerializer):
         ]
 
 
+class CustomPropertyReferenceSerializer(DataclassSerializer):
+    """A place that uses a custom property definition (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="Id of the referring entity (e.g. the workflow id).")
+    name = serializers.CharField(read_only=True, help_text="Display name of the referring entity.")
+    status = serializers.CharField(read_only=True, help_text="Status of the referring entity (e.g. workflow status).")
+    type = serializers.CharField(read_only=True, help_text="Kind of reference. Currently always 'workflow'.")
+
+    class Meta:
+        dataclass = CustomPropertyReference
+        ref_name = "CustomPropertyReference"
+        fields = ["id", "name", "status", "type"]
+
+
 class CustomPropertyDefinitionSerializer(DataclassSerializer):
     """A team-scoped definition of a custom account property — the attribute side of the model.
 
@@ -299,6 +314,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    references = CustomPropertyReferenceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Workflows that use this property, resolved by definition id.",
+    )
 
     class Meta:
         dataclass = CustomPropertyDefinitionView
@@ -314,6 +334,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "references",
         ]
 
 
