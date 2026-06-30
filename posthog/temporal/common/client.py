@@ -101,7 +101,7 @@ async def async_connect_with_retries(
         # Transport-level connect failures (DNS lookup failures, connection refused) surface
         # as RuntimeError from the SDK Core bridge, or OSError from the socket layer.
         retry=tenacity.retry_if_exception_type((RuntimeError, OSError)),
-        before_sleep=tenacity.before_sleep_log(logger, logging.WARNING),  # type: ignore[arg-type]
+        before_sleep=tenacity.before_sleep_log(logger, logging.WARNING),
         reraise=True,
     ):
         with attempt:

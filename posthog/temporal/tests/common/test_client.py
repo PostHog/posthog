@@ -7,8 +7,6 @@ from posthog.temporal.common.client import async_connect_with_retries
 
 pytestmark = pytest.mark.asyncio
 
-NO_WAIT = {"initial_interval_seconds": 0.0, "max_interval_seconds": 0.0}
-
 
 @parameterized.expand(
     [
@@ -21,7 +19,7 @@ async def test_async_connect_with_retries_recovers_from_transient_failure(_name,
     connect_mock = AsyncMock(side_effect=[transient_error, transient_error, sentinel])
 
     with patch("posthog.temporal.common.client.async_connect", connect_mock):
-        client = await async_connect_with_retries(**NO_WAIT)
+        client = await async_connect_with_retries(initial_interval_seconds=0.0, max_interval_seconds=0.0)
 
     assert client is sentinel
     assert connect_mock.await_count == 3
@@ -32,7 +30,7 @@ async def test_async_connect_with_retries_reraises_after_max_attempts():
 
     with patch("posthog.temporal.common.client.async_connect", connect_mock):
         with pytest.raises(RuntimeError, match="failed to lookup address information"):
-            await async_connect_with_retries(max_attempts=3, **NO_WAIT)
+            await async_connect_with_retries(max_attempts=3, initial_interval_seconds=0.0, max_interval_seconds=0.0)
 
     assert connect_mock.await_count == 3
 
@@ -42,6 +40,6 @@ async def test_async_connect_with_retries_does_not_retry_unexpected_error():
 
     with patch("posthog.temporal.common.client.async_connect", connect_mock):
         with pytest.raises(ValueError, match="bad config"):
-            await async_connect_with_retries(**NO_WAIT)
+            await async_connect_with_retries(initial_interval_seconds=0.0, max_interval_seconds=0.0)
 
     assert connect_mock.await_count == 1
