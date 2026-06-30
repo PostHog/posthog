@@ -39,6 +39,18 @@ pub struct LifecycleHandles {
 }
 
 pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) -> LifecycleHandles {
+    // S3 fallback and AI secondary routing both contend for the single gating
+    // sink handle, and only one can own it. Enabling both leaves one cluster's
+    // producer unmonitored while the pod's liveness gates on an idle sink — refuse
+    // to start rather than silently watch the wrong cluster.
+    let ai_secondary_routing =
+        config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
+    assert!(
+        !(config.s3_fallback_enabled && ai_secondary_routing),
+        "invalid configuration: S3_FALLBACK_ENABLED cannot be combined with AI secondary routing (AI_SINK_MODE={:?}); enable at most one",
+        config.ai_sink_mode,
+    );
+
     let server = manager.register(
         "server",
         lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
@@ -630,6 +642,30 @@ mod tests {
             msg.contains("msk"),
             "error should name the failing sink: {msg}"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "S3_FALLBACK_ENABLED cannot be combined with AI secondary routing")]
+    fn register_components_rejects_s3_fallback_with_ai_secondary() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("S3_FALLBACK_ENABLED", "true"),
+            ("AI_SINK_MODE", "secondary"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        register_components(&mut manager, &config);
     }
 
     #[test]
