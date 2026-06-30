@@ -436,7 +436,8 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BloggerSourceConfig(config.Config):
-    pass
+    api_key: str
+    blog_id: str
 
 
 @config.config
@@ -551,7 +552,8 @@ class CampaignMonitorSourceConfig(config.Config):
 
 @config.config
 class CampaynSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1169,7 +1171,8 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FleetioSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_token: str
 
 
 @config.config

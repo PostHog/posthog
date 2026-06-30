@@ -62,6 +62,7 @@ the row lists both.
 | bigmailer           | HTTP                        | requests                                                        | ✅                          |
 | bigquery            | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads            | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
@@ -71,6 +72,7 @@ the row lists both.
 | buildkite           | HTTP                        | requests                                                        | ✅                          |
 | calendly            | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor    | HTTP                        | requests                                                        | ✅                          |
+| campayn             | HTTP                        | requests                                                        | ✅                          |
 | canny               | HTTP                        | requests                                                        | ✅                          |
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
@@ -120,6 +122,7 @@ the row lists both.
 | financial_modelling | HTTP                        | requests                                                        | ✅                          |
 | finnhub             | HTTP                        | requests                                                        | ✅                          |
 | finnworlds          | HTTP                        | requests                                                        | ✅                          |
+| fleetio             | HTTP                        | requests                                                        | ✅                          |
 | front               | HTTP                        | requests                                                        | ✅                          |
 | fullstory           | HTTP                        | requests                                                        | ✅                          |
 | github              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -319,7 +322,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- blogger
 - bluetally
 - boldsign
 - box
@@ -332,7 +334,6 @@ doesn't conflict with concurrent PRs.
 - cal_com
 - callrail
 - campaign_manager_360
-- campayn
 - capsule_crm
 - captain_data
 - care_quality_commission
@@ -398,7 +399,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - firebolt
 - firehydrant
-- fleetio
 - flexmail
 - flexport
 - float_app
