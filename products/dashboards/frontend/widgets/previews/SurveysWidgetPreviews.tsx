@@ -7,6 +7,12 @@ const SAMPLE_SURVEY = {
     conversionRate: 22.83,
 }
 
+const SAMPLE_QUESTION = 'How was your checkout experience?'
+const SAMPLE_RESPONSES = [
+    { person: 'jordan@acme.com', answer: 'Fast and easy, no complaints!' },
+    { person: 'sam@example.com', answer: 'Wish there were more payment options.' },
+]
+
 export function SurveyResultsWidgetPreview(): JSX.Element {
     return (
         <div className="pointer-events-none flex flex-col gap-2 p-2 shadow-sm">
@@ -30,6 +36,16 @@ export function SurveyResultsWidgetPreview(): JSX.Element {
                     >
                         <div className="text-2xs font-semibold uppercase tracking-wide text-muted">{item.title}</div>
                         <div className="text-lg font-semibold leading-tight">{item.value}</div>
+                    </div>
+                ))}
+            </div>
+            <div className="flex flex-col gap-2">
+                <h5 className="m-0 text-2xs font-semibold uppercase tracking-wide text-muted">Recent responses</h5>
+                {SAMPLE_RESPONSES.map((response) => (
+                    <div key={response.person} className="flex flex-col gap-1 rounded border p-2">
+                        <span className="truncate text-xs font-medium text-primary">{response.person}</span>
+                        <span className="text-xs text-muted">Q: {SAMPLE_QUESTION}</span>
+                        <span className="text-sm text-primary">{response.answer}</span>
                     </div>
                 ))}
             </div>
