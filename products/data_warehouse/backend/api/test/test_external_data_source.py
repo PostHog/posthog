@@ -6445,19 +6445,21 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
-    def test_get_wizard_sources_filtered_by_source_type(self):
-        all_sources = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard").json()
-        assert len(all_sources) > 2  # sanity: unfiltered returns the full catalog
-
-        single = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=Stripe")
-        assert single.status_code == 200
-        assert set(single.json().keys()) == {"Stripe"}
-
-        multi = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=Stripe,Postgres"
-        )
-        assert multi.status_code == 200
-        assert set(multi.json().keys()) == {"Stripe", "Postgres"}
+    @parameterized.expand(
+        [
+            # name, query string, expected source-type keys (None = unfiltered, expect full catalog)
+            ("unfiltered", "", None),
+            ("single_type", "?source_type=Stripe", {"Stripe"}),
+            ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+        ]
+    )
+    def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 200
+        if expected_keys is None:
+            assert len(response.json()) > 2  # sanity: unfiltered returns the full catalog
+        else:
+            assert set(response.json().keys()) == expected_keys
 
     def test_get_wizard_sources_unknown_source_type_returns_400(self):
         response = self.client.get(

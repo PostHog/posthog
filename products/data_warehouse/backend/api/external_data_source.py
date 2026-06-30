@@ -1244,7 +1244,7 @@ def _unresolved_secret_ref_response(payload: Any) -> Response | None:
         data={
             "message": (
                 f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
-                "`{{'secretRef': ...}}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+                "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
                 "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
                 "the resulting credential_id instead)."
             )
