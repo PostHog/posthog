@@ -543,9 +543,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 },
                 groups=groups(None, instance.team),
             )
-        except Exception:
+        except Exception as e:
             # Telemetry must never block the update.
-            capture_exception()
+            capture_exception(e)
 
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
