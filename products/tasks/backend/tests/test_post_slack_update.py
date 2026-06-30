@@ -282,6 +282,7 @@ class TestPostSlackUpdate(TestCase):
             reply_target_slack_user_id=None,
         )
 
+    @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
@@ -292,12 +293,15 @@ class TestPostSlackUpdate(TestCase):
         mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
+        mock_delete_progress,
     ):
         # Regression: when the same ``pr_url`` was already announced mid-run,
         # the COMPLETED-state Slack update must not fire a second card. The
         # follow-up loop can keep the workflow alive long after the user's
         # conversation ended, and a fresh card hours later reads as a
-        # duplicate of the original.
+        # duplicate of the original. The dedupe-skip path must still clear
+        # any lingering progress marker so the thread doesn't keep a stale
+        # "Working on task..." card next to the already-posted PR card.
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.COMPLETED,
             output={"pr_url": "https://github.com/org/repo/pull/1"},
@@ -312,6 +316,7 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened.assert_not_called()
+        mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -351,6 +356,7 @@ class TestPostSlackUpdate(TestCase):
             },
         )
 
+    @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
@@ -361,6 +367,7 @@ class TestPostSlackUpdate(TestCase):
         mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
+        mock_delete_progress,
     ):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.COMPLETED,
@@ -379,7 +386,9 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened.assert_not_called()
+        mock_delete_progress.assert_called_once()
 
+    @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
@@ -390,6 +399,7 @@ class TestPostSlackUpdate(TestCase):
         mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
+        mock_delete_progress,
     ):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.COMPLETED,
@@ -411,6 +421,7 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened.assert_not_called()
+        mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -510,12 +521,15 @@ class TestPostSlackUpdate(TestCase):
             mock_task_run_class.objects.select_related.return_value.get.return_value = run
             post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
             handler_mock.assert_called_once()
-            # ``task_url`` is always the trailing positional argument on every
-            # handler signature; passing ``None`` is the contract for "no access".
-            assert (
-                handler_mock.call_args.args[-1] is None
-                or handler_mock.call_args.kwargs.get("reply_target_slack_user_id") is None
+            # ``task_url`` is the second positional argument on ``post_pr_opened``
+            # and the trailing positional argument on every other handler — the
+            # contract is "no access ⇒ this argument is ``None``".
+            task_url_arg = (
+                handler_mock.call_args.args[1]
+                if handler_mock is mock_post_pr_opened
+                else handler_mock.call_args.args[-1]
             )
+            assert task_url_arg is None
 
         mock_post_pr_opened.reset_mock()
         cleaned_with_pr = self._make_mock_run(
