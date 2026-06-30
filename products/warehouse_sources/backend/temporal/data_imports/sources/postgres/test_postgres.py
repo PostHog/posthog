@@ -305,6 +305,10 @@ class TestPostgresSourceNonRetryableErrors:
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
+            # The socket-level variant of the same TLS drop (network blip / idle cull mid-stream). It
+            # triggers the offset-chunking recovery and must stay retryable — only the reconnect wall it
+            # can hit on a hot-standby-disabled replica is non-retryable (see the permanent cases below).
+            "consuming input failed: SSL SYSCALL error: EOF detected",
             "the connection is lost",
         ],
     )
@@ -334,6 +338,10 @@ class TestPostgresSourceNonRetryableErrors:
             # Manager), not PostgreSQL's "password authentication failed for user". Newlines are
             # normalized to spaces upstream, so the real message arrives as the doubled single line.
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong. connection to server at "127.0.0.1", port 35425 failed: FATAL:  This RDS Proxy requires TLS connections',
+            # A read replica started with `hot_standby = off` refuses every connection (SQLSTATE 57P03).
+            # Newlines are normalized to spaces upstream, so the FATAL/DETAIL pair arrives on one line.
+            # Permanent until the replica's config changes or it's promoted — must not keep retrying.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  the database system is not accepting connections DETAIL:  Hot standby mode is disabled.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
