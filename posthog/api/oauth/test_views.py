@@ -3916,6 +3916,10 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotEqual(refreshed["refresh_token"], original["refresh_token"])
         self.assertEqual(refreshed["expires_in"], 60 * 60 * 24 * 7)
 
+        refreshed_access_token = OAuthAccessToken.objects.get(token=refreshed["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        self.assertLess(abs((refreshed_access_token.expires - expected_expiry).total_seconds()), 60)
+
 
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
