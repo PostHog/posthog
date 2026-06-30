@@ -37,6 +37,11 @@ _SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
 WIZARD_OUTPUT_DIR = "/tmp/wizard-cloud-run"
 WIZARD_OUTPUT_LOG_PATH = f"{WIZARD_OUTPUT_DIR}/wizard-output.log"
 
+# The wizard's own verbose log — agent-level detail beyond stdout (e.g. which URL a failed API call
+# hit). Fixed path inside the wizard (its src/utils/paths.ts: WIZARD_LOG_FILE). Lives only in the
+# sandbox filesystem, so it's lost once the sandbox is torn down — we surface it in DEBUG below.
+WIZARD_VERBOSE_LOG_PATH = "/tmp/posthog-wizard.log"
+
 
 @dataclass
 class RunWizardInput:
@@ -117,6 +122,17 @@ def run_wizard(input: RunWizardInput) -> None:
         # still leaves a record on disk for post-mortems.
         sandbox.execute(f"mkdir -p {shlex.quote(WIZARD_OUTPUT_DIR)}")
         sandbox.write_file(WIZARD_OUTPUT_LOG_PATH, _format_wizard_output(result).encode("utf-8"))
+
+        if settings.DEBUG:
+            # Pull the wizard's verbose log out of the sandbox before the workflow tears it down, so a
+            # failed local run stays debuggable from the run's console log (it never reaches object
+            # storage otherwise). `|| true` keeps a missing file — wizard exited before writing one —
+            # from erroring the activity.
+            verbose = sandbox.execute(f"cat {shlex.quote(WIZARD_VERBOSE_LOG_PATH)} 2>/dev/null || true")
+            if verbose.stdout.strip():
+                emit_agent_log(
+                    ctx.run_id, "debug", f"wizard verbose log ({WIZARD_VERBOSE_LOG_PATH}):\n{verbose.stdout}"
+                )
 
         if result.stdout:
             emit_agent_log(ctx.run_id, "debug", result.stdout)
