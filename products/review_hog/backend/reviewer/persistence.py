@@ -4,13 +4,13 @@ Postgres is the single source of truth for a review. Each stage passes its outpu
 within one run and persists them as rows; the DB-driven resume reads those rows back so a re-run
 (or a future Temporal activity on another worker) skips completed sandbox work. There is no
 on-disk store. Resume is head_sha-scoped and covers the turn-stable sandbox stages — chunk_set /
-chunk_analysis / perspective_result; dedup and validation recompute on a re-run because their
-post-dedup issue set (and thus the per-issue ids) isn't stable across runs.
+perspective_result; dedup recomputes on a re-run because its post-dedup issue set (and thus the
+per-issue ids) isn't stable across runs, while validation resumes per issue off its persisted verdicts.
 
 Durable rows this layer writes:
 
-- per-turn pipeline working state — `chunk_set` / `chunk_analysis` / `perspective_result` artefacts,
-  each tagged with the turn's `head_sha` so resume reuses only the current head's work,
+- per-turn pipeline working state — `chunk_set` / `perspective_result` artefacts, each tagged with
+  the turn's `head_sha` so resume reuses only the current head's work,
 - the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
   `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
@@ -33,7 +33,6 @@ from pydantic import ValidationError
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
-    ChunkAnalysisArtefact,
     ChunkSetArtefact,
     PerspectiveResultArtefact,
     PRSnapshotArtefact,
@@ -42,7 +41,6 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
@@ -132,7 +130,7 @@ def persist_commit_snapshot(
     return True
 
 
-# --- Per-turn working state (chunks / analyses / perspective results) ------------------------------
+# --- Per-turn working state (chunk set / perspective results / PR snapshot) ------------------------
 #
 # These back the DB-driven resume. Each row carries the turn's `head_sha`; the load helpers return
 # only the rows for the requested head, latest-wins per key, so a resumed run reuses completed
@@ -156,29 +154,6 @@ def load_chunk_set(*, team_id: int, report_id: str, head_sha: str) -> ChunksList
         assert isinstance(content, ChunkSetArtefact)
         latest = content
     return ChunksList(chunks=latest.chunks) if latest is not None else None
-
-
-def persist_chunk_analyses(*, team_id: int, report_id: str, head_sha: str, analyses: dict[int, ChunkAnalysis]) -> None:
-    """Append one `chunk_analysis` artefact per chunk analysed this turn."""
-    if not analyses:
-        return
-    with transaction.atomic():
-        for chunk_id, analysis in analyses.items():
-            ReviewReportArtefact.add_working_state(
-                team_id=team_id,
-                report_id=report_id,
-                content=ChunkAnalysisArtefact(head_sha=head_sha, chunk_id=chunk_id, analysis=analysis),
-                attribution=ArtefactAttribution.system(),
-            )
-
-
-def load_chunk_analyses(*, team_id: int, report_id: str, head_sha: str) -> dict[int, ChunkAnalysis]:
-    """The chunk analyses already computed for this turn, keyed by chunk id (latest wins)."""
-    out: dict[int, ChunkAnalysis] = {}
-    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.CHUNK_ANALYSIS, head_sha):
-        assert isinstance(content, ChunkAnalysisArtefact)
-        out[content.chunk_id] = content.analysis
-    return out
 
 
 def persist_perspective_results(
@@ -384,6 +359,40 @@ def load_valid_findings(
         if verdict is not None and verdict.is_valid:
             pairs.append((finding, verdict))
     return pairs
+
+
+def load_run_validations(
+    *, team_id: int, report_id: str, run_index: int, issues: list[Issue]
+) -> dict[str, IssueValidation]:
+    """This turn's persisted verdicts for `issues`, keyed by live issue id (latest-wins per `issue_key`).
+
+    Reconstructs `IssueValidation` from each `ValidationVerdict` (lossless). The validator uses it to
+    skip already-judged issues; the body renderer uses it to read verdicts from the DB (what publish
+    reads too). `run_index` is baked into the `issue_key`, so it scopes to this turn; unjudged issues
+    are absent.
+    """
+    verdicts: dict[str, ValidationVerdict] = {}
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT)
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable validation_verdict artefact %s: %s", row.id, e)
+            continue
+        assert isinstance(content, ValidationVerdict)
+        verdicts[content.issue_key] = content
+    out: dict[str, IssueValidation] = {}
+    for issue in issues:
+        verdict = verdicts.get(_issue_key(issue, run_index))
+        if verdict is not None:
+            out[issue.id] = IssueValidation(
+                is_valid=verdict.is_valid, argumentation=verdict.argumentation, category=verdict.category
+            )
+    return out
 
 
 def load_prior_findings(*, team_id: int, report_id: str, before_run_index: int) -> list[ReviewIssueFinding]:

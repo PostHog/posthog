@@ -42,3 +42,22 @@ def build_validation_prompt(
         VALIDATION_SKILL_NAME=skill_name,
         VALIDATION_SKILL_VERSION=skill_version,
     )
+
+
+def build_validation_followup_prompt(*, issue: Issue, pr_files: list[PRFile]) -> str:
+    """Render a lean follow-up turn validating the next issue in the same warm chunk session.
+
+    The session already holds the chunk/PR context and the validation skill, so this sends only the
+    new issue + a reminder to reuse the same criteria and schema. `pr_files` is the issue's own file.
+    """
+    _template, schema = load_template_and_schema("issue_validation")
+    claude_code_context = prepare_code_context([issue.file], pr_files) if issue.file else ""
+    return (
+        f"{claude_code_context}\n\n"
+        "Now validate the NEXT suggested issue from this same chunk. Apply the exact same validation "
+        "criteria you already loaded (do not re-fetch the skill) and investigate the codebase as before. "
+        "DO NOT implement fixes, ONLY assess the issue.\n\n"
+        f"```\n{issue.model_dump_json(indent=2)}\n```\n\n"
+        "Return ONLY a JSON object conforming to the same schema as your previous answer:\n\n"
+        f"```json\n{schema.strip()}\n```"
+    )

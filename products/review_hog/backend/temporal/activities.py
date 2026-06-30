@@ -7,10 +7,11 @@ reloads them from the `pr_snapshot` artefact by `(report_id, head_sha)`. Nothing
 diff, perspective results) ever crosses the workflow boundary, so the Temporal ~2 MiB payload cap is
 respected and the sandbox fan-out stays by-reference.
 
-Sandbox-turn activities (chunk / analyze / review / validate / dedup) call `run_sandbox_review`,
-which spins a single-turn agent (minutes), so they declare a `heartbeat_timeout` on dispatch and
-heartbeat via `Heartbeater()`. ORM access goes through `database_sync_to_async(..., thread_sensitive=
-False)`; `@scoped_temporal()` + `@close_db_connections` mirror the Signals report activities.
+Sandbox-turn activities (chunk / review / dedup) call `run_sandbox_review`, which spins a single-turn
+agent (minutes); `validate_chunk_activity` instead drives one warm multi-turn session per chunk. Both
+take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `Heartbeater()`. ORM
+access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@scoped_temporal()` +
+`@close_db_connections` mirror the Signals report activities.
 """
 
 import logging
@@ -29,18 +30,17 @@ from posthog.temporal.common.utils import close_db_connections
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives, sync_canonical_validation
 from products.review_hog.backend.reviewer.models import generate_all_schemas
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
-    load_chunk_analyses,
     load_chunk_set,
     load_perspective_results,
     load_pr_snapshot,
     load_prior_findings,
-    persist_chunk_analyses,
+    load_run_validations,
     persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
@@ -49,15 +49,21 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdict,
     upsert_review_report,
 )
-from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.review_hog.backend.reviewer.sandbox.executor import (
+    MultiTurnSession,
+    continue_sandbox_session,
+    end_sandbox_session,
+    run_sandbox_review,
+    start_sandbox_session,
+)
 from products.review_hog.backend.reviewer.skill_loader import load_perspectives_for_run, load_validation_skill_for_run
-from products.review_hog.backend.reviewer.tools.chunk_analysis import ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_SYSTEM_PROMPT,
+    build_validation_followup_prompt,
     build_validation_prompt,
 )
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT, build_review_prompt
@@ -167,11 +173,6 @@ class SandboxStageInput:
 
 
 @dataclass
-class AnalyzeChunkInput(SandboxStageInput):
-    chunk_id: int
-
-
-@dataclass
 class ReviewChunkInput(SandboxStageInput):
     chunk_id: int
     pass_number: int
@@ -180,16 +181,19 @@ class ReviewChunkInput(SandboxStageInput):
 
 
 @dataclass
-class ValidateIssueInput(SandboxStageInput):
-    issue_json: str
+class ValidateChunkInput(SandboxStageInput):
+    chunk_id: int
+    # This chunk's post-dedup issues to validate (JSON-encoded `Issue`s), grouped by the parent.
+    issues_json: list[str]
     skill_name: str
     skill_version: int
 
 
 @dataclass
-class ValidateIssueResult:
-    issue_id: str
-    validation_json: str | None
+class ValidateChunkResult:
+    chunk_id: int
+    # How many of the chunk's issues now have a persisted verdict (skipped-as-done + freshly judged).
+    validated_count: int
 
 
 @dataclass
@@ -228,8 +232,8 @@ class BuildBodyInput:
     team_id: int
     report_id: str
     head_sha: str
+    run_index: int
     issues_json: list[str]
-    validations_json: dict[str, str]
 
 
 @dataclass
@@ -473,52 +477,6 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     return [chunk.chunk_id for chunk in chunks.chunks]
 
 
-# --- Analyze (per-chunk fan-out) -------------------------------------------------------------------
-
-
-def _prepare_analysis_prompt(team_id: int, report_id: str, head_sha: str, chunk_id: int) -> str | None:
-    """Build the analysis prompt for one chunk, or None if it's already analysed this turn."""
-    if chunk_id in load_chunk_analyses(team_id=team_id, report_id=report_id, head_sha=head_sha):
-        return None
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    if snapshot is None or chunks is None:
-        raise ApplicationError("PR snapshot or chunk set missing for analysis", non_retryable=True)
-    chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
-    if chunk is None:
-        raise ApplicationError(f"Chunk {chunk_id} not found in chunk set", non_retryable=True)
-    return build_analysis_prompt(
-        chunk=chunk, pr_metadata=snapshot.pr_metadata, pr_comments=snapshot.pr_comments, pr_files=snapshot.pr_files
-    )
-
-
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def analyze_chunk_activity(input: AnalyzeChunkInput) -> bool:
-    """Analyze one chunk through a sandbox agent and persist it (idempotent; raises on failure so it retries)."""
-    prompt = await database_sync_to_async(_prepare_analysis_prompt, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.chunk_id
-    )
-    if prompt is None:
-        return True
-    async with Heartbeater():
-        analysis = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=ANALYSIS_SYSTEM_PROMPT,
-            model_to_validate=ChunkAnalysis,
-            step_name=f"chunk-analysis-{input.chunk_id}",
-        )
-    await database_sync_to_async(persist_chunk_analyses, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, analyses={input.chunk_id: analysis}
-    )
-    return True
-
-
 # --- Review (perspective × chunk fan-out) ----------------------------------------------------------
 
 
@@ -558,13 +516,11 @@ def _prepare_review_prompt(
     chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
     if chunk is None:
         raise ApplicationError(f"Chunk {chunk_id} not found in chunk set", non_retryable=True)
-    analysis = load_chunk_analyses(team_id=team_id, report_id=report_id, head_sha=head_sha).get(chunk_id)
     prior_findings = load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index)
     return build_review_prompt(
         skill_name=skill_name,
         skill_version=skill_version,
         chunk=chunk,
-        analysis=analysis,
         pr_metadata=snapshot.pr_metadata,
         pr_comments=snapshot.pr_comments,
         pr_files=snapshot.pr_files,
@@ -662,7 +618,7 @@ async def dedup_activity(input: DedupInput) -> DedupResult:
     return DedupResult(issues_json=[issue.model_dump_json() for issue in survivors], findings_count=findings_count)
 
 
-# --- Validate (per-issue fan-out) ------------------------------------------------------------------
+# --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------
 
 
 def _load_validation_skill(team_id: int, acting_user_id: int) -> LoadedValidationSkillDTO:
@@ -680,77 +636,112 @@ async def load_validation_skill_activity(input: LoadValidationInput) -> LoadedVa
     )
 
 
-def _prepare_validation_prompt(
-    team_id: int, report_id: str, head_sha: str, issue: Issue, skill_name: str, skill_version: int
-) -> str | None:
-    """Build the validation prompt for one issue, or None if its chunk can't be resolved."""
-    parts = issue.id.split("-")
-    if len(parts) != 3:
-        logger.warning(f"Skipping validation for issue with malformed id: {issue.id}")
-        return None
+def _load_validation_context(
+    team_id: int, report_id: str, head_sha: str, chunk_id: int
+) -> tuple[Chunk, PRMetadata, list[PRFile]] | None:
+    """The chunk + PR metadata + files a chunk's issues are validated against, or None if missing."""
     chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     if chunks is None or snapshot is None:
-        raise ApplicationError("PR snapshot or chunk set missing for validation", non_retryable=True)
-    chunk = next((c for c in chunks.chunks if c.chunk_id == int(parts[1])), None)
-    if chunk is None:
-        logger.warning(f"Skipping validation for issue {issue.id}: chunk {parts[1]} not found")
         return None
-    # Narrow pr_files to the issue's own file before building the prompt (first-match semantics).
-    issue_files = [f for f in snapshot.pr_files if f.filename == issue.file]
-    return build_validation_prompt(
-        issue=issue,
-        chunk=chunk,
-        skill_name=skill_name,
-        skill_version=skill_version,
-        pr_metadata=snapshot.pr_metadata,
-        pr_files=issue_files,
-    )
+    chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
+    if chunk is None:
+        return None
+    return chunk, snapshot.pr_metadata, snapshot.pr_files
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def validate_issue_activity(input: ValidateIssueInput) -> ValidateIssueResult:
-    """Validate one issue against the live codebase, persist its verdict, return the ruling.
+async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkResult:
+    """Validate one chunk's issues in a single warm sandbox session — one verdict per turn.
 
-    The verdict is also persisted (`validation_verdict` artefact) so publishing is DB-driven; the
-    returned `validation_json` lets the parent render the body without another DB read.
+    The warm session shares the chunk context across turns while each issue keeps its own independent
+    verdict (one per turn, never a single batched output). Resume-aware: issues already judged this
+    turn are skipped, so a retry re-researches only what's left. Verdicts are the durable output —
+    body + publish read them from the DB, not this return value.
     """
-    issue = Issue.model_validate_json(input.issue_json)
-    prompt = await database_sync_to_async(_prepare_validation_prompt, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, issue, input.skill_name, input.skill_version
+    issues = [Issue.model_validate_json(j) for j in input.issues_json]
+    done = await database_sync_to_async(load_run_validations, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issues=issues
     )
-    if prompt is None:
-        return ValidateIssueResult(issue_id=issue.id, validation_json=None)
-    async with Heartbeater():
-        validation = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=VALIDATION_SYSTEM_PROMPT,
-            model_to_validate=IssueValidation,
-            step_name=f"validation-{issue.id}",
-        )
-    await database_sync_to_async(persist_verdict, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issue=issue, validation=validation, run_index=input.run_index
+    pending = [issue for issue in issues if issue.id not in done]
+    if not pending:
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(done))
+
+    context = await database_sync_to_async(_load_validation_context, thread_sensitive=False)(
+        input.team_id, input.report_id, input.head_sha, input.chunk_id
     )
-    return ValidateIssueResult(issue_id=issue.id, validation_json=validation.model_dump_json())
+    if context is None:
+        raise ApplicationError("PR snapshot or chunk set missing for validation", non_retryable=True)
+    chunk, pr_metadata, pr_files = context
+
+    validated = len(done)
+    session: MultiTurnSession | None = None
+    try:
+        async with Heartbeater():
+            for issue in pending:
+                issue_files = [f for f in pr_files if f.filename == issue.file]
+                try:
+                    if session is None:
+                        session, validation = await start_sandbox_session(
+                            team_id=input.team_id,
+                            user_id=input.user_id,
+                            repository=input.repository,
+                            branch=input.branch,
+                            prompt=build_validation_prompt(
+                                issue=issue,
+                                chunk=chunk,
+                                skill_name=input.skill_name,
+                                skill_version=input.skill_version,
+                                pr_metadata=pr_metadata,
+                                pr_files=issue_files,
+                            ),
+                            system_prompt=VALIDATION_SYSTEM_PROMPT,
+                            model_to_validate=IssueValidation,
+                            step_name=f"validation-c{input.chunk_id}",
+                        )
+                    else:
+                        validation = await continue_sandbox_session(
+                            session,
+                            prompt=build_validation_followup_prompt(issue=issue, pr_files=issue_files),
+                            model_to_validate=IssueValidation,
+                            label=issue.id,
+                        )
+                except Exception:
+                    if session is None:
+                        # Session never opened (sandbox-level) — raise so Temporal retries the chunk
+                        # and the failure floor catches a real outage, not just one bad issue.
+                        raise
+                    # Live session, one issue's turn failed — best-effort skip it (no verdict → not
+                    # posted) and keep going; a re-run re-attempts it (it never got a verdict).
+                    logger.exception("Validation turn failed for issue %s; skipping it", issue.id)
+                    continue
+                wrote = await database_sync_to_async(persist_verdict, thread_sensitive=False)(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    issue=issue,
+                    validation=validation,
+                    run_index=input.run_index,
+                )
+                if wrote:
+                    validated += 1
+    finally:
+        if session is not None:
+            await end_sandbox_session(session)
+    return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=validated)
 
 
 # --- Build body + finalize + publish ---------------------------------------------------------------
 
 
-def _build_and_finalize(
-    team_id: int, report_id: str, head_sha: str, issues_json: list[str], validations_json: dict[str, str]
-) -> None:
+def _build_and_finalize(team_id: int, report_id: str, head_sha: str, run_index: int, issues_json: list[str]) -> None:
     issues = [Issue.model_validate_json(j) for j in issues_json]
-    validations = {issue_id: IssueValidation.model_validate_json(j) for issue_id, j in validations_json.items()}
+    # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
+    # same findings in the body and the posted comments.
+    validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
     chunks_data = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha) or ChunksList(chunks=[])
-    analyses = load_chunk_analyses(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=issues, validations=validations)
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
     finalize_review_report(team_id=team_id, report_id=report_id, body_markdown=body)
 
 
@@ -760,7 +751,7 @@ def _build_and_finalize(
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
     await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.issues_json, input.validations_json
+        input.team_id, input.report_id, input.head_sha, input.run_index, input.issues_json
     )
 
 
