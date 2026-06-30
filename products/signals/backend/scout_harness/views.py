@@ -97,7 +97,12 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
-from products.signals.backend.scout_harness.tools.report import ReportEvidence, edit_report_sync, emit_report_sync
+from products.signals.backend.scout_harness.tools.report import (
+    ReportEvidence,
+    ReviewerInput,
+    edit_report_sync,
+    emit_report_sync,
+)
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -195,6 +200,21 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
+    """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
+    is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
+    yields None so the tool treats it as "no reviewers supplied"."""
+    if not entries:
+        return None
+    return [
+        ReviewerInput(
+            github_login=entry.get("github_login"),
+            user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+        )
+        for entry in entries
+    ]
 
 
 def _resolve_emission_report_links(
@@ -724,7 +744,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 repository=data.get("repository"),
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
-                suggested_reviewers=data.get("suggested_reviewers"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -751,9 +771,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox "
-            "reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary "
-            "edits are best-effort: the pipeline may later re-research and overwrite them."
+            "Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target "
+            "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
+            "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
+            "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
+            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -776,6 +798,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -785,6 +808,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "report_id": result.report_id,
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
+                    "reviewers_set": result.reviewers_set,
                 }
             ).data,
             status=status.HTTP_200_OK,
