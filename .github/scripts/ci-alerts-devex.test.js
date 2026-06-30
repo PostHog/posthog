@@ -307,10 +307,7 @@ describe('ci-alerts-devex', () => {
         assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
     })
 
-    // --- Stale-bridge duration (the 2026-06-30 "red 61h 41m" incident) -----------------------
-    // Detection must stay unchanged (the incident still opens / stays open); only the *reported*
-    // duration must stop bridging a cancelled-only gap to a days-old failure. A failure object whose
-    // adjacent kept neighbour is far older — the shape left when everything between was cancelled.
+    // --- Stale-bridge duration (the 2026-06-30 "red 61h 41m" incident) ---
     const failureRun = (name, key, createdAt, updatedAt) => ({
         name,
         conclusion: 'failure',
@@ -324,11 +321,8 @@ describe('ci-alerts-devex', () => {
     ]
 
     it('the incident that triggered this: a bridged stale failure no longer inflates the duration (regression)', async () => {
-        // Real shape of the 2026-06-30 incident. Rust CI and Backend CI each had a recent master
-        // failure, but every run back to a days-old failure (Rust 0ee6d13f4 @ 2026-06-27T23:20:46Z)
-        // was cancelled — dropped here — so the leading failure streak bridged ~60h and the bot
-        // reported "red 61h 41m". The fix: still open (byDuration on the full span), but show the
-        // recent contiguous red, not the stale anchor.
+        // Recent failure + a days-old failure (the cancelled runs between are dropped) → the streak
+        // bridged ~60h. Must still open, but report the recent contiguous red, not 61h.
         const now = new Date('2026-06-30T12:12:54Z')
         const github = createGithubMock(
             {
@@ -357,9 +351,8 @@ describe('ci-alerts-devex', () => {
     })
 
     it('does not falsely resolve an open incident while the newest run is still failing (regression)', async () => {
-        // Newest run still a failure, prior failure >180m back (cancelled-only gap). The display
-        // anchor is recent, but detection uses the full span — the incident must stay open, never
-        // post a false "master recovered".
+        // Newest run still failing, prior failure >180m back — detection uses the full span, so the
+        // incident must stay open (never a false "master recovered").
         const now = new Date('2026-06-30T12:12:54Z')
         const github = createGithubMock({
             'ci-backend.yml': [
@@ -375,8 +368,7 @@ describe('ci-alerts-devex', () => {
     })
 
     it('still pages for a sparse workflow whose genuine failures are far apart (regression)', async () => {
-        // A path-filtered workflow (Rust) runs only on matching pushes, so two genuine failures can
-        // be >180m apart with no green between. The wall-clock arm must still open on the full span.
+        // Sparse workflow: two genuine failures >180m apart, no green between. Must still open.
         const now = new Date('2026-06-30T12:12:54Z')
         const github = createGithubMock(
             {
@@ -396,9 +388,7 @@ describe('ci-alerts-devex', () => {
     })
 
     it('re-running a run inside the streak does not collapse the shown duration to ~0', async () => {
-        // The display anchor is created_at (immutable), not updated_at (bumped by re-runs). Five
-        // contiguous failures dispatched 5m apart; the oldest was re-run so its updated_at is now —
-        // the bullet must still read the full ~33m from dispatch, not ~2m.
+        // Oldest failure re-run (updated_at bumped to ~now) — created_at anchor keeps the full span.
         const now = new Date('2026-06-30T12:12:54Z')
         const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
         const github = createGithubMock({
@@ -419,8 +409,7 @@ describe('ci-alerts-devex', () => {
     })
 
     it('reports the honest full duration for a genuinely-continuous outage', async () => {
-        // Dense failures with no gap > 180m — the cap must NOT fire here, so a real ~1h13m outage
-        // is reported in full (the fix only de-inflates evidence-free gaps).
+        // Dense failures, no gap > 180m — the cap must NOT fire, so the full ~1h13m is reported.
         const now = new Date('2026-06-30T12:12:54Z')
         const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
         const github = createGithubMock(

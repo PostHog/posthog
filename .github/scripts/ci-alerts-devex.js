@@ -37,13 +37,8 @@ const HISTORY_LIMIT = 100
 // Attachment side-bar colors (Slack's red / green).
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
-// Caps the *reported* red duration, not detection. Cancelled/skipped runs are dropped before the
-// failure streak is counted, so two kept failures can sit far apart in wall-clock when everything
-// between them was cancelled (a quiet weekend, a path-filtered workflow, or a stale/incomplete API
-// page). The streak — and the byCount/byDuration arms — still span the full run of failures, but the
-// duration we *show* must not silently claim master stayed red across a gap we have no evidence for.
-// So the display anchor stops at the first gap wider than this; without it the headline anchors to a
-// days-old failure and reads as wildly inflated (the "red 61h" bug). Detection is unaffected.
+// Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
+// wide between kept failures, so it can't anchor to a days-old run (the "red 61h" bug).
 const STREAK_MAX_GAP_MINUTES = 180
 
 // ---------------------------------------------------------------------------
@@ -70,9 +65,7 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
             sha: run.head_sha,
             run_url: run.html_url,
             updated_at: run.updated_at,
-            // Immutable and the API's sort key — unlike updated_at it isn't bumped by re-runs, so
-            // gaps measured from it stay correct (and non-negative) when an old run is re-run.
-            created_at: run.created_at,
+            created_at: run.created_at, // immutable; updated_at is bumped by re-runs
             workflow_file: workflowFile,
         }))
 }
@@ -89,20 +82,14 @@ function countConsecutiveFailures(runs) {
     return count
 }
 
-// Display-only "red since": the oldest failure reachable from the newest without crossing a gap
-// wider than STREAK_MAX_GAP_MINUTES. Detection uses the full streak (`since`); this only bounds the
-// duration we report so it can't claim red across an evidence-free gap. Gaps are measured from
-// created_at (immutable, the API sort key); an unparseable timestamp stops the walk (fail short,
-// never fail open into an inflated duration).
+// Display-only "red since": oldest failure reachable from the newest without crossing a gap wider
+// than STREAK_MAX_GAP_MINUTES. Uses immutable created_at so re-runs can't collapse the span.
 function contiguousFailureSince(runs, count) {
-    // created_at (dispatch time, the API sort key) is immutable; updated_at is bumped by re-runs.
-    // Use it for both the gap and the returned anchor so re-running a run in the streak can't
-    // collapse the shown duration, and a just-completed failure reads as its run age, not "0m".
     const dispatchedAt = (run) => run.created_at || run.updated_at
     let oldest = runs[0]
     for (let i = 1; i < count; i++) {
         const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
-        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe: unknown/oversized gap stops here
+        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe
         oldest = runs[i]
     }
     return dispatchedAt(oldest)
@@ -119,8 +106,8 @@ function buildFailingMap(allWorkflowRuns) {
             const oldest = runs[count - 1]
             failing[latest.name] = {
                 name: latest.name,
-                since: oldest.updated_at, // full streak — drives byCount/byDuration/blocking (detection)
-                displaySince: contiguousFailureSince(runs, count), // gap-bounded — drives the shown duration only
+                since: oldest.updated_at, // detection (full streak)
+                displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
                 run_url: latest.run_url,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
@@ -405,8 +392,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
-    // Earliest start across both active signals, for the shown duration (preserve original on
-    // update). Uses each blocker's gap-bounded displaySince, so the headline can't inflate either.
+    // Earliest start across both active signals (preserve original on update); gap-bounded displaySince.
     const computeSince = () => {
         const times = blocking.map((b) => new Date(b.displaySince).getTime())
         if (commitActive && commitStreakSince) times.push(new Date(commitStreakSince).getTime())
