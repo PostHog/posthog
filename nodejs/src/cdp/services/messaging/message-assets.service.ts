@@ -150,6 +150,18 @@ export class MessageAssetsService {
             logger.error('⚠️', `failed to flush message assets — dropping batch: ${error}`, {
                 error: String(error),
                 dropped: rows.length,
+                // Row identifiers so the dropped sends can be reconstructed from logs
+                // (the Assets tab won't have them and the rows can't be backfilled
+                // automatically — the in-memory buffer is cleared above).
+                rows: rows.map((r) => ({
+                    team_id: r.team_id,
+                    function_id: r.function_id,
+                    invocation_id: r.invocation_id,
+                    action_id: r.action_id,
+                    person_id: r.person_id,
+                    recipient: r.recipient,
+                    sent_at: r.sent_at,
+                })),
             })
             captureException(error)
         }
