@@ -24,17 +24,18 @@ def _build_bug_fix_task_description(*, team_id: int, ticket_id: str, summary: st
         f"{summary}\n\n"
         f"Repository: {repository}\n\n"
         "Address the symptom described above — not merely an adjacent issue you notice nearby. "
-        "Investigate the root cause, implement the fix, and open a PR if appropriate. "
-        "If your change fixes something related but does not change what the user actually observed, "
-        "say so explicitly and stop rather than opening a PR for the wrong problem.\n\n"
-        f"When opening the PR, include this support ticket link in the description footer: {ticket_url}"
+        "Investigate the root cause and implement the fix on a working branch. Do NOT open a pull request: "
+        "this task was triggered automatically from an untrusted support ticket, so a teammate reviews your "
+        "changes and opens the PR. If your change fixes something related but does not change what the user "
+        "actually observed, say so explicitly and stop rather than preparing a fix for the wrong problem.\n\n"
+        f"Reference this support ticket in your summary so the reviewer has context: {ticket_url}"
     )
 
 
 @activity.defn(name="support-dispatch-bug-fix")
 @close_db_connections
 async def support_dispatch_bug_fix_activity(input: DispatchBugFixInput) -> DispatchBugFixOutput:
-    """Create a Tasks implementation run to fix a reported bug and open a draft PR."""
+    """Create a Tasks implementation run that prepares a bug fix for teammate review (no auto-PR)."""
     return await database_sync_to_async(_dispatch_bug_fix_sync, thread_sensitive=False)(
         input.team_id,
         input.ticket_id,
@@ -80,11 +81,14 @@ def _dispatch_bug_fix_sync(
             origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             user_id=user_id,
             repository=repository,
-            create_pr=True,
+            # Human-approval gate: this run is triggered by attacker-controlled ticket text (public
+            # widget/email), so the agent investigates and prepares a fix on a branch but must NOT open a
+            # PR autonomously. A teammate reviews the resulting Tasks run and opens the PR. create_pr=False
+            # is forwarded to the agent as `--createPr false`, so no branch/PR is pushed without review.
+            create_pr=False,
             interaction_origin="support_reply",
-            # Ticket content is attacker-controlled (public widget/email). Keep the coding agent's
-            # PostHog MCP access read-only so a prompt-injected fix run can't write/exfiltrate
-            # project data — it only needs the repo (via the GitHub integration) plus read context.
+            # Same untrusted-input reason: keep the coding agent's PostHog MCP access read-only so a
+            # prompt-injected run can't write/exfiltrate project data — it only needs the repo plus read context.
             posthog_mcp_scopes="read_only",
         )
         if created.latest_run is None:

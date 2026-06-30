@@ -188,12 +188,13 @@ export function AISection(): JSX.Element {
                                 ? 'Connect GitHub to your project first (via Tasks, Signals, or the Issues channel)'
                                 : undefined
                         }
-                        label="Open draft PRs for fixable bugs"
+                        label="Prepare bug fixes for fixable bugs"
                     />
                     <p className="text-xs text-muted-alt mb-0">
                         When a diagnostic ticket looks like a concrete code bug, PostHog can start a Tasks run against
-                        your repository and open a draft pull request. The support reply pipeline continues
-                        independently — this only hands off the fix.
+                        your repository to investigate and prepare a fix. Because tickets come from untrusted channels,
+                        the run never opens a pull request on its own — a teammate reviews the Tasks run and opens the
+                        PR. The support reply pipeline continues independently — this only hands off the fix.
                     </p>
                     {aiBugFixPrsEnabled && githubIntegrationConnected && (
                         <LemonSelect

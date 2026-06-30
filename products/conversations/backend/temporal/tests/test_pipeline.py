@@ -2048,3 +2048,30 @@ class TestDispatchBugFixSync:
         assert result.dispatched is False
         assert result.skipped_reason == "already_dispatched"
         mock_create_task.assert_not_called()
+
+    @pytest.mark.django_db
+    @patch(f"{DISPATCH_BUG_FIX_MODULE}.tasks_facade.create_and_run_task")
+    @patch(f"{DISPATCH_BUG_FIX_MODULE}.resolve_user_id_for_support", return_value=1)
+    def test_dispatches_without_auto_pr(self, _mock_user, mock_create_task):
+        org = Organization.objects.create(name="bugfix-org")
+        team = Team.objects.create(organization=org, name="bugfix-team")
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="bugfix-session",
+            distinct_id="bugfix-distinct",
+        )
+        mock_create_task.return_value = MagicMock(task_id="task-1", latest_run=MagicMock(id="run-1"))
+
+        result = _dispatch_bug_fix_sync(
+            team.id,
+            str(ticket.id),
+            "posthog/posthog",
+            "Fix export 500",
+            "Exports fail with HTTP 500.",
+        )
+
+        assert result.dispatched is True
+        # Untrusted ticket text must never auto-open a PR — the agent only prepares the fix and a
+        # teammate opens the PR after review. Keep MCP read-only against prompt injection too.
+        assert mock_create_task.call_args.kwargs["create_pr"] is False
+        assert mock_create_task.call_args.kwargs["posthog_mcp_scopes"] == "read_only"
