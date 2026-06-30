@@ -5171,6 +5171,8 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Postgresql: 'postgresql',
+      AwsS3: 'aws-s3',
+      S3Compatible: 's3-compatible',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -47189,6 +47191,25 @@ export namespace Schemas {
     }
 
     /**
+     * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
+     */
+    export interface ScoutMember {
+      /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
+      user_uuid: string;
+      /** The member's email — use to match a finding's owner by name/email. */
+      email: string;
+      /** The member's first name (may be empty). */
+      first_name: string;
+      /** The member's last name (may be empty). */
+      last_name: string;
+      /**
+         * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
+    /**
      * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
      * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
      * change without a deploy to either app.
@@ -65181,6 +65202,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsScoutMembersListParams = {
+    /**
+     * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
