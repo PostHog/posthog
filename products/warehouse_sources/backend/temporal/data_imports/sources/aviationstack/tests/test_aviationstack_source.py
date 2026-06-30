@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
     AviationstackResumeConfig,
 )
@@ -27,6 +29,7 @@ class TestAviationstackSource:
         config = AviationstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key"]
         access_key_field = config.fields[0]
+        assert isinstance(access_key_field, SourceFieldInputConfig)
         # The access key is a secret credential, so it must render as a password input.
         assert access_key_field.type == "password"
         assert access_key_field.secret is True

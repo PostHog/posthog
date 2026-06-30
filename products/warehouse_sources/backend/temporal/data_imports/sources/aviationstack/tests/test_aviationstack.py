@@ -37,7 +37,9 @@ def _response(
         body["pagination"] = {"limit": 100, "offset": 0, "count": len(data or []), "total": total}
     response.json.return_value = body
     response.raise_for_status.side_effect = (
-        requests.HTTPError(f"{status} Client Error for url: https://api.aviationstack.com/v1/airlines")
+        requests.HTTPError(
+            f"{status} Client Error for url: https://api.aviationstack.com/v1/airlines", response=response
+        )
         if not ok
         else None
     )

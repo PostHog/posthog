@@ -17,18 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1"
 DEFAULT_PAGE_SIZE = 100
 
-# aviationstack returns HTTP 200 with an error envelope (`{"error": {"code": ...}}`) for these
-# body-level codes. Retrying can't fix any of them (bad/blocked key, plan gating, exhausted monthly
-# quota), so they're surfaced as permanent failures matched by AviationstackSource.get_non_retryable_errors.
-_PERMANENT_ERROR_CODES = {
-    "invalid_access_key",
-    "missing_access_key",
-    "inactive_user",
-    "function_access_restricted",
-    "https_access_restricted",
-    "usage_limit_reached",
-}
-# Transient body-level codes worth retrying with backoff.
+# aviationstack returns HTTP 200 with an error envelope (`{"error": {"code": ...}}`). Transient
+# body-level codes are retried with backoff; every other code (bad/blocked key, plan gating,
+# exhausted monthly quota — e.g. invalid_access_key, missing_access_key, inactive_user,
+# function_access_restricted, https_access_restricted, usage_limit_reached) fails fast and is
+# surfaced as a permanent failure matched by AviationstackSource.get_non_retryable_errors.
 _RETRYABLE_ERROR_CODES = {"rate_limit_reached"}
 
 
@@ -94,7 +87,9 @@ def get_rows(
 ) -> Iterator[Any]:
     config = AVIATIONSTACK_ENDPOINTS[endpoint]
     url = f"{AVIATIONSTACK_BASE_URL}{config.path}"
-    session = make_tracked_session()
+    # `access_key` is passed as a query param on every request, so mask its value from the
+    # tracked session's logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(access_key,))
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -157,8 +152,10 @@ def validate_credentials(access_key: str) -> bool:
     # `/countries` is a static reference endpoint available on every plan (including free), so it's a
     # cheap probe that the access key is genuine without depending on a paid-tier endpoint.
     url = f"{AVIATIONSTACK_BASE_URL}/countries"
+    params: dict[str, Any] = {"access_key": access_key, "limit": 1}
     try:
-        response = make_tracked_session().get(url, params={"access_key": access_key, "limit": 1}, timeout=10)
+        session = make_tracked_session(redact_values=(access_key,))
+        response = session.get(url, params=params, timeout=10)
     except Exception:
         return False
 
