@@ -194,33 +194,47 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
 
 interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
     inPanel: boolean
+    isMarkdownNotebook?: boolean
 }
 
-export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
-    const { isExpanded } = useValues(notebookSettingsLogic)
-    const { setIsExpanded } = useActions(notebookSettingsLogic)
+export const NotebookExpandButton = ({
+    inPanel,
+    isMarkdownNotebook = false,
+    ...buttonProps
+}: NotebookExpandButtonProps): JSX.Element => {
+    const { isExpanded, isMarkdownExpanded } = useValues(notebookSettingsLogic)
+    const { setIsExpanded, setIsMarkdownExpanded } = useActions(notebookSettingsLogic)
+    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
+    const toggleContentWidth = (): void => {
+        const nextIsExpanded = !isContentWidthExpanded
+        if (isMarkdownNotebook) {
+            setIsMarkdownExpanded(nextIsExpanded)
+        } else {
+            setIsExpanded(nextIsExpanded)
+        }
+    }
 
-    if (props.inPanel) {
+    if (inPanel) {
         return (
             <ButtonPrimitive
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={toggleContentWidth}
                 iconOnly
-                tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+                tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
                 tooltipPlacement="left"
             >
                 <IconDocumentExpand
                     className="text-tertiary size-4 group-hover:text-primary z-10"
-                    mode={isExpanded ? 'expand' : 'collapse'}
+                    mode={isContentWidthExpanded ? 'expand' : 'collapse'}
                 />
             </ButtonPrimitive>
         )
     }
     return (
         <LemonButton
-            {...props}
-            onClick={() => setIsExpanded(!isExpanded)}
-            icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
-            tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            {...buttonProps}
+            onClick={toggleContentWidth}
+            icon={<IconDocumentExpand mode={isContentWidthExpanded ? 'expand' : 'collapse'} />}
+            tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
             tooltipPlacement="left"
         />
     )

@@ -15812,6 +15812,7 @@ export namespace Schemas {
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
      * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16466,6 +16467,7 @@ export namespace Schemas {
       NextdoorAds: 'NextdoorAds',
       AppLovin: 'AppLovin',
       Baserow: 'Baserow',
+      Plunk: 'Plunk',
     } as const;
 
     /**
@@ -17133,7 +17135,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22881,7 +22884,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -48842,7 +48846,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -49536,7 +49541,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -50222,7 +50228,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50305,6 +50312,70 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+     */
+    export interface SuggestTagsRequest {
+      /**
+         * The classifier's instruction prompt — the single dimension to categorize sessions by.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * @maxItems 200
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Whether the classifier assigns multiple tags per session. */
+      multi_label?: boolean;
+      /** Whether the classifier may emit tags outside the fixed vocabulary. */
+      allow_freeform_tags?: boolean;
+      /**
+         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
+    }
+
+    /**
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt
+     */
+    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
+
+
+    export const TagSuggestionSourceEnum = {
+      Observed: 'observed',
+      Product: 'product',
+      Prompt: 'prompt',
+    } as const;
+
+    /**
+     * One grounded tag suggestion.
+     */
+    export interface TagSuggestion {
+      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+      tag: string;
+      /** One sentence explaining the specific evidence this tag is grounded in. */
+      rationale: string;
+      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+       *
+       * * `observed` - observed
+       * * `product` - product
+       * * `prompt` - prompt */
+      source: TagSuggestionSourceEnum;
+    }
+
+    /**
+     * Grounded tag suggestions for the classifier config editor.
+     */
+    export interface SuggestTagsResponse {
+      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+      suggestions: TagSuggestion[];
     }
 
     /**

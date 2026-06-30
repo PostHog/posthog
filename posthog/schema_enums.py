@@ -1821,6 +1821,7 @@ class ExternalDataSourceType(StrEnum):
     NEXTDOOR_ADS = "NextdoorAds"
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
+    PLUNK = "Plunk"
 
 
 class ExternalQueryErrorCode(StrEnum):
