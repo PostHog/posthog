@@ -124,7 +124,9 @@ pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 /// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
 /// logged, not labelled, to keep cardinality bounded.
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
+/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
+/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
+/// `vm_error_reason`) (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
 /// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";

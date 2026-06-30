@@ -16,7 +16,7 @@
 # it has no entry in the deploy matrix of rust-docker-build.yml.
 - image: capture-load-gen
   dockerfile: ./rust/Dockerfile
-  project: kshskj225r
+  project: wrsq3rsc1b
 
 - image: sqlx-migrate
   dockerfile: ./rust/Dockerfile.sqlx-migrate
