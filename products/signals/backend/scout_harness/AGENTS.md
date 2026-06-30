@@ -110,14 +110,15 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
-  it returns the team's org members with `user_uuid` / `email` / `github_login` so a
-  report-channel scout can populate `suggested_reviewers` at cold start. It is gated on the
-  internal `signal_scout_internal` scope object (`scope_object = "signal_scout_internal"`, default
-  `list` → `signal_scout_internal:read`, satisfied by the sandbox token's `…:write`), so — like
-  `emit-signal` — it is reachable only inside a scout run and never enters a customer's public MCP
-  catalog. Membership is resolved server-side via
-  `report_generation/resolve_reviewers.list_org_members_for_team`, the project-nested path that the
-  org-nested `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
+  it returns the project's members (those with access to the team) with `user_uuid` / `email` /
+  `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. It is
+  gated on the internal `signal_scout_internal` scope object (`scope_object = "signal_scout_internal"`,
+  default `list` → `signal_scout_internal:read`, satisfied by the sandbox token's `…:write`), so —
+  like `emit-signal` — it is reachable only inside a scout run and never enters a customer's public
+  MCP catalog. Membership is resolved server-side via
+  `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
+  so private-project access control is honored), the project-nested path that the org-nested
+  `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
   config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
