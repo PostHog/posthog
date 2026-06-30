@@ -27,7 +27,7 @@ export function WebAnalyticsDigestNotification({ metadata }: { metadata: WebAnal
         <div className="mt-2 flex flex-col gap-1.5">
             {hero && (
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-xl font-bold leading-none tabular-nums">{hero.value}</span>
+                    <span className="text-lg font-bold leading-none tabular-nums">{hero.value}</span>
                     {/* Keep label + trend together so the pill wraps below the number instead of clipping the panel edge */}
                     <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
                         <span className="text-sm text-secondary">{hero.label.toLowerCase()}</span>
