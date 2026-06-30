@@ -4358,9 +4358,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # dashboard filter. If the dashboard person properties appeared here the persons
         # modal would use a different filter set than the chart — the bug this test guards.
         assert source["dateRange"]["date_from"] == "-7d"
-        returned_properties = source.get("properties")
-        assert not returned_properties, (
-            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {returned_properties}"
+        # properties must be absent or empty — the dashboard's person filter must not appear.
+        assert not source.get("properties"), (
+            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
         )
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
