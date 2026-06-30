@@ -18,6 +18,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
@@ -65,6 +66,13 @@ def _select_model_name(model_names: list[str]) -> str:
     return PREFERRED_EMBEDDING_MODEL
 
 
+def _model_specific_embeddings_table_name(model_name: str) -> str:
+    for table in EMBEDDING_TABLES:
+        if table.model_name == model_name:
+            return f"document_embeddings_{model_name.replace('-', '_')}"
+    raise ValueError(f"Invalid embedding model: {model_name}")
+
+
 def _parse_timestamp(timestamp: str) -> datetime:
     parsed = parse_datetime(timestamp)
     if parsed is None:
@@ -77,24 +85,23 @@ def _target_embedding_query(
     model_name: str,
     embedding_timestamp: datetime,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
+    table_name = _model_specific_embeddings_table_name(model_name)
     return parse_select(
-        """
+        f"""
         SELECT embedding
-        FROM document_embeddings
+        FROM {table_name}
         WHERE document_type = 'fingerprint'
-        AND rendering = {rendering}
-        AND model_name = {model_name}
-        AND document_id = {fingerprint}
+        AND rendering = {{rendering}}
+        AND document_id = {{fingerprint}}
         AND product = 'error_tracking'
-        AND team_id = {team_id}
-        AND timestamp >= {min_timestamp}
-        AND timestamp <= {max_timestamp}
+        AND team_id = {{team_id}}
+        AND timestamp >= {{min_timestamp}}
+        AND timestamp <= {{max_timestamp}}
         ORDER BY inserted_at DESC
         LIMIT 1
         """,
         placeholders={
             "fingerprint": ast.Constant(value=inputs.fingerprint),
-            "model_name": ast.Constant(value=model_name),
             "rendering": ast.Constant(value=inputs.rendering),
             "team_id": ast.Constant(value=inputs.team_id),
             "min_timestamp": ast.Constant(value=embedding_timestamp - timedelta(hours=1)),
@@ -108,25 +115,26 @@ def _closest_fingerprints_query(
     model_name: str,
     target_embedding: list[float],
 ) -> ast.SelectQuery | ast.SelectSetQuery:
+    table_name = _model_specific_embeddings_table_name(model_name)
+    min_timestamp = _parse_timestamp(inputs.timestamp) - timedelta(days=30)
     return parse_select(
-        """
-        SELECT document_id, cosineDistance({target_embedding}, embedding) AS distance
-        FROM document_embeddings
+        f"""
+        SELECT document_id, cosineDistance({{target_embedding}}, embedding) AS distance
+        FROM {table_name}
         WHERE document_type = 'fingerprint'
-        AND rendering = {rendering}
-        AND model_name = {model_name}
-        AND document_id != {fingerprint}
+        AND rendering = {{rendering}}
+        AND document_id != {{fingerprint}}
         AND product = 'error_tracking'
-        AND team_id = {team_id}
-        AND length(embedding) = length({target_embedding})
+        AND team_id = {{team_id}}
+        AND timestamp >= {{min_timestamp}}
         ORDER BY distance ASC
         LIMIT 3
         """,
         placeholders={
             "fingerprint": ast.Constant(value=inputs.fingerprint),
-            "model_name": ast.Constant(value=model_name),
             "rendering": ast.Constant(value=inputs.rendering),
             "team_id": ast.Constant(value=inputs.team_id),
+            "min_timestamp": ast.Constant(value=min_timestamp),
             "target_embedding": ast.Constant(value=target_embedding),
         },
     )

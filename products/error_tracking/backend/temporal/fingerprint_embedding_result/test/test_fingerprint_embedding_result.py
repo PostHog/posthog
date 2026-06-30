@@ -18,7 +18,9 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
     FingerprintIssueNotFoundError,
     TargetFingerprintEmbeddingNotFoundError,
+    _closest_fingerprints_query,
     _merge_fingerprint_into_closest_issue,
+    _model_specific_embeddings_table_name,
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
     _select_model_name,
@@ -89,9 +91,33 @@ class TestFingerprintEmbeddingResultActivity:
         ) as parse_select:
             _target_embedding_query(_inputs(), "text-embedding-3-large-3072", embedding_timestamp)
 
+        query = parse_select.call_args.args[0]
+        assert "FROM document_embeddings_text_embedding_3_large_3072" in query
+        assert "model_name" not in query
         placeholders = parse_select.call_args.kwargs["placeholders"]
         assert placeholders["min_timestamp"].value == embedding_timestamp - timedelta(hours=1)
         assert placeholders["max_timestamp"].value == embedding_timestamp + timedelta(hours=1)
+
+    def test_closest_fingerprints_query_uses_model_specific_table(self) -> None:
+        with patch(
+            "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.parse_select"
+        ) as parse_select:
+            _closest_fingerprints_query(
+                _inputs(),
+                "text-embedding-3-large-3072",
+                [0.1, 0.2, 0.3],
+            )
+
+        query = parse_select.call_args.args[0]
+        assert "FROM document_embeddings_text_embedding_3_large_3072" in query
+        assert "model_name" not in query
+        assert "length(embedding)" not in query
+        assert "timestamp >= {min_timestamp}" in query
+        assert parse_select.call_args.kwargs["placeholders"]["min_timestamp"].value == datetime(2026, 5, 9, tzinfo=UTC)
+
+    def test_model_specific_embeddings_table_name_rejects_unknown_model(self) -> None:
+        with pytest.raises(ValueError, match="Invalid embedding model"):
+            _model_specific_embeddings_table_name("unknown-model")
 
     def test_query_closest_fingerprints_returns_distances(self) -> None:
         target_response = MagicMock(results=[[[0.1, 0.2, 0.3]]])
