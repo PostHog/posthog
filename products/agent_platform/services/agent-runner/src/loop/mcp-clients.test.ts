@@ -725,7 +725,13 @@ describe('openMcpClients', () => {
             await closePairs(pairs)
         })
 
-        it('needs_reauth → fails in the auth category (owner must reconnect)', async () => {
+        // A dead SHARED connection (owner's token revoked, install disabled, or
+        // install deleted) is persistent and only the owner/admin can fix it —
+        // the asker can't reconnect someone else's credential. All three
+        // terminal states classify as `connection_dead` so the system prompt
+        // tells the asker an admin must reconnect (vs. a misleading "retry
+        // shortly"). A TRANSIENT refresh blip stays `auth` (see below).
+        it('needs_reauth → fails in the connection_dead category (owner must reconnect)', async () => {
             const { factory, pairs } = await buildEchoFactory()
             const refs: McpRef[] = [
                 {
@@ -743,13 +749,37 @@ describe('openMcpClients', () => {
                 connections: { resolve: async () => ({ kind: 'needs_reauth' }) },
             })
             expect(clients).toEqual([])
-            expect(failures[0].category).toBe('auth')
+            expect(failures[0].category).toBe('connection_dead')
             expect(failures[0].devReason).toMatch(/mcp_connection_needs_reauth: conn-1/)
             await close()
             await closePairs(pairs)
         })
 
-        it('not_found → fails in the not_found category', async () => {
+        it('disabled → fails in the connection_dead category (owner must re-enable)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'disabled' }) },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('connection_dead')
+            expect(failures[0].devReason).toMatch(/mcp_connection_disabled: conn-1/)
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('not_found → fails in the connection_dead category (install gone)', async () => {
             const { factory, pairs } = await buildEchoFactory()
             const refs: McpRef[] = [
                 {
@@ -766,7 +796,38 @@ describe('openMcpClients', () => {
                 transportFactory: factory,
                 connections: { resolve: async () => ({ kind: 'not_found' }) },
             })
-            expect(failures[0].category).toBe('not_found')
+            expect(failures[0].category).toBe('connection_dead')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('a transient refresh failure stays in the retryable auth category (not connection_dead)', async () => {
+            // The store throws `mcp_connection_refresh_failed` for a transient
+            // 5xx/429/network blip during token refresh — that SELF-HEALS next
+            // session, so it must NOT be classified as the persistent
+            // owner-must-reconnect `connection_dead`.
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: {
+                    resolve: async () => {
+                        throw new Error('mcp_connection_refresh_failed: conn-1 (502)')
+                    },
+                },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('auth')
             await close()
             await closePairs(pairs)
         })
