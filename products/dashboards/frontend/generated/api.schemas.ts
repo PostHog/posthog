@@ -7768,6 +7768,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
+    showPieTotal?: boolean | null
     showTotalRow?: boolean | null
     showValuesOnSeries?: boolean | null
     showXAxisBorder?: boolean | null
