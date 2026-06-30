@@ -96,8 +96,8 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
             : format(preview.values[0].rate)
         return (
             <LemonBanner type="info" className="w-full">
-                Latest period at <strong>{headline}</strong> — this alert fires on the change versus the prior period,
-                which isn't previewed here.
+                Currently <strong>{headline}</strong>. This alert compares the most recent complete period against the
+                one before it (the in-progress period is skipped), so the change it evaluates isn't previewed here.
             </LemonBanner>
         )
     }
