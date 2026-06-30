@@ -26,7 +26,10 @@ type Story = StoryObj<typeof InstallationProgressContent>
 const STAGES = ['Provisioning sandbox', 'Cloning repository', 'Running setup wizard', 'Opening pull request']
 
 // Pipeline steps with a status per stage (index-aligned to STAGES), with optional detail on one stage.
-function steps(statuses: InstallationStepStatus[], detail?: { at: number; text: string }): InstallationProgress['steps'] {
+function steps(
+    statuses: InstallationStepStatus[],
+    detail?: { at: number; text: string }
+): InstallationProgress['steps'] {
     return STAGES.map((label, i) => ({
         id: `setup:${i}`,
         label,
@@ -61,6 +64,25 @@ export const Completed: Story = {
             phase: 'completed',
             steps: steps(['completed', 'completed', 'completed', 'completed']),
             prUrl: 'https://github.com/acme-co/web/pull/42',
+        }),
+    },
+}
+
+// The PR is open but the run keeps going (keeping CI green): "Pull request ready" headline + the review
+// CTA surface mid-run, and the keep-green step shows as active rather than the run looking stuck.
+export const PullRequestReady: Story = {
+    args: {
+        progress: progress({
+            phase: 'running',
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                { id: 'setup:agent', label: 'Started agent', status: 'completed', detail: null },
+                { id: 'deliver:pr', label: 'Opened pull request', status: 'completed', detail: null },
+                { id: 'deliver:ci', label: 'Keeping CI green', status: 'in_progress', detail: null },
+            ],
         }),
     },
 }

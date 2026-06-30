@@ -38,12 +38,18 @@ export function InstallationProgressContent({
 }): JSX.Element {
     const { phase, steps, error, prUrl } = progress
 
+    // The PR is opened mid-run: while the run keeps going (keeping CI green), surface it as ready rather
+    // than an indefinite "setting up". Terminal phases keep their own headline.
+    const prReady = !!prUrl && phase !== 'completed' && phase !== 'error'
+
     const headline =
         phase === 'completed'
             ? 'PostHog is wired up'
             : phase === 'error'
               ? (error?.title ?? "Setup didn't finish")
-              : 'Setting up PostHog'
+              : prReady
+                ? 'Pull request ready'
+                : 'Setting up PostHog'
     const subtitle =
         phase === 'completed'
             ? prUrl
@@ -51,19 +57,30 @@ export function InstallationProgressContent({
                 : "You're all set."
             : phase === 'error'
               ? "We couldn't finish the setup."
-              : phase === 'connecting'
-                ? 'Getting things ready…'
-                : 'Working on it — feel free to keep going.'
+              : prReady
+                ? "Review it whenever you like; we'll keep CI green in the meantime."
+                : phase === 'connecting'
+                  ? 'Getting things ready…'
+                  : 'Working on it — feel free to keep going.'
 
     return (
-        <div className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3" data-attr="installation-progress">
+        <div
+            className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3"
+            data-attr="installation-progress"
+        >
             <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                     <h4 className={cn('font-semibold m-0', phase === 'error' && 'text-danger')}>{headline}</h4>
                     <p className="text-sm text-muted m-0">{subtitle}</p>
                 </div>
                 {onDismiss && (
-                    <LemonButton size="small" icon={<IconX />} onClick={onDismiss} tooltip="Dismiss" aria-label="Dismiss" />
+                    <LemonButton
+                        size="small"
+                        icon={<IconX />}
+                        onClick={onDismiss}
+                        tooltip="Dismiss"
+                        aria-label="Dismiss"
+                    />
                 )}
             </div>
 
@@ -97,7 +114,7 @@ export function InstallationProgressContent({
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
             )}
 
-            {phase === 'completed' && prUrl && (
+            {prUrl && (
                 <LemonButton type="primary" to={prUrl} targetBlank icon={<IconPullRequest />} center>
                     Review pull request
                 </LemonButton>
