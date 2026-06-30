@@ -257,10 +257,29 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert result is integration
         assert filter_qs.exists.call_count == 3
         assert get.call_count == 1
-        # A fresh connection is acquired before each attempt.
-        assert close.call_count == 3
+        # The poisoned connection is evicted before each retry, but not on the successful attempt.
+        assert close.call_count == 2
         # Backoff grows per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
         assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_success_does_not_evict_connection(self):
+        # Closing the connection on the happy path would tear down the caller's open transaction
+        # (e.g. inside a transactional test), so eviction must only happen between retries.
+        integration = object()
+        filter_qs = mock.Mock()
+        filter_qs.exists.return_value = True
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.filter", return_value=filter_qs),
+            patch(f"{_MIXINS_MODULE}.Integration.objects.get", return_value=integration),
+            patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
+            patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
+        ):
+            result = OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        close.assert_not_called()
+        sleep.assert_not_called()
 
     def test_reraises_after_exhausting_attempts(self):
         filter_qs = mock.Mock()

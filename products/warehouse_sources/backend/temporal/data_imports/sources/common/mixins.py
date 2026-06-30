@@ -187,16 +187,16 @@ class OAuthMixin:
         Postgres connection can be closed server-side while idle, or the connection pooler can
         reject the query with a wait timeout when the pool is saturated. Both surface as a transient
         ``OperationalError`` that clears on a healthy connection, so this idempotent lookup is
-        retried with backoff — ``close_old_connections()`` drops the stale connection between
-        attempts and the sleep lets a saturated pool drain — rather than failing the whole import on
-        a momentary blip. A genuinely missing integration raises ``ValueError`` and is not retried.
+        retried with backoff before failing the whole import on a momentary blip. A failed query
+        marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
+        the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
+        missing integration raises ``ValueError`` and is not retried.
         """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
 
         attempt = 0
         while True:
-            close_old_connections()
             try:
                 if not Integration.objects.filter(id=integration_id, team_id=team_id).exists():
                     raise ValueError(f"Integration not found: {integration_id}")
@@ -206,6 +206,7 @@ class OAuthMixin:
                 attempt += 1
                 if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
                     raise
+                close_old_connections()
                 _integration_fetch_backoff_sleep(attempt)
 
 
