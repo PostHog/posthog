@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconPerson } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
@@ -70,13 +69,13 @@ export function RelatedGroups({
                         <div className="flex items-center gap-2">
                             <GroupActorDisplay actor={actor} />
                             {isHighlighted && (
-                                <LemonTag type="highlight" size="small">
+                                <LemonTag type="muted" size="small">
                                     {highlightLabel}
                                 </LemonTag>
                             )}
                             {isHighlighted && highlightStale && (
                                 <Tooltip title="This group was active when the ticket was created, but it's no longer in the person's recent related groups.">
-                                    <LemonTag type="caution" size="small">
+                                    <LemonTag type="warning" size="small">
                                         Stale
                                     </LemonTag>
                                 </Tooltip>
