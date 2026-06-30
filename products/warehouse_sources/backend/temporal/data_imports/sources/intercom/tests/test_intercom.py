@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
@@ -590,7 +591,8 @@ class TestIntercomSource:
 
         with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
             response = intercom_source(access_token="token", endpoint="companies", team_id=1, job_id="job-1")
-            companies = list(response.items())
+            # `items()` is typed `Iterable | AsyncIterable`; the scroll path yields a sync iterator.
+            companies = list(cast(Iterable[dict[str, Any]], response.items()))
 
         assert [c["id"] for c in companies] == ["co1"]
         urls = [call.args[0] for call in mock_session.get.call_args_list]
