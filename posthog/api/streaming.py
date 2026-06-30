@@ -1,8 +1,13 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterable, Iterable
 from http import HTTPStatus
 
 from django.db import connections
 from django.http import StreamingHttpResponse
+
+# What StreamingHttpResponse actually accepts: sync or async iterables of bytes or
+# str chunks (Django encodes str via the response charset). Broad on purpose — SSE
+# views yield str, proxies yield bytes, and the empty-stream stub passes a list.
+StreamContent = Iterable[bytes | str] | AsyncIterable[bytes | str]
 
 # Disable proxy buffering/caching so SSE chunks reach the client immediately
 # (nginx/Envoy in front of web-django otherwise buffer the stream).
@@ -33,8 +38,34 @@ def _release_request_connections() -> None:
             conn.close()
 
 
+def streaming_response(
+    stream: StreamContent,
+    *,
+    content_type: str,
+    status: int = HTTPStatus.OK,
+    headers: dict[str, str] | None = None,
+) -> StreamingHttpResponse:
+    """Build a ``StreamingHttpResponse``, releasing request-thread DB connections first.
+
+    Use this (or ``sse_streaming_response`` for SSE) instead of constructing
+    ``StreamingHttpResponse`` directly — a semgrep rule enforces it. See
+    ``sse_streaming_response`` for why releasing connections matters.
+
+    The stream body must not rely on the request-thread connection: do any
+    in-stream DB work through ``posthog.sync.database_sync_to_async`` so it
+    acquires and releases its own connection.
+    """
+    _release_request_connections()
+    return StreamingHttpResponse(
+        stream,
+        status=status,
+        content_type=content_type,
+        headers=headers or {},
+    )
+
+
 def sse_streaming_response(
-    stream: Iterator[bytes] | AsyncIterator[bytes],
+    stream: StreamContent,
     *,
     status: int = HTTPStatus.OK,
     headers: dict[str, str] | None = None,
@@ -65,10 +96,9 @@ def sse_streaming_response(
     then stays pinned for the whole stream. Keep response middleware DB-free on
     SSE paths.
     """
-    _release_request_connections()
-    return StreamingHttpResponse(
+    return streaming_response(
         stream,
-        status=status,
         content_type="text/event-stream",
+        status=status,
         headers={**_SSE_DEFAULT_HEADERS, **(headers or {})},
     )

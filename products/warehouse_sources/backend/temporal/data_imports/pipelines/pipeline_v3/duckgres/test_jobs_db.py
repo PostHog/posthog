@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
     BatchQueue,
@@ -101,11 +102,24 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         FROM {DUCKGRES_STATUS_TABLE}
         ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
+    # Needed so the Delta queue's claim CTE (referenced by the contract test below) can plan.
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
 
 
 def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(
-        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE"
+        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE} RESTART IDENTITY CASCADE"
     )
 
 
@@ -433,7 +447,7 @@ class TestBackfillQueueContracts:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
+        assert await BatchQueue.get_unprocessed_and_lock(conn, owner_token="test-owner") == []
 
         duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
         assert [str(b.id) for b in duck] == [batch_id]

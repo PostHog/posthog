@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-26 20:30:29 UTC
+// Generated at: 2026-06-30 11:00:47 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -48,6 +48,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -77,6 +78,7 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream-fp8'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
     | 'minimax'
@@ -99,6 +101,7 @@ export type CanonicalProvider =
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
+    | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'

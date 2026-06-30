@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -10,6 +10,7 @@ import { Breadcrumb } from '~/types'
 
 import { engineeringAnalyticsPullRequests } from '../generated/api'
 import type { authorLogicType } from './authorLogicType'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, toPullRequestRow } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -30,15 +31,11 @@ export const authorLogic = kea<authorLogicType>([
     props({} as AuthorLogicProps),
     key((props) => `author/${props.handle}@${props.sourceId ?? ''}`),
 
-    actions({
-        // Window for the cost tiles only — the PR list below is not re-scoped by it.
-        setDateFrom: (dateFrom: string) => ({ dateFrom }),
-    }),
-
-    reducers({
-        // Tile window; default last 30 days. Drives the client-side filter in `windowedRows`, never a reload.
-        dateFrom: ['-30d', { setDateFrom: (_, { dateFrom }) => dateFrom }],
-    }),
+    // Shares the CI-analytics window, but only to scope the cost tiles (a client-side filter over the
+    // already-loaded PRs) — the PR list below is never re-scoped, so changing the window never reloads here.
+    connect(() => ({
+        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+    })),
 
     loaders(({ props }) => ({
         prs: [
@@ -62,15 +59,16 @@ export const authorLogic = kea<authorLogicType>([
         sourceId: [() => [(_, p: AuthorLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
         handle: [() => [(_, p: AuthorLogicProps) => p.handle], (handle): string => handle],
         // The tile scope: PRs opened within the selected window. The list shows every loaded PR; only the
-        // cost KPIs narrow to this subset, so the date picker reads as "cost of PRs opened in the last N days".
+        // cost KPIs narrow to this subset, so the date picker reads as "cost of PRs opened in the window".
         windowedRows: [
-            (s) => [s.prs, s.dateFrom],
-            (prs: PullRequestRow[], dateFrom: string): PullRequestRow[] => {
-                const cutoff = dateStringToDayJs(dateFrom)
-                if (!cutoff) {
-                    return prs
-                }
-                return prs.filter((pr) => dayjs(pr.createdAt).isAfter(cutoff))
+            (s) => [s.prs, s.dateFrom, s.dateTo],
+            (prs: PullRequestRow[], dateFrom: string | null, dateTo: string | null): PullRequestRow[] => {
+                const from = dateFrom ? dateStringToDayJs(dateFrom) : null
+                const to = dateTo ? dateStringToDayJs(dateTo) : null
+                return prs.filter((pr) => {
+                    const created = dayjs(pr.createdAt)
+                    return (!from || created.isAfter(from)) && (!to || created.isBefore(to))
+                })
             },
         ],
         // Author totals across the in-window PRs — null when nothing was costable / the job source is unsynced.
