@@ -16,9 +16,9 @@ import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
-    const { submitTaskCreateForm, setTaskCreateFormValues, setActiveSuggestionGroup, applySuggestion } =
+    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion } =
         useActions(taskTrackerSceneLogic)
-    const { taskCreateForm, isTaskCreateFormSubmitting, activeSuggestionGroup, headline, sendDisabledReason } =
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, sendDisabledReason } =
         useValues(taskTrackerSceneLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -44,14 +44,14 @@ export function TaskComposer(): JSX.Element {
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
                         <RepositorySelector
-                            value={taskCreateForm.repositoryConfig}
-                            onChange={(config) => setTaskCreateFormValues({ repositoryConfig: config })}
+                            value={newTaskData.repositoryConfig}
+                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
                         <Composer.Root
-                            value={taskCreateForm.description}
-                            onChange={(value) => setTaskCreateFormValues({ description: value })}
-                            onSubmit={submitTaskCreateForm}
-                            loading={isTaskCreateFormSubmitting}
+                            value={newTaskData.description}
+                            onChange={(value) => setNewTaskData({ description: value })}
+                            onSubmit={submitNewTask}
+                            loading={isSubmittingTask}
                             disabledReason={sendDisabledReason}
                             textAreaRef={textAreaRef}
                         >
@@ -66,18 +66,18 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Field>
                                 <Composer.Footer>
                                     <ComposerModelEffortPickers
-                                        selectedModel={taskCreateForm.model}
-                                        selectedEffort={taskCreateForm.reasoningEffort}
+                                        selectedModel={newTaskData.model}
+                                        selectedEffort={newTaskData.reasoningEffort}
                                         onModelChange={(model) =>
-                                            setTaskCreateFormValues({
+                                            setNewTaskData({
                                                 model,
                                                 reasoningEffort: resolveEffortForModel(
-                                                    taskCreateForm.reasoningEffort,
+                                                    newTaskData.reasoningEffort,
                                                     model
                                                 ),
                                             })
                                         }
-                                        onEffortChange={(reasoningEffort) => setTaskCreateFormValues({ reasoningEffort })}
+                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
