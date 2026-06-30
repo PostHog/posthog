@@ -15,6 +15,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from urllib3.util.retry import Retry
 
 from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
+from posthog.rate_limiting.github_observability import record_github_api_response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -368,6 +369,12 @@ def _github_retry_wait(state: RetryCallState) -> float:
 )
 def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
     response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+
+    # Record before the branching below so rate-limited (403/429) and error responses count too.
+    # This source authenticates with a raw token and has no installation id in scope, so it records
+    # request volume only (source="warehouse"); the per-installation gauges stay with callers that
+    # know their installation.
+    record_github_api_response(response, source="warehouse")
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:

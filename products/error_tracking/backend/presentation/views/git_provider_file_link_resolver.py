@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
+from posthog.rate_limiting.github_observability import record_github_api_response
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +89,7 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
+        record_github_api_response(response, source="error_tracking")
 
         if response.status_code == 200:
             data = response.json()

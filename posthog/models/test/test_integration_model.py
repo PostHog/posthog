@@ -1143,6 +1143,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "200",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
@@ -1156,21 +1157,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_remaining",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
             )
             == expected_remaining
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_limit",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
             )
             == expected_limit
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_reset_timestamp_seconds",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
             )
             == expected_reset
         )
@@ -1188,6 +1189,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "exception",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
@@ -1213,6 +1215,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "method": "POST",
             "endpoint": "/app/installations/{installation_id}/access_tokens",
             "status_code": "exception",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 

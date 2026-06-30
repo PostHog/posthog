@@ -23,6 +23,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.rate_limiting.github_observability import record_github_api_response
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
@@ -1791,6 +1792,7 @@ def post_reply_to_github(
             },
             timeout=15,
         )
+        record_github_api_response(resp, source="conversations", integration_id=str(github.integration.id))
         if resp.status_code not in (200, 201):
             logger.warning(
                 "github_reply_post_failed",
@@ -1862,6 +1864,7 @@ def create_github_issue(
             },
             timeout=15,
         )
+        record_github_api_response(resp, source="conversations", integration_id=str(github.integration.id))
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
