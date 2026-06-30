@@ -431,7 +431,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}
                     )
-                    if (response.state !== 'ok') {
+                    if (response.state === 'ok') {
+                        lemonToast.success('Key validated successfully')
+                    } else {
                         lemonToast.error(`Key validation failed: ${response.error_message || 'Unknown error'}`)
                     }
                     return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))

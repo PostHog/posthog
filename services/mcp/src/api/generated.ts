@@ -20078,6 +20078,11 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /**
+         * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
     }
 
     /**
@@ -20090,6 +20095,8 @@ export namespace Schemas {
       window_days: number;
       /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
+      /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+      other_enabled_scanners_monthly: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -23766,6 +23773,22 @@ export namespace Schemas {
     export interface FlagValueResponse {
       results: FlagValueItem[];
       refreshing: boolean;
+    }
+
+    /**
+     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     */
+    export interface FleetFindingsSummary {
+      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      count: number;
+      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      scout_count: number;
+      /**
+         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * @nullable
+         */
+      latest_at: string | null;
     }
 
     export interface FolderInstructions {
@@ -30580,6 +30603,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -30596,6 +30620,7 @@ export namespace Schemas {
 
 
     export const OriginProductEnum = {
+      Onboarding: 'onboarding',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -41264,6 +41289,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -51855,6 +51881,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -65427,6 +65454,15 @@ export namespace Schemas {
      * @minLength 1
      */
     skill_name?: string;
+    };
+
+    export type SignalsScoutRunsFindingsSummaryParams = {
+    /**
+     * Lookback window in hours over runs' `created_at` (default 72, hard cap 168).
+     * @minimum 1
+     * @maximum 168
+     */
+    window_hours?: number;
     };
 
     export type SignalsScoutScratchpadSearchParams = {
