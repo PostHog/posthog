@@ -1,6 +1,9 @@
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.db.models.functions import Length
+from django.http import HttpResponseNotAllowed
+from django.middleware.csrf import get_token
 from django.shortcuts import redirect
 from django.template.defaultfilters import filesizeformat
 from django.urls import path, reverse
@@ -9,6 +12,8 @@ from django.utils.html import format_html
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.django_checkpoint.compaction import compact_thread
+
+_COMPACT_SKIP_REASON = "not idle, awaiting approval, or nothing to compact"
 
 
 @admin.register(Conversation)
@@ -33,6 +38,11 @@ class ConversationAdmin(admin.ModelAdmin):
         # Conversation is soft-deleted by the app; don't expose a cascading hard-delete here.
         return False
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        # Stash the request so checkpoint_storage can mint a CSRF token for its POST form.
+        self._current_request = request
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
     def get_urls(self):
         compact_url = path(
             "<path:object_id>/compact/",
@@ -53,12 +63,19 @@ class ConversationAdmin(admin.ModelAdmin):
     def checkpoint_storage(self, conversation: Conversation):
         # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
         blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
+        request = getattr(self, "_current_request", None)
+        # POST form rather than a link: compaction deletes rows, so it must not run on a GET.
         return format_html(
-            '{} checkpoints, {} blobs ({}) &nbsp; <a class="button" href="{}">Compact now</a>',
+            "{} checkpoints, {} blobs ({}) &nbsp;"
+            '<form method="post" action="{}" style="display: inline">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
+            '<button type="submit" class="button">Compact now</button>'
+            "</form>",
             conversation.checkpoints.count(),
             blobs["count"] or 0,
             filesizeformat(blobs["total_bytes"] or 0),
             reverse("admin:posthog_ai_conversation_compact", args=[conversation.pk]),
+            get_token(request) if request is not None else "",
         )
 
     def compact_view(self, request, object_id: str):
@@ -66,6 +83,10 @@ class ConversationAdmin(admin.ModelAdmin):
         if conversation is None:
             self.message_user(request, "Conversation not found.", messages.ERROR)
             return redirect("admin:posthog_ai_conversation_changelist")
+        if not self.has_change_permission(request, conversation):
+            raise PermissionDenied
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
         result = compact_thread(str(conversation.id))
         if result.compacted:
@@ -75,11 +96,7 @@ class ConversationAdmin(admin.ModelAdmin):
                 messages.SUCCESS,
             )
         else:
-            self.message_user(
-                request,
-                "Nothing compacted (not idle, awaiting approval, or already compact).",
-                messages.WARNING,
-            )
+            self.message_user(request, f"Nothing compacted ({_COMPACT_SKIP_REASON}).", messages.WARNING)
         return redirect("admin:posthog_ai_conversation_change", object_id)
 
     @admin.action(description="Compact checkpoints (keep latest, reclaim storage)")
@@ -97,6 +114,6 @@ class ConversationAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             f"Compacted {compacted} conversation(s) — reclaimed {checkpoints} checkpoints "
-            f"and {blobs} blobs. Skipped {skipped} (not idle, awaiting approval, or nothing to compact).",
+            f"and {blobs} blobs. Skipped {skipped} ({_COMPACT_SKIP_REASON}).",
             messages.SUCCESS if compacted else messages.WARNING,
         )
