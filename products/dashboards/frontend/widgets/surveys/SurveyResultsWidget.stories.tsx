@@ -14,8 +14,11 @@ import {
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { surveyResultsSamplePayload } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { SurveyResultsWidget } from './SurveyResultsWidget'
+import { SurveyResultsWidgetTileFilters } from './SurveyResultsWidgetTileFilters'
 
 const SURVEY_RESULTS_CATALOG = getDashboardWidgetCatalogEntry('survey_results')!
 const DEFAULT_CONFIG = SURVEY_RESULTS_CATALOG.defaultConfig as Record<string, unknown>
@@ -41,6 +44,8 @@ type SurveyResultsWidgetTileStoryProps = DashboardWidgetComponentProps & {
     description?: string
     showDescription?: boolean
     body?: ReactNode
+    /** When true, tile filter bar matches view-only dashboard access (no edit permissions). */
+    tileFiltersReadOnly?: boolean
 }
 
 function SurveyResultsWidgetTileStory({
@@ -48,10 +53,12 @@ function SurveyResultsWidgetTileStory({
     description = SURVEY_RESULTS_CATALOG.description,
     showDescription = true,
     body,
+    tileFiltersReadOnly = false,
     ...widgetProps
 }: SurveyResultsWidgetTileStoryProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(SURVEY_RESULTS_CATALOG.groupId)
     const defaultTitle = SURVEY_RESULTS_CATALOG.headerTitle ?? SURVEY_RESULTS_CATALOG.label
+    const { isAvailable: showTileFilters } = useWidgetAvailability(SURVEY_RESULTS_CATALOG.availability)
 
     return (
         <WidgetCard className="h-full">
@@ -69,6 +76,14 @@ function SurveyResultsWidgetTileStory({
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(DashboardPlacement.Dashboard, false)}
                 moreButtonOverlay={mockMoreOverlay}
             />
+            {showTileFilters ? (
+                <SurveyResultsWidgetTileFilters
+                    tileId={widgetProps.tileId}
+                    config={widgetProps.config}
+                    onUpdateConfig={tileFiltersReadOnly ? undefined : widgetProps.onUpdateConfig}
+                    disabledReason={tileFiltersReadOnly ? DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON : undefined}
+                />
+            ) : null}
             <WidgetCardBody>{body ?? <SurveyResultsWidget {...widgetProps} />}</WidgetCardBody>
         </WidgetCard>
     )
@@ -146,6 +161,22 @@ export const NotConfigured: Story = {
         docs: {
             description: {
                 story: 'Prompt to pick a survey when the tile has none selected yet.',
+            },
+        },
+    },
+}
+
+export const TileFiltersReadOnly: Story = {
+    args: {
+        title: 'Survey results',
+        loading: false,
+        result: surveyResultsSamplePayload,
+        tileFiltersReadOnly: true,
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'View-only dashboard access — the survey picker shows the selection read-only.',
             },
         },
     },

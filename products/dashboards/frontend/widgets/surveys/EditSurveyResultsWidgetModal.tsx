@@ -11,12 +11,10 @@ import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editSurveyResultsWidgetModalLogic } from './editSurveyResultsWidgetModalLogic'
-import { SurveyPickerSelect } from './SurveyPickerSelect'
 import { SURVEY_RESULTS_WIDGET_DATE_RANGE_OPTIONS } from './surveysWidgetConfigValidation'
 
 function EditSurveyResultsWidgetModalContents(): JSX.Element {
     const {
-        surveyId,
         limit,
         dateFrom,
         tileName,
@@ -27,7 +25,7 @@ function EditSurveyResultsWidgetModalContents(): JSX.Element {
         onClose,
         defaultTitle,
     } = useValues(editSurveyResultsWidgetModalLogic)
-    const { setSurveyId, setLimit, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } = useActions(
+    const { setLimit, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } = useActions(
         editSurveyResultsWidgetModalLogic
     )
 
@@ -36,7 +34,7 @@ function EditSurveyResultsWidgetModalContents(): JSX.Element {
             isOpen
             onClose={onClose}
             title="Widget settings"
-            description="Configure the tile details and which survey's performance and responses to show."
+            description="Configure the tile details. Pick which survey to show from the tile's filter bar."
             width={680}
             footer={
                 <>
@@ -67,19 +65,6 @@ function EditSurveyResultsWidgetModalContents(): JSX.Element {
                 <LemonDivider className="my-0" />
                 <section className="flex flex-col gap-3">
                     <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('surveys')}</h5>
-                    <LemonField.Pure label="Survey" error={activeFieldErrors.surveyId}>
-                        <SurveyPickerSelect
-                            pickerKey="survey-results-modal"
-                            value={surveyId}
-                            disabled={saving}
-                            fullWidth
-                            onChange={(value) => {
-                                setSurveyId(value)
-                                clearFieldError('surveyId')
-                            }}
-                            dataAttr="survey-results-widget-modal-select"
-                        />
-                    </LemonField.Pure>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <LemonField.Pure
                             label="Date range"

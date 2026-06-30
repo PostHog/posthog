@@ -44,6 +44,7 @@ import { parseSessionReplayWidgetConfigApiError } from './session_replay/session
 import { SessionReplayWidgetTileFilters } from './session_replay/SessionReplayWidgetTileFilters'
 import { EditSurveyResultsWidgetModal } from './surveys/EditSurveyResultsWidgetModal'
 import { SurveyResultsWidget } from './surveys/SurveyResultsWidget'
+import { SurveyResultsWidgetTileFilters } from './surveys/SurveyResultsWidgetTileFilters'
 import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
 export type DashboardWidgetConfigApiErrorParser = (
@@ -183,6 +184,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
     },
     survey_results: {
         Component: SurveyResultsWidget,
+        TileFilters: SurveyResultsWidgetTileFilters,
         EditModal: EditSurveyResultsWidgetModal,
         productAccess: 'survey',
         parseConfigApiError: parseSurveyResultsWidgetConfigApiError,

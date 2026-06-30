@@ -35,7 +35,6 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
 
     actions({
         ...widgetEditModalTileActions,
-        setSurveyId: (surveyId: string | null) => ({ surveyId }),
         setLimit: (limit: number) => ({ limit }),
         setDateFrom: (dateFrom: SurveyWidgetDateFrom) => ({ dateFrom }),
         setFieldErrors: (fieldErrors: SurveyResultsWidgetFieldErrors) => ({ fieldErrors }),
@@ -46,12 +45,6 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
     }),
 
     reducers({
-        surveyId: [
-            null as string | null,
-            {
-                setSurveyId: (_: string | null, { surveyId }: { surveyId: string | null }) => surveyId,
-            },
-        ],
         limit: [
             10,
             {
@@ -113,10 +106,12 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
         ],
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.surveyId, s.limit, s.dateFrom, s.widgetConfig],
-            (surveyId, limit, dateFrom, widgetConfig) =>
+            (s) => [s.limit, s.dateFrom, s.widgetConfig],
+            // The survey is chosen on the tile filter bar; read it from the persisted config so saving
+            // the date range / limit preserves the selection.
+            (limit, dateFrom, widgetConfig) =>
                 validateSurveyResultsWidgetConfigInput({
-                    surveyId,
+                    surveyId: widgetConfig.surveyId ?? null,
                     limit,
                     dateFrom,
                     baseConfig: widgetConfig,
@@ -149,7 +144,6 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
         const baseConfig = parseSurveyResultsWidgetConfig(props.config)
 
         return {
-            surveyId: baseConfig.surveyId ?? null,
             limit: baseConfig.limit ?? 10,
             dateFrom: dateFromValueForConfig(baseConfig),
             ...getWidgetEditModalTileDefaults(props),
