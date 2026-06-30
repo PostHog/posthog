@@ -13,7 +13,11 @@ class ConversationAdmin(admin.ModelAdmin):
     list_select_related = ("team", "user")
     list_filter = ("status", "type")
     search_fields = ("id", "team__name", "user__email")
-    autocomplete_fields = ("team", "user", "task")
+    autocomplete_fields = ("team", "user")
+    # `task` uses raw_id rather than autocomplete: its admin lives in the tasks product and
+    # isn't guaranteed registered when ConversationAdmin's system checks run (admin.E039).
+    # raw_id_fields needs no registered target admin and still avoids the full-table <select>.
+    raw_id_fields = ("task",)
     ordering = ("-updated_at",)
     actions = ["compact_checkpoints"]
 
