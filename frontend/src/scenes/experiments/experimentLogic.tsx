@@ -2732,10 +2732,7 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [(s) => [s.experiment], (experiment): MultivariateFlagVariant[] => getExperimentVariants(experiment)],
         excludedVariants: [
             (s) => [s.experiment],
-            // Canonical home is the excluded_variants column; fall back to the legacy parameters
-            // mirror during the deprecation window. `??` honors an explicit empty list.
-            (experiment: Experiment): string[] =>
-                experiment?.excluded_variants ?? experiment?.parameters?.excluded_variants ?? [],
+            (experiment: Experiment): string[] => experiment?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],

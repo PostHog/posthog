@@ -489,6 +489,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = false
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -560,8 +561,14 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    "When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume."
+                ),
         })
-        .describe('The sparkline \/ duration-histogram query to execute.'),
+        .describe('The sparkline query to execute.'),
 })
 
 export const TracingSpansSymbolStatsCreateBody = /* @__PURE__ */ zod.object({
