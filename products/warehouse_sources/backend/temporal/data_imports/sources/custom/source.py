@@ -153,6 +153,17 @@ class _ManifestAuth(BaseModel):
         # the manifest — the manifest field is non-secret and round-trips to the client.
         if isinstance(data, dict):
             inline = [key for key in INLINE_SECRET_KEYS if data.get(key)]
+            # `extra_token_request_params` / `token_request_headers` are forwarded verbatim to the token
+            # endpoint but live in the non-secret manifest, so a secret stashed in them would round-trip
+            # to anyone who can read the source. Scan their keys too — case-insensitively, since header
+            # names like `Authorization` are arbitrarily cased.
+            for nested_key in ("extra_token_request_params", "token_request_headers"):
+                nested = data.get(nested_key)
+                if isinstance(nested, dict):
+                    lowered = {str(key).lower(): value for key, value in nested.items()}
+                    inline += [
+                        f"{nested_key}.{key}" for key in (*INLINE_SECRET_KEYS, "authorization") if lowered.get(key)
+                    ]
             if inline:
                 raise ValueError(
                     f"Credentials ({', '.join(inline)}) must not be embedded — use the dedicated auth fields"

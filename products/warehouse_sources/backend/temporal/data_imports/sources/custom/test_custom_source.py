@@ -211,6 +211,26 @@ class TestValidateManifest(SimpleTestCase):
                     "access_token": "leaked",
                 },
             ),
+            # The OAuth2 token-request knobs are forwarded to the token endpoint but stored in the
+            # non-secret manifest, so a secret hidden in them must be rejected too.
+            (
+                "extra_token_request_params.client_secret",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "extra_token_request_params": {"client_secret": "leaked"},
+                },
+            ),
+            (
+                "token_request_headers.Authorization",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "token_request_headers": {"Authorization": "Bearer leaked"},
+                },
+            ),
         ]
     )
     def test_rejects_inline_credentials(self, _name, auth):
