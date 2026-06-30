@@ -5,7 +5,9 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.facade.models import Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import DataModelingJobEngine, Edge, Node, NodeType
+
+from .utils import is_node_suspended
 
 LOGGER = get_logger(__name__)
 
@@ -35,25 +37,32 @@ class DAG:
     executable_nodes: list[str]
     edges: list[tuple[str, str]]
     ephemeral_nodes: list[str] = dataclasses.field(default_factory=list)
+    # node ids suspended after repeated failures, keyed by engine ("clickhouse" / "duckgres")
+    suspended_nodes: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
 
 @database_sync_to_async_pool
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
-    nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
-    executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT])
-    ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
+    nodes = list(Node.objects.filter(team_id=team_id, dag_id=dag_id))
+    executable_nodes = [n for n in nodes if n.type in (NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT)]
+    ephemeral_nodes = [n for n in executable_nodes if n.type == NodeType.VIEW]
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
     )
+    suspended_nodes = {
+        engine.value: [str(n.id) for n in executable_nodes if is_node_suspended(n, engine)]
+        for engine in DataModelingJobEngine
+    }
     # ids are uuid objects by default. primitives are probably better
     return DAG(
         nodes=[str(n.id) for n in nodes],
         executable_nodes=[str(n.id) for n in executable_nodes],
         ephemeral_nodes=[str(n.id) for n in ephemeral_nodes],
         edges=[(str(e.source.id), str(e.target.id)) for e in edges],
+        suspended_nodes=suspended_nodes,
     )
 
 
