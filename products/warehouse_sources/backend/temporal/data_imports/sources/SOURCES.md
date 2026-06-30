@@ -129,6 +129,7 @@ the row lists both.
 | elasticsearch           | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
+| eventee                 | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -385,7 +386,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- eventee
 - eventzilla
 - exchange_rates_api
 - expensify
