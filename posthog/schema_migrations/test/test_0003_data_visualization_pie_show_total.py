@@ -49,37 +49,43 @@ def test_legacy_pie_chart_query_upgrades_and_validates(real_migrations):
     assert upgraded["chartSettings"] == {"pie": {"showTotal": False}}
 
 
-def test_data_visualization_pie_show_total_migration():
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            {"kind": "NotDataVisualizationNode", "chartSettings": {"showPieTotal": True}},
+            {"kind": "NotDataVisualizationNode", "chartSettings": {"showPieTotal": True}},
+        ),
+        ({"kind": "DataVisualizationNode"}, {"kind": "DataVisualizationNode"}),
+        (
+            {"kind": "DataVisualizationNode", "chartSettings": {"showLegend": True}},
+            {"kind": "DataVisualizationNode", "chartSettings": {"showLegend": True}},
+        ),
+        (
+            {"kind": "DataVisualizationNode", "chartSettings": {"showPieTotal": False}},
+            {"kind": "DataVisualizationNode", "chartSettings": {"pie": {"showTotal": False}}},
+        ),
+        (
+            {
+                "kind": "DataVisualizationNode",
+                "chartSettings": {"showPieTotal": True, "pie": {"sliceContent": "values"}},
+            },
+            {"kind": "DataVisualizationNode", "chartSettings": {"pie": {"sliceContent": "values", "showTotal": True}}},
+        ),
+        (
+            {"kind": "DataVisualizationNode", "chartSettings": {"showPieTotal": True, "pie": {"showTotal": False}}},
+            {"kind": "DataVisualizationNode", "chartSettings": {"pie": {"showTotal": False}}},
+        ),
+    ],
+    ids=[
+        "non_data_visualization_node_untouched",
+        "missing_chart_settings_untouched",
+        "chart_settings_without_show_pie_total_untouched",
+        "explicit_false_moves_into_pie_show_total",
+        "merges_alongside_existing_pie_settings",
+        "already_migrated_pie_show_total_wins",
+    ],
+)
+def test_data_visualization_pie_show_total_migration(query, expected):
     migration_module = importlib.import_module("posthog.schema_migrations.0003_data_visualization_pie_show_total")
-    migration = migration_module.Migration()
-
-    # Non-DataVisualizationNode queries are untouched
-    other_query = {"kind": "NotDataVisualizationNode", "chartSettings": {"showPieTotal": True}}
-    assert migration.transform(other_query) == other_query
-
-    # Missing or pie-free chartSettings is untouched
-    assert migration.transform({"kind": "DataVisualizationNode"}) == {"kind": "DataVisualizationNode"}
-    no_pie = {"kind": "DataVisualizationNode", "chartSettings": {"showLegend": True}}
-    assert migration.transform(no_pie) == no_pie
-
-    # showPieTotal=False moves into pie.showTotal, preserving the explicit opt-out
-    assert migration.transform({"kind": "DataVisualizationNode", "chartSettings": {"showPieTotal": False}}) == {
-        "kind": "DataVisualizationNode",
-        "chartSettings": {"pie": {"showTotal": False}},
-    }
-
-    # showPieTotal=True moves into pie.showTotal alongside any existing pie settings
-    assert migration.transform(
-        {"kind": "DataVisualizationNode", "chartSettings": {"showPieTotal": True, "pie": {"sliceContent": "values"}}}
-    ) == {
-        "kind": "DataVisualizationNode",
-        "chartSettings": {"pie": {"sliceContent": "values", "showTotal": True}},
-    }
-
-    # An already-migrated pie.showTotal wins; the legacy field is just dropped
-    assert migration.transform(
-        {"kind": "DataVisualizationNode", "chartSettings": {"showPieTotal": True, "pie": {"showTotal": False}}}
-    ) == {
-        "kind": "DataVisualizationNode",
-        "chartSettings": {"pie": {"showTotal": False}},
-    }
+    assert migration_module.Migration().transform(query) == expected
