@@ -169,29 +169,50 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # on every sync — create, update, and resync. saved_queries_to_schedule is in expected_views
         # order (dependencies first), so edges resolve in a single pass.
         #
-        # No cross-call advisory lock here on purpose: a SESSION-level pg_advisory_lock acquired and
-        # released across separate autocommit statements leaks under transaction-mode PgBouncer — the
-        # unlock can be routed to a different backend than the one that holds the lock, stranding it
-        # and eventually exhausting the connection pool. Concurrent sync_views for the same team+kind
-        # can therefore race on node/edge placement; that is tolerated for now, pending a pooling-safe
-        # guard. The transaction-scoped lock above still serializes the saved-query writes.
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-        for saved_query in saved_queries_to_schedule:
-            try:
-                sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
-                # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
-                # unless something there still depends on it (don't orphan a dependent).
-                for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
-                    if not stale.outgoing_edges.exists():
-                        stale.delete()
-            except Exception as e:
-                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
-                logger.warning(
-                    "failed_to_sync_managed_view_to_dag",
-                    team_id=self.team_id,
-                    view_name=saved_query.name,
-                    error=str(e),
+        # Serialize concurrent sync_views for this team+kind with a TRANSACTION-scoped advisory lock.
+        # Without it, when several data source schemas finish at once each sync loops
+        # Edge.objects.create() over every dependency, and every Edge.save() opens its own
+        # transaction taking the per-DAG pg_advisory_xact_lock for cycle detection. Those per-edge
+        # locks all contend on the same managed DAG, connections pile up waiting, and the
+        # transaction-mode PgBouncer pool exhausts (ProtocolViolation: query_wait_timeout). Holding
+        # the lock once for the whole loop lets a single sync write at a time, so the per-edge locks
+        # are uncontended and the syncs can't race on node/edge placement either (one call's edge
+        # delete-and-recreate wiping another's).
+        #
+        # Transaction-scoped (released on commit/rollback), deliberately NOT a session-level
+        # pg_advisory_lock: a session lock acquired and released across separate autocommit statements
+        # leaks under transaction-mode pooling — its unlock can route to a different backend than the
+        # one holding it, stranding the lock and eventually exhausting the pool. The expensive
+        # get_s3_tables() work already ran outside any transaction above, so the connection held here
+        # only spans the (comparatively cheap) dependency resolution and edge writes.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    [f"{self.team_id}_sync_views_{self.kind}"],
                 )
+            managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+            for saved_query in saved_queries_to_schedule:
+                try:
+                    # Isolate each view in a savepoint so one failure rolls back only its own
+                    # node/edge writes and leaves the shared transaction usable for the rest.
+                    with transaction.atomic():
+                        sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                        # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
+                        # unless something there still depends on it (don't orphan a dependent).
+                        for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(
+                            dag=managed_dag
+                        ):
+                            if not stale.outgoing_edges.exists():
+                                stale.delete()
+                except Exception as e:
+                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                    logger.warning(
+                        "failed_to_sync_managed_view_to_dag",
+                        team_id=self.team_id,
+                        view_name=saved_query.name,
+                        error=str(e),
+                    )
 
         for saved_query in saved_queries_to_schedule:
             try:

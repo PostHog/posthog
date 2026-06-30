@@ -1,7 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
@@ -158,6 +159,28 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             self.assertIn(view.id, node_sq_ids)
             other_dag_nodes = Node.objects.filter(team=self.team, saved_query=view).exclude(dag=ra_dag)
             self.assertFalse(other_dag_nodes.exists())
+
+    def test_sync_views_serializes_with_transaction_scoped_advisory_lock(self):
+        # Concurrent sync_views runs must serialize node/edge placement with a transaction-scoped
+        # advisory lock. A session-level pg_advisory_lock leaks under transaction-mode PgBouncer
+        # (its unlock can route to a different backend), stranding the lock until the pool exhausts.
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            managed_viewset.sync_views()
+
+        queries = [q["sql"] for q in ctx.captured_queries]
+        self.assertTrue(
+            any("pg_advisory_xact_lock" in sql for sql in queries),
+            "sync_views must serialize with a transaction-scoped advisory lock",
+        )
+        self.assertFalse(
+            any("pg_advisory_lock(" in sql for sql in queries),
+            "sync_views must not use a session-level pg_advisory_lock (leaks under transaction-mode pooling)",
+        )
 
     def test_sync_views_removes_stale_default_dag_node(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
