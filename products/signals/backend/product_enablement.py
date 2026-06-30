@@ -12,6 +12,7 @@ or delete the project. Adding a product later = one entry in `RECIPES`.
 
 import secrets
 from collections.abc import Callable
+from typing import cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -20,7 +21,9 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET
-from posthog.models import OrganizationMembership
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models import OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.team import Team
 
 # Written only when the team has none set. posthog-js already masks inputs + passwords
@@ -100,6 +103,7 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
 
         team = self.team
+        before = team.__dict__.copy()
         touched: set[str] = set()
         # dict.fromkeys dedupes while preserving the caller's order.
         results = {
@@ -119,5 +123,22 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         if touched:
             team.save(update_fields=sorted(touched))
+            # Audit the enable like the Team-update API does; drop conversations_settings so the
+            # minted widget token never lands in the activity log.
+            changes = [
+                change
+                for change in dict_changes_between("Team", before, team.__dict__, use_field_exclusions=True)
+                if change.field != "conversations_settings"
+            ]
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.pk,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                scope="Team",
+                item_id=team.pk,
+                activity="updated",
+                detail=Detail(name=str(team.name), changes=changes),
+            )
 
         return Response({"results": results}, status=status.HTTP_200_OK)

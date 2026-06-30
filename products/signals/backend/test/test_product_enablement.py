@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class TestProductEnablementAPI(APIBaseTest):
@@ -111,3 +112,13 @@ class TestProductEnablementAPI(APIBaseTest):
         wrong_key = self.create_personal_api_key_with_scopes(["session_recording:read"])
         response = self._enable(["error_tracking"], HTTP_AUTHORIZATION=f"Bearer {wrong_key}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_enable_writes_activity_log_without_conversations_token(self):
+        self._enable(["error_tracking", "conversations"])
+
+        log = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="updated").latest("created_at")
+        changed_fields = {change["field"] for change in log.detail["changes"]}
+        self.assertIn("autocapture_exceptions_opt_in", changed_fields)
+        self.assertIn("conversations_enabled", changed_fields)
+        # The minted widget token must never land in the audit log.
+        self.assertNotIn("conversations_settings", changed_fields)
