@@ -8,6 +8,8 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 
+from products.logs.backend.models import LogsExclusionRule
+
 
 class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -41,6 +43,12 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
+
+    def _drop_rules(self, facet_field: str, **filters) -> dict[str, list[str]]:
+        body = {"query": {"facetField": facet_field, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["value"]: r["dropRules"] for r in response.json()["results"]}
 
     @parameterized.expand(
         [
@@ -157,6 +165,64 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
 
     def test_resource_facet_search_no_match_returns_empty(self):
         self.assertEqual(self._facet_attr("k8s.namespace.name", facetSearch="no-such-namespace-xyz"), {})
+
+    def test_drop_rules_empty_when_no_enabled_rules(self):
+        drop_rules = self._drop_rules("service_name")
+        self.assertGreater(len(drop_rules), 0)
+        self.assertTrue(all(rules == [] for rules in drop_rules.values()))
+
+    def test_enabled_rule_scoped_to_service_surfaces_only_on_that_value(self):
+        target_service = next(iter(self._facet("service_name")))
+        LogsExclusionRule.objects.create(
+            team=self.team,
+            name="drop the noisy one",
+            enabled=True,
+            rule_type=LogsExclusionRule.RuleType.PATH_DROP,
+            config={
+                "patterns": [],
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "service_name", "operator": "exact", "value": target_service}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        drop_rules = self._drop_rules("service_name")
+        self.assertEqual(drop_rules[target_service], ["drop the noisy one"])
+        for service, rules in drop_rules.items():
+            if service != target_service:
+                self.assertEqual(rules, [], f"{service} must not surface the service-scoped rule")
+
+    def test_disabled_rule_is_not_surfaced(self):
+        target_service = next(iter(self._facet("service_name")))
+        LogsExclusionRule.objects.create(
+            team=self.team,
+            name="disabled rule",
+            enabled=False,
+            rule_type=LogsExclusionRule.RuleType.PATH_DROP,
+            config={"patterns": [], "filter_group": None},
+        )
+        self.assertEqual(self._drop_rules("service_name")[target_service], [])
+
+    def test_severity_sampling_rule_surfaces_only_on_dropped_levels(self):
+        LogsExclusionRule.objects.create(
+            team=self.team,
+            name="drop debug",
+            enabled=True,
+            rule_type=LogsExclusionRule.RuleType.SEVERITY_SAMPLING,
+            config={"actions": {"DEBUG": {"type": "drop"}, "INFO": {"type": "keep"}}},
+        )
+        drop_rules = self._drop_rules("severity_text")
+        for value, rules in drop_rules.items():
+            if value.lower() in ("trace", "debug"):
+                self.assertIn("drop debug", rules)
+            else:
+                self.assertEqual(rules, [], f"severity {value} must not surface a debug-only drop rule")
 
     def test_requires_exactly_one_facet_target(self):
         for query in (

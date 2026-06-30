@@ -1,13 +1,18 @@
 import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconMinusSquare } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const ROW_HEIGHT = 33
+
+function dropRulesTooltip(ruleNames: string[]): string {
+    const count = `${ruleNames.length} drop rule${ruleNames.length > 1 ? 's' : ''} target this value`
+    return `${count}: ${ruleNames.join(', ')}`
+}
 
 export interface FacetOption {
     value: string
@@ -16,6 +21,8 @@ export interface FacetOption {
     color?: string
     /** Number of matching log records; rendered right-aligned. Omitted when unavailable. */
     count?: number
+    /** Names of enabled drop rules that target this value (drop/rate-limit its logs); drives a warning icon. */
+    dropRules?: string[]
 }
 
 interface FacetProps {
@@ -189,6 +196,11 @@ function FacetValueButton({
             <span className="flex items-center gap-2 min-w-0 w-full">
                 {option.color && <span className={cn('w-1 h-3.5 rounded-full shrink-0', option.color)} />}
                 <span className="truncate flex-1">{option.label}</span>
+                {option.dropRules != null && option.dropRules.length > 0 && (
+                    <Tooltip title={dropRulesTooltip(option.dropRules)}>
+                        <IconMinusSquare className="shrink-0 text-warning" />
+                    </Tooltip>
+                )}
                 {option.count != null && (
                     <span className="shrink-0 text-muted tabular-nums">{humanFriendlyLargeNumber(option.count)}</span>
                 )}

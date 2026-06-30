@@ -53499,6 +53499,8 @@ export namespace Schemas {
       value: string;
       /** Number of matching log records, with all active filters applied except this facet's own selection. */
       count: number;
+      /** Names of enabled drop rules that target this facet value (drop or rate-limit its logs). Empty when none apply. */
+      dropRules?: string[];
     }
 
     /**

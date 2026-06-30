@@ -67,6 +67,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             value: r.value,
             label: r.value,
             count: r.count,
+            dropRules: r.dropRules,
         }))
         const loading = loadingFacetKeys.includes(facet.key)
         const onToggle = (value: string): void => toggleFacetValue(source, value)
@@ -74,11 +75,12 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
         const collapsed = collapsedFacets.includes(facet.key)
 
         if (facet.kind === 'fixed') {
-            // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
-            const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
+            // Fixed value set from config, counts + drop-rule annotations overlaid. Missing values render as a dimmed 0.
+            const fetchedByValue = new Map(fetched.map((option) => [option.value, option]))
             const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
                 ...option,
-                count: countByValue.get(option.value) ?? 0,
+                count: fetchedByValue.get(option.value)?.count ?? 0,
+                dropRules: fetchedByValue.get(option.value)?.dropRules,
             }))
             return (
                 <Facet

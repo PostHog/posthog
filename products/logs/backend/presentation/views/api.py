@@ -43,6 +43,7 @@ from products.logs.backend.count_ranges_query_runner import (
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
 )
+from products.logs.backend.drop_rule_matching import annotate_facet_values_with_drop_rules
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
@@ -325,6 +326,11 @@ class _LogFacetValueSerializer(serializers.Serializer):
     value = serializers.CharField(help_text="The facet value (e.g. a severity level or service name).")
     count = serializers.IntegerField(
         help_text="Number of matching log records, with all active filters applied except this facet's own selection."
+    )
+    dropRules = serializers.ListField(
+        child=serializers.CharField(),
+        default=list,
+        help_text="Names of enabled drop rules that target this facet value (drop or rate-limit its logs). Empty when none apply.",
     )
 
 
@@ -876,7 +882,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
-        return Response({"results": response.results}, status=status.HTTP_200_OK)
+        results = annotate_facet_values_with_drop_rules(
+            response.results,
+            team_id=self.team.pk,
+            facet_field=facet_field or None,
+            facet_resource_attribute=facet_resource_attribute or None,
+        )
+        return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
