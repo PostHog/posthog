@@ -1,8 +1,9 @@
 import datetime as dt
-from uuid import UUID, uuid4
 from datetime import datetime
 from typing import cast
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
