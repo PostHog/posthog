@@ -3545,7 +3545,7 @@ describe('maxThreadLogic', () => {
             }).toDispatchActions(['setSandboxRunOpening', 'openSandboxSse'])
 
             // openSandboxSse clears the optimistic flag via the reducer, so it never sticks on success.
-            expect(sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
         })
 
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
@@ -3560,7 +3560,7 @@ describe('maxThreadLogic', () => {
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
             // The boot indicator must not stick once the failed send unwinds.
-            expect(sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
             expect(
                 runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>
