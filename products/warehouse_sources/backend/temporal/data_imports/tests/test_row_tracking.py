@@ -9,6 +9,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import OperationalError
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
@@ -195,3 +196,21 @@ class TestRowTracking(BaseTest):
 
         async with self._setup_redis_rows(20, team_id=another_team.pk):
             assert await self._run(source, 10) is True
+
+    @pytest.mark.asyncio
+    async def test_transient_db_error_degrades_quietly(self):
+        # A transient pool/connection timeout should degrade to False without being captured as
+        # error-tracking noise (it previously surfaced confusingly as a KeyError on the org lookup).
+        source = await self._create_source()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_cached_instance_license",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture,
+        ):
+            assert await self._run(source, 10) is False
+            mock_capture.assert_not_called()

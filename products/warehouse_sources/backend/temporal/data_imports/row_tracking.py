@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.db import OperationalError
 from django.db.models import F, Q, Sum
 
 from dateutil import parser
@@ -148,7 +149,9 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         def _get_billing_data():
             license = get_cached_instance_license()
             billing_manager = BillingManager(license)
-            team = Team.objects.get(id=team_id)
+            # select_related avoids a second lazy FK round-trip for the org, which under pool
+            # pressure could time out and surface confusingly as a KeyError on the org cache miss
+            team = Team.objects.select_related("organization").get(id=team_id)
             organization: Organization = team.organization
             all_teams_in_org: list[int] = [
                 value[0] for value in Team.objects.filter(organization_id=organization.id).values_list("id")
@@ -233,6 +236,12 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         )
 
         return result
+    except OperationalError as e:
+        # Transient pool/connection timeout (e.g. pgbouncer query_wait_timeout) under concurrent
+        # imports. Degrade gracefully without capturing — it's expected noise, not a real bug.
+        await logger.adebug(f"BillingLimits: Transient DB error, skipping limit check. {e}")
+
+        return False
     except Exception as e:
         await logger.adebug(f"BillingLimits: Failed with exception {e}")
         capture_exception(e)
