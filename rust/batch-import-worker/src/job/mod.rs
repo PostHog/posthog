@@ -438,6 +438,34 @@ impl Job {
 
         let chunk_bytes = next_chunk.len();
 
+        // Sources that don't know their decompressed size up front (streaming gzip) report
+        // `total_size == None`; an empty read is the end of the part. Pin the size to the
+        // offset reached so `is_done` flips and the loop advances. Sources that return a known
+        // size never hit this branch.
+        if chunk_bytes == 0 && next_part.total_size.is_none() {
+            let discovered_total = next_part.current_offset;
+            next_part.total_size = Some(discovered_total);
+            {
+                let mut model = self.model.lock().await;
+                if let Some(model_state) = &mut model.state {
+                    if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
+                        model_part.total_size = Some(discovered_total);
+                    }
+                }
+            }
+            info!(
+                job_id = %self.job_id,
+                "Reached end of streaming part {key} at offset {discovered_total}"
+            );
+            return Ok(Some((
+                key.clone(),
+                Parsed {
+                    consumed: 0,
+                    data: vec![],
+                },
+            )));
+        }
+
         info!(job_id = %self.job_id, "Fetched part chunk {:?}", next_part);
         let m_tf = self.transform.clone();
         let key_for_error = key.clone();

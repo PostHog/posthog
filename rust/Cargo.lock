@@ -1282,6 +1282,7 @@ name = "batch-import-worker"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "async-compression",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",

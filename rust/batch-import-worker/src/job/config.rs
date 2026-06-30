@@ -431,7 +431,6 @@ impl S3SourceConfig {
             client,
             self.bucket.clone(),
             self.prefix.clone(),
-            ExtractorType::PlainGzip.create_extractor(),
             staging_dir,
         ))
     }
