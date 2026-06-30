@@ -12,7 +12,9 @@
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
-- Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Spare use of inline code. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Limit the user of the colon and semicolon.
+
+- Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Spare use of inline code. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Limit the use of the colon and semicolon.
+
 - Write from a first person perspective of the author of a human-driven PR. Although if something was done by agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
 - If written by agent, put in a plain paragraph before "## Problem" just saying "*Claude/Codex/etc.-written:*" to set the context for readers.
 - For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
