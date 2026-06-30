@@ -4,14 +4,20 @@
 //! The hot path reuses one [`CohortEvaluator`] per event: the STL context and globals are set once
 //! and only the program is swapped per condition, amortizing the context build across all conditions.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use dashmap::DashSet;
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use metrics::counter;
 use serde_json::Value;
-use tracing::debug;
+use tracing::info;
 
 use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
+
+/// Unknown-native function names already logged once. Bounded by the HogQL native surface
+/// (~hundreds max), so it never grows without bound; keeps the per-event unknown-function path
+/// observable in prod logs without a line per event.
+static SEEN_UNKNOWN_FNS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
 
 /// HogVM stack ceiling for cohort evaluation. `with_defaults` caps the stack at 128, far below real
 /// cohort bytecode: a `person.properties.X IN (...)` leaf compiles to a tuple build that pushes every
@@ -122,15 +128,71 @@ fn outcome_to_bool(outcome: EvalOutcome) -> bool {
         EvalOutcome::Matched(matched) => matched,
         EvalOutcome::UnknownFunction(name) => {
             // `name` is bytecode-derived from user cohort filters; keep it out of the metric label
-            // (bounded counter) and surface the specific function only in a debug log.
+            // (bounded counter) and surface the specific function in a log instead. Log each
+            // distinct name once at info — the counter already tracks volume, so a per-event line
+            // would be spam.
             counter!(STAGE1_HOGVM_UNKNOWN_FUNCTION).increment(1);
-            debug!(function = %name, "cohort bytecode called a function with no registered Rust native");
+            // Steady state is a read-only `contains` (no allocation; the same handful of names recur
+            // forever). Only on first sight do we clone-and-insert: `insert` returns `true` for
+            // exactly one thread, so the log fires once even when several race past `contains` at once.
+            if !SEEN_UNKNOWN_FNS.contains(name.as_str()) && SEEN_UNKNOWN_FNS.insert(name.clone()) {
+                info!(function = %name, "cohort bytecode called a function with no registered Rust native");
+            }
             false
         }
-        EvalOutcome::VmError(_) => {
-            counter!(STAGE1_HOGVM_ERROR).increment(1);
+        EvalOutcome::VmError(error) => {
+            counter!(STAGE1_HOGVM_ERROR, "reason" => vm_error_reason(&error)).increment(1);
             false
         }
+    }
+}
+
+/// Collapse a [`VmError`] into a bounded `reason` label for [`STAGE1_HOGVM_ERROR`]. The bucket set is
+/// fixed and small so the Prometheus series count stays constant; the `_` arm keeps the match total
+/// over the `#[non_exhaustive]` enum and folds in `VmError::Other`. `UnknownFunction`/`UnknownSymbol`
+/// are normally routed to [`EvalOutcome::UnknownFunction`] (separate counter) — mapped here only for
+/// totality in case [`classify_failure`] ever changes.
+fn vm_error_reason(error: &VmError) -> &'static str {
+    match error {
+        VmError::InvalidValue(..)
+        | VmError::CannotCoerce(..)
+        | VmError::InvalidNumber(_)
+        | VmError::IntegerOverflow => "type_coercion",
+
+        VmError::StackOverflow | VmError::StackUnderflow | VmError::StackIndexOutOfBounds => {
+            "stack"
+        }
+
+        VmError::NotImplemented(_) => "not_implemented",
+
+        VmError::UnknownGlobal(_) | VmError::UnknownProperty(_) => "unknown_ref",
+
+        VmError::NotAnOperation(_)
+        | VmError::InvalidOperation(_)
+        | VmError::EndOfProgram(_)
+        | VmError::InvalidBytecode(_)
+        | VmError::InvalidCall(_)
+        | VmError::NotEnoughArguments(..)
+        | VmError::CaptureOutOfBounds(_)
+        | VmError::NoFrame => "program",
+
+        VmError::UncaughtException(..) | VmError::InvalidException => "exception",
+
+        VmError::DivisionByZero
+        | VmError::HeapIndexOutOfBounds
+        | VmError::UseAfterFree
+        | VmError::ExpectedObject
+        | VmError::UnexpectedPopTry
+        | VmError::InvalidIndex
+        | VmError::CycleDetected
+        | VmError::IndexOutOfBounds(..)
+        | VmError::OutOfResource(_)
+        | VmError::NativeCallFailed(_)
+        | VmError::InvalidRegex(..) => "runtime",
+
+        VmError::UnknownFunction(_) | VmError::UnknownSymbol(_) => "unknown_function",
+
+        _ => "other", // VmError::Other + any future #[non_exhaustive] variant
     }
 }
 
@@ -410,6 +472,40 @@ mod tests {
             json!(OP_RETURN),
         ]);
         bc
+    }
+
+    #[test]
+    fn vm_error_reason_buckets_one_representative_per_class() {
+        // One representative `VmError` per bucket. Catches a forgotten or mis-bucketed variant: a
+        // new `#[non_exhaustive]` variant left unhandled silently falls into `other`, and moving an
+        // existing variant (e.g. `DivisionByZero` out of `runtime`) breaks the label breakdown.
+        let cases: [(VmError, &str); 11] = [
+            (
+                VmError::InvalidValue("a".into(), "b".into()),
+                "type_coercion",
+            ),
+            (VmError::IntegerOverflow, "type_coercion"),
+            (VmError::StackOverflow, "stack"),
+            (VmError::NotImplemented("x".into()), "not_implemented"),
+            (VmError::UnknownGlobal("g".into()), "unknown_ref"),
+            (VmError::InvalidBytecode("b".into()), "program"),
+            (
+                VmError::UncaughtException("t".into(), "m".into()),
+                "exception",
+            ),
+            (VmError::DivisionByZero, "runtime"),
+            // The `max_steps` blowup (`vm.rs` synthesizes `OutOfResource`) must stay visible.
+            (VmError::OutOfResource("steps".into()), "runtime"),
+            (VmError::UnknownFunction("f".into()), "unknown_function"),
+            (VmError::Other("o".into()), "other"),
+        ];
+        for (error, expected) in &cases {
+            assert_eq!(
+                vm_error_reason(error),
+                *expected,
+                "wrong bucket for {error:?}"
+            );
+        }
     }
 
     #[test]

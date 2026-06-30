@@ -270,9 +270,13 @@ directly and does not `emit_signal`, so it carries two references:
   reads only its own files at runtime, so any future report-channel adopter bundles its
   own copy rather than pointing here.
 
-The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
-cluster; those specialists carry their own emit/dedupe contract where they need it,
-and its canonical write-up now lives in
+The rest of the fleet is being ported onto the **report channel** one scout per PR,
+biggest reach first (see the `scouts-emit-reports` spec). A ported scout is report-only —
+its frontmatter `allowed_tools` lists `emit_report` / `edit_report` and it bundles its own
+`references/report.md`, the same shape as the generalist (`signals-scout-ai-observability`
+is on the channel; others follow). A scout not yet ported still emits weak `emit_signal`
+findings for the pipeline to cluster; those specialists carry their own emit/dedupe contract
+where they need it, and its canonical write-up now lives in
 `authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
