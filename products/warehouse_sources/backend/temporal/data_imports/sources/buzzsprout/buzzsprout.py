@@ -36,7 +36,7 @@ def _get_headers(api_token: str) -> dict[str, str]:
 def _build_url(podcast_id: str, config: BuzzsproutEndpointConfig) -> str:
     if config.account_scoped:
         return f"{BUZZSPROUT_BASE_URL}/{config.path}"
-    return f"{BUZZSPROUT_BASE_URL}/{podcast_id}/{config.path}"
+    return f"{BUZZSPROUT_BASE_URL}/{podcast_id.strip()}/{config.path}"
 
 
 @retry(
@@ -67,7 +67,8 @@ def _fetch(
 
 
 def validate_credentials(api_token: str, podcast_id: str) -> tuple[bool, str | None]:
-    if not podcast_id.strip():
+    podcast_id = podcast_id.strip()
+    if not podcast_id:
         return False, "A Buzzsprout podcast ID is required."
 
     # The episodes endpoint is scoped to the podcast_id, so a 200 confirms both the token and the ID

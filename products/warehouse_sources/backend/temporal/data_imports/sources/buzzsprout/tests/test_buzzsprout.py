@@ -65,6 +65,11 @@ class TestBuildUrl:
         assert url == f"{BUZZSPROUT_BASE_URL}/podcasts.json"
         assert "123456" not in url
 
+    def test_surrounding_whitespace_is_stripped(self):
+        url = _build_url("  123456  ", BUZZSPROUT_ENDPOINTS["episodes"])
+
+        assert url == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
+
 
 # tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
 # asserted without waiting through retry backoff.
@@ -168,6 +173,16 @@ class TestValidateCredentials:
 
         assert call.args[0] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
         assert call.kwargs["headers"]["Authorization"] == "Token token=test-token"
+
+    def test_surrounding_whitespace_in_podcast_id_is_stripped(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("test-token", "  123456  ")
+
+            call = mock_session.return_value.get.call_args
+
+        assert call.args[0] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
 
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_transient_status_is_distinguished_from_invalid_credentials(self, status):
