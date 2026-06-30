@@ -4,7 +4,6 @@ from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
@@ -126,7 +125,6 @@ USER_QUERY_ERRORS = (
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
-    PlaywrightTimeoutError,
     ExportCancelled,
 )
 
@@ -134,8 +132,30 @@ TIMEOUT_ERRORS = (
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
 # "TimeoutException" kept literally: historical ExportedAsset rows from the retired selenium
-# render path stored that exception name and must still classify as timeouts.
+# render path stored that exception name and must still classify as timeouts. playwright's
+# TimeoutError shares its name ("TimeoutError") with the builtin already in TIMEOUT_ERRORS, so it
+# is covered here without importing playwright (see _timeout_error_types for the live-exception path).
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
+
+
+def _timeout_error_types() -> tuple[type[BaseException], ...]:
+    """Resolve the timeout exception types, including playwright's TimeoutError when available.
+
+    playwright is imported lazily so it stays off Django's eager startup import chain — this module
+    is dragged in during the URL-config system check, and slim management/migration/CI containers
+    don't ship playwright. Importing it at module load would crash those containers at boot.
+    playwright's TimeoutError is not a subclass of the builtin TimeoutError, so it has to be added
+    explicitly for live (isinstance) classification; environments that actually render exports (and
+    thus can raise it) always have playwright installed.
+    """
+    try:
+        from playwright.sync_api import (
+            TimeoutError as PlaywrightTimeoutError,  # noqa: PLC0415 — keep playwright off the startup import path
+        )
+
+        return (*TIMEOUT_ERRORS, PlaywrightTimeoutError)
+    except ImportError:
+        return TIMEOUT_ERRORS
 
 
 def classify_failure_type(exception: Exception | str) -> str:
@@ -143,7 +163,7 @@ def classify_failure_type(exception: Exception | str) -> str:
     # these same tuples, so isinstance has identical coverage while avoiding false positives from
     # unrelated classes that merely share a name (django/pydantic ValidationError, builtin SyntaxError).
     if isinstance(exception, Exception):
-        if isinstance(exception, TIMEOUT_ERRORS):
+        if isinstance(exception, _timeout_error_types()):
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if isinstance(exception, USER_QUERY_ERRORS):
             return FAILURE_TYPE_USER

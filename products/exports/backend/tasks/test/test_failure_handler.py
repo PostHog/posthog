@@ -102,3 +102,14 @@ class TestClassifyFailureType(TestCase):
     def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
         # Stored rows only carry the class name, so the string path stays purely name-based.
         assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
+
+    def test_live_playwright_timeout_instance_classifies_as_timeout(self) -> None:
+        # playwright is imported lazily to keep it off Django's startup path, but a live
+        # playwright TimeoutError (raised while rendering exports) must still classify as a
+        # timeout rather than falling through to "unknown". It is not a subclass of the builtin
+        # TimeoutError, so this guards the lazy resolver that adds it to the isinstance check.
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        assert (
+            classify_failure_type(PlaywrightTimeoutError("Timeout 30000ms exceeded")) == FAILURE_TYPE_TIMEOUT_GENERATION
+        )
