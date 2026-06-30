@@ -98,7 +98,8 @@ Then, for each candidate finding:
   inbox covers it (or a known issue has new evidence that changes the verdict).
   A fully-validated cross-product correlation is the natural fit. **Always set
   `suggested_reviewers`** — resolve the owning person's GitHub login with
-  `org-member-get-github-login` (cache it under a `reviewer:` key). It's how the
+  `signals-scout-members-list`, or pass their `user_uuid` when your evidence already
+  names a PostHog user (cache the result under a `reviewer:` key). It's how the
   report reaches a human; left empty, the report is assigned to nobody and is
   likely missed. The report channel — the field schema, the safety × actionability
   status mapping, reviewer routing, dedupe (it is **not** idempotent), and the edit

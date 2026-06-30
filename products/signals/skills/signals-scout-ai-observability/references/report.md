@@ -123,8 +123,8 @@ Each entry is an **object**, not a bare string — `{"github_login": "..."}` and
 
 - **`github_login`** — the GitHub login, case-insensitive (stored lowercased), no `@`, no display name
   (e.g. `{"github_login": "octocat"}`).
-- **`user_uuid`** — the PostHog user UUID (e.g. from `org-members-list`); the server resolves it to the
-  member's linked GitHub login. Use this when you know the PostHog user but not their handle. A
+- **`user_uuid`** — the PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's
+  `created_by`); the server resolves it to the member's linked GitHub login. Use this when you know the PostHog user but not their handle. A
   `user_uuid` that isn't an org member with a linked GitHub identity is **rejected** (never silently
   dropped), so the reviewer always routes or the call tells you it didn't.
 
@@ -136,11 +136,15 @@ You rarely know either outright, so resolve it — cheapest first:
    comparable report on the same product/model/eval, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
-3. **`org-member-get-github-login`** — the **canonical resolver, available on every run**. Identify the
-   owning **person** (by name/email via `org-members-list`, or `@me`), then pass their PostHog user
-   UUID to `org-member-get-github-login` to get their linked GitHub login (or just pass the UUID
-   straight through as `{"user_uuid": "..."}` and let the server resolve it). It returns null when the
-   person hasn't linked a GitHub account — then try the next plausible owner.
+3. **`user_uuid` from the entity.** When your evidence already names a PostHog user — a product/eval's
+   `created_by`, an account owner — pass that `user_uuid` straight through as `{"user_uuid": "..."}` and
+   the server resolves it to their linked GitHub login. No lookup call needed.
+4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where you have
+   only a name or email. It returns this project's members, each with `email`, name, and a resolved
+   `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`. A
+   member whose `github_login` is null can't be routed to — try the next plausible owner. The
+   org-scoped `org-member-get-github-login` / `org-members-list` tools are **not available in a scout
+   run** (a scoped-team token can't reach the org-nested endpoint), so reach for this, not those.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces) but

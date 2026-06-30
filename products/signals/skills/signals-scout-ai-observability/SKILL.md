@@ -185,8 +185,9 @@ candidate:
   they're PR-autostart fields, and supplying `priority` + `suggested_reviewers` with no
   `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
   (autostart needs `immediately_actionable`). **Always set `suggested_reviewers`** regardless —
-  resolve the owning person via `org-member-get-github-login` and pass it as a `{github_login}` (or
-  `{user_uuid}`) object, since `suggested_reviewers` is a **list of objects, not bare strings** (cache
+  resolve the owning person via `signals-scout-members-list` (or pass their `{user_uuid}` when your
+  evidence already names a PostHog user) as a `{github_login}` (or `{user_uuid}`) object, since
+  `suggested_reviewers` is a **list of objects, not bare strings** (cache
   the login under a `reviewer:llm_analytics:<area>` key). It's how the report reaches a human; left
   empty, the report is assigned to nobody and is likely missed. After authoring, write a
   `report:llm_analytics:<entity>` scratchpad entry with the `report_id` so the next run edits
@@ -263,9 +264,10 @@ Inbox & reviewer routing:
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `org-members-list` / `org-member-get-github-login` — resolve a product / model / eval owner
-  to a GitHub login, wrapped as a `{github_login}` object for `suggested_reviewers` (returns null
+- `signals-scout-members-list` — resolve a product / model / eval owner to a GitHub login, wrapped as
+  a `{github_login}` object for `suggested_reviewers` (each row carries a resolved `github_login`, null
   when unlinked → try the next owner, or pass the member's `{user_uuid}` and let the server resolve).
+  The org-scoped `org-members-list` / `org-member-get-github-login` tools are not available in a scout run.
 
 Harness-level:
 

@@ -121,10 +121,15 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
    comparable report on the same surface, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
-3. **`org-member-get-github-login`** — the **canonical resolver, available on every run**. Identify the
-   owning **person** (by name/email via `org-members-list`, or `@me`), then pass their PostHog user
-   UUID to `org-member-get-github-login` to get their linked GitHub login. It returns null when the
-   person hasn't linked a GitHub account — then try the next plausible owner.
+3. **`user_uuid` from the entity.** When your evidence already names a PostHog user — an entity's
+   `created_by`, an account owner — pass that user's `user_uuid` straight through and the server
+   resolves it to their linked GitHub login. No lookup call needed.
+4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where you have
+   only a name or email. It returns this project's members, each with `email`, name, and a resolved
+   `github_login` (pass `search=` to narrow a large project); match the owner and route to their
+   `github_login`. A member whose `github_login` is null can't be routed to — pick a different owner.
+   The org-scoped `org-member-get-github-login` / `org-members-list` tools are **not available in a
+   scout run** (a scoped-team token can't reach the org-nested endpoint), so reach for this, not those.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces) but

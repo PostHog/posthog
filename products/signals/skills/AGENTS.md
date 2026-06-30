@@ -265,7 +265,7 @@ directly and does not `emit_signal`, so it carries two references:
 - **`references/report.md`** — the report channel (`emit-report` / `edit-report`):
   when to author a fresh report vs. edit an existing one, the field schema, the
   safety × actionability status mapping, reviewer routing (`suggested_reviewers` via
-  `org-member-get-github-login`), and the non-idempotency + pipeline-rewrite caveats.
+  `signals-scout-members-list` / a `user_uuid`), and the non-idempotency + pipeline-rewrite caveats.
   Bundled because the generalist is the first canonical scout on the channel; a scout
   reads only its own files at runtime, so any future report-channel adopter bundles its
   own copy rather than pointing here.

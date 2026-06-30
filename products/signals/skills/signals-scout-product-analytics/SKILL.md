@@ -295,10 +295,11 @@ Direct (read-only):
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `org-members-list` / `org-member-get-github-login` — resolve a flow / product-area owner to a
-  GitHub login for `suggested_reviewers`. These need organization scope, which a headless scout run
-  usually lacks, so they're often **absent from this scout's toolset** — prefer routing by the flow's
-  `created_by` `user_uuid` (resolved server-side) rather than relying on them.
+- `signals-scout-members-list` — resolve a flow / product-area owner to a GitHub login for
+  `suggested_reviewers` (each row carries a resolved `github_login`). The org-scoped `org-members-list`
+  / `org-member-get-github-login` tools are **not available in a scout run** — prefer routing by the
+  flow's `created_by` `user_uuid` (resolved server-side) when you have it, and fall back to the roster
+  lookup for the cold-start case.
 
 Harness-level:
 

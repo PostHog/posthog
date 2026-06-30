@@ -151,16 +151,16 @@ later (see below) rather than risk the emit. Otherwise resolve a `github_login`,
    signals) for a comparable report on the same flow/surface, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
-3. **`org-members-list` / `org-member-get-github-login`** — only where the run has organization scope
-   (`organization_member:read`). A headless scout run is scoped to a single team and **typically does
-   not** carry that scope, so these tools are usually **absent from this scout's toolset** — don't
-   build the reviewer recipe around them. Where they _are_ available, `org-members-list` gives a
-   member's `user_uuid` (pass it straight through as `user_uuid` — simplest), and
-   `org-member-get-github-login` resolves a `user_uuid` to a GitHub login if you'd rather hand a
-   `github_login`. The flow's `created_by` UUID is usually the most convenient route — but it only
-   works when that user is an org member with a linked GitHub identity; a `created_by` that isn't
-   (a PM, customer, or departed user) fails the whole `emit-report`, so confirm or fall back per the
-   fail-loud caveat above rather than treating it as always safe.
+3. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the
+   cache and inbox precedent don't resolve an owner. The org-scoped `org-members-list` /
+   `org-member-get-github-login` tools are **not available in a scout run** (a scoped-team token can't
+   reach the org-nested endpoint), so this is the resolver to reach for. It returns this project's
+   members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to
+   narrow); match the owner and route to their `github_login`. The flow's `created_by` UUID stays the
+   most convenient route when you have it — but per the fail-loud caveat above it only works when that
+   user is an org member with a linked GitHub identity (a PM, customer, or departed user fails the
+   whole `emit-report`), and a member with a null `github_login` in the roster is the same signal:
+   pick a different owner or author unrouted.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces, just
