@@ -182,8 +182,16 @@ def document_deltas(
     # Only trust an integer resume cursor — document_deltas requires an integer `_ts`. A
     # non-integer here means stale or cross-endpoint state; ignore it and restart from the
     # DB watermark rather than replaying a cursor Convex would reject with a 400.
-    if resume_config is not None and isinstance(resume_config.cursor, int):
-        current_cursor = resume_config.cursor
+    if resume_config is not None:
+        if isinstance(resume_config.cursor, int):
+            current_cursor = resume_config.cursor
+        else:
+            # Namespacing should keep this from happening; if it does, surface it rather than
+            # silently dropping the saved cursor.
+            logger.warning(
+                "Discarding non-integer document_deltas resume cursor for table '%s'; restarting from the DB watermark",
+                table_name,
+            )
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}

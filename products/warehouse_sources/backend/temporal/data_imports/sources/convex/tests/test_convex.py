@@ -236,6 +236,8 @@ class TestDocumentDeltasResumable:
         assert batches == [[{"_id": "b"}]]
         first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 10
+        # Discarding a poisoned cursor must not persist new state off the back of it.
+        manager.save_state.assert_not_called()
 
 
 class TestConvexRetryPolicy:
