@@ -328,6 +328,18 @@ def test_clean_type_unwraps_low_cardinality(clickhouse_type: str, expected: str)
     assert cleaned in CLICKHOUSE_HOGQL_MAPPING
 
 
+@pytest.mark.parametrize("url_pattern", ["direct://postgres", "direct://mysql"])
+def test_get_max_value_for_column_skips_direct_query_sources(url_pattern: str) -> None:
+    # Direct-query sources have no S3 backing, so introspection must short-circuit before
+    # ClickHouse — otherwise the `direct` protocol triggers a BAD_ARGUMENTS error that gets
+    # captured as a misleading exception.
+    table = DataWarehouseTable(name="direct_table", url_pattern=url_pattern, format="Parquet")
+    with patch("products.warehouse_sources.backend.models.table.sync_execute") as mock_sync_execute:
+        result = table.get_max_value_for_column("updated_at")
+    assert result is None
+    mock_sync_execute.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "sync_type,expected",
     [

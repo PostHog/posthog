@@ -35,9 +35,11 @@ from posthog.sync import database_sync_to_async
 from products.data_warehouse.backend.facade.sources import (
     DIRECT_MYSQL_SCHEMA_OPTION,
     DIRECT_MYSQL_TABLE_OPTION,
+    DIRECT_MYSQL_URL_PATTERN,
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
+    DIRECT_POSTGRES_URL_PATTERN,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
@@ -354,6 +356,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return columns
 
     def get_max_value_for_column(self, column: str) -> Any | None:
+        # Direct-query (live-query) sources have no S3 backing — their url_pattern is a sentinel,
+        # not a real S3 URL. Introspecting a max value via the s3() table function is meaningless
+        # and ClickHouse rejects the unknown `direct` protocol, so skip the round-trip entirely.
+        if self.url_pattern in (DIRECT_POSTGRES_URL_PATTERN, DIRECT_MYSQL_URL_PATTERN):
+            return None
+
         try:
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
