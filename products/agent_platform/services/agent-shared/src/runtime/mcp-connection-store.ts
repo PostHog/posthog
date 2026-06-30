@@ -57,10 +57,20 @@ interface InstallationRow {
     template_oauth_credentials: unknown
 }
 
+type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
+
 interface OauthContext {
     tokenEndpoint: string
     clientId: string
     clientSecret?: string
+    /** How the client authenticates to the token endpoint. Mirrors Django's
+     *  per-installation `(dcr_)token_endpoint_auth_method`; defaults to
+     *  `client_secret_basic` when a secret is present, else `none`. */
+    authMethod: TokenEndpointAuthMethod
+    /** RFC 8707 resource indicator from the OAuth metadata. Sent on refresh when
+     *  the IdP audience-pins tokens (Entra, Auth0-with-audience) — omitting it
+     *  400s the refresh on those servers. */
+    resource?: string
 }
 
 interface TokenResponse {
@@ -234,7 +244,10 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             updated.access_token = token.access_token
             updated.token_retrieved_at = String(Math.floor(Date.now() / 1000))
             updated.refresh_token = token.refresh_token ?? refreshToken
-            if (token.expires_in !== undefined) {
+            // Only persist a real number. An IdP returning `expires_in: null`
+            // would otherwise store "null", which `Number()`-coerces to NaN and
+            // pins the bearer as never-refreshing (isTokenExpiring bails on NaN).
+            if (typeof token.expires_in === 'number' && Number.isFinite(token.expires_in)) {
                 updated.expires_in = String(token.expires_in)
             }
             await this.writeSensitive(client, connectionId, updated)
@@ -301,35 +314,76 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             const creds = this.decryptJsonObject(row.template_oauth_credentials)
             const sharedClientId = asNonEmptyString(creds.client_id)
             if (sharedClientId) {
-                const tokenEndpoint = asNonEmptyString((row.template_oauth_metadata ?? {}).token_endpoint)
+                const meta = row.template_oauth_metadata ?? {}
+                const tokenEndpoint = asNonEmptyString(meta.token_endpoint)
                 if (!tokenEndpoint) {
                     throw new Error('mcp_connection_refresh_failed: template missing token_endpoint')
                 }
-                return { tokenEndpoint, clientId: sharedClientId, clientSecret: asNonEmptyString(creds.client_secret) }
+                const clientSecret = asNonEmptyString(creds.client_secret)
+                return {
+                    tokenEndpoint,
+                    clientId: sharedClientId,
+                    clientSecret,
+                    authMethod: credentialAuthMethod(creds.token_endpoint_auth_method, clientSecret),
+                    resource: asNonEmptyString(meta.resource),
+                }
             }
         }
-        const tokenEndpoint = asNonEmptyString((row.oauth_metadata ?? {}).token_endpoint)
+        const meta = row.oauth_metadata ?? {}
+        const tokenEndpoint = asNonEmptyString(meta.token_endpoint)
         const clientId = asNonEmptyString(sensitive.dcr_client_id)
         if (!tokenEndpoint || !clientId) {
             throw new Error('mcp_connection_refresh_failed: missing oauth metadata or client_id')
         }
-        return { tokenEndpoint, clientId, clientSecret: asNonEmptyString(sensitive.dcr_client_secret) }
+        const clientSecret = asNonEmptyString(sensitive.dcr_client_secret)
+        return {
+            tokenEndpoint,
+            clientId,
+            clientSecret,
+            authMethod: credentialAuthMethod(sensitive.dcr_token_endpoint_auth_method, clientSecret),
+            resource: asNonEmptyString(meta.resource),
+        }
     }
 
     private async tokenRefreshRequest(ctx: OauthContext, refreshToken: string): Promise<TokenResponse> {
-        const body = new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-            client_id: ctx.clientId,
-        })
-        if (ctx.clientSecret) {
-            body.set('client_secret', ctx.clientSecret)
+        const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+        if (ctx.resource) {
+            body.set('resource', ctx.resource)
+        }
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: 'application/json',
+        }
+        // Mirror Django's `_token_request_auth`: basic → credentials in the
+        // Authorization header (client_id NOT in the body); post → both in the
+        // body; none → just client_id. The method comes from the stored
+        // `(dcr_)token_endpoint_auth_method` (Django defaults a confidential
+        // client to basic — sending creds in the body 401s those servers).
+        if (ctx.authMethod === 'client_secret_basic') {
+            if (!ctx.clientSecret) {
+                throw new Error('mcp_connection_refresh_failed: missing client_secret for client_secret_basic')
+            }
+            headers.Authorization = `Basic ${Buffer.from(`${ctx.clientId}:${ctx.clientSecret}`).toString('base64')}`
+        } else {
+            body.set('client_id', ctx.clientId)
+            if (ctx.authMethod === 'client_secret_post') {
+                if (!ctx.clientSecret) {
+                    throw new Error('mcp_connection_refresh_failed: missing client_secret for client_secret_post')
+                }
+                body.set('client_secret', ctx.clientSecret)
+            }
         }
         const res = await this.http.fetch(ctx.tokenEndpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+            headers,
             body: body.toString(),
+            // Don't follow redirects (Django uses allow_redirects=False); a token
+            // endpoint that 3xxes is misconfigured — treated as permanent below.
+            redirect: 'manual',
         })
+        if (res.status >= 300 && res.status < 400) {
+            throw new TokenRefreshHttpError(res.status, 'token endpoint redirected')
+        }
         if (!res.ok) {
             const text = await res.text().catch(() => '')
             throw new TokenRefreshHttpError(res.status, text)
@@ -358,8 +412,23 @@ class TokenRefreshHttpError extends Error {
     }
 
     get permanent(): boolean {
-        return this.status >= 400 && this.status < 500 && this.status !== 429
+        // 3xx (token endpoint redirected) is a permanent misconfig; 4xx except
+        // 429 is a hard credential rejection. Both → needs_reauth. 5xx / 429 are
+        // transient and retried next session.
+        return this.status >= 300 && this.status < 500 && this.status !== 429
     }
+}
+
+const SUPPORTED_AUTH_METHODS: ReadonlySet<string> = new Set(['none', 'client_secret_post', 'client_secret_basic'])
+
+/** Mirror of Django `_credential_auth_method`: use the stored method when it's a
+ *  supported value, else default to `client_secret_basic` for a confidential
+ *  client (secret present) and `none` otherwise. */
+function credentialAuthMethod(stored: unknown, clientSecret: string | undefined): TokenEndpointAuthMethod {
+    if (typeof stored === 'string' && SUPPORTED_AUTH_METHODS.has(stored)) {
+        return stored as TokenEndpointAuthMethod
+    }
+    return clientSecret ? 'client_secret_basic' : 'none'
 }
 
 function asNonEmptyString(v: unknown): string | undefined {

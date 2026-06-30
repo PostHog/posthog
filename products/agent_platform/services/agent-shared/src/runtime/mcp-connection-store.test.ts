@@ -65,7 +65,15 @@ function makeFakePool(
 }
 
 function oauthRow(
-    opts: { expiring?: boolean; needsReauth?: boolean; isEnabled?: boolean; noRefreshToken?: boolean } = {}
+    opts: {
+        expiring?: boolean
+        needsReauth?: boolean
+        isEnabled?: boolean
+        noRefreshToken?: boolean
+        secret?: string
+        authMethod?: string
+        resource?: string
+    } = {}
 ): Record<string, unknown> {
     const sensitive: Record<string, unknown> = {
         access_token: 'tok-1',
@@ -80,12 +88,21 @@ function oauthRow(
     if (opts.needsReauth) {
         sensitive.needs_reauth = 'True'
     }
+    if (opts.secret) {
+        sensitive.dcr_client_secret = opts.secret
+    }
+    if (opts.authMethod) {
+        sensitive.dcr_token_endpoint_auth_method = opts.authMethod
+    }
     return {
         url: 'https://mcp.example.com/mcp',
         auth_type: 'oauth',
         is_enabled: opts.isEnabled ?? true,
         sensitive_configuration: enc.encryptJsonFieldValue(sensitive),
-        oauth_metadata: { token_endpoint: 'https://idp.example.com/token' },
+        oauth_metadata: {
+            token_endpoint: 'https://idp.example.com/token',
+            ...(opts.resource ? { resource: opts.resource } : {}),
+        },
         template_id: null,
         template_oauth_metadata: null,
         template_oauth_credentials: null,
@@ -182,6 +199,67 @@ describe('PgMcpConnectionStore', () => {
         expect(written.refresh_token).toBe('refresh-2')
         expect(written.expires_in).toBe('1800')
         expect(written.dcr_client_id).toBe('client-1') // non-token leaves preserved
+    })
+
+    it('uses HTTP Basic auth for a confidential client (Django default when a secret is present)', async () => {
+        const { pool } = makeFakePool(oauthRow({ expiring: true, secret: 'secret-1' }))
+        const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await store.resolve('c', 1)
+        const init = http.calls[0].init!
+        expect((init.headers as Record<string, string>).Authorization).toBe(
+            `Basic ${Buffer.from('client-1:secret-1').toString('base64')}`
+        )
+        // Basic → credentials live in the header, never the form body.
+        const body = String(init.body)
+        expect(body).not.toContain('client_secret=')
+        expect(body).not.toContain('client_id=')
+    })
+
+    it('uses client_secret_post (creds in body) when the stored auth method says so', async () => {
+        const { pool } = makeFakePool(
+            oauthRow({ expiring: true, secret: 'secret-1', authMethod: 'client_secret_post' })
+        )
+        const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await store.resolve('c', 1)
+        const init = http.calls[0].init!
+        expect((init.headers as Record<string, string>).Authorization).toBeUndefined()
+        const body = String(init.body)
+        expect(body).toContain('client_id=client-1')
+        expect(body).toContain('client_secret=secret-1')
+    })
+
+    it('sends the resource parameter on refresh when the metadata pins one', async () => {
+        const { pool } = makeFakePool(oauthRow({ expiring: true, resource: 'https://api.example.com' }))
+        const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await store.resolve('c', 1)
+        expect(String(http.calls[0].init?.body)).toContain('resource=https%3A%2F%2Fapi.example.com')
+    })
+
+    it('refuses a redirecting token endpoint (manual redirect) and flags needs_reauth', async () => {
+        const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
+        const http = makeFakeHttp(fakeResponse({ ok: false, status: 302, text: '' }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        // Don't follow redirects (Django uses allow_redirects=False), and treat a
+        // 3xx as a permanent misconfig → needs_reauth, not an endless retry.
+        expect(http.calls[0].init?.redirect).toBe('manual')
+        const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
+        expect(written.needs_reauth).toBe('True')
+    })
+
+    it('does not persist a non-finite expires_in (IdP returned null)', async () => {
+        const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
+        const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: null } }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await store.resolve('c', 1)
+        const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
+        // Storing "null" NaN-poisons isTokenExpiring → pins the bearer as
+        // never-refreshing. Keep the prior numeric value instead.
+        expect(written.expires_in).not.toBe('null')
+        expect(written.access_token).toBe('tok-2')
     })
 
     it('keeps the existing refresh token when the refresh response omits one', async () => {
