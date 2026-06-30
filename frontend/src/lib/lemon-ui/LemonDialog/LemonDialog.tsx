@@ -5,11 +5,21 @@ import posthog from 'posthog-js'
 import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
+import { ApiError } from 'lib/api-error'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { uuid } from 'lib/utils/dom'
 
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
+
+// A rejected await-submit keeps the dialog open so the user can retry. Capture only genuinely
+// unexpected failures — not 4xx validation errors the user is expected to cause (e.g. a reserved
+// name), which would otherwise flood the exception tracker on every validation failure.
+function captureUnexpectedSubmitError(error: unknown): void {
+    if (!(error instanceof ApiError) || (error.status ?? 500) >= 500) {
+        posthog.captureException(error)
+    }
+}
 
 export type LemonFormDialogProps = LemonDialogFormPropsType &
     Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'content'> & {
@@ -113,8 +123,8 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
                         } catch (error) {
                             // The submit handler is responsible for surfacing the error to the user
                             // (e.g. via a toast). Keep the dialog open so they can correct and retry,
-                            // and capture so genuine bugs aren't silently swallowed.
-                            posthog.captureException(error)
+                            // and capture genuine bugs so they aren't silently swallowed.
+                            captureUnexpectedSubmitError(error)
                             return
                         } finally {
                             setIsLoading(false)
@@ -228,7 +238,7 @@ export const LemonFormDialog = ({
                                   // Mirror the button path: keep the dialog open on failure so the
                                   // user can correct and retry, and capture instead of leaking an
                                   // unhandled rejection.
-                                  posthog.captureException(error)
+                                  captureUnexpectedSubmitError(error)
                                   return
                               }
                               ref?.current?.closeDialog()

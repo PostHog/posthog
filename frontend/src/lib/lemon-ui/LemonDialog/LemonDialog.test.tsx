@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@te
 import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
@@ -55,16 +56,34 @@ describe('LemonFormDialog', () => {
     it.each([
         ['button click', submitViaButton],
         ['enter key', submitViaEnter],
-    ])('keeps the dialog open and captures when the submit rejects (%s)', async (_mode, submit) => {
-        const error = new Error('rejected')
-        const onSubmit = jest.fn().mockRejectedValue(error)
+    ])('keeps the dialog open when the submit rejects (%s)', async (_mode, submit) => {
+        const onSubmit = jest.fn().mockRejectedValue(new Error('rejected'))
 
         renderDialog(onSubmit)
         await submit()
 
-        await waitFor(() => expect(captureException).toHaveBeenCalledWith(error))
+        await waitFor(() => expect(onSubmit).toHaveBeenCalled())
         // Dialog stays open so the user can correct and retry.
         expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+    })
+
+    it.each([
+        ['unexpected Error', new Error('boom'), true],
+        ['5xx ApiError', new ApiError('server error', 500), true],
+        ['4xx validation ApiError', new ApiError('reserved name', 400), false],
+    ])('only captures unexpected failures, not user-validation errors (%s)', async (_desc, error, shouldCapture) => {
+        const onSubmit = jest.fn().mockRejectedValue(error)
+
+        renderDialog(onSubmit)
+        await submitViaButton()
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+        expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+        if (shouldCapture) {
+            expect(captureException).toHaveBeenCalledWith(error)
+        } else {
+            expect(captureException).not.toHaveBeenCalled()
+        }
     })
 
     it('closes the dialog and does not capture when the submit resolves', async () => {
