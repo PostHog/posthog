@@ -23,6 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.se
 REQUEST_TIMEOUT_SECONDS = 120
 # Rate limits are plan/endpoint dependent and poorly documented; back off on 429.
 MAX_RETRY_ATTEMPTS = 5
+# Per-campaign statuses that mean "this one campaign is inaccessible" rather than
+# "the whole sync is broken": skip it and keep walking the rest.
+SKIPPABLE_CAMPAIGN_ITEM_STATUSES = (403, 404)
 
 
 class TaboolaRetryableError(Exception):
@@ -151,7 +154,16 @@ def get_rows(
 
         for index in range(start_index, len(campaign_ids)):
             campaign_id = campaign_ids[index]
-            items = results_of(fetch(f"{account_base}/campaigns/{_encode_path_segment(campaign_id)}/items/"))
+            try:
+                items = results_of(fetch(f"{account_base}/campaigns/{_encode_path_segment(campaign_id)}/items/"))
+            except requests.HTTPError as err:
+                status = err.response.status_code if err.response is not None else None
+                if status not in SKIPPABLE_CAMPAIGN_ITEM_STATUSES:
+                    raise
+                # One inaccessible campaign (credentials can't see it, or it's
+                # archived/restricted) must not abort the whole sync.
+                logger.warning(f"Taboola: skipping campaign {campaign_id} items (status={status})")
+                items = []
             if items:
                 yield items
             # Save state AFTER yielding so a crash re-yields the in-flight

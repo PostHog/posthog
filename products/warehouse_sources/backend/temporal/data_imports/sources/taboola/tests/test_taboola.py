@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     ENDPOINTS,
     REPORT_DEFAULT_BACKFILL_DAYS,
@@ -38,6 +40,12 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
 
 def _token_response() -> mock.MagicMock:
     return _response({"access_token": "tok-1", "token_type": "bearer", "expires_in": 3600})
+
+
+def _error_response(status_code: int) -> mock.MagicMock:
+    resp = _response({}, status_code=status_code)
+    resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code}", response=resp)
+    return resp
 
 
 class TestToDate:
@@ -119,6 +127,35 @@ class TestCampaignItemsFanOut:
         assert urls[1].endswith("/acct/campaigns/11/items/")
         assert urls[2].endswith("/acct/campaigns/22/items/")
         assert [call.args[0].next_campaign_index for call in manager.save_state.call_args_list] == [1, 2]
+
+    @pytest.mark.parametrize("status_code", [403, 404])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_skips_inaccessible_campaign_and_continues(self, mock_session, status_code):
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.side_effect = [
+            _response({"results": [{"id": 11}, {"id": 22}]}),
+            _error_response(status_code),
+            _response({"results": [{"id": "i2", "campaign_id": "22"}]}),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("cid", "sec", "acct", "campaign_items", mock.MagicMock(), manager))
+
+        # The 403/404 campaign is skipped; the next campaign still yields.
+        assert [row["id"] for batch in batches for row in batch] == ["i2"]
+        # Progress advances past both campaigns so the skip doesn't stall a resume.
+        assert [call.args[0].next_campaign_index for call in manager.save_state.call_args_list] == [1, 2]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_skippable_error_aborts(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.side_effect = [
+            _response({"results": [{"id": 11}]}),
+            _error_response(400),
+        ]
+
+        with pytest.raises(requests.HTTPError):
+            list(get_rows("cid", "sec", "acct", "campaign_items", mock.MagicMock(), _make_manager()))
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_campaign_index(self, mock_session):
