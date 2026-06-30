@@ -198,6 +198,27 @@ export interface SignalTeamConfig {
     updated_at?: string
 }
 
+// ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
+
+/** Whether a run-shaped task came from a headless scout or the signals pipeline. */
+export type SignalRunKind = 'scout' | 'signal'
+
+/**
+ * One row in the Runs tab. Not a backend resource — `inboxSceneLogic` composes these from two
+ * existing endpoints: scout runs (`signals/scout/runs`, kind `scout`) and signal-pipeline tasks
+ * (`tasks?origin_product=signal_report`, kind `signal`), merged newest-first. Rows link out to the
+ * standalone Tasks scene (`/tasks/{task_id}`).
+ */
+export interface SignalRun {
+    task_id: string
+    kind: SignalRunKind
+    /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */
+    title: string
+    /** Latest run status, or null if unknown. Shares `TaskRunStatus` values. */
+    status: SignalScoutRunStatus | null
+    created_at: string
+}
+
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
 /** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */

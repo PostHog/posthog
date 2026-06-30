@@ -100,6 +100,9 @@ export interface TaskListParams {
     internal?: boolean
     search?: string
     status?: TaskRunStatus
+    /** Page size (LimitOffset pagination); the viewset caps it at 100. */
+    limit?: number
+    offset?: number
 }
 
 export interface KanbanColumn {
