@@ -989,26 +989,31 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
         return null
     }
     return (
-        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
-            <div className="font-semibold mb-1">
-                Some warehouse sources used by this query are out of date — results may not reflect current data
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
-                {warnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </LemonBanner>
+        // Wrapper gives the banner spacing and keeps it from being squished in the flex-col
+        // visualization pane; w-full pins the @container banner's inline-size so it tracks the
+        // pane width and shrinks on resize instead of overflowing.
+        <div className="p-2 flex-shrink-0">
+            <LemonBanner type="warning" className="w-full" data-attr="sql-editor-output-pane-sync-warnings">
+                <div className="font-semibold mb-1">
+                    Some warehouse sources used by this query are out of date — results may not reflect current data
+                </div>
+                <ul className="list-disc pl-5 space-y-1">
+                    {warnings.map((warning, index) => (
+                        <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                            {warning.message}
+                            {warning.source_id && (
+                                <>
+                                    {' '}
+                                    <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
+                                        Manage source
+                                    </Link>
+                                </>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </LemonBanner>
+        </div>
     )
 }
 
