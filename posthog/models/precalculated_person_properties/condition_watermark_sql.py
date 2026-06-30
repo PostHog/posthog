@@ -62,12 +62,14 @@ def DROP_PRECALC_CONDITION_WATERMARK_WS_KAFKA_TABLE_SQL():
 def PRECALC_CONDITION_WATERMARK_SHARDED_TABLE_SQL():
     # ReplacingMergeTree on last_write_at collapses to one row per (team_id, condition) holding the
     # max write time. Reads still aggregate with max() to be correct between merges and across shards.
+    # last_write_at is DateTime (not DateTime64) because the Kafka _timestamp virtual column has
+    # whole-second resolution — fractional precision would always be zero.
     return """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     condition String,
-    last_write_at DateTime64(6)
+    last_write_at DateTime
 ) ENGINE = {engine}
 ORDER BY (team_id, condition)
 """.format(
@@ -86,13 +88,15 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     condition String,
-    last_write_at DateTime64(6)
+    last_write_at DateTime
 ) ENGINE = {engine}
 """.format(
         table_name=table_name,
         engine=Distributed(
             data_table=PRECALC_CONDITION_WATERMARK_SHARDED_TABLE,
             cluster=CLICKHOUSE_CLUSTER,
+            # Shard on condition alone (not team_id) so all rows for a given (team_id, condition)
+            # land on one shard, keeping ReplacingMergeTree dedup entirely local to that shard.
             sharding_key="sipHash64(condition)",
         ),
     )
@@ -102,7 +106,7 @@ def PRECALC_CONDITION_WATERMARK_WRITABLE_TABLE_SQL():
     return PRECALC_CONDITION_WATERMARK_DISTRIBUTED_TABLE_SQL(table_name=PRECALC_CONDITION_WATERMARK_WRITABLE_TABLE)
 
 
-def KAFKA_PRECALC_CONDITION_WATERMARK_TABLE_SQL():
+def _kafka_watermark_table_sql(table_name: str, group: str, named_collection: str | None = None) -> str:
     return """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -111,20 +115,38 @@ CREATE TABLE IF NOT EXISTS {table_name}
 ) ENGINE = {engine}
 SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
 """.format(
-        table_name=PRECALC_CONDITION_WATERMARK_KAFKA_TABLE,
-        engine=kafka_engine(topic=PRECALC_PERSON_PROPERTIES_TOPIC, group=CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK),
+        table_name=table_name,
+        engine=kafka_engine(topic=PRECALC_PERSON_PROPERTIES_TOPIC, group=group, named_collection=named_collection),
     )
 
 
-def PRECALC_CONDITION_WATERMARK_MV_SQL():
+def _watermark_mv_sql(mv_name: str, writable_table_name: str, kafka_table_name: str) -> str:
+    # GROUP BY collapses per-block: one row per (team_id, condition) per Kafka flush instead of
+    # one row per message, cutting write amplification by ~kafka_max_block_size.
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
     condition,
-    _timestamp AS last_write_at
+    max(_timestamp) AS last_write_at
 FROM {kafka_table_name}
+GROUP BY team_id, condition
     """.format(
+        mv_name=mv_name,
+        writable_table_name=writable_table_name,
+        kafka_table_name=kafka_table_name,
+    )
+
+
+def KAFKA_PRECALC_CONDITION_WATERMARK_TABLE_SQL() -> str:
+    return _kafka_watermark_table_sql(
+        table_name=PRECALC_CONDITION_WATERMARK_KAFKA_TABLE,
+        group=CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK,
+    )
+
+
+def PRECALC_CONDITION_WATERMARK_MV_SQL() -> str:
+    return _watermark_mv_sql(
         mv_name=PRECALC_CONDITION_WATERMARK_MV,
         writable_table_name=PRECALC_CONDITION_WATERMARK_WRITABLE_TABLE,
         kafka_table_name=PRECALC_CONDITION_WATERMARK_KAFKA_TABLE,
@@ -134,33 +156,17 @@ FROM {kafka_table_name}
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same topic, same target)
 
 
-def KAFKA_PRECALC_CONDITION_WATERMARK_WS_TABLE_SQL():
-    return """
-CREATE TABLE IF NOT EXISTS {table_name}
-(
-    team_id Int64,
-    condition String
-) ENGINE = {engine}
-SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-""".format(
+def KAFKA_PRECALC_CONDITION_WATERMARK_WS_TABLE_SQL() -> str:
+    return _kafka_watermark_table_sql(
         table_name=PRECALC_CONDITION_WATERMARK_WS_KAFKA_TABLE,
-        engine=kafka_engine(
-            topic=PRECALC_PERSON_PROPERTIES_TOPIC,
-            group=CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK_WS,
-            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION,
-        ),
+        group=CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK_WS,
+        # Shared WarpStream named collection for all precalc-family streams (name is historical).
+        named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION,
     )
 
 
-def PRECALC_CONDITION_WATERMARK_WS_MV_SQL():
-    return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
-AS SELECT
-    team_id,
-    condition,
-    _timestamp AS last_write_at
-FROM {kafka_table_name}
-    """.format(
+def PRECALC_CONDITION_WATERMARK_WS_MV_SQL() -> str:
+    return _watermark_mv_sql(
         mv_name=PRECALC_CONDITION_WATERMARK_WS_MV,
         writable_table_name=PRECALC_CONDITION_WATERMARK_WRITABLE_TABLE,
         kafka_table_name=PRECALC_CONDITION_WATERMARK_WS_KAFKA_TABLE,
