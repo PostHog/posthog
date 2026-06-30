@@ -123,6 +123,7 @@ __all__ = [
     "get_latest_run_by_task",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -544,6 +545,30 @@ def get_stale_queued_task_run_ids(
     return list(
         TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
         .filter(stale)
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    """Ids of prewarmed runs orphaned in QUEUED — their processing workflow never started, so the
+    in-workflow ``WARM_IDLE_TIMEOUT`` (10m) never armed to finalize them.
+
+    A live warm run idles in QUEUED awaiting its first message and self-terminates at
+    ``WARM_IDLE_TIMEOUT``, so a prewarmed run still QUEUED well past that window has no workflow
+    behind it (dispatch lost — e.g. an ``on_commit`` callback that never ran) and can be reaped
+    immediately rather than lingering until the 24h stale sweep. ``older_than`` should sit safely
+    above ``WARM_IDLE_TIMEOUT`` so a still-idling warm run is never killed early.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    now = django_timezone.now()
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.QUEUED,
+            state__prewarmed=True,
+            updated_at__lt=now - older_than,
+        )
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )
