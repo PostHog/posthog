@@ -491,7 +491,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
                     argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
                     argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id
+                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id,
+                    argMax(JSONExtractString(log_comment, 'experiment_precompute_skip_reason'), type) AS experiment_precompute_skip_reason
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
@@ -523,7 +524,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 g.experiment_metric_type, g.experiment_funnel_order_type, g.experiment_id, g.experiment_exposures_path,
                 g.experiment_metric_events_path, g.experiment_query_surface, g.experiment_precompute_table,
                 g.experiment_query_group_id, r.total_duration_ms,
-                g.read_bytes, g.read_rows, g.exception_code, g.memory_usage
+                g.read_bytes, g.read_rows, g.exception_code, g.memory_usage,
+                g.experiment_precompute_skip_reason
             FROM grouped AS g
             INNER JOIN ranked AS r ON g.grp = r.grp
             ORDER BY
@@ -584,6 +586,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 "read_rows": row[21],
                 "exception_code": row[22],
                 "memory_usage": row[23],
+                "experiment_precompute_skip_reason": row[24],
                 "sub_queries": [],
             }
 
