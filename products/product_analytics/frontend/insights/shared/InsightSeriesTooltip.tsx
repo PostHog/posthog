@@ -16,7 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, IntervalType } from '~/types'
+import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
 
 type InsightSeriesMetaBase = {
     action?: ActionFilter
@@ -160,18 +160,41 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             const hasBreakdown =
                 datum.breakdown_value !== undefined && datum.breakdown_value !== null && datum.breakdown_value !== ''
             if (hasBreakdown || datum.compare_label) {
-                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                if (hasMultipleEvents && (hasBreakdown || datum.compare_label)) {
+                // Render compare period as a compact pill so the breakdown label isn't
+                // truncated to fit "· Current" / "· Previous" inline.
+                const compareLabel = datum.compare_label
+                const breakdownTitle = hasBreakdown
+                    ? getDatumTitle({ ...datum, compare_label: undefined }, breakdownFilter, formatCompareLabel)
+                    : null
+                const pill = compareLabel ? (
+                    <span
+                        className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-px rounded ${
+                            compareLabel === CompareLabelType.Current
+                                ? 'bg-[rgba(74,222,128,0.18)] text-[#4ade80]'
+                                : 'bg-[rgba(148,163,184,0.15)] text-[#94a3b8]'
+                        }`}
+                    >
+                        {compareLabel === CompareLabelType.Current ? 'Current' : 'Previous'}
+                    </span>
+                ) : null
+                const label = breakdownTitle ?? datum.label
+                if (hasMultipleEvents) {
                     const seriesName =
                         (datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label
                     return (
                         <>
+                            {pill}
                             <span className="opacity-50 mr-1 shrink-0">{seriesName} ·</span>
-                            {title}
+                            {label}
                         </>
                     )
                 }
-                return title
+                return (
+                    <>
+                        {pill}
+                        {label}
+                    </>
+                )
             }
             return datum.label
         },
