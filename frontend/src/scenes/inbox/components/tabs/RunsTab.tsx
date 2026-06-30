@@ -1,18 +1,28 @@
 import { IconBrain } from '@posthog/icons'
 
-import { SignalRun } from '../../types'
+import { SignalRun, SignalScoutRunStatus } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { SignalRunCard } from '../cards/SignalRunCard'
 
+const TERMINAL_STATUSES: SignalScoutRunStatus[] = ['completed', 'failed', 'cancelled']
+
+/** A run is "live" until it reaches a terminal status. A task with no run yet (null) is still pending. */
+function isLiveRun(run: SignalRun): boolean {
+    return run.status === null || !TERMINAL_STATUSES.includes(run.status)
+}
+
 /**
- * Runs tab: a flat, chronological (newest-first) list of the project's scout and signals-pipeline
- * tasks. Each row links out to the standalone Tasks scene. `inboxSceneLogic` merges the two sources
- * and sorts them newest-first, so the tab renders the pre-sorted list as-is. A skeleton covers the
- * first load so the empty state doesn't flash before any data has been fetched.
+ * Runs tab: the project's scout and signals-pipeline tasks, split into what's happening now ("Live")
+ * and what's already finished ("Past"). Each row links out to the standalone Tasks scene.
+ * `inboxSceneLogic` merges the two sources newest-first, so each section stays newest-first too. A
+ * skeleton covers the first load so the empty state doesn't flash before any data has been fetched.
  */
 export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean }): JSX.Element {
+    const liveRuns = runs.filter(isLiveRun)
+    const pastRuns = runs.filter((run) => !isLiveRun(run))
+
     return (
-        <div className="mx-auto max-w-3xl flex flex-col gap-4 px-6 py-4">
+        <div className="mx-auto max-w-3xl flex flex-col gap-5 px-6 py-4">
             {loading ? (
                 <CardSkeleton count={4} variant="cards" />
             ) : runs.length === 0 ? (
@@ -25,6 +35,53 @@ export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean
                         Tasks kicked off by Self-driving – scouts exploring your project and the signals pipeline
                         researching reports – will show up here, newest first.
                     </p>
+                </div>
+            ) : (
+                <>
+                    <RunsSection
+                        title="Live"
+                        count={liveRuns.length}
+                        isLive
+                        runs={liveRuns}
+                        empty={{
+                            title: 'Nothing in motion right now',
+                            description: 'Self-driving will queue something up here when it kicks off a run.',
+                        }}
+                    />
+                    {pastRuns.length > 0 && <RunsSection title="Past" count={pastRuns.length} runs={pastRuns} />}
+                </>
+            )}
+        </div>
+    )
+}
+
+interface RunsSectionProps {
+    title: string
+    count: number
+    isLive?: boolean
+    runs: SignalRun[]
+    empty?: { title: string; description: string }
+}
+
+function RunsSection({ title, count, isLive, runs, empty }: RunsSectionProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 cursor-default select-none">
+                <span className="font-semibold text-[13px] text-default">{title}</span>
+                <span className="text-xs text-tertiary tabular-nums">{count}</span>
+                {isLive && count > 0 && (
+                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
+                )}
+            </div>
+            {runs.length === 0 && empty ? (
+                <div className="flex items-center gap-3 cursor-default select-none rounded border border-dashed border-primary bg-surface-secondary px-4 py-3.5">
+                    <div className="flex items-center justify-center h-8 w-8 shrink-0 rounded-full bg-fill-primary ring-1 ring-inset ring-primary">
+                        <IconBrain className="text-tertiary" />
+                    </div>
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                        <span className="font-medium text-[13px] text-default">{empty.title}</span>
+                        <span className="text-xs text-tertiary leading-snug">{empty.description}</span>
+                    </div>
                 </div>
             ) : (
                 <div className="flex flex-col gap-3">
