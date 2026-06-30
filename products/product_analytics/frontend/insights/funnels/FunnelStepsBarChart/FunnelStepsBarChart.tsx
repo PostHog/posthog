@@ -7,6 +7,8 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -47,6 +49,8 @@ export function FunnelStepsBarChart({
     inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     // buildTheme() reads CSS vars; we re-memo on isDarkModeOn so the theme refreshes
     // when the user toggles dark mode even though the function takes no arguments.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -82,10 +86,13 @@ export function FunnelStepsBarChart({
     const isBreakdownCompare = steps[0]?.nested_breakdown?.some(
         (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
     )
-    const config = useMemo(
-        () => (isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig),
-        [isBreakdownCompare]
-    )
+    const config = useMemo(() => {
+        const base = isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig
+        if (quillTooltipEnabled) {
+            return { ...base, tooltip: { placement: 'cursor' as const } }
+        }
+        return base
+    }, [isBreakdownCompare, quillTooltipEnabled])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
