@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,

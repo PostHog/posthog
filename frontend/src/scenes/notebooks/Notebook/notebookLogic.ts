@@ -1168,13 +1168,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 containerSize: 'small' | 'medium',
                 content: JSONContent
             ) => {
-                if (isMarkdownNotebookContent(content)) {
-                    return false
-                }
+                const isMarkdownNotebook = isMarkdownNotebookContent(content)
+                const shouldShowSettings =
+                    !isMarkdownNotebook && editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
+                const shouldShowTableOfContents = !isMarkdownNotebook && showTableOfContents
+                const shouldShowKernelInfo = !isMarkdownNotebook && showKernelInfo
 
-                const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
-
-                return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings
+                return showHistory || shouldShowTableOfContents || shouldShowKernelInfo || shouldShowSettings
             },
         ],
 

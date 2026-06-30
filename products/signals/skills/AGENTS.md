@@ -3,12 +3,12 @@
 Two distinct skill families live in this directory:
 
 1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
-   `authoring-signals-scouts/`, `exploring-signals-scouts/`. First-party PostHog skills
+   `authoring-scouts/`, `exploring-scouts/`. First-party PostHog skills
    published via `products/posthog_ai/dist/skills/` and loaded by users through the PostHog
    MCP. They teach a caller how to query, browse, and reason about signals data. Two are
-   meta skills about the scout fleet itself: `authoring-signals-scouts/` teaches a user's
+   meta skills about the scout fleet itself: `authoring-scouts/` teaches a user's
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
-   in this directory), and `exploring-signals-scouts/` is its read-only counterpart —
+   in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
    how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
@@ -34,10 +34,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 
 - `signals-scout-general/` — cross-product generalist. Looks for cross-product
   correlations and surfaces no specialist covers, rather than deep-diving a single
-  product. Carries two progressively-disclosed references: `references/emit.md` (the
-  emit contract) and `references/conventions.md` (scratchpad key prefixes + the
-  four-states dedupe classifier + cross-project noise patterns). This is the entry
-  point if you want to understand how a scout decides what to investigate end-to-end.
+  product. The first canonical scout on the **report channel** (its frontmatter
+  `allowed_tools` lists `emit_report` / `edit_report`): it authors fully-validated
+  correlations 1:1 as `SignalReport`s directly, rather than firing weak `emit_signal`
+  findings for the pipeline to cluster. Carries two progressively-disclosed references:
+  `references/conventions.md` (scratchpad key prefixes + the four-states author/edit
+  classifier + cross-project noise patterns) and `references/report.md` (the report
+  channel — when to author vs. edit, fields, status mapping, reviewer routing, dedupe).
+  This is the entry point if you want to understand how a scout decides what to
+  investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
 - `signals-scout-apm/` — RED-metrics anomaly watcher for the distributed tracing (APM /
@@ -224,14 +229,23 @@ prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 recurring token cost on every run — and push detail into references that are only
 read when needed.
 
-The generalist (`signals-scout-general`) carries two references the rest of the
-fleet also reasons in terms of:
+The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
+directly and does not `emit_signal`, so it carries two references:
 
-- **`references/emit.md`** — the emit contract: required/recommended fields, the
-  confidence rubric, severity mapping, dedupe keys, `finding_id`
-  idempotency, and a worked example.
-- **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
+- **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
+- **`references/report.md`** — the report channel (`emit-report` / `edit-report`):
+  when to author a fresh report vs. edit an existing one, the field schema, the
+  safety × actionability status mapping, reviewer routing (`suggested_reviewers` via
+  `org-member-get-github-login`), and the non-idempotency + pipeline-rewrite caveats.
+  Bundled because the generalist is the first canonical scout on the channel; a scout
+  reads only its own files at runtime, so any future report-channel adopter bundles its
+  own copy rather than pointing here.
+
+The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
+cluster; those specialists carry their own emit/dedupe contract where they need it,
+and its canonical write-up now lives in
+`authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

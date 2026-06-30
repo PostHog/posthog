@@ -15,7 +15,6 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
@@ -47,6 +46,7 @@ from products.engineering_analytics.backend.tests.test_views import (
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -218,7 +218,7 @@ class TestPRLifecycleMapping(BaseTest):
 
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
-            assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
+            assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo="PostHog/posthog") is None
 
     @parameterized.expand(["PostHog", "PostHog/", "/posthog", "/"])
     def test_malformed_repo_raises_before_querying(self, repo: str) -> None:
@@ -231,7 +231,7 @@ class TestPRLifecycleMapping(BaseTest):
         # is_bot and state come from the curated query as columns; the logic layer does not re-derive them.
         header = _header("closed", merged_at=None, closed_at=_dt("2026-01-12T15:00:00"), is_bot=True, head_sha="")
         with mock.patch(_RUN_QUERY, return_value=_resp([header])):
-            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == PRState.CLOSED

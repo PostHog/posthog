@@ -332,6 +332,13 @@ unactioned.
   recent authors on the relevant surface, the team that owns the product) to name
   the right GitHub logins. Treat "I couldn't find an owner" as a last resort, not
   a default.
+- **Resolve the GitHub login — never guess it.** Entries must be bare, lowercase
+  GitHub logins, and the inbox routes by matching them exactly, so a guessed,
+  mis-cased, or display-name handle reaches no one. The owner you identify is
+  usually a PostHog member, not a handle: call `org-member-get-github-login` with
+  their user UUID (from `org-members-list`, or `@me`) to turn that member into
+  their linked GitHub login. If you can't resolve a confident login, leave the
+  field empty rather than inventing one.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass
