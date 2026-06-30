@@ -109,7 +109,6 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                         value={value.repository ?? ''}
                         onChange={handleRepositoryChange}
                         placeholder="No repo"
-                        showNoneOption
                     />
                     {value.repository ? (
                         <GitHubBranchCombobox
