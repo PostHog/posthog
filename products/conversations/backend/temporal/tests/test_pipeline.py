@@ -1747,10 +1747,11 @@ async def test_bug_fix_dispatch_fires_for_fixable_diagnostic(
 
     mock_judge.assert_called_once()
     mock_dispatch.assert_called_once()
-    bug_fix_triage_call = next(
-        call for call in mock_record_triage.call_args_list if call[0][2].get("bug_fix_dispatched")
-    )
-    assert bug_fix_triage_call[0][2]["bug_fix_task_id"] == "task-123"
+    # The dispatch activity (mocked here) owns persisting bug_fix_* to ai_triage; the workflow just
+    # forwards the judge's title/summary + target repo to it.
+    _team_id, _ticket_id, repository, title, _summary = mock_dispatch.call_args[0]
+    assert repository == "posthog/posthog"
+    assert title == "Fix export 500"
 
 
 @pytest.mark.django_db

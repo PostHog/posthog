@@ -202,7 +202,10 @@ class SupportReplyWorkflow:
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     if judge_output.is_fixable_bug and judge_output.confidence >= BUG_FIX_CONFIDENCE_THRESHOLD:
-                        dispatch_output = await workflow.execute_activity(
+                        # The activity persists bug_fix_* onto ticket.ai_triage atomically with task
+                        # creation (it's the idempotency marker), so there's no separate triage write
+                        # here — that would just re-write the same keys.
+                        await workflow.execute_activity(
                             support_dispatch_bug_fix_activity,
                             DispatchBugFixInput(
                                 team_id=team_id,
@@ -214,14 +217,6 @@ class SupportReplyWorkflow:
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
-                        if dispatch_output.dispatched:
-                            await _record_triage(
-                                {
-                                    "bug_fix_dispatched": True,
-                                    "bug_fix_task_id": dispatch_output.task_id,
-                                    "bug_fix_run_id": dispatch_output.run_id,
-                                }
-                            )
                 except Exception:
                     workflow.logger.warning("support_reply: bug-fix dispatch failed", exc_info=True)
 

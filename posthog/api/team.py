@@ -100,6 +100,8 @@ from products.workflows.backend.models.team_workflows_config import TeamWorkflow
 
 tracer = trace.get_tracer(__name__)
 
+_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
@@ -1341,13 +1343,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_bug_fix_repo"] = None
             elif isinstance(repo, str):
                 repo = repo.strip()
-                repo_pattern = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
-                if repo and len(repo) <= 256 and repo_pattern.match(repo):
-                    value["ai_bug_fix_repo"] = repo
+                if not repo:
+                    value["ai_bug_fix_repo"] = None
+                elif len(repo) > 256 or not _REPO_PATTERN.match(repo):
+                    raise serializers.ValidationError(
+                        {
+                            "ai_bug_fix_repo": "Must be a GitHub repository in owner/name format "
+                            "(letters, numbers, dots, underscores, hyphens only)."
+                        }
+                    )
                 else:
-                    value.pop("ai_bug_fix_repo", None)
+                    value["ai_bug_fix_repo"] = repo
             else:
-                value.pop("ai_bug_fix_repo", None)
+                raise serializers.ValidationError({"ai_bug_fix_repo": "Must be a string or null."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

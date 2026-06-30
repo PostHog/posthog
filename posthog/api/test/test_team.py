@@ -1856,15 +1856,23 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["ai_bug_fix_repo"] == "posthog/posthog"
 
-        def test_conversations_settings_drops_invalid_ai_bug_fix_repo(self):
+        def test_conversations_settings_rejects_invalid_ai_bug_fix_repo(self):
             self.team.conversations_settings = {"ai_bug_fix_repo": "posthog/posthog"}
             self.team.save()
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"conversations_settings": {"ai_bug_fix_repo": "not-a-valid-repo!!!"}},
             )
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["conversations_settings"]["ai_bug_fix_repo"] == "posthog/posthog"
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Must be a GitHub repository in owner/name format "
+                "(letters, numbers, dots, underscores, hyphens only).",
+                "attr": "conversations_settings__ai_bug_fix_repo",
+            }
+            self.team.refresh_from_db()
+            assert self.team.conversations_settings["ai_bug_fix_repo"] == "posthog/posthog"
 
         def test_conversations_settings_merges_with_existing(self):
             self.client.patch(
