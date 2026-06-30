@@ -7,10 +7,6 @@ import {
     TasksRetrieveParams,
     TasksRunsListParams,
     TasksRunsListQueryParams,
-    TasksRunsLivingArtifactsCreateBody,
-    TasksRunsLivingArtifactsCreateParams,
-    TasksRunsLivingArtifactsEditBody,
-    TasksRunsLivingArtifactsEditParams,
     TasksRunsLivingArtifactsListParams,
     TasksRunsLivingArtifactsOpenParams,
     TasksRunsRetrieveParams,
@@ -90,98 +86,6 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
             'latest_run.state.sandbox_url',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
-    },
-})
-
-const TasksRunsLivingArtifactsCreateSchema = TasksRunsLivingArtifactsCreateParams.omit({ project_id: true }).extend(
-    TasksRunsLivingArtifactsCreateBody.shape
-)
-
-const tasksRunsLivingArtifactsCreate = (): ToolBase<
-    typeof TasksRunsLivingArtifactsCreateSchema,
-    Schemas.TaskRunLivingArtifactResponse
-> => ({
-    name: 'tasks-runs-living-artifacts-create',
-    schema: TasksRunsLivingArtifactsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRunsLivingArtifactsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.artifact_type !== undefined) {
-            body['artifact_type'] = params.artifact_type
-        }
-        if (params.adapter !== undefined) {
-            body['adapter'] = params.adapter
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.content_base64 !== undefined) {
-            body['content_base64'] = params.content_base64
-        }
-        if (params.content_type !== undefined) {
-            body['content_type'] = params.content_type
-        }
-        if (params.source_artifact_id !== undefined) {
-            body['source_artifact_id'] = params.source_artifact_id
-        }
-        if (params.source_storage_path !== undefined) {
-            body['source_storage_path'] = params.source_storage_path
-        }
-        if (params.metadata !== undefined) {
-            body['metadata'] = params.metadata
-        }
-        const result = await context.api.request<Schemas.TaskRunLivingArtifactResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/living_artifacts/`,
-            body,
-        })
-        return result
-    },
-})
-
-const TasksRunsLivingArtifactsEditSchema = TasksRunsLivingArtifactsEditParams.omit({ project_id: true }).extend(
-    TasksRunsLivingArtifactsEditBody.shape
-)
-
-const tasksRunsLivingArtifactsEdit = (): ToolBase<
-    typeof TasksRunsLivingArtifactsEditSchema,
-    Schemas.TaskRunLivingArtifactResponse
-> => ({
-    name: 'tasks-runs-living-artifacts-edit',
-    schema: TasksRunsLivingArtifactsEditSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRunsLivingArtifactsEditSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.content_base64 !== undefined) {
-            body['content_base64'] = params.content_base64
-        }
-        if (params.content_type !== undefined) {
-            body['content_type'] = params.content_type
-        }
-        if (params.source_artifact_id !== undefined) {
-            body['source_artifact_id'] = params.source_artifact_id
-        }
-        if (params.source_storage_path !== undefined) {
-            body['source_storage_path'] = params.source_storage_path
-        }
-        if (params.metadata !== undefined) {
-            body['metadata'] = params.metadata
-        }
-        const result = await context.api.request<Schemas.TaskRunLivingArtifactResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/living_artifacts/${encodeURIComponent(String(params.artifact_id))}/edit/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -313,8 +217,6 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
-    'tasks-runs-living-artifacts-create': tasksRunsLivingArtifactsCreate,
-    'tasks-runs-living-artifacts-edit': tasksRunsLivingArtifactsEdit,
     'tasks-runs-living-artifacts-list': tasksRunsLivingArtifactsList,
     'tasks-runs-living-artifacts-open': tasksRunsLivingArtifactsOpen,
     'tasks-runs-list': tasksRunsList,
