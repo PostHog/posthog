@@ -130,8 +130,9 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For product-analytics, key by the owning flow / product area (`reviewer:product_analytics:<area>`).
-2. **Inbox precedent.** `inbox-reports-list` (filter by `source_product` + a free-text `search`) for a
-   comparable report on the same flow/surface, then `inbox-report-artefacts-list` on it — the
+2. **Inbox precedent.** `inbox-reports-list` (free-text `search`, optionally `source_product=signals_scout`
+   for prior scout-authored reports — **not** `product_analytics`, which never matches the channel's
+   signals) for a comparable report on the same flow/surface, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
 3. **`org-member-get-github-login`** — the **canonical resolver, available on every run**. Identify the
@@ -165,12 +166,18 @@ scout) created. Two rules of good behavior:
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have
   its fields overwritten under you. If a report is actively being worked, append a note rather than
   rewriting.
+- **Only edit a report that's still live in the inbox.** `edit-report` rewrites `title`/`summary` or
+  appends a note — it **cannot change status**, so it can't reopen a `resolved` / `suppressed` /
+  `failed` report. Appending a relapse to a closed report buries a real, actionable regression under
+  an item that no longer surfaces. Check the matched report's `status` first: if it isn't live,
+  author a fresh report and repoint `report:product_analytics:flow:<short_id>` at the new id.
 
 For this scout the common edit is a flow that's _still moving_: a funnel that kept sliding, a
-retention cliff that deepened, or a flow that recovered then relapsed. `append_note` the fresh
-window's rate, baseline band, and entrant volumes onto the report you authored last run (found via
-the `report:product_analytics:flow:<short_id>` scratchpad pointer) rather than filing a second
-report for the same flow.
+retention cliff that deepened, or a flow that recovered then relapsed. When the report you authored
+last run (found via the `report:product_analytics:flow:<short_id>` pointer) is **still live**,
+`append_note` the fresh window's rate, baseline band, and entrant volumes onto it rather than filing
+a second report. If that report has since gone `resolved`/`suppressed`/`failed`, a relapse is a
+**new report** (it needs to surface and re-route), not a note on the dead one.
 
 ## Dedup: the channel is NOT idempotent
 

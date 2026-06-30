@@ -91,8 +91,11 @@ Cheap reads cold-start every run:
 - `signals-scout-project-profile-get` — `products_in_use`, `product_intents` (the
   `activated_at` milestones name the activation events worth a funnel), `top_events` for
   volume context, `recent_dashboards` for what's in active use.
-- `inbox-reports-list` (filter by `search`=flow name/event, `source_product`, `ordering=-updated_at`)
-  — the reports already in the inbox. A regression on a flow you've reported before is an
+- `inbox-reports-list` (`search`=flow name/event, `ordering=-updated_at`) — the reports already
+  in the inbox. Your own report-channel reports persist their backing signals under
+  `source_product=signals_scout` (**not** `product_analytics`), so don't filter
+  `source_product=product_analytics` — you'd miss every report you authored; either omit the
+  filter or use `signals_scout`. A regression on a flow you've reported before is an
   **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before
   authoring.
 
@@ -182,12 +185,16 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   the flow. A regression is rarely brand-new — a funnel that's still sliding, a retention
   cliff that deepened, a flow that recovered then relapsed: `append_note` with the fresh
   window's rate, baseline band, and entrant volumes (or rewrite the title/summary on a report
-  you authored). This is the default when a match exists; don't mint a near-duplicate. **A
-  persistent regression is one report across weeks:** when a new complete window confirms the
-  flow is still below baseline (or has deepened), that's a _re-escalation_ — `append_note` the
-  fresh week onto the report your `report:product_analytics:flow:<short_id>` pointer names and
-  advance the `dedupe:…:<week>` gate; do **not** author a fresh report per week. The same flow
-  moving twice is one report, not two.
+  you authored). This is the default when a match exists **and it's still live in the inbox**;
+  don't mint a near-duplicate. **A persistent regression is one report across weeks:** when a new
+  complete window confirms the flow is still below baseline (or has deepened), that's a
+  _re-escalation_ — `append_note` the fresh week onto the report your
+  `report:product_analytics:flow:<short_id>` pointer names and advance the `dedupe:…:<week>` gate;
+  do **not** author a fresh report per week. The same flow moving twice is one report, not two.
+  **But check the matched report's status first:** `edit-report` can't change status, so appending
+  to a `resolved` / `suppressed` / `failed` report (one that won't surface in the inbox) buries a
+  real relapse under a closed item. When the prior report is no longer live, **author a fresh
+  report** for the relapse and repoint `report:product_analytics:flow:<short_id>` at the new id.
 - **Author** a fresh report via `signals-scout-emit-report` when nothing in the inbox covers
   it (or a known regression has new evidence that changes the verdict). A **strong finding**
   here: the rate dropped clearly below the flow's seasonality-matched baseline (robust z ≥ ~3,
@@ -197,9 +204,12 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   experiment or a flow-definition edit, and confidence ≥ 0.8. Put the flow `short_id`, the
   latest-window rate, the baseline band, the per-step/per-cohort numbers, the entrant volumes,
   and the time window in the `evidence`. A behavioral regression is an investigation, not a
-  one-line code fix, so default to `requires_human_input` (P2 for a confirmed broad regression
-  on a human-saved flow; P3 for a single-segment or suggestive move, and for anything on an
-  `inferred` flow). **Always set `suggested_reviewers`** — resolve the owning person's GitHub
+  one-line code fix, so set `actionability=requires_human_input` and **leave `priority` and
+  `repository` unset** — they're PR-autostart fields, and supplying `priority` + `suggested_reviewers`
+  with no `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
+  (autostart needs `immediately_actionable`). Reach for them (P2 broad regression on a human-saved
+  flow, P3 single-segment / `inferred`) only on the rare regression you'd actually want a draft PR
+  for. **Always set `suggested_reviewers`** regardless — resolve the owning person's GitHub
   login with `org-member-get-github-login` (cache it under a `reviewer:product_analytics:<area>`
   key). It's how the report reaches a human; left empty, the report is assigned to nobody and
   is likely missed. After authoring, write a `report:product_analytics:flow:<short_id>`
