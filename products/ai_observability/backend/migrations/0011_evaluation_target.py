@@ -20,6 +20,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="evaluation",
             name="target_config",
-            field=models.JSONField(default=dict),
+            field=models.JSONField(db_default=models.Value("{}"), default=dict),
         ),
     ]
