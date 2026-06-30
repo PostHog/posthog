@@ -1655,6 +1655,7 @@ email@example.org,
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
 
         assert [c["id"] for c in response["results"]] == [newer.id, older.id]
+        assert all("search_match_type" not in c for c in response["results"])
 
     def test_cohort_list_with_type_filter(self):
         create_person(team=self.team, properties={"prop": 5})
