@@ -28,6 +28,8 @@ import type {
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    ProductEnablementApi,
+    ProductEnablementResultApi,
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
@@ -139,6 +141,23 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsProductEnablementCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/product_enablement/`
+}
+
+export const signalsProductEnablementCreate = async (
+    projectId: string,
+    productEnablementApi: ProductEnablementApi,
+    options?: RequestInit
+): Promise<ProductEnablementResultApi> => {
+    return apiMutator<ProductEnablementResultApi>(getSignalsProductEnablementCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(productEnablementApi),
     })
 }
 

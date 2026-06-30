@@ -3,10 +3,30 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 32 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const SignalsProductEnablementCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const SignalsProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+    products: zod
+        .array(
+            zod
+                .enum(['conversations', 'error_tracking', 'session_replay'])
+                .describe(
+                    '* `conversations` - conversations\n* `error_tracking` - error_tracking\n* `session_replay` - session_replay'
+                )
+        )
+        .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
+})
 
 export const SignalsReportsListParams = /* @__PURE__ */ zod.object({
     project_id: zod

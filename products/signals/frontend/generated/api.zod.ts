@@ -18,6 +18,18 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
 })
 
+export const SignalsProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+    products: zod
+        .array(
+            zod
+                .enum(['conversations', 'error_tracking', 'session_replay'])
+                .describe(
+                    '\* `conversations` - conversations\n\* `error_tracking` - error_tracking\n\* `session_replay` - session_replay'
+                )
+        )
+        .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
+})
+
 /**
  * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
  * @summary Edit a report's title or summary

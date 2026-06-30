@@ -109,6 +109,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
+    { key: 'product_enablement', objectName: 'Product enablement', objectPlural: 'product enablement' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
         key: 'project',
