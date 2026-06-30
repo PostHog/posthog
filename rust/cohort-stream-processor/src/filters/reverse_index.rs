@@ -48,6 +48,9 @@ pub struct TeamFilters {
     /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
     pub behavioral_conditions: HashSet<[u8; 16]>,
     pub person_property_conditions: HashSet<[u8; 16]>,
+    /// `person_property_conditions` sorted — the stable bit positions the person memo indexes by, so
+    /// an entry's bits stay aligned across no-op refreshes.
+    pub person_conditions_ordered: Vec<[u8; 16]>,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
@@ -74,6 +77,7 @@ impl Default for TeamFilters {
             by_lsk: HashMap::new(),
             behavioral_conditions: HashSet::new(),
             person_property_conditions: HashSet::new(),
+            person_conditions_ordered: Vec::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
             by_lsk_to_composable_cohorts: HashMap::new(),
             by_referenced_cohort: HashMap::new(),
@@ -247,6 +251,10 @@ impl TeamFiltersBuilder {
             cohorts.sort_unstable();
         }
 
+        let mut person_conditions_ordered: Vec<[u8; 16]> =
+            person_property_conditions.iter().copied().collect();
+        person_conditions_ordered.sort_unstable();
+
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
@@ -255,6 +263,7 @@ impl TeamFiltersBuilder {
             by_lsk,
             behavioral_conditions,
             person_property_conditions,
+            person_conditions_ordered,
             by_lsk_to_single_leaf_cohorts,
             by_lsk_to_composable_cohorts,
             by_referenced_cohort,
@@ -365,6 +374,16 @@ mod tests {
 
     fn behavioral_bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+    }
+
+    /// HogVM `RETURN` opcode, appended to stored bytecode by the catalog loader.
+    const OP_RETURN: i64 = 38;
+
+    /// The stored form of [`behavioral_bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+    fn behavioral_bytecode_loaded() -> Vec<Value> {
+        let mut bc = behavioral_bytecode().as_array().unwrap().clone();
+        bc.push(json!(OP_RETURN));
+        bc
     }
 
     /// A `performed_event` leaf on `$pageview` with a tunable window.
@@ -516,7 +535,7 @@ mod tests {
             .by_condition_to_bytecode
             .get(&HASH)
             .expect("bytecode captured under the conditionHash");
-        assert_eq!(bytecode.as_ref(), behavioral_bytecode().as_array().unwrap());
+        assert_eq!(bytecode.as_ref(), &behavioral_bytecode_loaded());
     }
 
     #[test]
@@ -745,6 +764,40 @@ mod tests {
         assert!(frozen
             .behavioral_conditions
             .is_disjoint(&frozen.person_property_conditions));
+    }
+
+    #[test]
+    fn person_conditions_ordered_is_the_sorted_person_condition_set() {
+        let mut other_person = person_leaf();
+        other_person
+            .as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!("0011223344556677"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    person_leaf(),
+                    other_person,
+                    behavioral_performed_event(7),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let mut expected: Vec<[u8; 16]> =
+            frozen.person_property_conditions.iter().copied().collect();
+        expected.sort_unstable();
+        assert_eq!(frozen.person_conditions_ordered, expected);
+        assert!(
+            frozen
+                .person_conditions_ordered
+                .windows(2)
+                .all(|w| w[0] < w[1]),
+            "the order is strictly ascending and carries no behavioral hash",
+        );
     }
 
     #[test]

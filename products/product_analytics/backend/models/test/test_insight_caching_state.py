@@ -1,7 +1,10 @@
 from typing import Optional, cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from posthog.models import SharingConfiguration
@@ -75,6 +78,30 @@ class TestInsightCachingState(BaseTest):
         dashboard_tile.delete()
 
         assert self.get_caching_state() is None
+
+    def test_dashboard_tile_save_signal_does_not_query_dashboard_table(self):
+        with mute_selected_signals():
+            dashboard = Dashboard.objects.create(team=self.team)
+            insight = Insight.objects.create(team=self.team, filters=filters)
+            tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Re-fetch so the dashboard relation is not already cached on the instance; the
+        # post_save signal must read the denormalized team_id rather than dereferencing
+        # instance.dashboard, which would issue an extra SELECT on the dashboard table.
+        tile = DashboardTile.objects.get(pk=tile.pk)
+        tile.color = "red"
+
+        # Stub the downstream sync task so the only work captured is save() + the signal
+        # itself (the task legitimately reads dashboard.deleted, which is out of scope here).
+        with patch(
+            "products.product_analytics.backend.models.insight_caching_state._queue_sync_insight_caching_state"
+        ) as queue_mock:
+            with CaptureQueriesContext(connection) as ctx:
+                tile.save(update_fields=["color"])
+
+        queue_mock.assert_called_once_with(self.team.pk, dashboard_tile_id=tile.pk)
+        # Quoted to distinguish the dashboard table from posthog_dashboardtile.
+        assert not any('"posthog_dashboard"' in query["sql"] for query in ctx.captured_queries)
 
     def test_sharing_configuration_insight(self):
         with mute_selected_signals():

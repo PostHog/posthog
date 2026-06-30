@@ -1821,6 +1821,7 @@ class ExternalDataSourceType(StrEnum):
     NEXTDOOR_ADS = "NextdoorAds"
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
+    PLUNK = "Plunk"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3265,6 +3266,7 @@ class TaxonomicFilterGroupType(StrEnum):
     COHORTS = "cohorts"
     COHORTS_WITH_ALL = "cohorts_with_all"
     DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_SOURCE_TABLES = "data_warehouse_source_tables"
     DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"

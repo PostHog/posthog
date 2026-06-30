@@ -896,9 +896,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
+        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule, materialize_saved_query
+
         saved_query = self.get_object()
 
-        trigger_saved_query_schedule(saved_query)
+        if is_saved_query_on_v2_schedule(saved_query):
+            materialize_saved_query(saved_query)
+        else:
+            trigger_saved_query_schedule(saved_query)
 
         log_activity(
             organization_id=self.team.organization_id,

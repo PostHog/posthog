@@ -1,5 +1,3 @@
-import './LogsFilterBar.scss'
-
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -93,26 +91,27 @@ export const LogsQueryControls = (): JSX.Element => {
 
     return (
         <div className="flex shrink-0 gap-1.5">
-            <div className="LogsDateButtonGroup">
-                <LemonButton
-                    size="small"
-                    icon={<IconMinusSquare />}
-                    type="secondary"
-                    tooltip="Zoom out"
-                    onClick={() => zoomDateRange(2)}
-                />
-
-                {!newLogsDateRangePicker && <DateRangeFilter />}
-                {newLogsDateRangePicker && <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />}
-
-                <LemonButton
-                    size="small"
-                    icon={<IconPlusSquare />}
-                    type="secondary"
-                    tooltip="Zoom in"
-                    onClick={() => zoomDateRange(0.5)}
-                />
-            </div>
+            {newLogsDateRangePicker ? (
+                <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
+            ) : (
+                <div className="flex">
+                    <LemonButton
+                        size="small"
+                        icon={<IconMinusSquare />}
+                        type="secondary"
+                        tooltip="Zoom out"
+                        onClick={() => zoomDateRange(2)}
+                    />
+                    <DateRangeFilter />
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlusSquare />}
+                        type="secondary"
+                        tooltip="Zoom in"
+                        onClick={() => zoomDateRange(0.5)}
+                    />
+                </div>
+            )}
 
             <LemonButton
                 size="small"

@@ -20,9 +20,15 @@ def team(organization):
     return Team.objects.create(organization=organization, name="test-resolve-user-team")
 
 
-def _create_user(email: str, organization: Organization, *, is_active: bool = True) -> User:
+def _create_user(
+    email: str,
+    organization: Organization,
+    *,
+    is_active: bool = True,
+    level: OrganizationMembership.Level = OrganizationMembership.Level.OWNER,
+) -> User:
     user = User.objects.create(email=email, is_active=is_active)
-    OrganizationMembership.objects.create(user=user, organization=organization)
+    OrganizationMembership.objects.create(user=user, organization=organization, level=level)
     return user
 
 
