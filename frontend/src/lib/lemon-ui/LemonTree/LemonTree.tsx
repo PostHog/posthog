@@ -129,6 +129,10 @@ type LemonTreeBaseProps = Omit<
     itemSideActionButton?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
+    /** When this returns true for an item, single-clicking the row body selects/highlights it
+     *  instead of toggling expansion; only the dedicated caret expands/collapses. Opt-in — when
+     *  undefined every item keeps the default click-to-expand behavior. */
+    isItemCaretExpandOnly?: (item: TreeDataItem) => boolean
     /** Whether the item is loading */
     isItemLoading?: (item: TreeDataItem) => boolean
     /** Whether the item is unapplied */
@@ -144,7 +148,10 @@ type LemonTreeBaseProps = Omit<
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
-    renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
+    renderItemIcon?: (
+        item: TreeDataItem,
+        options?: { onCaretClick?: (event: React.MouseEvent<HTMLElement>) => void }
+    ) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
     /** Pass true if you need to wait for async events to populate the tree.
@@ -250,6 +257,19 @@ type LemonTreeItemRowProps = Omit<LemonTreeNodeProps, 'data'> & {
     virtualizedRowHeight?: number
 }
 
+// Caret-expand-only rows must NOT be an Accordion trigger: Radix toggles on the trigger click and
+// neither stopPropagation nor preventDefault reliably suppresses it (the trigger shares the row's
+// element via asChild). Omitting the trigger leaves expansion entirely to the caret, while the
+// Accordion Item/Content still show/hide off the controlled expandedItemIds value.
+const OptionalAccordionTrigger = ({
+    asTrigger,
+    children,
+}: {
+    asTrigger: boolean
+    children: React.ReactNode
+}): JSX.Element =>
+    asTrigger ? <AccordionPrimitive.Trigger asChild>{children}</AccordionPrimitive.Trigger> : <>{children}</>
+
 const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
     (
         {
@@ -263,6 +283,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             renderItemTooltip,
             renderItemIcon,
             expandedItemIds,
+            onSetExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
             isItemActive,
@@ -278,6 +299,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             enableDragAndDrop = false,
             disableKeyboardInput,
             itemContextMenu,
+            isItemCaretExpandOnly,
             selectMode = 'default',
             onItemChecked,
             isDragging,
@@ -294,6 +316,21 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         const displayName = item.displayName ?? item.name
         const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
         const isEmptyFolder = item.type === 'empty-folder'
+        // Opt-in rows where the row body selects and only the caret expands (DataGrip-style).
+        const caretExpandOnly = (isItemCaretExpandOnly?.(item) ?? false) && !isEmptyFolder
+        // The caret is the sole expansion control for these rows. Threaded into renderItemIcon too,
+        // so consumers with a custom icon (e.g. the SQL editor sidebar) still get an interactive caret.
+        const onCaretClick = caretExpandOnly
+            ? (e: React.MouseEvent<HTMLElement>): void => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  const current = expandedItemIds ?? []
+                  const next = current.includes(item.id)
+                      ? current.filter((id) => id !== item.id)
+                      : [...current, item.id]
+                  onSetExpandedItemIds?.(next)
+              }
+            : undefined
         const folderLinesOffset = DEPTH_OFFSET
         const emptySpaceOffset = DEPTH_OFFSET
 
@@ -329,6 +366,13 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                     if (item.disabledReason) {
                         e.preventDefault()
                     } else {
+                        // For caret-expand-only rows, suppress the Accordion trigger that shares this
+                        // element via asChild: Radix's composeEventHandlers skips its toggle when the
+                        // click is defaultPrevented. stopPropagation alone doesn't (same-element handler).
+                        if (caretExpandOnly) {
+                            e.preventDefault()
+                            e.stopPropagation()
+                        }
                         handleClick(item, false, e)
                     }
                 }}
@@ -348,6 +392,8 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 ((selectMode === 'folder-only' || selectMode === 'all') &&
                                     selectedId === item.id &&
                                     !isEmptyFolder) ||
+                                // Caret-expand-only rows get a select highlight independent of selectMode.
+                                (caretExpandOnly && selectedId === item.id) ||
                                 isContextMenuOpenForItem === item.id,
                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
@@ -383,13 +429,14 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 )}
 
                 {renderItemIcon ? (
-                    renderItemIcon?.(item)
+                    renderItemIcon?.(item, { onCaretClick })
                 ) : (
                     <TreeNodeDisplayIcon
                         item={item}
                         expandedItemIds={expandedItemIds ?? []}
                         defaultNodeIcon={defaultNodeIcon}
                         size={size}
+                        onCaretClick={onCaretClick}
                     />
                 )}
 
@@ -465,11 +512,11 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 disabled={!!item.disabledReason}
                 className="flex flex-col w-full gap-y-px"
             >
-                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                <OptionalAccordionTrigger asTrigger={!caretExpandOnly}>
                     <ButtonGroupPrimitive
                         fullWidth
                         className={cn(
-                            'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
+                            'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent flex items-center gap-2 w-full h-8',
                             className
                         )}
                     >
@@ -548,7 +595,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 </DropdownMenu>
                             )}
                     </ButtonGroupPrimitive>
-                </AccordionPrimitive.Trigger>
+                </OptionalAccordionTrigger>
 
                 {childrenContent}
             </AccordionPrimitive.Item>
@@ -675,6 +722,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onItemNameChange,
             enableDragAndDrop = false,
             itemContextMenu,
+            isItemCaretExpandOnly,
             isFinishedBuildingTreeData,
             selectMode = 'default',
             onItemChecked,
@@ -1015,6 +1063,15 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
             ): void => {
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
+                const caretExpandOnly = !!item && (isItemCaretExpandOnly?.(item) ?? false)
+
+                // Caret-expand-only rows: the row body only selects; expansion is driven solely by
+                // the caret. Skip the folder-toggle and onItemClick paths entirely.
+                if (caretExpandOnly) {
+                    setSelectedId(item?.id)
+                    item?.onClick?.(undefined)
+                    return
+                }
 
                 // Handle click on a node
                 if (!isFolder) {
@@ -1047,7 +1104,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     setSelectedId(item?.id)
                 }
             },
-            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode]
+            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode, isItemCaretExpandOnly]
         )
 
         /** Focus the element from the tree item ID. */
@@ -1670,6 +1727,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                                             depth={depth}
                                                             size={size}
                                                             virtualizedRowHeight={virtualizedRowHeight}
+                                                            isItemCaretExpandOnly={isItemCaretExpandOnly}
                                                             {...props}
                                                         />
                                                     ))}
@@ -1713,6 +1771,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     checkedItemCount={checkedItemCount}
                                     setFocusToElementFromId={focusElementFromId}
                                     size={size}
+                                    isItemCaretExpandOnly={isItemCaretExpandOnly}
                                     {...props}
                                 />
                             )}

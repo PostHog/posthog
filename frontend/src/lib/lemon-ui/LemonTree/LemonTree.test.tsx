@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -18,7 +18,7 @@ const cancelAnimationFrameMock = (handle: number): void => {
     window.clearTimeout(handle)
 }
 
-describe('LemonTree virtualization', () => {
+describe('LemonTree', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
 
@@ -256,4 +256,65 @@ describe('LemonTree virtualization', () => {
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
     }, 10000)
+
+    describe('caret expand-only rows', () => {
+        const data: TreeDataItem[] = [{ id: 'parent', name: 'parent', children: [{ id: 'child', name: 'child' }] }]
+
+        // Regression guard for every other LemonTree consumer (ProjectTree, FileSystem trees): without the
+        // opt-in predicate, clicking a folder row must still toggle expansion via onFolderClick.
+        it('still expands a folder on row-body click when not caret-expand-only', () => {
+            const onFolderClick = jest.fn()
+            const { container } = render(<LemonTree data={data} expandedItemIds={[]} onFolderClick={onFolderClick} />)
+
+            fireEvent.click(within(container).getByLabelText('tree item: parent'))
+
+            expect(onFolderClick).toHaveBeenCalledTimes(1)
+        })
+
+        // The core of the change: the row body selects (never expands) and only the caret toggles expansion.
+        it('selects on row-body click and expands only via the caret', () => {
+            const onFolderClick = jest.fn()
+            const onSetExpandedItemIds = jest.fn()
+            const { container } = render(
+                <LemonTree
+                    data={data}
+                    expandedItemIds={[]}
+                    onFolderClick={onFolderClick}
+                    onSetExpandedItemIds={onSetExpandedItemIds}
+                    isItemCaretExpandOnly={(item) => item.id === 'parent'}
+                />
+            )
+
+            // Row body click selects without expanding the row.
+            fireEvent.click(within(container).getByLabelText('tree item: parent'))
+            expect(onFolderClick).not.toHaveBeenCalled()
+            expect(onSetExpandedItemIds).not.toHaveBeenCalledWith(['parent'])
+            expect(within(container).getByLabelText('tree item: parent')).toHaveAttribute('aria-selected', 'true')
+
+            // The caret is the sole expansion control.
+            onSetExpandedItemIds.mockClear()
+            fireEvent.click(within(container).getByRole('button', { name: 'Expand' }))
+            expect(onSetExpandedItemIds).toHaveBeenCalledWith(['parent'])
+        })
+
+        // Consumers with a custom renderItemIcon (e.g. the SQL editor sidebar) must still receive a
+        // working caret handler via options.onCaretClick — otherwise the caret is inert in the app.
+        it('threads the caret handler into a custom renderItemIcon', () => {
+            const onSetExpandedItemIds = jest.fn()
+            const { container } = render(
+                <LemonTree
+                    data={data}
+                    expandedItemIds={[]}
+                    onSetExpandedItemIds={onSetExpandedItemIds}
+                    isItemCaretExpandOnly={(item) => item.id === 'parent'}
+                    renderItemIcon={(item, options) => (
+                        <button type="button" aria-label={`caret-${item.id}`} onClick={options?.onCaretClick} />
+                    )}
+                />
+            )
+
+            fireEvent.click(within(container).getByLabelText('caret-parent'))
+            expect(onSetExpandedItemIds).toHaveBeenCalledWith(['parent'])
+        })
+    })
 })

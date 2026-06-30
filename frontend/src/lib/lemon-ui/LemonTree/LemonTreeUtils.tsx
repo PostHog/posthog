@@ -77,6 +77,9 @@ type TreeNodeDisplayIconProps = {
     defaultNodeIcon?: React.ReactNode
     defaultFolderIcon?: React.ReactNode
     size?: 'default' | 'narrow'
+    /** When provided, the caret/chevron becomes an interactive expand/collapse control
+     *  (the row body no longer toggles expansion). */
+    onCaretClick?: (event: React.MouseEvent<HTMLElement>) => void
 }
 
 // Get display item for the tree node
@@ -87,6 +90,7 @@ export const TreeNodeDisplayIcon = ({
     defaultNodeIcon,
     defaultFolderIcon,
     size = 'default',
+    onCaretClick,
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
@@ -118,9 +122,16 @@ export const TreeNodeDisplayIcon = ({
         >
             {isFolder && (
                 <div
+                    role={onCaretClick ? 'button' : undefined}
+                    aria-label={onCaretClick ? (isOpen ? 'Collapse' : 'Expand') : undefined}
+                    aria-expanded={onCaretClick ? isOpen : undefined}
+                    aria-hidden={onCaretClick ? undefined : true}
+                    tabIndex={onCaretClick ? -1 : undefined}
+                    onClick={onCaretClick}
                     className={cn(
                         ICON_CLASSES,
-                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
+                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150',
+                        onCaretClick && 'pointer-events-auto cursor-pointer'
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
