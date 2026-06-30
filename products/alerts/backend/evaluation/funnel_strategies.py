@@ -63,7 +63,7 @@ class StepsFunnelStrategy(FunnelVizStrategy):
         ]
 
 
-class TrendsFunnelStrategy(FunnelVizStrategy):
+class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
     """Historical-trend funnel: a time series of overall conversion rates. The alert evaluates the
     latest period. ``funnel_step``/``metric`` don't apply (the trend is the whole-funnel rate set by
     funnelsFilter), so the default no-op ``validate_config`` is inherited."""
@@ -94,7 +94,7 @@ class TrendsFunnelStrategy(FunnelVizStrategy):
 # explicit viz type defaults to STEPS (matching the schema default), resolved in strategy_for_viz.
 FUNNEL_VIZ_STRATEGIES: dict[FunnelVizType, FunnelVizStrategy] = {
     FunnelVizType.STEPS: StepsFunnelStrategy(),
-    FunnelVizType.TRENDS: TrendsFunnelStrategy(),
+    FunnelVizType.TRENDS: HistoricalTrendsFunnelStrategy(),
 }
 
 
