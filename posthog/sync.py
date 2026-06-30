@@ -1,5 +1,6 @@
 # From django channels https://github.com/django/channels/blob/b6dc8c127d7bda3f5e5ae205332b1388818540c5/channels/db.py#L16
 
+import threading
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from time import time
@@ -13,6 +14,36 @@ from prometheus_client import Histogram
 from structlog import get_logger
 
 logger = get_logger(__name__)
+
+# Process-wide bounded executor backing `database_sync_to_async_pool`.
+#
+# With `thread_sensitive=False` and no explicit executor, asgiref falls through to the event
+# loop's default executor, which is lazily sized at `min(32, cpu_count + 4)` threads. Each thread
+# opens its own Postgres connection (Django keeps connections in thread-locals), so a worker
+# running many concurrent activities can demand dozens of pooled connections at once and exhaust
+# PgBouncer — surfacing as `ProtocolViolation: query_wait_timeout` on otherwise trivial reads.
+# Routing every pool call through one bounded executor caps the connections a process asks for.
+_pool_executor: Optional[ThreadPoolExecutor] = None
+_pool_executor_lock = threading.Lock()
+
+
+def get_database_sync_to_async_pool_executor() -> ThreadPoolExecutor:
+    """Return the shared bounded executor used by `database_sync_to_async_pool`.
+
+    Lazily created (and memoized) so the worker size setting is read at first use rather than at
+    import time. Tunable per-deployment via `DATABASE_SYNC_TO_ASYNC_POOL_MAX_WORKERS`.
+    """
+    global _pool_executor
+    if _pool_executor is None:
+        with _pool_executor_lock:
+            if _pool_executor is None:
+                max_workers = getattr(settings, "DATABASE_SYNC_TO_ASYNC_POOL_MAX_WORKERS", 10)
+                _pool_executor = ThreadPoolExecutor(
+                    max_workers=max_workers,
+                    thread_name_prefix="db_sync_to_async_pool",
+                )
+    return _pool_executor
+
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
@@ -118,20 +149,27 @@ def database_sync_to_async_pool(
     Callable[[Callable[_P, _R]], Callable[_P, Coroutine[Any, Any, _R]]],
     Callable[_P, Coroutine[Any, Any, _R]],
 ]:
-    """Like database_sync_to_async but runs on the general thread pool (thread_sensitive=False).
+    """Like database_sync_to_async but runs on a bounded thread pool (thread_sensitive=False).
 
     Use this in Temporal activities where the default thread_sensitive=True would serialize
     all calls onto a single shared thread, creating a bottleneck across concurrent activities.
+
+    Calls run on a shared, process-wide bounded executor (see
+    `get_database_sync_to_async_pool_executor`) rather than asgiref's unbounded default, so the
+    number of concurrent Postgres connections a worker opens stays capped and can't exhaust the
+    connection pooler. Pass an explicit `executor` to override.
     """
+
+    resolved_executor = executor if executor is not None else get_database_sync_to_async_pool_executor()
 
     if func is None:
         return lambda f: DatabaseSyncToAsync(
             f,
             thread_sensitive=False,
-            executor=executor,
+            executor=resolved_executor,
         )
     return DatabaseSyncToAsync(
         func,
         thread_sensitive=False,
-        executor=executor,
+        executor=resolved_executor,
     )

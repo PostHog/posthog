@@ -25,6 +25,13 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+
+# Caps the threads (and therefore concurrent Postgres connections) backing
+# `database_sync_to_async_pool`. Keeps a worker running many concurrent activities from exhausting
+# the connection pooler (query_wait_timeout). See `posthog/sync.py`.
+DATABASE_SYNC_TO_ASYNC_POOL_MAX_WORKERS: int = get_from_env(
+    "DATABASE_SYNC_TO_ASYNC_POOL_MAX_WORKERS", 10, type_cast=int
+)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 

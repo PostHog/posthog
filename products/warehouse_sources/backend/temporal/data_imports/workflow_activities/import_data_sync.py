@@ -54,6 +54,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
+# PgBouncer refuses a server connection when its pool is saturated, surfacing as
+# `ProtocolViolation: query_wait_timeout` even on trivial reads. It's transient, but re-raising it
+# immediately lets Temporal retry within ~1s and pile more attempts onto an already-full pool.
+# Back off (exponential, capped well under the 2-minute heartbeat timeout, which keeps flowing via
+# the Heartbeater) before re-raising so the pool can drain. asyncio.sleep holds the activity slot
+# but releases the DB connection, which itself relieves pressure.
+POOL_EXHAUSTION_SIGNATURE = "query_wait_timeout"
+POOL_EXHAUSTION_BACKOFF_BASE_SECONDS = 5.0
+POOL_EXHAUSTION_BACKOFF_MAX_SECONDS = 45.0
+
+
+def _pool_exhaustion_backoff_seconds(attempt: int) -> float:
+    return min(
+        POOL_EXHAUSTION_BACKOFF_BASE_SECONDS * (2 ** max(attempt - 1, 0)),
+        POOL_EXHAUSTION_BACKOFF_MAX_SECONDS,
+    )
+
 
 @dataclasses.dataclass
 class ImportDataActivityInputs:
@@ -316,6 +333,15 @@ async def _handle_import_error(
     if is_non_retryable_error:
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
     else:
+        if POOL_EXHAUSTION_SIGNATURE in error_msg:
+            attempt = current_activity_attempt()
+            backoff_seconds = _pool_exhaustion_backoff_seconds(attempt)
+            await logger.awarning(
+                "Postgres connection pool exhausted (query_wait_timeout) - backing off before retry",
+                attempt=attempt,
+                backoff_seconds=backoff_seconds,
+            )
+            await asyncio.sleep(backoff_seconds)
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")
         raise error

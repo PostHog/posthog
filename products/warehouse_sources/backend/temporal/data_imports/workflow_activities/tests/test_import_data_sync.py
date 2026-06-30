@@ -111,6 +111,38 @@ async def test_retryable_setup_error_is_reraised():
     handle_mock.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    "attempt,expected",
+    [
+        (1, 5.0),
+        (2, 10.0),
+        (3, 20.0),
+        (4, 40.0),
+        (5, 45.0),
+        (10, 45.0),
+    ],
+)
+def test_pool_exhaustion_backoff_is_exponential_and_capped(attempt, expected):
+    assert module._pool_exhaustion_backoff_seconds(attempt) == expected
+
+
+@pytest.mark.asyncio
+async def test_pool_exhaustion_error_backs_off_before_reraising():
+    # PgBouncer pool exhaustion surfaces as query_wait_timeout; we sleep before re-raising so
+    # Temporal's ~1s retry doesn't immediately hammer the already-full pool again.
+    error = Exception("ProtocolViolation: query_wait_timeout")
+    source = _make_source(error, {"The DNS query name does not exist": None})
+
+    with _patched_activity(source) as handle_mock:
+        with mock.patch.object(module.asyncio, "sleep", new=mock.AsyncMock()) as sleep_mock:
+            with pytest.raises(Exception, match="query_wait_timeout"):
+                await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_not_awaited()
+    sleep_mock.assert_awaited_once()
+    assert sleep_mock.await_args.args[0] > 0
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True
