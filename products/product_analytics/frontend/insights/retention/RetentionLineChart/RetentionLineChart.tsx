@@ -58,9 +58,8 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const { insightProps } = useValues(insightLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const TOOLTIP_CONFIG = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-        ? INSIGHT_TOOLTIP_CONFIG
-        : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const {
@@ -109,8 +108,6 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         },
         [shouldShowMeanPerBreakdown, isIntervalView, series, openModal]
     )
-
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<RetentionSeriesMeta>) => {
