@@ -15,6 +15,10 @@ from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
+from google.ads.googleads.v23.services.services.google_ads_field_service import (
+    GoogleAdsFieldServiceClient,
+    pagers as field_service_pagers,
+)
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
@@ -372,8 +376,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     """
     client = google_ads_client(config, team_id)
     gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
-    fields_query = gaf_service.search_google_ads_fields(
-        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    fields_query = _search_fields_with_transient_retry(
+        gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
     )
     fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
@@ -560,6 +564,30 @@ def _search_with_transient_retry(
     while True:
         try:
             return service.search(request=request)
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
+def _search_fields_with_transient_retry(
+    service: GoogleAdsFieldServiceClient,
+    query: str,
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> field_service_pagers.SearchGoogleAdsFieldsPager:
+    """Call ``GoogleAdsFieldService.search_google_ads_fields``, retrying a transient gRPC failure.
+
+    Schema discovery hits the same transient ``UNAVAILABLE`` / ``INTERNAL`` blips as the row search
+    (see ``_is_transient_grpc_error``), so riding them out in-process keeps a momentary Google-side
+    error from failing the whole import. Non-transient errors re-raise immediately so the caller's
+    handling and Temporal's retry policy still apply.
+    """
+    attempt = 0
+    while True:
+        try:
+            return service.search_google_ads_fields(query=query)
         except Exception as e:
             attempt += 1
             if attempt >= max_attempts or not _is_transient_grpc_error(e):
