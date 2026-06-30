@@ -100,6 +100,17 @@ _TOKEN_CONNECT_TIMEOUT = 10
 _TOKEN_READ_TIMEOUT = 30
 
 
+# Stable marker appended to every permanent OAuth2 token error message. At sync time the
+# pipeline classifies non-retryable errors by substring-matching the stringified exception
+# (see CustomSource.get_non_retryable_errors), and the permanent cases here have no single
+# shared phrase to match on — they range over OAuth error codes (unauthorized_client,
+# invalid_scope …), bare "HTTP 3xx from the OAuth2 token endpoint" with no code at all, and
+# malformed-response messages, while transient 429/5xx token errors share the very same
+# "from the OAuth2 token endpoint" phrasing. This marker is the one stable substring that is
+# present on permanent token failures and absent on retryable ones.
+OAUTH2_PERMANENT_ERROR_MARKER = "[oauth2_token_config_error]"
+
+
 class OAuth2AuthRequestError(Exception):
     """A token exchange against the customer's OAuth2 token endpoint failed.
 
@@ -108,9 +119,15 @@ class OAuth2AuthRequestError(Exception):
     a user-facing error or log. ``is_permanent`` distinguishes a config error that
     retrying can't fix (``invalid_client`` / ``invalid_grant`` and other 4xx) from
     a transient failure (429 / 5xx) the caller may retry.
+
+    When ``is_permanent`` is set, the message embeds :data:`OAUTH2_PERMANENT_ERROR_MARKER`
+    so the sync-time non-retryable classifier can reliably recognise every permanent case
+    (not just the handful that carry a known OAuth error code) by a single stable substring.
     """
 
     def __init__(self, message: str, *, error_code: Optional[str] = None, is_permanent: bool = False) -> None:
+        if is_permanent and OAUTH2_PERMANENT_ERROR_MARKER not in message:
+            message = f"{message} {OAUTH2_PERMANENT_ERROR_MARKER}"
         super().__init__(message)
         self.error_code = error_code
         self.is_permanent = is_permanent
@@ -320,6 +337,16 @@ def _format_token_error(status_code: int, error_code: Optional[str], description
     if description:
         parts.append(description)
     return ": ".join(parts)
+
+
+def strip_oauth2_permanent_marker(text: str) -> str:
+    """Drop the internal permanent-error marker from a message before showing it to a user.
+
+    :data:`OAUTH2_PERMANENT_ERROR_MARKER` is a sync-time classifier hint, not user-facing
+    copy — strip it (and the space that precedes it) wherever a token-error message is
+    surfaced at create or preview time.
+    """
+    return text.replace(f" {OAUTH2_PERMANENT_ERROR_MARKER}", "").replace(OAUTH2_PERMANENT_ERROR_MARKER, "")
 
 
 def auth_secret_values(auth: Optional[AuthBase]) -> tuple[str, ...]:

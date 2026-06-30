@@ -15,6 +15,7 @@ from requests import Response
 from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
     APIKeyAuth,
     BearerTokenAuth,
     HttpBasicAuth,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
 
 
 def validate_manifest(manifest: Any) -> None:
@@ -2138,3 +2141,97 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         result = source.preview_resource(config, team_id=999, resource_name="users")
 
         assert "topsecret-token" not in json.dumps(result._asdict())
+
+
+def _classify_non_retryable(error: Exception) -> bool:
+    """Replicate the pipeline's sync-time non-retryable check (substring match on str(error))."""
+    non_retryable_errors = CustomSource().get_non_retryable_errors()
+    return any(key in str(error) for key in non_retryable_errors)
+
+
+class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A token-endpoint failure that carries no standard OAuth error code (a bare 4xx body or
+            # an unfollowed 3xx redirect) used to slip past the old invalid_client/invalid_grant-only
+            # match and retry until the activity budget was exhausted. Drive it through the real raise.
+            ("redirect_302", 302, {}),
+            ("bare_400_no_error_code", 400, {}),
+            # OAuth error codes other than invalid_client/invalid_grant — also permanent, also missed
+            # before. Run them through the real _extract_token_error path.
+            ("unauthorized_client", 400, {"error": "unauthorized_client"}),
+            ("unsupported_grant_type", 400, {"error": "unsupported_grant_type"}),
+            ("invalid_scope", 400, {"error": "invalid_scope"}),
+            ("invalid_request", 400, {"error": "invalid_request"}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_permanent_token_status_errors_classified_non_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = payload
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # Malformed/unexpected token responses raise permanent errors whose messages share no
+            # phrase with the status-code path — the marker is what makes them all classifiable.
+            ("non_json_body", "non_json"),
+            ("non_dict_body", [1, 2, 3]),
+            ("missing_access_token", {"expires_in": 60}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_permanent_token_response_errors_classified_non_retryable(self, _name, body, mock_session):
+        response = MagicMock(status_code=200)
+        if body == "non_json":
+            response.json.side_effect = ValueError("not json")
+        else:
+            response.json.return_value = body
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # The original two codes still match (their dedicated copy is retained).
+            ("invalid_client", 401, {"error": "invalid_client"}),
+            ("invalid_grant", 400, {"error": "invalid_grant"}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_known_oauth_codes_still_classified_non_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = payload
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # Transient (429 / 5xx) token errors must stay retryable — the marker is absent, so they
+            # must NOT match. Guards the fix from over-matching the shared token-endpoint phrasing.
+            ("rate_limited_429", 429, {"error": "slow_down"}),
+            ("server_error_503", 503, {}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_transient_token_errors_stay_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = payload
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert not ctx.exception.is_permanent
+        assert OAUTH2_PERMANENT_ERROR_MARKER not in str(ctx.exception)
+        assert not _classify_non_retryable(ctx.exception), str(ctx.exception)

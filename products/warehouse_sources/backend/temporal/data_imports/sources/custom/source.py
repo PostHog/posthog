@@ -41,9 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
     OAuth2Auth,
     OAuth2AuthRequestError,
     auth_secret_values,
+    strip_oauth2_permanent_marker,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
@@ -689,10 +691,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # fixed — match the stable suffix, not the variable resource name in the message.
             "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
             # The OAuth2 token endpoint rejected the client credentials or the grant. Both are
-            # permanent until the config changes — retrying the sync can't fix them. Match the
-            # standard OAuth2 error codes, which OAuth2Auth surfaces in the failure message.
+            # permanent until the config changes — retrying the sync can't fix them. The two
+            # codes below get pointed, code-specific copy; every other permanent token failure
+            # (unauthorized_client / invalid_scope / a bare 3xx redirect / a malformed token
+            # response / a missing token_url) is caught by the stable marker OAuth2AuthRequestError
+            # embeds whenever is_permanent is set — so no permanent token error retries until the
+            # activity budget is exhausted. Transient (429 / 5xx) token errors carry no marker.
             "invalid_client": "The OAuth2 token endpoint rejected the client credentials (invalid_client). Check the configured client_id, client secret, and token URL.",
             "invalid_grant": "The OAuth2 token endpoint rejected the grant (invalid_grant) — a refresh token may have expired or been revoked. Re-enter the OAuth2 credentials.",
+            OAUTH2_PERMANENT_ERROR_MARKER: "The OAuth2 token endpoint rejected the request and the configuration must change before the sync can succeed. Check the configured OAuth2 credentials, token URL, grant type, and scopes.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -770,8 +777,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
+                    # Strip the internal sync-time classifier marker — it's not user-facing copy.
                     return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {exc}", auth_secret_values(probe_auth)
+                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
+                        auth_secret_values(probe_auth),
                     )
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the
                 # token exchange. Skip the data probe too: it has no minted token to authenticate
@@ -1057,7 +1066,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         try:
             rows = _collect_preview_rows(resource, max_rows)
         except Exception as exc:
-            return PreviewResult(rows=[], row_count=0, columns=[], error=_redact_secrets(str(exc), secret_values))
+            return PreviewResult(
+                rows=[],
+                row_count=0,
+                columns=[],
+                error=_redact_secrets(strip_oauth2_permanent_marker(str(exc)), secret_values),
+            )
 
         return PreviewResult(rows=rows, row_count=len(rows), columns=_infer_columns(rows), error=None)
 

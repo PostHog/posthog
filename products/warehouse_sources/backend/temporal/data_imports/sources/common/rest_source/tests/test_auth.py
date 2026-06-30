@@ -279,6 +279,28 @@ class TestOAuth2Auth(SimpleTestCase):
             auth._obtain_token()
         assert ctx.exception.is_permanent
 
+    @parameterized.expand(
+        [
+            # The token endpoint returned a 2xx but the body isn't JSON the client can parse — a
+            # config error against the wrong URL, not something a retry fixes.
+            ("non_json_body", "non_json", None),
+            # A 2xx whose top-level JSON is a list/array rather than the expected object — same.
+            ("array_body", None, [{"access_token": "t"}]),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_malformed_token_response_raises_permanent(self, _name, json_side_effect, json_return, mock_session):
+        response = _token_response(status_code=200)
+        if json_side_effect == "non_json":
+            response.json.side_effect = ValueError("Expecting value")
+        else:
+            response.json.return_value = json_return
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent is True
+
     def test_refresh_grant_without_refresh_token_raises(self):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs", grant_type="refresh_token")
         with self.assertRaises(OAuth2AuthRequestError):
