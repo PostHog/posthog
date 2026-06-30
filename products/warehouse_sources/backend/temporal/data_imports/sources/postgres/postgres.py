@@ -3163,6 +3163,7 @@ def postgres_source(
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
+                    is_connection_dropped=_is_connection_dropped_error,
                 )
                 return
 
