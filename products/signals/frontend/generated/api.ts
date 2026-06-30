@@ -23,6 +23,7 @@ import type {
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
+    PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -52,6 +53,7 @@ import type {
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
+    SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -179,6 +181,28 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+/**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const signalsReportsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalReportContentUpdateApi?: PatchedSignalReportContentUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalReportContentUpdateApi),
     })
 }
 
@@ -573,7 +597,7 @@ export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (
@@ -690,6 +714,40 @@ export const signalsScoutRunsEmissionsBatch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsRecentEmissionsUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/emissions/recent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/emissions/recent/`
+}
+
+/**
+ * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).
+ * @summary List recent emitted findings across all runs
+ */
+export const signalsScoutRunsRecentEmissions = async (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsRecentEmissionsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

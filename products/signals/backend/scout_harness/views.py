@@ -73,6 +73,7 @@ from products.signals.backend.scout_harness.serializers import (
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
+    RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
@@ -94,7 +95,12 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
-from products.signals.backend.scout_harness.tools.report import ReportEvidence, edit_report_sync, emit_report_sync
+from products.signals.backend.scout_harness.tools.report import (
+    ReportEvidence,
+    ReviewerInput,
+    edit_report_sync,
+    emit_report_sync,
+)
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -117,6 +123,12 @@ MAX_EMISSIONS_PER_RUN = 1000
 # per run, so even the 120-run findings window stays in the low hundreds; this only bounds a pathological
 # payload, mirroring `MAX_EMISSIONS_PER_RUN` for the single-run path.
 MAX_EMISSIONS_PER_BATCH = 5000
+
+# Page size for the cross-run `recent-emissions` action: the default when the caller omits `limit`,
+# and the hard ceiling it's clamped to. Bounded so an agent asking "what has the fleet surfaced
+# lately?" gets a useful window in one call without an unbounded scan; walk back via `date_to`.
+DEFAULT_RECENT_EMISSIONS_LIMIT = 50
+MAX_RECENT_EMISSIONS_LIMIT = 200
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -186,6 +198,21 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
+    """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
+    is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
+    yields None so the tool treats it as "no reviewers supplied"."""
+    if not entries:
+        return None
+    return [
+        ReviewerInput(
+            github_login=entry.get("github_login"),
+            user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+        )
+        for entry in entries
+    ]
 
 
 def _resolve_emission_report_links(
@@ -358,6 +385,49 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         emissions = SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by(
             "-emitted_at", "-id"
         )[:MAX_EMISSIONS_PER_RUN]
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
+
+    @validated_request(
+        query_serializer=RecentEmissionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Recent emitted findings across every run on the team, newest first.",
+            ),
+        },
+        summary="List recent emitted findings across all runs",
+        description=(
+            "Return the team's recently emitted scout findings across *every* run, newest first — the "
+            "cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so "
+            "you can regroup by run without first listing runs and fanning out one `emissions` call each. "
+            "Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window "
+            "on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to "
+            "walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at "
+            f"{MAX_RECENT_EMISSIONS_LIMIT} rows (default {DEFAULT_RECENT_EMISSIONS_LIMIT})."
+        ),
+        operation_id="signals_scout_runs_recent_emissions",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="emissions/recent",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def recent_emissions(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        team_id = _canonical_team_id(self)
+        limit = validated.get("limit") or DEFAULT_RECENT_EMISSIONS_LIMIT
+
+        qs = SignalScoutEmission.objects.filter(team_id=team_id)
+        if validated.get("date_from"):
+            qs = qs.filter(emitted_at__gte=validated["date_from"])
+        if validated.get("date_to"):
+            qs = qs.filter(emitted_at__lt=validated["date_to"])
+        if validated.get("skill_name"):
+            qs = qs.filter(scout_run__skill_name=validated["skill_name"])
+
+        emissions = qs.order_by("-emitted_at", "-id")[:limit]
         return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
     @extend_schema(
@@ -672,7 +742,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 repository=data.get("repository"),
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
-                suggested_reviewers=data.get("suggested_reviewers"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -699,9 +769,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox "
-            "reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary "
-            "edits are best-effort: the pipeline may later re-research and overwrite them."
+            "Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target "
+            "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
+            "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
+            "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
+            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -724,6 +796,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -733,6 +806,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "report_id": result.report_id,
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
+                    "reviewers_set": result.reviewers_set,
                 }
             ).data,
             status=status.HTTP_200_OK,

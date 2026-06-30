@@ -1,13 +1,9 @@
 ---
 name: signals-scout-observability-gaps
 description: >
-  Focused Signals scout for finding observability gaps in PostHog itself — significant
-  event volumes the team isn't tracking, custom events with no insight or dashboard
-  coverage, insights pointing at events that have stopped firing, dashboards missing
-  related context, critical events with no alerts. Watches the event-stream-vs-saved-
-  inventory delta as the team's product evolves and emits findings recommending new
-  insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for observability gaps — significant event volumes with no insight, dashboard,
+  or alert coverage. Recommends new insights, dashboards, or alerts as the team's product
+  evolves.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

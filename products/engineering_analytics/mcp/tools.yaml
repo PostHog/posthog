@@ -36,6 +36,9 @@ tools:
     engineering-analytics-quarantine:
         operation: engineering_analytics_quarantine
         enabled: false
+    engineering-analytics-quarantine-request:
+        operation: engineering_analytics_quarantine_request
+        enabled: false
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true

@@ -1,17 +1,10 @@
 ---
 name: signals-scout-anomaly-detection
 description: >
-  Signals scout that watches a PostHog project's most-viewed dashboards and insights for
-  recent anomalies — sudden bursts, drops, flat-lines, and trend breaks at the daily or
-  hourly level. It discovers what the team actually looks at (view counts, dashboard
-  access), curates a durable watchlist in the scratchpad, and balances re-checking known
-  high-value insights (exploit) against discovering new ones (explore) across runs, since
-  no single run can cover a busy project. Anomalies are scored by robust deviation from
-  each insight's own seasonality-matched baseline; it authors a report only when a move
-  clears the bar, otherwise it updates the baseline memory and closes out empty. The
-  first canonical scout to use the report channel (emit_report / edit_report) — it files
-  each anomaly as a finished 1:1 inbox report rather than a weak signal. Self-contained
-  peer in the signals-scout-* fleet.
+  Signals scout that watches a project's most-viewed dashboards and insights for recent
+  anomalies — bursts, drops, flat-lines, and trend breaks scored against each insight's own
+  seasonality-matched baseline. Files each anomaly as a finished 1:1 inbox report on the
+  report channel (emit_report / edit_report) rather than a weak signal.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
   plus signal_scout_internal:write (scratchpad), signal_scout_report:write (the report
