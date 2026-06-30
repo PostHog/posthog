@@ -40,10 +40,6 @@ export const NOT_LOADED: AccountOpportunitiesResult = { sfdcId: null, opportunit
 
 const OPPORTUNITY_TABLE = 'salesforce.opportunity'
 
-// The warehouse query fails with a HogQL `QueryError` whenever the table can't be resolved — both because it's
-// access-denied for the team/user (`You don't have access to table ...`) and because it's absent outside production
-// (`Unknown table ...`). Both are fully expected here and already degrade to the empty state, so we must not report
-// them to error tracking. Anything else is a genuine failure worth capturing.
 const isExpectedMissingTableError = (error: unknown): boolean => {
     const message = error instanceof Error ? error.message : String(error ?? '')
     return (
@@ -99,9 +95,6 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                         }))
                         return { sfdcId, opportunities }
                     } catch (error) {
-                        // `salesforce.opportunity` is access-gated and only exists in production, so a denied/absent
-                        // table is the expected empty-state — don't capture it as an error. Genuine, unexpected
-                        // failures are still reported. Either way we degrade to the empty state, not a red error box.
                         if (!isExpectedMissingTableError(error)) {
                             posthog.captureException(error as Error, {
                                 scope: 'accountOpportunitiesLogic.loadOpportunities',
