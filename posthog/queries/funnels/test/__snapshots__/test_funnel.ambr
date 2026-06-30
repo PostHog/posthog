@@ -1152,7 +1152,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
   
-  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
+  SELECT array("mat_$browser") AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 99999
@@ -1211,7 +1211,7 @@
                            if(event = 'buy'
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
-                           array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
+                           array("mat_$browser") AS prop_basic,
                            prop_basic as prop_attribution,
                            argMinIf(prop_attribution, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_attribution))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
@@ -1249,7 +1249,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
   
-  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
+  SELECT array("mat_$browser") AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 99999
@@ -1309,7 +1309,7 @@
                            if(event = 'buy'
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
-                           array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
+                           array("mat_$browser") AS prop_basic,
                            if(step_0 = 1, prop_basic, []) as prop_0,
                            if(step_1 = 1, prop_basic, []) as prop_1,
                            prop_1 as prop_final,
@@ -1351,7 +1351,7 @@
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '''
   
-  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
+  SELECT array("mat_$browser", replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 99999
@@ -1409,7 +1409,7 @@
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
-                           array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS prop_basic,
+                           array("mat_$browser", replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop_attribution,
                            argMinIf(prop_attribution, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_attribution))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
