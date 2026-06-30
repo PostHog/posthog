@@ -1767,6 +1767,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         v2 = endpoint.get_version(2)
         self.assertIsNotNone(v1.saved_query_id)
         self.assertIsNotNone(v2.saved_query_id)
+        v1_saved_query_id = v1.saved_query_id
+        v2_saved_query_id = v2.saved_query_id
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -1779,6 +1781,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         v2.refresh_from_db()
         self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
         self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
 
     def test_enable_materialization_does_not_hijack_user_saved_query(self):
         """A user-created saved query whose name collides with {endpoint}_v{n} must not be taken over."""
