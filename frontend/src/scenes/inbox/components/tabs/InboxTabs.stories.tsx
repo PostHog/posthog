@@ -101,7 +101,15 @@ export const PullRequestsEmpty: Story = {
 export const Runs: Story = {
     render: () => (
         <div className="bg-primary min-h-screen">
-            <RunsTab runs={SAMPLE_RUNS} />
+            <RunsTab runs={SAMPLE_RUNS} loading={false} />
+        </div>
+    ),
+}
+
+export const RunsLoading: Story = {
+    render: () => (
+        <div className="bg-primary min-h-screen">
+            <RunsTab runs={[]} loading />
         </div>
     ),
 }
@@ -109,7 +117,7 @@ export const Runs: Story = {
 export const RunsEmpty: Story = {
     render: () => (
         <div className="bg-primary min-h-screen">
-            <RunsTab runs={[]} />
+            <RunsTab runs={[]} loading={false} />
         </div>
     ),
 }

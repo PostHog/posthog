@@ -223,7 +223,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         signalRunsResponse: [
             null as SignalRun[] | null,
             {
-                loadRuns: async (_, breakpoint) => {
+                loadRuns: async (_payload: void, breakpoint) => {
                     const [scoutResult, signalResult] = await Promise.allSettled([
                         api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
                         api.tasks.list({ origin_product: OriginProduct.SIGNAL_REPORT, limit: SIGNAL_TASKS_LIMIT }),
@@ -331,6 +331,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         signalRuns: [
             (s) => [s.signalRunsResponse],
             (signalRunsResponse: SignalRun[] | null): SignalRun[] => signalRunsResponse ?? [],
+        ],
+        // True only while the first load is in flight (response still null), so the Runs tab shows a
+        // skeleton instead of the empty state before any data lands. A refetch on tab re-open keeps the
+        // already-loaded list visible rather than flashing the skeleton.
+        signalRunsLoading: [
+            (s) => [s.signalRunsResponse, s.signalRunsResponseLoading],
+            (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean): boolean =>
+                signalRunsResponse === null && signalRunsResponseLoading,
         ],
         runsCount: [(s) => [s.signalRuns], (signalRuns: SignalRun[]): number => signalRuns.length],
         selectedReport: [

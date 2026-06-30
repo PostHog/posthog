@@ -40,7 +40,15 @@ function isReportListTab(tab: InboxTabKey): boolean {
     return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable' || tab === 'archived'
 }
 
-function ActiveTabBody({ tab, signalRuns }: { tab: InboxTabKey; signalRuns: SignalRun[] }): JSX.Element {
+function ActiveTabBody({
+    tab,
+    signalRuns,
+    signalRunsLoading,
+}: {
+    tab: InboxTabKey
+    signalRuns: SignalRun[]
+    signalRunsLoading: boolean
+}): JSX.Element {
     switch (tab) {
         case 'pulls':
             return <PullRequestsTab />
@@ -51,7 +59,7 @@ function ActiveTabBody({ tab, signalRuns }: { tab: InboxTabKey; signalRuns: Sign
         case 'archived':
             return <ArchivedTab />
         case 'runs':
-            return <RunsTab runs={signalRuns} />
+            return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
             return <AgentSetupColumn layout="stacked" />
     }
@@ -66,7 +74,7 @@ function ActiveTabBody({ tab, signalRuns }: { tab: InboxTabKey; signalRuns: Sign
  * and chrome-less.
  */
 function InboxListView(): JSX.Element {
-    const { activeTab, signalRuns } = useValues(inboxSceneLogic)
+    const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
@@ -99,7 +107,11 @@ function InboxListView(): JSX.Element {
                     {onboarding ? (
                         <InboxOnboardingTakeover />
                     ) : (
-                        <ActiveTabBody tab={effectiveTab} signalRuns={signalRuns} />
+                        <ActiveTabBody
+                            tab={effectiveTab}
+                            signalRuns={signalRuns}
+                            signalRunsLoading={signalRunsLoading}
+                        />
                     )}
                 </div>
             </div>

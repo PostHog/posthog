@@ -1,17 +1,21 @@
 import { IconBrain } from '@posthog/icons'
 
 import { SignalRun } from '../../types'
+import { CardSkeleton } from '../cards/CardSkeleton'
 import { SignalRunCard } from '../cards/SignalRunCard'
 
 /**
  * Runs tab: a flat, chronological (newest-first) list of the project's scout and signals-pipeline
  * tasks. Each row links out to the standalone Tasks scene. `inboxSceneLogic` merges the two sources
- * and sorts them newest-first, so the tab renders the pre-sorted list as-is.
+ * and sorts them newest-first, so the tab renders the pre-sorted list as-is. A skeleton covers the
+ * first load so the empty state doesn't flash before any data has been fetched.
  */
-export function RunsTab({ runs }: { runs: SignalRun[] }): JSX.Element {
+export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean }): JSX.Element {
     return (
         <div className="mx-auto max-w-3xl flex flex-col gap-4 px-6 py-4">
-            {runs.length === 0 ? (
+            {loading ? (
+                <CardSkeleton count={4} variant="cards" />
+            ) : runs.length === 0 ? (
                 <div className="mx-auto max-w-md flex flex-col items-center text-center py-16 gap-2">
                     <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
                         <IconBrain className="text-2xl" />
