@@ -240,7 +240,10 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "p@example.com"})
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Welcome flow")
-        ff_patcher = patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher = patch(
+            "products.workflows.backend.api.message_assets.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
         self.feature_enabled_mock = ff_patcher.start()
         self.addCleanup(ff_patcher.stop)
 
