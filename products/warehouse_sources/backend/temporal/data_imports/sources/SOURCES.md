@@ -80,6 +80,7 @@ the row lists both.
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
+| churnkey            | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
 | coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
@@ -344,7 +345,6 @@ doesn't conflict with concurrent PRs.
 - chatwoot
 - chift
 - chorus
-- churnkey
 - cin7
 - cisco_meraki
 - clarifai
