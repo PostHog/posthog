@@ -88,6 +88,10 @@ class TaskProcessingContext:
         return (self.state or {}).get("interaction_origin")
 
     @property
+    def pr_base_branch(self) -> str | None:
+        return (self.state or {}).get("pr_base_branch")
+
+    @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 

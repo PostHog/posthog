@@ -24,7 +24,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
-    parse_run_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -109,9 +108,8 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     PRs open with the correct `--base`.
     """
     branch = ctx.branch
-    pr_base_from_state = parse_run_state(ctx.state).pr_base_branch
-    if branch and pr_base_from_state and pr_base_from_state != branch:
-        return pr_base_from_state
+    if branch and ctx.pr_base_branch and ctx.pr_base_branch != branch:
+        return ctx.pr_base_branch
 
     if not branch or not ctx.repository or not ctx.has_github_credentials:
         return branch
