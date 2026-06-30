@@ -83,7 +83,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             user=self._user,
         )
         results = await insight_context.execute_and_format(
-            prompt_template="{{{results}}}", truncate_results=args.truncate
+            prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
         )
 
         return _prepend_taxonomy_warnings(results, taxonomy_warnings)

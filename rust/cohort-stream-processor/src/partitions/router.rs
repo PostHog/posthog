@@ -167,6 +167,17 @@ impl PartitionRouter {
         self.senders.len()
     }
 
+    /// Whether a worker channel is registered for `partition`.
+    ///
+    /// A registered-but-closed channel (a worker that exited without a revoke) still returns `true`:
+    /// this gates maintenance-tick fan-out, and a tick to such a partition should still be attempted
+    /// so it surfaces as `channel_closed` rather than being silently skipped. Only a partition with no
+    /// channel at all — the idle steady state — is reported absent, letting a tick skip the guaranteed
+    /// `no_worker` no-op.
+    pub fn has_partition(&self, partition: i32) -> bool {
+        self.senders.contains_key(&partition)
+    }
+
     fn sender_for(&self, partition: i32) -> Option<mpsc::Sender<Vec<ShuffleMessage>>> {
         let sender = self.senders.get(&partition)?;
         Some(sender.clone())
@@ -404,5 +415,29 @@ mod tests {
 
         assert!(router.route_batch(vec![(5, event(7))]).await.is_empty());
         assert_eq!(tags(&rx_new.recv().await.unwrap()), vec![7]);
+    }
+
+    #[tokio::test]
+    async fn has_partition_tracks_registration_not_channel_liveness() {
+        let router = PartitionRouter::new(16);
+        assert!(!router.has_partition(5), "absent before any registration");
+
+        let rx = router.add_partition(5).unwrap();
+        assert!(
+            router.has_partition(5),
+            "present once a channel is registered"
+        );
+
+        // Worker exited without a revoke: the channel is closed but still registered. It must stay
+        // "present" so a maintenance tick still attempts it and surfaces `channel_closed`, rather than
+        // being silently skipped as if it were idle.
+        drop(rx);
+        assert!(
+            router.has_partition(5),
+            "a closed-but-registered channel still counts as present",
+        );
+
+        router.remove_partition(5);
+        assert!(!router.has_partition(5), "absent after removal");
     }
 }

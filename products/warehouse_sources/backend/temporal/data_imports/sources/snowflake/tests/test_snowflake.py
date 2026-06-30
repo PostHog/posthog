@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -644,6 +645,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "Multi-factor authentication is required for this account",
+            # The real shape from production: codes + host vary, but the MFA substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Multi-factor authentication is required for this account. Log in to Snowsight to enroll.",
+        ],
+    )
+    def test_mfa_enrollment_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"MFA-enrollment error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "No active warehouse selected in the current session.  Select an active warehouse with the 'use warehouse' command.",
             # The real shape from production: the query id varies, but the warehouse substring is stable.
             "000606 (57P03): 01c51211-0105-f139-0002-113a46e58fba: No active warehouse selected in the current "
@@ -807,6 +822,27 @@ class TestSnowflakeValidateCredentials:
         assert message is not None and "PEM private key" in message
         mock_capture.assert_not_called()
 
+    def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):
+        # The account enforces MFA enrollment, so validate_credentials must surface an actionable
+        # message instead of capturing it as an unexpected failure.
+        mfa_error = DatabaseError(
+            msg="250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Multi-factor authentication is required for this account. Log in to Snowsight to enroll.",
+            errno=250001,
+            sqlstate="08001",
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=mfa_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "multi-factor authentication" in message
+        mock_capture.assert_not_called()
+
     def test_unexpected_value_error_is_still_captured(self, source):
         with (
             patch.object(source, "get_schemas", side_effect=ValueError("something unexpected")),
@@ -818,3 +854,48 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "http_error, expect_capture, message_fragment",
+        [
+            # HttpError is a sibling of DatabaseError/ProgrammingError, so a 404 on the login-request
+            # endpoint (a wrong/incomplete account id) must be recognised as a user config error and
+            # surface a friendly message without capture.
+            (
+                HttpError(
+                    msg="404 Not Found: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290404,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                False,
+                "account ID",
+            ),
+            # An unknown HttpError falls through the known-error matching and must still be captured.
+            (
+                HttpError(
+                    msg="503 Service Unavailable: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290503,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                True,
+                None,
+            ),
+        ],
+    )
+    def test_http_error_routing(self, source, http_error, expect_capture, message_fragment):
+        with (
+            patch.object(source, "get_schemas", side_effect=http_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        if expect_capture:
+            mock_capture.assert_called_once()
+        else:
+            assert message is not None and message_fragment in message
+            mock_capture.assert_not_called()

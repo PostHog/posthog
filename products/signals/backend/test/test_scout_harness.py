@@ -185,6 +185,88 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # A signal scout never sees the report-channel guidance — it fires weak
+        # signals, it does not author reports.
+        assert "signals-scout-emit-report" not in prompt
+        assert "Suggested reviewers route the report" not in prompt
+        assert "scratchpad entry is a pointer" not in prompt
+
+    def test_report_channel_renders_report_persona_and_guidance(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors-reports",
+            description="Errors scout that authors reports",
+            body="watch for spikes",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors-reports")
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        # A report scout authors via the report channel, so the persona and the
+        # run-identity emit reference point at emit-report, not emit-signal.
+        assert "signals-scout-emit-report" in prompt
+        assert "signals-scout-edit-report" in prompt
+        # The two highest-leverage nudges the report channel adds: search the inbox
+        # and edit before authoring a duplicate, and set suggested reviewers (what
+        # actually routes a report).
+        assert "Authoring vs. editing: search the inbox first" in prompt
+        assert "inbox-reports-list" in prompt
+        assert "Suggested reviewers route the report" in prompt
+        assert "suggested_reviewers" in prompt
+        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login) so the prompt
+        # steers the scout toward that route rather than guessing a handle.
+        assert "user_uuid" in prompt
+        # The report channel teaches that the `report:` scratchpad entry is a pointer
+        # into the inbox, not a copy of the report — the inbox stays the source of
+        # truth, so the scout retrieves the live report before editing. Dropping this
+        # discipline re-opens the duplicate / stale-edit failure mode.
+        assert "scratchpad entry is a pointer" in prompt
+        assert "source of truth" in prompt
+        # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
+        # for a report scout — it doesn't fire `emit_signal`.
+        assert "signals-scout-emit-signal" not in prompt
+        assert "Tagging your findings" not in prompt
+        # Shared scaffolding is still present on both personas.
+        assert "First: read your skill" in prompt
+        assert "Report operational friction" in prompt
+        assert "Output format" in prompt
+
+    def _report_prompt_for(self, allowed_tools: list[str]) -> str:
+        name = "signals-scout-" + "-".join(allowed_tools)
+        LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
+        return build_run_prompt(
+            load_skill_for_run(self.team, name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+
+    def test_emit_only_report_scout_never_references_edit_tool(self) -> None:
+        # A scout that opted into emit_report but NOT edit_report must never be steered toward
+        # `signals-scout-edit-report` — the endpoint fails closed on the exact tool, so naming it
+        # would route the run into a PermissionDenied. This is the regression the per-tool gating guards.
+        prompt = self._report_prompt_for(["emit_report"])
+        assert "signals-scout-emit-report" in prompt
+        assert "signals-scout-edit-report" not in prompt
+        assert "Authoring reports: search the inbox first" in prompt
+        assert "Suggested reviewers route the report" in prompt
+
+    def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
+        # The mirror case: an edit_report-only scout must never be told to author via
+        # `signals-scout-emit-report`, and the standalone author-time sections (the suggested-reviewers
+        # deep-dive, writing a report) are dropped since it can't author. It still learns it can SET
+        # reviewers via edit (the routing rescue), folded into the editing guidance — not the H1 section.
+        prompt = self._report_prompt_for(["edit_report"])
+        assert "signals-scout-edit-report" in prompt
+        assert "signals-scout-emit-report" not in prompt
+        assert "Editing existing reports" in prompt
+        assert "Suggested reviewers route the report" not in prompt
+        assert "Writing the report" not in prompt
+        assert "suggested_reviewers" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -59,6 +61,7 @@ describe('webAnalyticsAchievementsLogic', () => {
 
     beforeEach(() => {
         lastAck = null
+        jest.spyOn(lemonToast, 'success').mockReturnValue('mock-toast-id')
         initKeaTests()
         useMocks({
             get: { [OVERVIEW_URL]: () => [200, MOCK_OVERVIEW] },
@@ -75,6 +78,7 @@ describe('webAnalyticsAchievementsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     it('exposes progress and pending celebrations after loading', async () => {
@@ -84,8 +88,38 @@ describe('webAnalyticsAchievementsLogic', () => {
             .toDispatchActions(['loadAchievementsSuccess'])
             .toMatchValues({
                 pendingCelebrations: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
-                uncelebratedPending: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
             })
+    })
+
+    it('toasts and acknowledges each pending celebration on load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toFinishAllListeners()
+            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(lastAck).toEqual({ track_key: 'streak', stage: 2 })
+    })
+
+    it('does not re-toast or re-celebrate an already-celebrated unlock on a second load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess'])
+            .toFinishAllListeners()
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+
+        ;(lemonToast.success as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess'])
+            .toFinishAllListeners()
+            .toMatchValues({ confettiNonce: 1 })
+        expect(lemonToast.success).not.toHaveBeenCalled()
     })
 
     it('refetches on openModal and does not register a poll', async () => {

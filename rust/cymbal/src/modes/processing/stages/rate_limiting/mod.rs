@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
+
 use common_kafka::kafka_messages::app_metrics2::{AppMetric2, Kind, Source};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 use common_kafka::APP_METRICS2_TOPIC;
@@ -14,7 +16,9 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext,
     error::EventError,
-    metric_consts::{RATE_LIMITING_STAGE, RATE_LIMIT_FAIL_OPEN, RATE_LIMIT_OUTCOMES},
+    metric_consts::{
+        RATE_LIMITING_STAGE, RATE_LIMIT_FAIL_OPEN, RATE_LIMIT_METRIC_EMIT, RATE_LIMIT_OUTCOMES,
+    },
     stages::pipeline::ExceptionEventPipelineItem,
     types::{
         batch::Batch,
@@ -25,6 +29,10 @@ use crate::{
 use crate::modes::processing::rules::rate_limit::RateLimitSettings;
 
 pub use limiter::{RateLimitDecision, RedisRateLimiter, ScriptRunner, RATE_LIMIT_LUA};
+
+/// Ceiling on concurrent Redis admits per batch — bounds the pathological tail (many
+/// tiny, all-distinct issues). Normal batches stay under it and fan out fully.
+const MAX_CONCURRENT_ADMITS: usize = 256;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum LimitKind {
@@ -56,10 +64,9 @@ impl Outcome {
     }
 }
 
-/// Tally key for one `app_metrics2` row. Per-issue rows carry their issue id so
-/// each issue gets its own `app_source_id` (matching the Node.js limiter, which
-/// keys per-issue metrics by the bare Cymbal issue id); project rows use `None`
-/// and aggregate per team under `{team}:exceptions:global`.
+/// Tally key for one `app_metrics2` row. Per-issue rows carry their issue id (their own
+/// `app_source_id`, matching Node.js); project rows use `None` and aggregate per team
+/// under `{team}:exceptions:global`.
 type OutcomeKey = (i32, LimitKind, Option<Uuid>, Outcome);
 
 /// Drops rate-limited exception events as soon as their `issue_id` is known
@@ -122,15 +129,11 @@ impl Stage for RateLimitingStage {
     }
 }
 
-/// Core of `RateLimitingStage::process`, split out so it can be unit-tested with
-/// an in-memory `ScriptRunner` (the stage itself needs a full `AppContext`).
-///
-/// Groups the surviving (`Ok`) events by (team_id, issue_id), charges each group
-/// against the team's configured limits, and flips over-limit events to `Err` in
-/// place — length and input order are preserved, so post-processing still
-/// reattaches original events by index. Returns per-(team, limit, outcome)
-/// tallies for metrics. Fails open per group: a limiter error keeps that group's
-/// events and records a fail-open metric.
+/// Core of `process`, split out for unit tests with an in-memory `ScriptRunner`.
+/// Groups surviving (`Ok`) events by (team_id, issue_id), charges each group against the
+/// team's limits, and flips over-limit events to `Err` in place (length/order preserved
+/// for index-based reattachment). Fails open per group. Returns per-(team, limit,
+/// outcome) tallies.
 async fn apply_rate_limits(
     limiter: &RedisRateLimiter,
     settings: &HashMap<i32, RateLimitSettings>,
@@ -148,42 +151,52 @@ async fn apply_rate_limits(
         }
     }
 
+    // Keep only the groups we charge (allowlisted, opted in, ≥1 enabled limit) and
+    // resolve their bucket params up front; the admits fan out below.
+    let chargeable = groups
+        .into_iter()
+        .filter_map(|((team_id, issue_id), indices)| {
+            // Allowlist: when set, only listed teams are rate-limited.
+            if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
+                return None;
+            }
+            // no settings row → team not opted in
+            let team_settings = settings.get(&team_id)?;
+            // per-issue limit needs an issue to key on
+            let per_issue = issue_id.and(team_settings.per_issue());
+            let project = team_settings.project();
+            if per_issue.is_none() && project.is_none() {
+                return None;
+            }
+            Some((team_id, issue_id, indices, per_issue, project))
+        });
+
+    // Fan out the admits concurrently — each is one Redis round trip, pipelined over the
+    // multiplexed connection, so N distinct issues cost ~one RTT, not N. Each EVAL is
+    // atomic on Redis, so completion order changes no per-bucket total.
+    let charged: Vec<_> = stream::iter(chargeable.map(
+        |(team_id, issue_id, indices, per_issue, project)| async move {
+            let n = indices.len() as u32;
+            let decision = limiter
+                .admit(team_id, issue_id, per_issue, project, n)
+                .await;
+            (team_id, issue_id, indices, per_issue, project, decision)
+        },
+    ))
+    .buffer_unordered(MAX_CONCURRENT_ADMITS)
+    .collect()
+    .await;
+
     let mut outcomes: HashMap<OutcomeKey, u32> = HashMap::new();
     let mut drops: Vec<(usize, EventError)> = Vec::new();
 
-    // Group iteration order is nondeterministic (HashMap), and that's fine: per-issue
-    // buckets are independent, and the shared project bucket admits the same *total*
-    // whichever issue draws first — so every emitted metric is order-independent. Order
-    // only shuffles which issue wins the project budget when it's the binding limit, and
-    // those events are dropped either way. Within a group, input order is preserved
-    // (indices pushed in order above; classify_group keeps the lowest first).
-    for ((team_id, issue_id), indices) in groups {
-        // Team allowlist: when set, only listed teams are rate-limited.
-        if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
-            continue;
-        }
-
-        let Some(team_settings) = settings.get(&team_id) else {
-            continue; // no row → team hasn't opted in
-        };
-
-        // Per-issue limit only applies when we actually have an issue to key on.
-        let per_issue = issue_id.and(team_settings.per_issue());
-        let project = team_settings.project();
-        if per_issue.is_none() && project.is_none() {
-            continue;
-        }
-
-        let n = indices.len() as u32;
-        let decision = match limiter
-            .admit(team_id, issue_id, per_issue, project, n)
-            .await
-        {
+    for (team_id, issue_id, indices, per_issue, project, decision) in charged {
+        let decision = match decision {
             Ok(decision) => decision,
             Err(e) => {
                 // Fail open: keep everything, but record it so we can alert on it.
                 warn!("error-tracking rate limiter failed open for team {team_id}: {e}");
-                counter!(RATE_LIMIT_FAIL_OPEN).increment(n as u64);
+                counter!(RATE_LIMIT_FAIL_OPEN).increment(indices.len() as u64);
                 continue;
             }
         };
@@ -269,17 +282,28 @@ impl RateLimitingStage {
             });
         }
 
-        let results = send_iter_to_kafka(
-            &self.ctx.immediate_producer,
-            APP_METRICS2_TOPIC,
-            app_metrics,
-        )
-        .await;
-        for result in results {
-            if let Err(e) = result {
-                warn!("failed to emit error-tracking rate-limit app_metric: {e}");
+        // The limiting already happened in Redis — so don't
+        // block the pipeline on broker delivery. Fire-and-forget
+        let producer = self.ctx.app_metrics_producer.clone();
+        tokio::spawn(async move {
+            let results = send_iter_to_kafka(&producer, APP_METRICS2_TOPIC, app_metrics).await;
+            let (mut ok, mut failed) = (0u64, 0u64);
+            for result in results {
+                match result {
+                    Ok(()) => ok += 1,
+                    Err(e) => {
+                        failed += 1;
+                        warn!("failed to emit error-tracking rate-limit app_metric: {e}");
+                    }
+                }
             }
-        }
+            if ok > 0 {
+                counter!(RATE_LIMIT_METRIC_EMIT, "outcome" => "success").increment(ok);
+            }
+            if failed > 0 {
+                counter!(RATE_LIMIT_METRIC_EMIT, "outcome" => "error").increment(failed);
+            }
+        });
     }
 }
 

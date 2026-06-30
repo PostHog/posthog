@@ -1,6 +1,7 @@
 import json
+import time
 from contextlib import contextmanager
-from functools import lru_cache
+from threading import Lock
 from typing import Any
 
 from django.db import models
@@ -32,15 +33,37 @@ class InstanceSetting(models.Model):
         return parsed
 
 
-@lru_cache
+# Short TTL, not a permanent lru_cache: that pinned each value for a worker's life, so a
+# DB-changed setting (e.g. a rotated SMTP password) never reached it without a restart.
+_INSTANCE_SETTING_CACHE_TTL_SECONDS = 60
+_instance_setting_cache: dict[str, tuple[float, Any]] = {}
+_instance_setting_cache_lock = Lock()
+
+
+def _clear_instance_setting_cache() -> None:
+    with _instance_setting_cache_lock:
+        _instance_setting_cache.clear()
+
+
 def get_instance_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
+    with _instance_setting_cache_lock:
+        cached = _instance_setting_cache.get(key)
+        if cached is not None and time.monotonic() - cached[0] < _INSTANCE_SETTING_CACHE_TTL_SECONDS:
+            return cached[1]
+
+    # Fetch outside the lock so a slow query doesn't block other readers.
     saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
-    if saved_setting is not None:
-        return saved_setting.value
-    else:
-        return CONSTANCE_CONFIG[key][0]  # Get the default value
+    value = saved_setting.value if saved_setting is not None else CONSTANCE_CONFIG[key][0]
+
+    with _instance_setting_cache_lock:
+        _instance_setting_cache[key] = (time.monotonic(), value)
+    return value
+
+
+# Preserve the lru_cache-era `.cache_clear()` interface that set_instance_setting and tests use.
+get_instance_setting.cache_clear = _clear_instance_setting_cache  # type: ignore[attr-defined]
 
 
 def get_instance_settings(keys: list[str]) -> Any:
@@ -61,7 +84,7 @@ def set_instance_setting(key: str, value: Any):
     InstanceSetting.objects.update_or_create(
         key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
     )
-    get_instance_setting.cache_clear()
+    get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
 
 @contextmanager

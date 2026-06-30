@@ -4,8 +4,9 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 
+import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types/taskTypes'
 import type { taskLogicType } from './taskLogicType'
@@ -13,23 +14,6 @@ import { tasksLogic } from './tasksLogic'
 
 export interface TaskLogicProps {
     taskId: string
-}
-
-function isApiNotFound(errorObject: unknown): boolean {
-    return errorObject instanceof ApiError && errorObject.status === 404
-}
-
-function loadErrorMessage(error: string, errorObject: unknown): string {
-    if (error) {
-        return error
-    }
-    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
-        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
-    }
-    if (errorObject instanceof Error && errorObject.message) {
-        return errorObject.message
-    }
-    return 'Something went wrong.'
 }
 
 export const taskLogic = kea<taskLogicType>([
