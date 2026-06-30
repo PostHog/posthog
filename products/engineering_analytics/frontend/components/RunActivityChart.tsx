@@ -363,9 +363,12 @@ export function RunActivityChart({
             steps.push({ t: event.t, total: runningTotal, failing: runningFailing })
         }
     })
-    const peak = Math.max(1, ...steps.map((s) => s.total))
+    // True peak concurrency for the label — 0 when the lens covers a gap with no runs. The band height
+    // divides by it, so use a separate denominator that's never 0.
+    const peak = steps.length ? Math.max(...steps.map((s) => s.total)) : 0
+    const bandScale = Math.max(1, peak)
     const bandX = (t: number): string => (((t - tMin) / tSpan) * 1000).toFixed(1)
-    const bandY = (v: number): string => (BAND_HEIGHT - (v / peak) * (BAND_HEIGHT - 2)).toFixed(1)
+    const bandY = (v: number): string => (BAND_HEIGHT - (v / bandScale) * (BAND_HEIGHT - 2)).toFixed(1)
     // Concurrency is piecewise-constant, so draw step areas: hold the prior level to the event's x, then jump.
     const stepArea = (key: 'total' | 'failing'): string => {
         let d = `M0,${bandY(0)}`
