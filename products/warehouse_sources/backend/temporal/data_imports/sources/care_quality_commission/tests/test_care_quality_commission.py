@@ -167,6 +167,23 @@ class TestGetRowsFanOut:
         # The bookmark advances to page 2 after page 1 completes so a crash resumes mid-stream.
         assert CQCResumeConfig(page=2) in manager.saved
 
+    def test_paginates_when_total_pages_missing(self, monkeypatch: Any) -> None:
+        # The API omits totalPages: don't trust the fallback to terminate after page 1 — keep
+        # paging until an empty page is returned.
+        pages = {
+            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
+                "providers": [{"providerId": "1-A"}],
+            },
+            f"{CQC_BASE_URL}/providers/1-A?partnerCode=PC": {"providerId": "1-A"},
+            f"{CQC_BASE_URL}/providers?page=2&perPage=500&partnerCode=PC": {
+                "providers": [{"providerId": "1-B"}],
+            },
+            f"{CQC_BASE_URL}/providers/1-B?partnerCode=PC": {"providerId": "1-B"},
+            f"{CQC_BASE_URL}/providers?page=3&perPage=500&partnerCode=PC": {"providers": []},
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
+        assert rows == [{"providerId": "1-A"}, {"providerId": "1-B"}]
+
     def test_empty_page_terminates(self, monkeypatch: Any) -> None:
         pages = {
             f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {"providers": [], "totalPages": 5},

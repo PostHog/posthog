@@ -21,6 +21,7 @@ only. Full refresh is resumable at list-page granularity so a long fan-out survi
 timeouts.
 """
 
+import math
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -130,7 +131,11 @@ def _iter_detail_rows(
         if not items:
             break
 
-        total_pages = list_data.get("totalPages") or page
+        # If totalPages is missing or smaller than the page we just fetched, don't trust it to
+        # terminate — fall back to the empty-items check above, which is the safe loop terminator.
+        total_pages = list_data.get("totalPages")
+        if total_pages is None or total_pages < page:
+            total_pages = math.inf
 
         for item in items:
             # Direct access: a list record missing its id field is an API contract violation worth
