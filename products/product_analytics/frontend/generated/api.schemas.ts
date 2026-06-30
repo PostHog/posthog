@@ -3706,6 +3706,8 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Postgresql: 'postgresql',
+    AwsS3: 'aws-s3',
+    S3Compatible: 's3-compatible',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -7105,6 +7107,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
+    showPieTotal?: boolean | null
     showTotalRow?: boolean | null
     showValuesOnSeries?: boolean | null
     showXAxisBorder?: boolean | null

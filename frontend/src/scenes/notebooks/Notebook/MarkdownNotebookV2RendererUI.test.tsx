@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { useState } from 'react'
@@ -13,8 +13,9 @@ import { AccessControlLevel } from '~/types'
 import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
+import { Notebook } from './Notebook'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
-import { NotebookKernelInfoButton } from './NotebookMeta'
+import { NotebookExpandButton, NotebookKernelInfoButton } from './NotebookMeta'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 jest.mock('./migrations/migrate', () => {
@@ -112,5 +113,36 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         expect(onDebugOpenChange).not.toHaveBeenCalled()
         expect(settingsLogic.values.showKernelInfo).toBe(true)
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
+    })
+
+    it('renders markdown notebooks at expanded width by default and respects the markdown collapse setting', () => {
+        const { container } = render(<Notebook shortId={SHORT_ID} mode="notebook" cachedNotebook={cachedNotebook} />)
+        const notebookElement = container.querySelector('.Notebook')
+
+        expect(notebookElement?.classList.contains('Notebook--expanded')).toBe(true)
+        expect(notebookElement?.classList.contains('Notebook--compact')).toBe(false)
+
+        act(() => {
+            settingsLogic.actions.setIsMarkdownExpanded(false)
+        })
+
+        expect(notebookElement?.classList.contains('Notebook--compact')).toBe(true)
+        expect(notebookElement?.classList.contains('Notebook--expanded')).toBe(false)
+    })
+
+    it('collapses markdown content width without changing the legacy notebook width setting', () => {
+        const { container } = render(
+            <NotebookExpandButton type="secondary" size="small" inPanel={false} isMarkdownNotebook />
+        )
+        const button = container.querySelector('button')
+
+        expect(settingsLogic.values.isMarkdownExpanded).toBe(true)
+        expect(settingsLogic.values.isExpanded).toBe(false)
+        expect(button).toBeInstanceOf(HTMLButtonElement)
+
+        fireEvent.click(button as HTMLButtonElement)
+
+        expect(settingsLogic.values.isMarkdownExpanded).toBe(false)
+        expect(settingsLogic.values.isExpanded).toBe(false)
     })
 })

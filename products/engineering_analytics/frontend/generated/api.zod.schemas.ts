@@ -91,7 +91,9 @@ export const PRCostSummaryApi = zod.object({
         ),
     billable_minutes: zod
         .number()
-        .describe('Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs.'),
+        .describe(
+            "Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration."
+        ),
     estimated_cost_usd: zod
         .number()
         .nullable()
