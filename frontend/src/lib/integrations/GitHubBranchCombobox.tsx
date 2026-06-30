@@ -28,10 +28,14 @@ export interface GitHubBranchComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
+    /** When true, prepends a "Default branch" item that calls onChange(null) to revert to auto-select. */
+    showNoneOption?: boolean
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
 const CREATE_BRANCH_PREFIX = '__create__:'
+/** Sentinel item value for the "revert to default branch" action. */
+const DEFAULT_BRANCH_SENTINEL = '__default_branch__'
 
 /**
  * GitHub branch picker built on Quill's Combobox, mirroring the PostHog Code branch picker: a button
@@ -47,6 +51,7 @@ export function GitHubBranchCombobox({
     onChange,
     disabled = false,
     placeholder = 'Select branch...',
+    showNoneOption = false,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
     const { branches, defaultBranch, loading, hasMore, searchQuery } = useValues(logic)
@@ -69,7 +74,14 @@ export function GitHubBranchCombobox({
     // work on a brand-new branch.
     const createSentinel = CREATE_BRANCH_PREFIX + trimmedSearchQuery
     const showCreateItem = trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
-    const items = showCreateItem ? [...branches, createSentinel] : branches
+    // "Default branch" sentinel is prepended only when not searching (it doesn't match search queries) and a
+    // specific branch is currently selected (so the user has something to revert from).
+    const showDefaultItem = showNoneOption && !trimmedSearchQuery && !!value
+    const items = [
+        ...(showDefaultItem ? [DEFAULT_BRANCH_SENTINEL] : []),
+        ...branches,
+        ...(showCreateItem ? [createSentinel] : []),
+    ]
 
     return (
         <Combobox
@@ -78,7 +90,7 @@ export function GitHubBranchCombobox({
             filter={null}
             value={value || null}
             onValueChange={(next: string | null) => {
-                if (!next) {
+                if (!next || next === DEFAULT_BRANCH_SENTINEL) {
                     onChange(null)
                     return
                 }
@@ -136,7 +148,11 @@ export function GitHubBranchCombobox({
                 <ComboboxEmpty>{showInlineLoadingState ? 'Loading branches...' : 'No branches found.'}</ComboboxEmpty>
                 <ComboboxList>
                     {(item: string) =>
-                        item.startsWith(CREATE_BRANCH_PREFIX) ? (
+                        item === DEFAULT_BRANCH_SENTINEL ? (
+                            <ComboboxItem key={item} value={item}>
+                                Default branch
+                            </ComboboxItem>
+                        ) : item.startsWith(CREATE_BRANCH_PREFIX) ? (
                             <ComboboxItem key={item} value={item}>
                                 Use "{trimmedSearchQuery}" as branch name
                             </ComboboxItem>

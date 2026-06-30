@@ -116,9 +116,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        // Remember the repo/integration whenever the picker changes it, so the next visit restores it.
+        // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
+        // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
-            if (data.repositoryConfig) {
+            if (data.repositoryConfig?.repository) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }

@@ -108,6 +108,8 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                         integrationId={value.integrationId}
                         value={value.repository ?? ''}
                         onChange={handleRepositoryChange}
+                        placeholder="No repo"
+                        showNoneOption
                     />
                     {value.repository ? (
                         <GitHubBranchCombobox
@@ -115,6 +117,8 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                             repo={value.repository}
                             value={value.branch ?? ''}
                             onChange={handleBranchChange}
+                            placeholder="Default branch"
+                            showNoneOption
                         />
                     ) : (
                         <Button variant="outline" size="sm" disabled aria-label="Branch">
