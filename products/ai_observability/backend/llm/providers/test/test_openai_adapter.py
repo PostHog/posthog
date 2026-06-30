@@ -8,7 +8,6 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI as WrappedOpenAI,
 )
-
 from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import ContextWindowExceededError, QuotaExceededError
