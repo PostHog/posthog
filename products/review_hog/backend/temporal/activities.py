@@ -741,7 +741,11 @@ def _build_and_finalize(team_id: int, report_id: str, head_sha: str, run_index: 
     # same findings in the body and the posted comments.
     validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
     chunks_data = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha) or ChunksList(chunks=[])
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
+    # The reviewed diff decides which valid findings can't be anchored inline — the body surfaces those
+    # in an "Other findings" section (the same snapshot publish positions inline comments against).
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    pr_files = snapshot.pr_files if snapshot is not None else []
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=pr_files)
     finalize_review_report(team_id=team_id, report_id=report_id, body_markdown=body)
 
 

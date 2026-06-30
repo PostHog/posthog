@@ -1,3 +1,6 @@
+import pytest
+
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
@@ -20,6 +23,19 @@ def _chunk(chunk_id: int, chunk_type: str) -> Chunk:
     return Chunk(chunk_id=chunk_id, files=[FileInfo(filename="src/auth.py")], chunk_type=chunk_type, key_changes=[])
 
 
+def _pr_files() -> list[PRFile]:
+    # The reviewed diff touches lines 1-2 of src/auth.py, so a finding there is on-diff (inline-able).
+    return [
+        PRFile(
+            filename="src/auth.py",
+            status="modified",
+            additions=2,
+            deletions=0,
+            changes=[PRFileUpdate(type="addition", new_start_line=1, new_end_line=2, code="x")],
+        )
+    ]
+
+
 def test_only_validated_issues_count_and_chunk_appears() -> None:
     # One valid + one invalid issue on the same chunk: the body shows the chunk (with a humanized
     # header) and counts only the valid one.
@@ -30,7 +46,7 @@ def test_only_validated_issues_count_and_chunk_appears() -> None:
         "1-1-2": IssueValidation(is_valid=False, argumentation="not a bug", category="code_quality"),
     }
 
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=_pr_files())
 
     assert "# ReviewHog Report" in body
     assert "## Business logic" in body  # chunk_type humanized into the header
@@ -44,7 +60,41 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
     issues = [_issue("1-1-1")]
     validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
 
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations)
+    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=_pr_files())
 
     assert "## Bugfix" in body
     assert "## Frontend" not in body
+
+
+@pytest.mark.parametrize(
+    "priority,is_valid,line,expected_in_section",
+    [
+        (IssuePriority.SHOULD_FIX, True, 240, True),  # valid should_fix off-diff → surfaced, not dropped
+        (IssuePriority.MUST_FIX, True, 240, True),  # valid must_fix off-diff → surfaced
+        (IssuePriority.CONSIDER, True, 240, False),  # consider stays DB-only, never in the body
+        (IssuePriority.SHOULD_FIX, False, 240, False),  # invalid → not surfaced
+        (IssuePriority.SHOULD_FIX, True, 1, False),  # on-diff → goes inline, not the body section
+    ],
+)
+def test_other_findings_section_membership(
+    priority: IssuePriority, is_valid: bool, line: int, expected_in_section: bool
+) -> None:
+    # The "Other findings" body section must contain exactly the valid must/should-fix findings with no
+    # inline anchor (off-diff) — so an off-diff valid finding isn't silently dropped at publish, while
+    # consider / invalid / on-diff findings don't leak into it. The title renders only in this section
+    # (the per-chunk summary lists no titles), so its presence is the membership signal.
+    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
+    issue = Issue(
+        id="1-1-1",
+        title="Membership marker finding",
+        file="src/auth.py",
+        lines=[LineRange(start=line, end=line)],
+        issue="problem",
+        suggestion="fix",
+        priority=priority,
+    )
+    validations = {"1-1-1": IssueValidation(is_valid=is_valid, argumentation="reason", category="bug")}
+
+    body = build_review_body(chunks_data=chunks_data, issues=[issue], validations=validations, pr_files=_pr_files())
+
+    assert ("Membership marker finding" in body) is expected_in_section

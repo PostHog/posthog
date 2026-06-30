@@ -9,6 +9,12 @@ durable finding/verdict rows), so the body stays a summary.
 import logging
 
 from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
+from products.review_hog.backend.reviewer.diff_position import (
+    build_diff_line_map,
+    find_diff_position,
+    format_line_ranges,
+)
+from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
@@ -26,14 +32,18 @@ def build_review_body(
     chunks_data: ChunksList,
     issues: list[Issue],
     validations: dict[str, IssueValidation],
+    pr_files: list[PRFile],
 ) -> str:
     """Render the PR-facing review body from this turn's in-process pipeline objects.
 
     `validations` is keyed by the live issue id (`{pass}-{chunk}-{issue}`); only issues the
-    validator ruled valid appear in the report.
+    validator ruled valid appear in the report. `pr_files` (this turn's reviewed diff) decides which
+    valid findings can't be anchored to an inline comment — those are surfaced in an "Other findings"
+    section instead of being silently dropped at publish.
     """
     report = _assemble_report(chunks_data, issues, validations)
-    return _render_review_body(report)
+    off_diff = _off_diff_publishable_findings(issues, validations, pr_files)
+    return _render_review_body(report, off_diff)
 
 
 def _assemble_report(
@@ -70,8 +80,35 @@ def _assemble_report(
     return ValidationMarkdownReport(chunks=report_chunks)
 
 
-def _render_review_body(report: ValidationMarkdownReport) -> str:
-    """Render the top-level review body with the PR overview and all chunk summaries."""
+def _off_diff_publishable_findings(
+    issues: list[Issue],
+    validations: dict[str, IssueValidation],
+    pr_files: list[PRFile],
+) -> list[tuple[Issue, IssueValidation]]:
+    """Valid must/should-fix findings whose line isn't on the diff, so they get no inline comment.
+
+    GitHub only takes inline comments on changed lines, so a valid finding on a changed file but an
+    unchanged line would otherwise vanish at publish. The body surfaces these instead of dropping them.
+    """
+    diff_lines = build_diff_line_map(pr_files)
+    out: list[tuple[Issue, IssueValidation]] = []
+    for issue in issues:
+        validation = validations.get(issue.id)
+        if validation is None or not validation.is_valid:
+            continue
+        if issue.priority not in PUBLISHED_PRIORITIES:
+            continue
+        if find_diff_position(issue.file, issue.lines, diff_lines) is not None:
+            continue  # has an inline anchor → posted inline, not here
+        out.append((issue, validation))
+    return out
+
+
+def _render_review_body(
+    report: ValidationMarkdownReport,
+    off_diff_findings: list[tuple[Issue, IssueValidation]],
+) -> str:
+    """Render the top-level review body: the per-chunk overview plus any off-diff findings section."""
     lines = [
         "# ReviewHog Report",
         "",
@@ -98,4 +135,48 @@ def _render_review_body(report: ValidationMarkdownReport) -> str:
                 lines.append(f"- {change}")
             lines.extend(["", "</details>", ""])
 
+    lines.extend(_render_off_diff_section(off_diff_findings))
     return "\n".join(lines)
+
+
+def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> list[str]:
+    """Render valid findings with no inline position as a body section (empty when there are none)."""
+    if not findings:
+        return []
+    lines = [
+        "## Other findings (outside the changed lines)",
+        "",
+        "_Valid issues on this PR's files that sit on lines GitHub won't let us comment on inline._",
+        "",
+    ]
+    for issue, validation in findings:
+        meta = [f"**Priority:** {issue.priority.value}", f"**File:** `{issue.file}:{format_line_ranges(issue.lines)}`"]
+        if validation.category:
+            meta.append(f"**Category:** {validation.category}")
+        lines.extend(
+            [
+                f"### {issue.title}",
+                "",
+                " | ".join(meta),
+                "",
+                issue.issue,
+                "",
+                "<details>",
+                "<summary><strong>Suggested fix</strong></summary>",
+                "<br>",
+                "",
+                issue.suggestion,
+                "",
+                "</details>",
+                "",
+                "<details>",
+                "<summary><strong>Why we think it's a valid issue</strong></summary>",
+                "<br>",
+                "",
+                validation.argumentation,
+                "",
+                "</details>",
+                "",
+            ]
+        )
+    return lines

@@ -1957,6 +1957,72 @@ Two cost cuts, both validated on a real 1465-line multi-chunk PR (#66840). Goal:
 - **Verification.** 271 tests + ruff + ty + tach green. Adversarial 4-dimension review (validate-session / resume-consistency / analyze-removal / temporal-determinism), each finding independently verified: **0 real bugs** — every `must_fix` claim (over-count, 30-min timeout, payload size, heartbeat, wedged session) traced and dismissed; only confirmed = stale "analyze" comments (fixed) + an honest-count nit (fixed: increment only on a real persist). **e2e ✅ #66840** (1465 additions / 21 files → **4 chunks**): **0 `chunk_analysis` artefacts**, 12 `perspective_result` (3×4), **3 `validation-c{1,2,3}` warm sessions → 19 verdicts** (vs 19 sandboxes under the old design; chunk 4 had no survivor → no session), 6 valid findings (sharp: REST-send auth bypass, unvalidated Slack target, verbatim agent-draft render, silent draft revert). Published via the standalone `publish_review` command (zero recompute): 4 inline comments (2 of 6 unpositionable on the diff — pre-existing behavior) + promo + watermark set.
 - **NEXT (note only, in Deferred/future):** the **per-PERSPECTIVE warm review session** — fix the perspective, walk the chunks as turns (`P×C → P` sessions, #66840: 12 → 3), reusing the existing `(pass_number, chunk_id)`-keyed `perspective_result` resume. The mirror of this validate change. **User commits manually — not yet committed.**
 
+##### ✅ Change A BUILT 2026-06-30 / 🔜 Change B PLANNED — surface off-diff valid findings + validator priority override
+
+Two Tier-1 polishes to the single-turn **label → review → publish** flow (explicitly NOT loop work). Scoped with
+the maintainer 2026-06-30 — **A is built (278 tests + ruff + ty + tach green; uncommitted), B is next.** Locked
+decisions (AskUserQuestion):
+
+- **Off-diff surfacing = a review-body section only** — no nearest-changed-line inline snap (mis-anchored comments
+  are noise), no per-finding general comment.
+- **Validator priority = optional override, validator-wins** — the verdict carries an optional `adjusted_priority`;
+  `None` = keep the reviewer's; when set it overrides at the publish + body gates.
+- **`consider` stays DB-only for now** — not surfaced anywhere. A future UI lets teams choose the severity bar we
+  highlight (deferred note at the end of this subsection).
+
+**The problem (grounded in the code).** `publish_review._build_inline_comments` (`publish_review.py:249-256`) drops
+any valid finding that is either not `must_fix`/`should_fix` (`PUBLISHED_PRIORITIES`, `constants.py:16`) or whose
+start line isn't an added diff line (`_find_valid_comment_position → None`); then `publish_review.py:107-109`
+(`if not comments: return False`) posts **nothing — not even the body** when every valid finding is off-diff. The
+body renderer (`prepare_validation_markdown.py`) is a per-chunk summary that lists no individual finding and counts
+only `PUBLISHED_PRIORITIES`, so an off-diff (or `consider`) valid finding vanishes entirely. Observed on PRs #66456
+and #66840 (4 of 6 posted). Separately, priority is frozen at review time (`Issue.priority` →
+`ReviewIssueFinding.priority`) and the validator (`IssueValidation` = `is_valid` + `category` + `argumentation`) can
+only keep/drop.
+
+**Change A — stop dropping off-diff valid `must/should-fix` (✅ BUILT 2026-06-30; as planned below, `diff_position.py` also holds the moved `format_line_ranges`).**
+
+- New `reviewer/diff_position.py`: extract `build_diff_line_map(pr_files)` + `find_diff_position(file, lines, diff_lines)`
+  out of `publish_review.py` (both already operate on `file` + `list[LineRange]`, satisfied by both `Issue` and
+  `ReviewIssueFinding`), so the body renderer and the publisher share one positionability check.
+- `tools/prepare_validation_markdown.py`: `build_review_body(...)` gains `pr_files`; after the per-chunk summary it
+  renders a flat **"Other findings (outside the changed lines)"** section listing every valid `must/should-fix`
+  finding whose line isn't in the diff (`### title`, `` `file:line` ``, priority, the problem, the suggestion, and the
+  validator's "why valid"). Rendered at finalize so the stored `report_markdown` is complete and both publish paths —
+  the workflow publish activity and the standalone `publish_review` management command, which both read
+  `report.report_markdown` verbatim — inherit it. `activities._build_and_finalize` threads the snapshot's `pr_files` in.
+- `publish_review.py`: change the empty-gate from `if not comments` to "≥1 valid publishable finding exists". When all
+  publishable findings are off-diff, `comments=[]` and `_post_github_review` already falls through to a body-only post
+  (`publish_review.py:331-340`), so the body (carrying its Other-findings section) still reaches the PR.
+
+**Change B — validator priority override (next).**
+
+- Add `adjusted_priority: IssuePriority | None = None` to `IssueValidation` (`models/issue_validation.py`; regen
+  `prompts/issue_validation/schema.json`) and `ValidationVerdict` (`artefact_content.py`) — **no Django migration**,
+  the verdict is JSON in a `TextField`, old rows default `None`.
+- Prompt (`prompts/issue_validation/prompt.jinja`): the validator may raise/lower priority when its deeper
+  investigation warrants, leaving it unset to keep the reviewer's. (The keep/drop bar stays the team-owned criteria
+  skill; this is just the I/O contract.)
+- Thread `adjusted_priority` through `persist_verdict` / `persist_verdicts` into `ValidationVerdict`, and
+  `load_run_validations` reconstructs `IssueValidation(adjusted_priority=…)` lossless.
+- One `effective_priority(base, adjusted) = adjusted or base` helper used at every gate (the publish inline filter, the
+  body Other-findings filter, the body count). Validator-wins. With `consider` DB-only: upgrade `consider → should_fix`
+  surfaces an otherwise-invisible finding; downgrade soft-suppresses to DB-only with the reasoning recorded.
+
+**Tests (`/writing-tests`):** an off-diff valid `should_fix` lands in the body and isn't dropped; an all-off-diff
+publishable run still posts the body (not `False`); (B) upgrade publishes / downgrade suppresses; `adjusted_priority`
+round-trips persist → `load_run_validations` / `load_valid_findings` and defaults `None` on old rows; the
+Other-findings section + the effective-priority count render.
+
+**Supersedes** the deferred "NEXT-NEXT — surface valid findings that can't be positioned on a diff line", the "let the
+validator adjust a finding's priority" note, and the publish-path OPEN QUESTION — all folded into this plan.
+
+**⏭ DEFERRED (new) — let teams configure the severity bar ReviewHog highlights.** With `consider` DB-only, a team
+can't yet say "also surface considers" or "must-fix only". When the ReviewHog skills UI lands (with "reset to
+canonical"), add a per-team (or per-user, mirroring perspective enablement) minimum-priority setting that both the
+inline path and the body Other-findings section read. Until then the bar is the hardcoded
+`PUBLISHED_PRIORITIES = {MUST_FIX, SHOULD_FIX}`.
+
 ---
 
 ## Pipeline
@@ -2049,17 +2115,20 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    re-researches only the pending ones. The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
-9. **Build report + finalize** — `build_review_body(chunks, issues, validations)` renders the public body
+9. **Build report + finalize** — `build_review_body(chunks, issues, validations, pr_files)` renders the public body
    in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads); chunks with
-   no validated finding are skipped. `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps
-   the run watermark.
+   no validated finding are skipped, and valid `MUST_FIX`/`SHOULD_FIX` findings whose line isn't on the diff are
+   appended as an **"Other findings (outside the changed lines)"** section so they aren't silently dropped at publish
+   (Change A). `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
 10. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
     and the inline comments from the valid finding/verdict rows (`load_valid_findings`), posts a standalone
     "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the reviewed `head_sha`**
     via `commit=`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in
-    the current diff (`CONSIDER` dropped). Falls back to a body-only review on `GithubException`. Authenticates with
-    the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage when
-    publishing is on); the eval CLI defaults it off, the label trigger sets it on.
+    the current diff (`CONSIDER` dropped). It posts whenever there's ≥1 valid publishable finding — if all are
+    off-diff (no inline comments resolve) the body still posts, carrying them in the Other-findings section, so a
+    review is never dropped wholesale (Change A). Falls back to a body-only review on `GithubException`. Authenticates
+    with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
+    when publishing is on); the eval CLI defaults it off, the label trigger sets it on.
 
 ---
 

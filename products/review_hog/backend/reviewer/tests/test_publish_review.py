@@ -2,9 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from github import GithubException
 
-from products.review_hog.backend.reviewer.tools.publish_review import _post_github_review
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.tools.publish_review import _post_github_review, publish_review
 
 _GITHUB = "products.review_hog.backend.reviewer.tools.publish_review.Github"
+_REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
+_LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
+_POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
 
 
 class TestPostGithubReview:
@@ -77,3 +82,86 @@ class TestPostGithubReview:
 
         mock_pr.create_review.assert_not_called()
         mock_pr.create_issue_comment.assert_not_called()
+
+
+_ISSUE_KEY = "r1:src/auth.py:240:Logic & Correctness:1-1-1"
+
+
+def _finding(priority: IssuePriority = IssuePriority.SHOULD_FIX) -> ReviewIssueFinding:
+    # An off-diff finding (line 240) — its diff position can't resolve, so it never gets an inline comment.
+    return ReviewIssueFinding(
+        issue_key=_ISSUE_KEY,
+        run_index=1,
+        title="Off-diff finding",
+        file="src/auth.py",
+        lines=[LineRange(start=240, end=240)],
+        body="problem",
+        suggestion="fix",
+        priority=priority,
+    )
+
+
+def _verdict() -> ValidationVerdict:
+    return ValidationVerdict(issue_key=_ISSUE_KEY, is_valid=True, argumentation="reason", category="bug")
+
+
+class TestPublishReviewGate:
+    def _wire_report(self, mock_report_cls: MagicMock) -> None:
+        mock_report = MagicMock()
+        mock_report.report_markdown = "# ReviewHog Report"
+        mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
+
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_posts_body_when_all_publishable_findings_are_off_diff(
+        self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
+    ) -> None:
+        # A valid should_fix finding on an off-diff line resolves zero inline comments — but the review
+        # (its body carries it in the "Other findings" section) must still post, not be silently dropped.
+        self._wire_report(mock_report_cls)
+        mock_load.return_value = [(_finding(), _verdict())]
+
+        posted = publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=1,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            post_promo=False,
+        )
+
+        assert posted is True
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[4] == []  # body-only post: no inline comments resolved
+
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_skips_when_only_consider_findings(
+        self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
+    ) -> None:
+        # consider stays DB-only: a run whose only valid finding is `consider` has nothing publishable,
+        # so it posts nothing (guards the off-diff fix against accidentally surfacing considers).
+        self._wire_report(mock_report_cls)
+        mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
+
+        posted = publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=1,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            post_promo=False,
+        )
+
+        assert posted is False
+        mock_post.assert_not_called()

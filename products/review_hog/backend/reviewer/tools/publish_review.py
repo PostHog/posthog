@@ -6,8 +6,12 @@ from github.PullRequest import PullRequest, ReviewComment
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
+from products.review_hog.backend.reviewer.diff_position import (
+    build_diff_line_map,
+    find_diff_position,
+    format_line_ranges,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
-from products.review_hog.backend.reviewer.models.issues_review import LineRange
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
 
 logger = logging.getLogger(__name__)
@@ -101,10 +105,14 @@ def publish_review(
     body = f"{report.report_markdown}\n\n{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
-    diff_lines = _build_diff_line_map(pr_files)
+    diff_lines = build_diff_line_map(pr_files)
     comments = _build_inline_comments(valid_findings, diff_lines)
 
-    if not comments:
+    # Gate on whether there's anything worth posting, NOT on whether any comment positioned: a valid
+    # must/should-fix finding on an off-diff line has no inline anchor but is surfaced in the body's
+    # "Other findings" section, so the body must still post rather than dropping the whole review.
+    publishable = [finding for finding, _verdict in valid_findings if finding.priority in PUBLISHED_PRIORITIES]
+    if not publishable:
         logger.info("No publishable issues found, skipping review")
         return False
 
@@ -115,36 +123,9 @@ def publish_review(
     return True
 
 
-def _build_diff_line_map(pr_files: list[PRFile]) -> dict[str, set[int]]:
-    """Map each filename to the set of new-file line numbers present in the diff."""
-    diff_lines: dict[str, set[int]] = {}
-    for pr_file in pr_files:
-        valid_lines: set[int] = set()
-        for change in pr_file.changes:
-            if change.type == "deletion":
-                continue
-            start = change.new_start_line
-            if start is not None:
-                end = change.new_end_line or start
-                valid_lines.update(range(start, end + 1))
-        diff_lines[pr_file.filename] = valid_lines
-    return diff_lines
-
-
-def _format_line_ranges(line_ranges: list[LineRange]) -> str:
-    """Format line ranges as a readable string."""
-    parts = []
-    for lr in line_ranges:
-        if lr.end is None or lr.end == lr.start:
-            parts.append(str(lr.start))
-        else:
-            parts.append(f"{lr.start}-{lr.end}")
-    return ", ".join(parts)
-
-
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
     """Format a finding + its verdict as an inline comment body."""
-    formatted_lines = _format_line_ranges(finding.lines)
+    formatted_lines = format_line_ranges(finding.lines)
 
     meta_parts = [f"**Priority:** {finding.priority.value}"]
     if verdict.category:
@@ -217,28 +198,6 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
     return "\n".join(lines)
 
 
-def _find_valid_comment_position(
-    file: str,
-    line_ranges: list[LineRange],
-    diff_lines: dict[str, set[int]],
-) -> tuple[int, int | None] | None:
-    """Find the first valid line position for an inline comment.
-
-    Tries each line range in order. Returns (start_line, end_line) for the first range whose start
-    line is in the diff. end_line is None for single-line comments. Returns None if no valid
-    position is found.
-    """
-    valid_lines = diff_lines.get(file)
-    if valid_lines is None:
-        return None
-
-    for lr in line_ranges:
-        if lr.start in valid_lines:
-            end = lr.end if lr.end is not None and lr.end in valid_lines else None
-            return (lr.start, end)
-    return None
-
-
 def _build_inline_comments(
     valid_findings: list[tuple[ReviewIssueFinding, ValidationVerdict]],
     diff_lines: dict[str, set[int]],
@@ -250,9 +209,10 @@ def _build_inline_comments(
         if finding.priority not in PUBLISHED_PRIORITIES:
             continue
 
-        position = _find_valid_comment_position(finding.file, finding.lines, diff_lines)
+        position = find_diff_position(finding.file, finding.lines, diff_lines)
         if position is None:
-            logger.warning(f"No valid diff position for finding in {finding.file}, skipping")
+            # No inline anchor (off-diff line) — surfaced in the body's "Other findings" section.
+            logger.info(f"Off-diff finding in {finding.file}; surfacing it in the review body, not inline")
             continue
 
         start_line, end_line = position
