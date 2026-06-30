@@ -10,7 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanizeBytes } from 'lib/utils/numbers'
@@ -74,6 +74,31 @@ function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events
         return 'build incomplete / not ready'
     }
     return 'not ready'
+}
+
+const EXCEPTION_CODE_LABELS: Record<number, string> = {
+    307: 'exceeded byte limit',
+    159: 'timeout',
+    241: 'out of memory',
+    202: 'cluster busy',
+}
+
+const codeLabel = (code: number): string => EXCEPTION_CODE_LABELS[code] ?? `error ${code}`
+
+// One-glance terminal result for the group: the read plus its precompute builds. exception_code 0 = ok.
+function outcome(item: SlowestQuery): { label: string; type: LemonTagType } {
+    const parentFailed = item.exception_code !== 0
+    const buildFailed = item.sub_queries.some((q) => q.exception_code !== 0)
+    if (!parentFailed && !buildFailed) {
+        return { label: 'OK', type: 'success' }
+    }
+    if (parentFailed && buildFailed) {
+        return { label: `Build + read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    if (parentFailed) {
+        return { label: `Read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    return { label: 'Build failed', type: 'warning' }
 }
 
 function QueryStats({
@@ -356,6 +381,14 @@ export function QueryPerformance(): JSX.Element {
                         </div>
                     </Tooltip>
                 )
+            },
+        },
+        {
+            title: 'Outcome',
+            width: 160,
+            render: function Outcome(_, item): JSX.Element {
+                const { label, type } = outcome(item)
+                return <LemonTag type={type}>{label}</LemonTag>
             },
         },
     ]

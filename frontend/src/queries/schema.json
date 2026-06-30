@@ -12587,6 +12587,9 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },
@@ -22119,7 +22122,8 @@
                 "Talkwalker",
                 "NextdoorAds",
                 "AppLovin",
-                "Baserow"
+                "Baserow",
+                "Plunk"
             ],
             "type": "string"
         },
@@ -25772,7 +25776,9 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
-                "postgresql"
+                "postgresql",
+                "aws-s3",
+                "s3-compatible"
             ],
             "type": "string"
         },

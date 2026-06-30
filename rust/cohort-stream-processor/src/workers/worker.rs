@@ -41,9 +41,10 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
-use crate::workers::event_path::{process_event, schedule_deadline, SkipReason};
+use crate::workers::event_path::{process_event_with_memo, schedule_deadline, SkipReason};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
+use crate::workers::person_memo::{PersonMemo, PersonMemoConfig};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -67,8 +68,7 @@ pub struct Stage1Worker {
 }
 
 impl Stage1Worker {
-    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
-    /// dormant person's `Left` still fires after a crash-restart.
+    /// Spawn with the person memo disabled. The memoizing variant is [`Self::spawn_with_memo`].
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
@@ -80,6 +80,33 @@ impl Stage1Worker {
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
     ) -> Self {
+        Self::spawn_with_memo(
+            partition_id,
+            receiver,
+            store,
+            catalog,
+            sink,
+            tracker,
+            merge,
+            durable_restore,
+            PersonMemoConfig::DISABLED,
+        )
+    }
+
+    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
+    /// dormant person's `Left` still fires after a crash-restart.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_with_memo(
+        partition_id: u16,
+        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        store: CohortStore,
+        catalog: Arc<CatalogHandle>,
+        sink: Arc<dyn MembershipSink>,
+        tracker: Arc<OffsetTracker>,
+        merge: Arc<MergeWorkerDeps>,
+        durable_restore: bool,
+        person_memo: PersonMemoConfig,
+    ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
             receiver,
@@ -89,6 +116,7 @@ impl Stage1Worker {
             tracker,
             merge,
             durable_restore,
+            person_memo,
         ));
         Self {
             partition_id,
@@ -115,10 +143,13 @@ async fn run_worker(
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
     durable_restore: bool,
+    person_memo: PersonMemoConfig,
 ) {
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
+    // Reused across batches so cached results survive between events.
+    let mut person_memo = PersonMemo::new(person_memo);
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
         rebuild_eviction_queue(partition_id, &store, &mut queue).await;
@@ -149,6 +180,7 @@ async fn run_worker(
                         &event,
                         &last_updated,
                         merge.partition_count,
+                        &mut person_memo,
                     );
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
@@ -453,6 +485,7 @@ struct EventEffects {
     re_keys: Vec<CohortStreamEvent>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_event(
     partition_id: u16,
     store: &CohortStore,
@@ -460,8 +493,10 @@ fn handle_event(
     event: &CohortStreamEvent,
     last_updated: &str,
     partition_count: u32,
+    person_memo: &mut PersonMemo,
 ) -> EventEffects {
     let snapshot = catalog.load();
+    let generation = snapshot.generation();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
             .increment(1);
@@ -481,7 +516,14 @@ fn handle_event(
         };
 
     let started = Instant::now();
-    let result = process_event(partition_id, store, filters, &resolved);
+    let result = process_event_with_memo(
+        partition_id,
+        store,
+        filters,
+        generation,
+        &resolved,
+        person_memo,
+    );
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
     match result {
@@ -1243,6 +1285,7 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
@@ -1494,6 +1537,7 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
@@ -1507,6 +1551,7 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1536,6 +1581,7 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
@@ -1560,6 +1606,7 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
@@ -1602,6 +1649,7 @@ mod tombstone_redirect_tests {
             &event,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
         );
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());
