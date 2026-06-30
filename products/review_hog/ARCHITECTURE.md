@@ -2029,6 +2029,17 @@ downgrade-suppresses; the off-diff section membership + the per-chunk count both
 found — the publish-gate tests use off-diff findings that yield no comment, so they couldn't catch a regression to the
 raw priority in the inline filter).
 
+**e2e ✅ (publish, 2026-06-30).** Ran `run_review --publish` against PR PostHog/posthog#67015 (team 1) with both
+changes hot-loaded in the worker. Full pipeline ran clean and published a real review (2 inline comments, both
+`should_fix`, pinned to head `776e5e3f`); funnel = 5 raw perspective findings → 4 after dedup → 2 passed the validator
+(2 dismissed) → 0 dropped by priority → 2 published. This confirms **integration + no-regression** and that Change B's
+data layer round-trips on real data (the validator produced valid output against the regenerated `schema.json`;
+`persist_verdict` wrote + `load_valid_findings` reloaded the new `adjusted_priority` field, defaulting `None`). Caveat
+recorded honestly: this PR's findings did **not** trigger A's off-diff section (0 off-diff valid findings) nor B's
+override (validator set 0 `adjusted_priority`), so those branches stayed inert-and-correct this run — they remain
+covered by the 288 unit tests, not positively shown live. Both behaviors are LLM-emergent; provoking them needs a PR
+whose reviewer flags an unchanged line / whose validator disagrees on severity.
+
 **Supersedes** the deferred "NEXT-NEXT — surface valid findings that can't be positioned on a diff line", the "let the
 validator adjust a finding's priority" note, and the publish-path OPEN QUESTION — all folded into this plan.
 
