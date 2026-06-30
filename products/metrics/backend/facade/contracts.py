@@ -157,3 +157,22 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+
+
+@dataclass(frozen=True, slots=True)
+class MetricEventSample:
+    """A single raw metric emission: one `metric_samples` row enriched with its
+    `metric_series` labels. Backs the Samples view and the metric->trace pivot.
+    Distinct from `MetricSeries`, which is aggregated at query time.
+    """
+
+    timestamp: str  # ISO 8601
+    metric_name: str
+    metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
+    value: float
+    unit: str
+    service_name: str
+    trace_id: str
+    span_id: str
+    attributes: dict[str, str]
+    resource_attributes: dict[str, str]

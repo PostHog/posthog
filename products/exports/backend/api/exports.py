@@ -10,7 +10,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
@@ -19,6 +18,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
@@ -291,9 +291,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                     organization_id=insight.team.organization.id,
                     team_id=self.context["team_id"],
                     user=user,
-                    was_impersonated=is_impersonated_session(self.context["request"])
-                    if "request" in self.context
-                    else False,
+                    was_impersonated=is_impersonated(self.context.get("request")),
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
                     activity="exported" if reason is None else f"exported for {reason}",
@@ -331,7 +329,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             organization_id=instance.team.organization_id,
             team_id=instance.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.context["request"]) if "request" in self.context else False,
+            was_impersonated=is_impersonated(self.context.get("request")),
             item_id=instance.id,
             scope="ExportedAsset",
             activity="exported",

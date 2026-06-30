@@ -1,13 +1,8 @@
 ---
 name: signals-scout-ai-observability
 description: >
-  Focused Signals scout for PostHog projects using AI observability. Rotates through a set
-  of lenses — cost, latency, errors, volume, eval performance, eval/enrichment config,
-  clusters, and tool usage — watching each for trends and spikes sliced by the dimensions
-  it discovers over time. Leans on the sandbox's bundled `exploring-llm-*` deep-dive skills
-  for the actual queries. Emits findings only when they clear the confidence bar; otherwise
-  writes durable memory and closes out empty. Self-contained peer in the signals-scout-*
-  fleet — no dependencies on other scouts.
+  Signals scout for PostHog AI observability. Watches LLM traces for cost, latency, error,
+  volume, and eval-performance regressions, sliced by the dimensions it discovers over time.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
