@@ -75,6 +75,11 @@ def _ensure_grpc_receive_limit() -> None:
     options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
 
 
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
 # endpoint over the network. Two failure shapes on that hop are transient and usually clear on a
 # short backoff: a connection-level hiccup (e.g. a proxy timeout) surfaces as
@@ -126,7 +131,7 @@ def _load_client_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
 
 
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
@@ -154,7 +159,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -577,7 +582,7 @@ def _call_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_grpc_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
 
 
 def _search_with_transient_retry(
