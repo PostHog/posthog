@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from posthog.models import ActivityLog
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
@@ -557,6 +559,39 @@ class TestSavedQuery(APIBaseTest):
 
         assert json["count"] == 150
         assert len(json["results"]) == 150
+
+    def test_list_and_retrieve_skip_full_database_build(self):
+        # Building the full HogQL warehouse database runs a Postgres query per source, schema, join,
+        # and Fernet-decrypted credential. list/retrieve only render stored column metadata, so they
+        # must not trigger that build — re-adding either to the heavy path regresses this.
+        original_create_for = Database.create_for
+        with patch.object(Database, "create_for", side_effect=original_create_for) as mock_create_for:
+            create_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+            assert create_response.status_code == 201, create_response.content
+            # Creating validates the name against the full schema, so the full build is expected here.
+            assert mock_create_for.called
+            saved_query_id = create_response.json()["id"]
+
+            mock_create_for.reset_mock()
+            list_response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+            assert list_response.status_code == 200
+            mock_create_for.assert_not_called()
+            # Columns still render correctly off the cheap in-memory database.
+            assert list_response.json()["results"][0]["columns"][0]["name"] == "event"
+
+            mock_create_for.reset_mock()
+            retrieve_response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}"
+            )
+            assert retrieve_response.status_code == 200
+            mock_create_for.assert_not_called()
+            assert retrieve_response.json()["columns"][0]["name"] == "event"
 
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(

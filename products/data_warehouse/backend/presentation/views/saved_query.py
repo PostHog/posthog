@@ -174,10 +174,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
+            # A saved query's columns are plain stored fields, so serializing them never reads the
+            # warehouse schema graph. Fall back to a cheap in-memory database rather than rebuilding
+            # the full one per row.
+            database = Database()
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -771,12 +771,20 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        should_include_database = self.action in {"create", "list", "retrieve"} or (
+        # validate_name resolves table-name collisions against the full warehouse schema, so only
+        # writes that touch the name (or query) need the complete HogQL database.
+        needs_full_database = self.action == "create" or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
-        if should_include_database:
+        if needs_full_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        elif self.action in {"list", "retrieve"}:
+            # list/retrieve only render each query's stored column metadata, which never consults the
+            # warehouse schema graph. Skip the expensive full build (every external source, schema,
+            # join, and Fernet-decrypted credential — a recurring source of Postgres pool pressure)
+            # and hand the serializer a cheap in-memory database instead.
+            context["database"] = Database()
         return context
 
     def get_serializer_class(self):
