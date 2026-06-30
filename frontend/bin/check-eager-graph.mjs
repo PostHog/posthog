@@ -64,11 +64,12 @@ function warnViolation(message) {
 function assertReport(reportFilePath) {
     if (!fs.existsSync(reportFilePath)) {
         warnViolation(`Report not found at ${reportFilePath} — did the build run the check?`)
-        return 0
+        return 1
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
-    for (const message of reportToAssert.errors ?? []) {
+    const topLevelErrors = reportToAssert.errors ?? []
+    for (const message of topLevelErrors) {
         warnViolation(message)
         violations++
     }
@@ -90,7 +91,7 @@ function assertReport(reportFilePath) {
             )
             violations++
         }
-        if (!r.overBudget && r.forbiddenHits.length === 0) {
+        if (topLevelErrors.length === 0 && !r.overBudget && r.forbiddenHits.length === 0) {
             console.info(`✅ ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
@@ -101,8 +102,8 @@ if (assertReportIndex !== -1) {
     const violations = assertReport(process.argv[assertReportIndex + 1])
     if (violations) {
         console.warn(
-            `\n⚠️ Eager graph over budget — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
-                `Signals scout tracks this from the eager graph PR comment. Trim the eager closure when you can.`
+            `\n⚠️ Eager graph check — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
+                `Signals scout tracks eager-graph regressions from the PR comment. Trim the eager closure when you can.`
         )
     } else {
         console.info('\nAll eager graph budgets respected.')
