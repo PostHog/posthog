@@ -659,7 +659,7 @@ function EditSubscriptionForm({
                          * a summary of a summary. Hide the toggle entirely for AI subs.
                          */}
                         {!isAiPrompt && (
-                            <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
+                            <>
                                 <LemonField name="summary_enabled">
                                     {({ value, onChange }) => (
                                         <AIConsentPopoverWrapper>
@@ -707,7 +707,7 @@ function EditSubscriptionForm({
                                         </LemonField>
                                     </FlaggedFeature>
                                 )}
-                            </FlaggedFeature>
+                            </>
                         )}
 
                         {insightShortId && !isAiPrompt && (

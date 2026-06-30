@@ -88,6 +88,42 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    snoozed_until: function onSnoozedUntil(change, logItem) {
+        const before = change?.before as string | null
+        const after = change?.after as string | null
+
+        if (!before && after) {
+            return {
+                description: [
+                    <>
+                        snoozed until{' '}
+                        <strong>
+                            <TZLabel time={after} />
+                        </strong>
+                    </>,
+                ],
+            }
+        }
+        if (before && !after) {
+            // The same set→null change happens for a manual unsnooze and the system
+            // wake task auto-expiring the snooze — tell them apart by actor. Only claim
+            // "reopened" when the expiry actually flipped the ticket back to open; a
+            // snooze on an already-resolved ticket clears without reopening it.
+            if (logItem?.user) {
+                return { description: [<>removed snooze</>] }
+            }
+            const reopened = (logItem?.detail?.changes ?? []).some((c) => c.field === 'status' && c.after === 'open')
+            return { description: [reopened ? <>snooze expired – reopened</> : <>snooze expired</>] }
+        }
+        return {
+            description: [
+                <>
+                    changed snooze from <strong>{before ? <TZLabel time={before} /> : 'none'}</strong> to{' '}
+                    <strong>{after ? <TZLabel time={after} /> : 'none'}</strong>
+                </>,
+            ],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {
