@@ -54122,6 +54122,39 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    /**
+     * Per-emission attributes (high-cardinality labels on the data point).
+     */
+    export type _MetricEventSampleAttributes = {[key: string]: string};
+
+    /**
+     * Attributes of the resource (host, pod, service version) that emitted the metric.
+     */
+    export type _MetricEventSampleResourceAttributes = {[key: string]: string};
+
+    export interface _MetricEventSample {
+      /** When the metric was emitted, ISO 8601. */
+      timestamp: string;
+      /** Metric this emission belongs to. */
+      metric_name: string;
+      /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
+      metric_type: string;
+      /** The emitted value. */
+      value: number;
+      /** Unit of the value, if any. */
+      unit: string;
+      /** Service that emitted the metric. */
+      service_name: string;
+      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      trace_id: string;
+      /** Span this emission belongs to; empty if none. */
+      span_id: string;
+      /** Per-emission attributes (high-cardinality labels on the data point). */
+      attributes: _MetricEventSampleAttributes;
+      /** Attributes of the resource (host, pod, service version) that emitted the metric. */
+      resource_attributes: _MetricEventSampleResourceAttributes;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -54194,6 +54227,39 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+    }
+
+    export interface _MetricSamplesBody {
+      /**
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Lower bound (inclusive) for the sample window. ISO 8601. */
+      dateFrom: string;
+      /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
+      dateTo?: string;
+      /**
+         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * @maxLength 255
+         */
+      traceId?: string;
+      /**
+         * Max emissions to return, newest first. Defaults to 100, capped at 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+    }
+
+    export interface _MetricSamplesRequest {
+      /** The raw-emissions query to execute. */
+      query: _MetricSamplesBody;
+    }
+
+    export interface _MetricSamplesResponse {
+      /** Raw emissions ordered by timestamp descending. */
+      results: _MetricEventSample[];
     }
 
     /**
