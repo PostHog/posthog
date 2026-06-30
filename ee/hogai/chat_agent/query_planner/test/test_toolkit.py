@@ -139,7 +139,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             property_type=PropertyType.String,
         )
         PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.PERSON, name="taxonomy_test_numeric", property_type=PropertyType.Numeric
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="taxonomy_test_numeric",
+            property_type=PropertyType.Numeric,
         )
 
         for i in range(25):
