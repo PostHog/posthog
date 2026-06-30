@@ -234,13 +234,13 @@ the closest matches). Then, for each candidate finding:
   service, one fresh message firing at scale — with concrete service / message / time-range
   evidence (the bar is confidence ≥ 0.85). Most logs reports are an investigation, not a
   one-line code fix, so default to `requires_human_input`. **Always set `suggested_reviewers`**
-  — resolve the owning person's GitHub login with `signals-scout-members-list` (a logs finding names
-  a service, not a PostHog user, so the roster is the route; cache it under a `reviewer:logs:<service>` key). It's how the report reaches a human; left empty, the report
-  is assigned to nobody and is likely missed. After authoring, write a `report:logs:<service>`
-  scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The
-  full report channel — field schema, safety × actionability status mapping, reviewer routing,
-  dedupe (it is **not** idempotent), and the edit rules — lives in
-  [`references/report.md`](references/report.md).
+  — resolve the owning person with `signals-scout-members-list` (each member carries a resolved
+  `github_login`; cache it under a `reviewer:logs:<service>` key). It's how the report reaches a
+  human; left empty, the report is assigned to nobody and is likely missed. After authoring,
+  write a `report:logs:<service>` scratchpad entry with the `report_id` so the next run edits it
+  instead of duplicating. The harness prompt carries the full report-channel contract (field
+  schema, safety × actionability status mapping, reviewer routing, the non-idempotency caveat,
+  and the edit rules) — this section only adds the logs-specific framing.
 - **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but worth
   carrying forward, or to record what you ruled out and why.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:` key
@@ -299,10 +299,9 @@ Direct calls (read-only):
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — resolve a service's owner to a `{"github_login": "..."}` entry for
-  `suggested_reviewers` (each row carries a resolved `github_login`, null when unlinked → try the next
-  owner; entries are objects, never bare strings). The org-scoped `org-members-list` /
-  `org-member-get-github-login` tools are not available in a scout run.
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, to
+  route `suggested_reviewers` to a service's owner (null `github_login` → can't route, try the next
+  owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
 - `query-error-tracking-issues-list` — cross-check whether a log error already has an issue;
   error tracking owns those findings.
 

@@ -40,6 +40,7 @@ from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -58,7 +59,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -2659,6 +2660,7 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -4050,6 +4052,7 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
         authentication_classes=[
             TeamSecretTokenAuthentication,
+            ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle],
@@ -4080,10 +4083,11 @@ class FeatureFlagViewSet(
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
-        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
-        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
-        # otherwise let a cross-site request inflate the team's usage numbers.
-        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
+        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
+        # usage numbers.
+        should_count = is_service_auth(request)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})

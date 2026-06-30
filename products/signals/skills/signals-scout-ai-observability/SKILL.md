@@ -32,8 +32,8 @@ end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
 correspondingly high — file a report only for a localized, validated regression you'd stand
 behind as a standalone inbox item a human will act on. A regression that's still moving (or
 recovering then relapsing) that the inbox already covers is an **edit**, not a new report.
-The full report channel — fields, status mapping, reviewer routing, dedupe, and the edit
-rules — lives in [`references/report.md`](references/report.md).
+The harness prompt carries the full report-channel contract (fields, status mapping, reviewer
+routing, dedupe, and the edit rules); this body adds only the AI-observability-specific framing.
 
 ## Quick close-out: is AI observability even in use?
 
@@ -185,10 +185,9 @@ candidate:
   they're PR-autostart fields, and supplying `priority` + `suggested_reviewers` with no
   `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
   (autostart needs `immediately_actionable`). **Always set `suggested_reviewers`** regardless —
-  resolve the owning person via `signals-scout-members-list` (or pass their `{user_uuid}` when your
-  evidence already names a PostHog user) as a `{github_login}` (or `{user_uuid}`) object, since
-  `suggested_reviewers` is a **list of objects, not bare strings** (cache
-  the login under a `reviewer:llm_analytics:<area>` key). It's how the report reaches a human; left
+  resolve the owning person via `signals-scout-members-list` and pass their resolved `github_login`
+  (or a `{user_uuid}`) as an object, since `suggested_reviewers` is a **list of objects, not bare
+  strings** (cache the login under a `reviewer:llm_analytics:<area>` key). It's how the report reaches a human; left
   empty, the report is assigned to nobody and is likely missed. After authoring, write a
   `report:llm_analytics:<entity>` scratchpad entry with the `report_id` so the next run edits
   it instead of duplicating.
@@ -264,10 +263,10 @@ Inbox & reviewer routing:
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — resolve a product / model / eval owner to a GitHub login, wrapped as
-  a `{github_login}` object for `suggested_reviewers` (each row carries a resolved `github_login`, null
-  when unlinked → try the next owner, or pass the member's `{user_uuid}` and let the server resolve).
-  The org-scoped `org-members-list` / `org-member-get-github-login` tools are not available in a scout run.
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, to
+  route `suggested_reviewers` to a product / model / eval owner (wrap as a `{github_login}` object,
+  or pass the member's `{user_uuid}` and let the server resolve; null `github_login` → try the next
+  owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
 
 Harness-level:
 
@@ -275,7 +274,9 @@ Harness-level:
 - `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering across runs.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
 - `signals-scout-emit-report` / `signals-scout-edit-report` — author a report / edit an
-  existing one (see [`references/report.md`](references/report.md)).
+  existing one (the report-channel contract is in the harness prompt).
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, for
+  `suggested_reviewers` routing.
 
 Deep-dive skills (baked into the sandbox — read the matching one when you go deep, don't
 reinvent its queries): `posthog:exploring-llm-costs`, `posthog:exploring-llm-traces`,
