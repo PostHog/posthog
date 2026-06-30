@@ -827,6 +827,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
             ("without_notes", ""),
         ]
     )
+    @freeze_time("2026-01-15")
     def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
         original = DataDeletionRequest.objects.create(
             team_id=self.team.id,
