@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -1337,6 +1338,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     sourceType: values.selectedConnector.name,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
+                })
+
+                tryShowMCPHint('data_warehouse_sources.create', {
+                    derivedPrompt: `Connect a ${values.selectedConnector.name} source`,
                 })
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly

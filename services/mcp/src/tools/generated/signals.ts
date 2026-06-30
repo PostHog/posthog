@@ -29,6 +29,7 @@ import {
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
+    SignalsScoutRunsRecentEmissionsQueryParams,
     SignalsScoutRunsRetrieveParams,
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
@@ -771,6 +772,30 @@ const signalsScoutRunsList = (): ToolBase<
     },
 })
 
+const SignalsScoutRunsRecentEmissionsSchema = SignalsScoutRunsRecentEmissionsQueryParams
+
+const signalsScoutRunsRecentEmissions = (): ToolBase<
+    typeof SignalsScoutRunsRecentEmissionsSchema,
+    WithPostHogUrl<Schemas.SignalScoutEmission[]>
+> => ({
+    name: 'signals-scout-runs-recent-emissions',
+    schema: SignalsScoutRunsRecentEmissionsSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsRecentEmissionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutEmission[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/emissions/recent/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                skill_name: params.skill_name,
+            },
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutRunsRetrieveSchema = SignalsScoutRunsRetrieveParams.omit({ project_id: true })
 
 const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSchema, Schemas.SignalScoutRunDetail> => ({
@@ -890,6 +915,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
+    'signals-scout-runs-recent-emissions': signalsScoutRunsRecentEmissions,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,
     'signals-scout-scratchpad-remember': signalsScoutScratchpadRemember,

@@ -40,6 +40,7 @@ RedshiftErrors = {
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
+    "server does not support SSL": "The server does not support SSL, which we require for Redshift. Please check the host and port point to your Redshift cluster.",
     "Connection refused": "Connection refused. Please check the host and port.",
 }
 
@@ -143,6 +144,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             "SSL connection has been closed unexpectedly": None,
+            "server does not support SSL": None,
             "does not exist": None,
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
