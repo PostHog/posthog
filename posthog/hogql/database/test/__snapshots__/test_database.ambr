@@ -2724,6 +2724,19 @@
                   "schema_valid": true,
                   "table": "account_notebooks",
                   "type": "lazy_table"
+              },
+              "custom_properties": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties",
+                  "id": "custom_properties",
+                  "name": "custom_properties",
+                  "schema_valid": true,
+                  "table": "account_custom_properties",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -11140,6 +11153,19 @@
                   "name": "notebooks",
                   "schema_valid": true,
                   "table": "account_notebooks",
+                  "type": "lazy_table"
+              },
+              "custom_properties": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties",
+                  "id": "custom_properties",
+                  "name": "custom_properties",
+                  "schema_valid": true,
+                  "table": "account_custom_properties",
                   "type": "lazy_table"
               }
           },

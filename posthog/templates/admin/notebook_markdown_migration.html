@@ -133,8 +133,13 @@
                 </label>
                 <p class="notebook-migration-help">{{ form.dry_run.help_text }}</p>
             </div>
+            <div class="notebook-migration-row">
+                <label for="{{ form.batch_size.id_for_label }}">{{ form.batch_size.label }}</label>
+                {{ form.batch_size }}
+                <p class="notebook-migration-help">{{ form.batch_size.help_text }}</p>
+            </div>
             <div class="notebook-migration-actions">
-                <button type="submit" class="default" id="notebook-migration-submit">Run migration</button>
+                <button type="submit" class="default" id="notebook-migration-submit">Run batch</button>
             </div>
         </form>
         <div id="notebook-migration-message" class="notebook-migration-message"></div>
@@ -149,6 +154,7 @@
         const form = document.getElementById("notebook-migration-form")
         const teamInput = document.getElementById("id_team_id")
         const dryRunInput = document.getElementById("id_dry_run")
+        const batchSizeInput = document.getElementById("id_batch_size")
         const refreshButton = document.getElementById("notebook-migration-refresh")
         const submitButton = document.getElementById("notebook-migration-submit")
         const status = document.getElementById("notebook-migration-status")
@@ -172,11 +178,14 @@
         }
 
         async function readJson(response) {
+            const responseText = await response.text()
             const contentType = response.headers.get("content-type") || ""
             if (!contentType.includes("application/json")) {
-                throw new Error("Expected a JSON response from the migration endpoint.")
+                throw new Error(
+                    `Migration endpoint returned HTTP ${response.status} instead of JSON.\n${responseText.slice(0, 500)}`
+                )
             }
-            return await response.json()
+            return JSON.parse(responseText)
         }
 
         function renderStats(data) {
@@ -246,6 +255,7 @@
                     body: JSON.stringify({
                         team_id: teamInput.value.trim(),
                         dry_run: dryRunInput.checked,
+                        batch_size: batchSizeInput.value.trim(),
                     }),
                 })
                 const data = await readJson(response)
@@ -257,6 +267,9 @@
                     data.message,
                     `Total: ${data.total}`,
                     `Already converted: ${data.already_converted}`,
+                    `Pending before batch: ${data.pending_before}`,
+                    `Pending after batch: ${data.pending_after}`,
+                    `Batch size: ${data.batch_size || "All pending"}`,
                     `${data.dry_run ? "Would convert" : "Converted"}: ${data.converted}`,
                     `Skipped: ${data.skipped}`,
                     `Errored: ${data.errored}`,
@@ -269,7 +282,7 @@
                 setMessage(String(error), true)
             } finally {
                 submitButton.disabled = false
-                submitButton.textContent = "Run migration"
+                submitButton.textContent = "Run batch"
             }
         })
 
