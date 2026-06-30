@@ -20,11 +20,14 @@ export function PullRequestDiffView({
     diff,
     truncated,
     cacheKey,
+    diffStyle = 'unified',
 }: {
     diff: string
     truncated: boolean
     /** Stable prefix for Pierre's render cache — pass the commit sha so re-renders reuse highlighting. */
     cacheKey?: string
+    /** Unified (stacked) or split (side-by-side) layout, like GitHub's diff view toggle. */
+    diffStyle?: 'unified' | 'split'
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -43,11 +46,11 @@ export function PullRequestDiffView({
         () => ({
             theme: DIFF_THEME,
             themeType: isDarkModeOn ? 'dark' : 'light',
-            diffStyle: 'unified',
+            diffStyle,
             stickyHeader: true,
             overflow: 'scroll',
         }),
-        [isDarkModeOn]
+        [isDarkModeOn, diffStyle]
     )
 
     if (files.length === 0) {

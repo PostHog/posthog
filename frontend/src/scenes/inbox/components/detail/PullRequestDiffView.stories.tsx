@@ -41,6 +41,14 @@ export const Default: Story = {
     },
 }
 
+export const Split: Story = {
+    args: {
+        diff: SAMPLE_DIFF,
+        truncated: false,
+        diffStyle: 'split',
+    },
+}
+
 export const Truncated: Story = {
     args: {
         diff: SAMPLE_DIFF,

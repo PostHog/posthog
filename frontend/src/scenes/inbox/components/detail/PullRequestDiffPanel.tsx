@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -35,6 +35,7 @@ export function PullRequestDiffPanel({
     const [diff, setDiff] = useState<CommitDiffResponseApi | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>('unified')
 
     useEffect(() => {
         if (!currentTeamId) {
@@ -70,11 +71,22 @@ export function PullRequestDiffPanel({
                 <span className="font-mono text-xs text-tertiary truncate">
                     {commit.repository}@{commit.branch}
                 </span>
-                {prUrl ? (
-                    <LemonButton type="secondary" size="small" to={prUrl} targetBlank sideIcon={<IconExternal />}>
-                        Open in GitHub
-                    </LemonButton>
-                ) : null}
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={diffStyle}
+                        onChange={setDiffStyle}
+                        options={[
+                            { value: 'unified', label: 'Unified' },
+                            { value: 'split', label: 'Split' },
+                        ]}
+                    />
+                    {prUrl ? (
+                        <LemonButton type="secondary" size="small" to={prUrl} targetBlank sideIcon={<IconExternal />}>
+                            Open in GitHub
+                        </LemonButton>
+                    ) : null}
+                </div>
             </div>
             {loading ? (
                 <div className="flex items-center justify-center gap-2 py-10 text-sm text-tertiary">
@@ -84,7 +96,12 @@ export function PullRequestDiffPanel({
             ) : error ? (
                 <p className="m-0 py-6 text-sm text-danger">{error}</p>
             ) : diff ? (
-                <PullRequestDiffView diff={diff.diff} truncated={diff.truncated} cacheKey={commit.commit_sha} />
+                <PullRequestDiffView
+                    diff={diff.diff}
+                    truncated={diff.truncated}
+                    cacheKey={commit.commit_sha}
+                    diffStyle={diffStyle}
+                />
             ) : null}
         </div>
     )
