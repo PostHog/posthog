@@ -19,6 +19,18 @@ export interface CostSummary {
     estimatedCostUsd: number | null
 }
 
+/** A single run's cost rolled up from its jobs, plus the count of billable jobs still in flight. */
+export interface RunCostSummary extends CostSummary {
+    unsettledJobs: number
+}
+
+/** Minimal job shape the run-cost roll-up needs; WorkflowJobApi satisfies it. */
+export interface CostableJob {
+    runner_provider: string
+    duration_seconds: number | null
+    estimated_cost_usd: number | null
+}
+
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
 export interface HealthSummary {
@@ -187,4 +199,28 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
         billableMinutes,
         estimatedCostUsd,
     }
+}
+
+/**
+ * Roll a run's jobs up to a single cost figure, mirroring the backend cost model (logic/cost.py): only
+ * self-hosted runners are billable, and a job contributes only once it has settled (a non-null estimated
+ * cost). Running billable jobs are counted as `unsettledJobs` and excluded from the total, so the number
+ * never silently inflates — the same caveat the PR page surfaces. Returns null when no job is billable at
+ * all (every job GitHub-hosted / free), so the caller can omit the tile rather than show a misleading $0.
+ */
+export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
+    const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
+    if (billable.length === 0) {
+        return null
+    }
+    const costed = billable.filter((job) => job.estimated_cost_usd != null)
+    const unsettledJobs = billable.length - costed.length
+    if (costed.length === 0) {
+        // Billable jobs exist but none has settled yet — keep the tile (with a "—" value + caveat) rather
+        // than reporting a misleading $0.00 / 0 min for a run whose cost simply hasn't landed.
+        return { billableMinutes: null, estimatedCostUsd: null, unsettledJobs }
+    }
+    const billableMinutes = costed.reduce((sum, job) => sum + (job.duration_seconds ?? 0) / 60, 0)
+    const estimatedCostUsd = costed.reduce((sum, job) => sum + (job.estimated_cost_usd ?? 0), 0)
+    return { billableMinutes, estimatedCostUsd, unsettledJobs }
 }

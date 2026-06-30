@@ -1,4 +1,4 @@
-import { computeFleetSummary, computeHealthSummary } from './runHealth'
+import { CostableJob, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
 
 const at = (hour: number): string => `2026-06-24T${String(hour).padStart(2, '0')}:00:00Z`
 
@@ -95,5 +95,43 @@ describe('runHealth', () => {
         expect(summary.failingNow).toBe(1)
         expect(summary.estimatedCostUsd).toBe(6)
         expect(summary.billableMinutes).toBe(150)
+    })
+
+    const job = (
+        runner_provider: string,
+        duration_seconds: number | null,
+        estimated_cost_usd: number | null
+    ): CostableJob => ({ runner_provider, duration_seconds, estimated_cost_usd })
+
+    it('summarizeRunCost is null when nothing is billable, so the caller omits the tile (no $0.00)', () => {
+        expect(summarizeRunCost([job('github_hosted', 600, null), job('unknown', 600, null)])).toBeNull()
+    })
+
+    it('summarizeRunCost sums only settled self-hosted jobs and ignores free runners', () => {
+        expect(
+            summarizeRunCost([
+                job('self_hosted', 120, 0.5),
+                job('self_hosted', 60, 0.25),
+                job('github_hosted', 600, null),
+            ])
+        ).toEqual({ billableMinutes: 3, estimatedCostUsd: 0.75, unsettledJobs: 0 })
+    })
+
+    it('summarizeRunCost excludes in-flight billable jobs from the total but counts them as unsettled', () => {
+        // A running self-hosted job has no cost yet — counting it would understate $/min or report a bogus
+        // 0; it must drop out of the total and surface as a caveat, matching the backend roll-up.
+        expect(summarizeRunCost([job('self_hosted', 120, 0.5), job('self_hosted', null, null)])).toEqual({
+            billableMinutes: 2,
+            estimatedCostUsd: 0.5,
+            unsettledJobs: 1,
+        })
+    })
+
+    it('summarizeRunCost keeps the tile (null value) when every billable job is still in flight', () => {
+        expect(summarizeRunCost([job('self_hosted', null, null)])).toEqual({
+            billableMinutes: null,
+            estimatedCostUsd: null,
+            unsettledJobs: 1,
+        })
     })
 })
