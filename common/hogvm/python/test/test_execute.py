@@ -104,6 +104,10 @@ class TestBytecodeExecute:
         assert self._run("1 == null") is False
         assert self._run("1 != null") is True
 
+    def test_ordering_comparison_type_error_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
+            self._run("properties.missing <= 1.0")
+
     def test_nested_value(self):
         my_dict = {
             "properties": {

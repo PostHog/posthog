@@ -48,8 +48,12 @@ fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+    if config.tokio_worker_threads > 0 {
+        runtime_builder.worker_threads(config.tokio_worker_threads);
+    }
+    let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
 
@@ -219,6 +223,8 @@ async fn async_main(config: Config) -> Result<()> {
     if config.durable_restore_enabled {
         dispatcher.enable_durable_restore();
     }
+    // Person-memo config, likewise set before any worker spawns.
+    dispatcher.set_person_memo_config(config.person_memo_config());
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config

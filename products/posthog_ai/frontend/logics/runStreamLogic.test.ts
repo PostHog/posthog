@@ -286,6 +286,48 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('showThinkingIndicator', () => {
+        const runStartedFrame = notification('_posthog/run_started', {})
+        const messageChunk = sessionUpdate({
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'm1',
+            content: { text: 'Hi' },
+        })
+        const messageFinal = sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi' } })
+        const toolStart = sessionUpdate({
+            sessionUpdate: 'tool_call',
+            toolCallId: 't1',
+            serverName: 'posthog',
+            toolName: 'exec',
+            status: 'in_progress',
+        })
+        const toolDone = sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
+        const progressActive = notification('_posthog/progress', {
+            group: 'g',
+            step: 's',
+            label: 'Working',
+            status: 'in_progress',
+        })
+        const turnComplete = notification('_posthog/turn_complete', {})
+
+        it.each<[string, StoredLogEntry[], boolean]>([
+            ['idle gap after run start shows the loader', [runStartedFrame], true],
+            ['a streaming answer hides the loader', [runStartedFrame, messageChunk], false],
+            ['a finalized answer mid-turn shows the loader', [runStartedFrame, messageChunk, messageFinal], true],
+            ['a running tool hides the loader', [runStartedFrame, toolStart], false],
+            ['a completed tool shows the loader', [runStartedFrame, toolStart, toolDone], true],
+            ['a running progress step hides the loader', [runStartedFrame, progressActive], false],
+            ['no run in flight hides the loader', [], false],
+            ['a completed turn hides the loader', [runStartedFrame, messageFinal, turnComplete], false],
+        ])('%s', async (_name, frames, expected) => {
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.showThinkingIndicator).toEqual(expected)
+        })
+    })
+
     describe('assistant message buffering without messageId', () => {
         it('keeps two consecutive turns without a messageId in separate thread items', async () => {
             const frames: StoredLogEntry[] = [
@@ -1352,6 +1394,48 @@ describe('runStreamLogic', () => {
             // currentRunStatus is 'queued' and runStarted is still false — the indicator must show.
             expect(logic.values.currentRunStatus).toEqual('queued')
             expect(logic.values.isThinking).toEqual(true)
+        })
+    })
+
+    describe('streamPhase provisioning during open', () => {
+        it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
+            expect(logic.values.streamPhase).toEqual('idle')
+
+            // The conversations/open POST has started — no SSE/run status yet.
+            logic.actions.setRunOpening(true)
+            expect(logic.values.sseStatus).toEqual('idle')
+            expect(logic.values.currentRunStatus).toEqual(null)
+            expect(logic.values.streamPhase).toEqual('provisioning')
+        })
+
+        it.each([
+            ['a stream error', (): void => logic.actions.handleStreamError({ errorTitle: 'x', retryable: true })],
+            ['an injected error item', (): void => logic.actions.pushErrorItem('boom')],
+        ])('clears the optimistic flag on %s', (_case, act) => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.runOpening).toEqual(true)
+
+            act()
+            expect(logic.values.runOpening).toEqual(false)
+        })
+
+        it('clears the optimistic flag once the SSE opens (openSseForRun)', async () => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.runOpening).toEqual(true)
+
+            // openSseForRun runs an async listener that opens a stream — await it so no work leaks.
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.runOpening).toEqual(false)
+        })
+
+        it('lets run_started win over the optimistic flag (thinking, not provisioning)', () => {
+            logic.actions.setRunOpening(true)
+            expect(logic.values.streamPhase).toEqual('provisioning')
+
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.streamPhase).toEqual('thinking')
         })
     })
 
