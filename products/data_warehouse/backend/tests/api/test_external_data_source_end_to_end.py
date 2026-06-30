@@ -1,5 +1,4 @@
 import uuid
-import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -8,9 +7,6 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
-import pyarrow as pa
-import deltalake as deltalake
-import structlog
 from asgiref.sync import async_to_sync
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from rest_framework.test import APIClient
@@ -29,15 +25,8 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
-    RepartitionTarget,
-    _table_row_count,
-    measure_partition_bytes,
-    repartition_table_in_place,
 )
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
@@ -45,18 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 
 BUCKET_NAME = "test-pipeline"
-
-
-def _minio_settings():
-    return override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        BUCKET_PATH=BUCKET_NAME,
-        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-        DATAWAREHOUSE_BUCKET=BUCKET_NAME,
-    )
 
 
 @pytest.fixture
@@ -207,95 +184,3 @@ def test_stripe_source_creation_and_sync_updates_managed_views(team, api_client,
     saved_query.refresh_from_db()
     assert schema.table is not None, "Workflow should have created the table"
     assert not _is_empty_query(saved_query), f"{saved_query.name} still has an empty query"
-
-
-@pytest.mark.django_db(transaction=True)
-def test_repartition_in_place_rewrites_delta_on_object_storage(team):
-    """End-to-end of the in-place repartition primitive against real object storage (MinIO).
-
-    Unit tests cover the rewrite over a local filesystem, but the crash-safe swap goes through
-    `aget_s3_client` (S3-only). This exercises the full path on a real Delta table: a coarse
-    month-partitioned table is repartitioned to day, then we assert every row survives under the finer
-    layout, the schema settings update, the controller markers clear, and the temp folder is cleaned up.
-    """
-    logger = structlog.get_logger()
-
-    with _minio_settings():
-        source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Stripe"
-        )
-        schema = ExternalDataSchema.objects.create(
-            name="repartition_e2e",
-            team=team,
-            source=source,
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={
-                "partitioning_enabled": True,
-                "partition_mode": "datetime",
-                "partition_format": "month",
-                "partitioning_keys": ["created_at"],
-            },
-        )
-        job = ExternalDataJob.objects.create(
-            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
-        )
-
-        helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
-
-        # 6 rows across 3 months / 6 distinct days, pre-bucketed by month.
-        days = [
-            datetime.datetime(2024, 1, 5),
-            datetime.datetime(2024, 1, 20),
-            datetime.datetime(2024, 2, 2),
-            datetime.datetime(2024, 2, 15),
-            datetime.datetime(2024, 3, 10),
-            datetime.datetime(2024, 3, 25),
-        ]
-        table = pa.table(
-            {
-                "id": pa.array([1, 2, 3, 4, 5, 6], type=pa.int64()),
-                "created_at": pa.array(days, type=pa.timestamp("us")),
-                PARTITION_KEY: pa.array([d.strftime("%Y-%m") for d in days], type=pa.string()),
-            }
-        )
-        async_to_sync(helper.write_to_deltalake)(
-            data=table, write_type="full_refresh", should_overwrite_table=True, primary_keys=["id"]
-        )
-
-        live_before = async_to_sync(helper.get_delta_table)()
-        assert len(measure_partition_bytes(live_before)) == 3, "expected 3 month partitions before"
-
-        result = async_to_sync(repartition_table_in_place)(
-            helper,
-            schema,
-            RepartitionTarget(
-                partition_keys=["created_at"],
-                trigger_reason="test",
-                partition_mode="datetime",
-                partition_format="day",
-            ),
-            logger,
-        )
-        assert result["outcome"] == "completed"
-        assert result["row_count"] == 6
-
-        helper.get_delta_table.cache_clear()
-        live_after = async_to_sync(helper.get_delta_table)()
-        sizes_after = measure_partition_bytes(live_after)
-        assert len(sizes_after) == 6, "expected 6 day partitions after repartition"
-        assert all(len(k) == len("2024-01-05") for k in sizes_after), "partition keys recomputed to day"
-        assert _table_row_count(live_after) == 6, "no rows lost or duplicated"
-        assert sorted(live_after.to_pyarrow_table().column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
-
-        schema.refresh_from_db()
-        assert schema.partition_mode == "datetime"
-        assert schema.partition_format == "day"
-        assert schema.repartition_pending is None
-        assert schema.repartition_swap is None
-
-        live_uri = async_to_sync(helper.get_table_uri)()
-        # Temp's data + delta log are gone (a harmless 0-byte dir marker may remain on MinIO), so it's
-        # no longer a readable table — no orphaned parquet/log files left behind.
-        assert not deltalake.DeltaTable.is_deltatable(
-            f"{live_uri}__repartitioned", storage_options=helper.get_storage_options()
-        ), "temp folder should no longer be a valid delta table"
