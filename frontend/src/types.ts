@@ -478,6 +478,21 @@ export interface InAppNotification {
     created_at: string
 }
 
+/**
+ * Transient realtime event signalling that a resource was edited through some channel
+ * (UI, MCP, or API). Rides the same notifications SSE transport as InAppNotification but is
+ * never persisted or shown in the inbox — an open editor uses it to refresh instead of
+ * clobbering edits made elsewhere. Discriminated by `notification_type === 'resource_edited'`.
+ */
+export interface ResourceEditedEvent {
+    notification_type: 'resource_edited'
+    team_id: number
+    resource_type: string
+    resource_id: string
+    updated_at: string
+    actor_user_id: number | null
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -787,6 +802,10 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
+    /** Plan-derived events data retention window in months (synced from billing). */
+    event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -1405,7 +1424,14 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
+    key:
+        | DurationType
+        | 'snapshot_source'
+        | 'visited_page'
+        | 'comment_text'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     operator: PropertyOperator
 }
 
@@ -4778,7 +4804,6 @@ export interface Experiment {
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
         rollout_percentage?: number
-        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -5581,7 +5606,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
@@ -6047,7 +6071,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {
@@ -6830,7 +6854,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 

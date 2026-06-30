@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.ph_client import feature_enabled_or_false
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
 
 DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 
@@ -29,9 +29,9 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DataModelingJobPagination(pagination.CursorPagination):
-    ordering = "-created_at"
-    page_size_query_param = "limit"
+class DataModelingJobPagination(pagination.LimitOffsetPagination):
+    default_limit = 10
+    max_limit = 100
 
 
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -72,7 +72,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         qs = queryset.filter(team_id=self.team_id)
         if not self._is_duckgres_shadow_enabled():
             qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
-        return qs
+        return qs.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

@@ -47,6 +47,21 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    missing?: string[]
+}
+
+export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
+
+export interface KnowledgeGapSuggestion {
+    id: string
+    ticket_id: string
+    topic: string
+    normalized_topic: string
+    ticket_type: string
+    outcome: string
+    status: GapSuggestionStatus
+    resolved_source_id: string | null
+    created_at: string
 }
 
 export interface TicketViewFilters {

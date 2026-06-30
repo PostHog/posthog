@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.data_warehouse.backend.presentation.views.fix_hogql as fix_hogql
 from products.data_warehouse.backend.presentation.views import (
     column_annotation,
+    column_statistics,
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -85,5 +86,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"warehouse_column_annotations",
         column_annotation.WarehouseColumnAnnotationViewSet,
         "project_warehouse_column_annotations",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"warehouse_column_statistics",
+        column_statistics.WarehouseColumnStatisticsViewSet,
+        "project_warehouse_column_statistics",
         ["team_id"],
     )

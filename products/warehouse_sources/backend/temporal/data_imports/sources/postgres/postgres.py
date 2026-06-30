@@ -130,7 +130,9 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
         return False
 
     if source_config is not None:
-        ssh_tunnel = source_config.ssh_tunnel
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
         if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
             return False
 
@@ -172,6 +174,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # no-SSL-support source fails with a different message ("server does not support SSL") and, on
     # require_ssl sources, is converted to SSLRequiredError before reaching this check.
     "ssl connection has been closed unexpectedly",
+    # The lower-level form of the same TLS drop: a socket-level failure during the SSL handshake or
+    # read (EOF, connection reset) surfaces as "... SSL SYSCALL error: EOF detected" (and similar).
+    # Same transient class as the bare SSL drop above — a pooler/firewall idle cull, failover, or
+    # network blip mid-handshake — and recovers on reconnect. Never the unsupported-SSL signal,
+    # which is the distinct "server does not support SSL" message.
+    "ssl syscall error",
     "no connection to the server",
     "terminating connection due to",
     # psycopg's own message when libpq finds the socket already gone (PGconn.socket
@@ -188,30 +196,39 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
 # libpq/PgBouncer signature — it raises its own pooler-internal error as a generic psycopg
-# InternalError_ (SQLSTATE XX000) carrying the "(EDBHANDLEREXITED)" code. The trailing message
-# varies — both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
+# InternalError_ (SQLSTATE XX000) carrying a Supavisor error code. The trailing message varies —
+# both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
 # "(EDBHANDLEREXITED) connection to database closed. Check logs for more information" have been
-# observed for the same condition — but the EDBHANDLEREXITED code is the stable signal: the
-# pooler's per-session DbHandler process exited because its backend connection died (idle cull,
-# backend restart, failover). That's the same transient class as the libpq drops above and
-# recovers on reconnect, so match the code itself rather than any one message wording. Genuine
+# observed for the same condition — but the code is the stable signal, so match the code itself
+# rather than any one message wording.
+#   - EDBHANDLEREXITED: the pooler's per-session DbHandler process exited because its backend
+#     connection died (idle cull, backend restart, failover).
+#   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
+#     couldn't hand us a backend connection after retrying internally — its pool was momentarily
+#     exhausted or every backend was busy. A slot frees the moment another session returns one.
+# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
 # clients already" once max_connections is reached, "remaining connection slots are reserved for
 # roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
-# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
-# transient capacity conditions on the customer's database — a slot frees the moment another
-# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
-# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
-# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
-# pooler saturation (see source.py).
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
+# Supavisor session-mode pooler reports its own variant when every client slot it exposes is in use
+# ("(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size:
+# <n>"). All of these are transient capacity conditions on the customer's database or pooler — a
+# slot frees the moment another connection closes (or a session ends) — so a fresh connect after a
+# short backoff usually succeeds. Retried in-process on the read/sync connect path (see
+# `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
+# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor match is on the stable
+# "max clients reached in session mode" phrase, excluding the volatile pool_size and the
+# "(EMAXCONNSESSION)" code (mirrors the `PostgresErrors` validation mapping in source.py).
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
+    "max clients reached in session mode",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
@@ -421,6 +438,46 @@ def _statement_timeout_as_non_retryable(
     )
 
 
+def _raised_while_closing_generator(error: BaseException) -> bool:
+    """True when `error` surfaced while the row generator was being closed.
+
+    Closing a suspended generator raises GeneratorExit at the yield; the server
+    cursor / connection `__exit__` then runs and can itself issue a round-trip
+    (closing the server cursor, the implicit rollback) that hits the
+    statement_timeout and raises QueryCanceled, with the GeneratorExit left as
+    its `__context__`. The consumer is already done — the sync finished, or the
+    activity is being cancelled — so a teardown error here is irrelevant to the
+    sync outcome and must not be re-raised: doing so masks the real cause (e.g.
+    the cancellation) and floods error tracking with phantom statement timeouts.
+    """
+    seen: set[int] = set()
+    ctx: BaseException | None = error.__context__
+    while ctx is not None and id(ctx) not in seen:
+        if isinstance(ctx, GeneratorExit):
+            return True
+        seen.add(id(ctx))
+        ctx = ctx.__context__
+    return False
+
+
+def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the fallback `id` primary-key uniqueness probe.
+
+    When a table has no declared primary key we fall back to assuming `id` is unique and verify
+    it with a full-table `GROUP BY id HAVING COUNT(*) > 1`, which can exhaust the statement_timeout
+    on large tables. The generic table-setup timeout message points at the incremental field, but
+    indexing that field doesn't help this probe — the fix is a primary key / index on `id`. Keeps
+    the "has an appropriate index" fragment so it stays non-retryable at the activity layer too
+    (see source.py).
+    """
+    return QueryTimeoutException(
+        'Timed out verifying that the "id" column is unique. This table has no primary key, so '
+        'PostHog assumed "id" was unique to sync incrementally but could not confirm it within the '
+        'timeout. Add a primary key, or ensure the "id" column has an appropriate index created, so '
+        "PostHog can sync this table incrementally."
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class PostgresDiscoveredSchema:
     source_catalog: str | None
@@ -540,7 +597,12 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+        if (
+            require_ssl
+            and "SSL" in str(e)
+            and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_connection_dropped_error(e)
+        ):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2539,7 +2601,12 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                if (
+                    require_ssl
+                    and "SSL" in str(e)
+                    and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_connection_dropped_error(e)
+                ):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2552,11 +2619,11 @@ def postgres_source(
             conn.autocommit = True
             return conn
 
-        # A hot-standby recovery conflict ("terminating connection due to conflict with recovery")
-        # terminates the whole connection mid-probe, so autocommit alone can't isolate it — every
-        # subsequent probe on the dead connection fails too. Reconnect and retry the metadata
-        # probes a bounded number of times with backoff, mirroring how the read loop recovers from
-        # the same conflict. Only once the conflicts are sustained do we raise the non-retryable
+        # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe
+        # mid-flight, so autocommit alone can't isolate it — the connection is left unusable and
+        # every subsequent probe on it fails too. Reconnect and retry the metadata probes a bounded
+        # number of times with backoff, mirroring how the read loop recovers from the same conflict.
+        # Only once the conflicts are sustained do we raise the non-retryable
         # "successive SerializationFailure errors" abort the read path already uses, rather than
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
@@ -2774,9 +2841,14 @@ def postgres_source(
                             has_duplicate_primary_keys = False
                             if used_id_pk_fallback:
                                 logger.debug("Checking duplicate primary keys...")
-                                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                                    cursor, schema, table_name, primary_keys, logger
-                                )
+                                try:
+                                    has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                                        cursor, schema, table_name, primary_keys, logger
+                                    )
+                                except psycopg.errors.QueryCanceled as e:
+                                    # Surface a message about the assumed `id` primary key rather than
+                                    # falling through to the generic incremental-field timeout below.
+                                    raise _pk_uniqueness_probe_timeout_error() from e
                         except psycopg.errors.QueryCanceled:
                             if should_use_incremental_field:
                                 raise QueryTimeoutException(
@@ -2794,7 +2866,14 @@ def postgres_source(
                     # retryable dropped-connection error instead.
                     _raise_if_setup_connection_broken(connection)
                 break
-            except psycopg.errors.SerializationFailure as e:
+            except (psycopg.errors.SerializationFailure, psycopg.errors.QueryCanceled) as e:
+                # A hot-standby recovery conflict surfaces as either SerializationFailure (the
+                # transaction was aborted — "terminating connection due to conflict with recovery")
+                # or QueryCanceled (the statement was canceled — "canceling statement due to conflict
+                # with recovery", e.g. a replica reconnect) depending on the conflict and the server.
+                # Both are the same transient condition and recover on reconnect. Any other
+                # QueryCanceled here is a statement_timeout and must re-raise. QueryCanceled subclasses
+                # OperationalError, so this clause must precede the connection-dropped handler below.
                 if "conflict with recovery" not in "".join(e.args):
                     raise
                 # Connection is dead; close defensively before reconnecting.
@@ -2803,7 +2882,7 @@ def postgres_source(
                 if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
                     raise _recovery_conflict_abort_error(setup_recovery_conflicts) from e
                 logger.debug(
-                    f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
+                    f"Recovery conflict during table setup ({e}). Reconnecting and retrying "
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
                 )
                 time.sleep(min(2 * setup_recovery_conflicts, 30))
@@ -2858,7 +2937,12 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                    if (
+                        require_ssl
+                        and "SSL" in str(e)
+                        and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_connection_dropped_error(e)
+                    ):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2994,10 +3078,17 @@ def postgres_source(
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the
-                        # connection-dropped handler below. Retrying won't help, so map
-                        # it to the same non-retryable QueryTimeoutException the
-                        # server-cursor and windowed paths raise instead of leaking a
-                        # raw, retryable QueryCanceled that Temporal keeps re-attempting.
+                        # connection-dropped handler below.
+                        if _raised_while_closing_generator(e):
+                            # The generator is being closed and the cursor teardown
+                            # round-trip hit the statement_timeout — irrelevant to the
+                            # sync outcome, so swallow it and let close() complete cleanly.
+                            _safe_close_connection(connection)
+                            return
+                        # Retrying won't help, so map it to the same non-retryable
+                        # QueryTimeoutException the server-cursor and windowed paths
+                        # raise instead of leaking a raw, retryable QueryCanceled that
+                        # Temporal keeps re-attempting.
                         _safe_close_connection(connection)
                         timeout_error = _statement_timeout_as_non_retryable(
                             e,
@@ -3119,6 +3210,7 @@ def postgres_source(
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
+                    is_connection_dropped=_is_connection_dropped_error,
                 )
                 return
 
@@ -3173,6 +3265,13 @@ def postgres_source(
                 # A FETCH against the server cursor exhausted the 10-min
                 # statement_timeout. QueryCanceled subclasses OperationalError, so
                 # this clause must precede the connection-dropped handler below.
+                if _raised_while_closing_generator(e):
+                    # Not a real read timeout: the generator is being closed and the
+                    # cursor/connection teardown round-trip hit the statement_timeout.
+                    # Swallow it so close() completes cleanly instead of masking the
+                    # real outcome (e.g. an activity cancellation) with a phantom timeout.
+                    _safe_close_connection(connection)
+                    return
                 # Retrying is futile (usually a missing index on the incremental
                 # field or a scan too large to finish in time), so map it to the
                 # same non-retryable QueryTimeoutException the offset-chunking and

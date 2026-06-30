@@ -45,7 +45,7 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::CohortStore;
-use crate::workers::{MergeWorkerDeps, Stage1Worker};
+use crate::workers::{MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -125,6 +125,8 @@ pub struct EventDispatcher {
     /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
     /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
+    /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
+    person_memo: OnceLock<PersonMemoConfig>,
 }
 
 impl EventDispatcher {
@@ -148,6 +150,7 @@ impl EventDispatcher {
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
+            person_memo: OnceLock::new(),
         }
     }
 
@@ -158,6 +161,18 @@ impl EventDispatcher {
 
     pub fn durable_restore_enabled(&self) -> bool {
         self.durable_restore.load(Ordering::SeqCst)
+    }
+
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_person_memo_config(&self, config: PersonMemoConfig) {
+        let _ = self.person_memo.set(config);
+    }
+
+    fn person_memo_config(&self) -> PersonMemoConfig {
+        self.person_memo
+            .get()
+            .copied()
+            .unwrap_or(PersonMemoConfig::DISABLED)
     }
 
     pub(crate) fn store(&self) -> &CohortStore {
@@ -323,7 +338,7 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
-                        let worker = Stage1Worker::spawn(
+                        let worker = Stage1Worker::spawn_with_memo(
                             partition as u16,
                             receiver,
                             self.store.clone(),
@@ -332,6 +347,7 @@ impl EventDispatcher {
                             self.tracker.clone(),
                             self.merge.clone(),
                             self.durable_restore_enabled(),
+                            self.person_memo_config(),
                         );
                         slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
@@ -368,22 +384,23 @@ impl EventDispatcher {
         &self.merge
     }
 
-    /// Route a sweep tick to every owned partition's worker without spawning, so a revoked partition
-    /// is never resurrected.
+    /// Route a sweep tick to each owned partition that has a live worker. Never spawns, so a revoked
+    /// partition is not resurrected; a worker-less owned partition has no in-memory state to evict, so
+    /// it is skipped rather than producing a `no_worker` drop.
     pub async fn route_sweep(&self, due_before_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::Sweep { due_before_ms })
             .await;
     }
 
-    /// Route a redrive tick to every owned partition's worker without spawning; each worker
-    /// re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
+    /// Route a redrive tick to each owned partition that has a live worker, without spawning; each
+    /// worker re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
     pub async fn route_redrive(&self) {
         self.route_to_owned(|| ShuffleMessage::RedrivePendingTransfers)
             .await;
     }
 
-    /// Route a merge-GC tick to every owned partition's worker without spawning. Cutoffs are
-    /// computed by the sweeper and passed verbatim, keeping workers clock-free.
+    /// Route a merge-GC tick to each owned partition that has a live worker, without spawning. Cutoffs
+    /// are computed by the sweeper and passed verbatim, keeping workers clock-free.
     pub async fn route_merge_gc(&self, marker_cutoff_ms: i64, tombstone_cutoff_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::MergeCfGc {
             marker_cutoff_ms,
@@ -392,12 +409,23 @@ impl EventDispatcher {
         .await;
     }
 
+    /// Owned partitions that currently have a live worker channel — the only partitions a maintenance
+    /// tick can reach. An owned partition that never received an event has no worker, so a tick to it
+    /// is a guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it
+    /// keeps the idle fan-out silent instead of dropping one message per worker-less partition.
+    fn tickable_partitions(&self) -> Vec<i32> {
+        self.owned_partitions()
+            .into_iter()
+            .filter(|partition| self.router.has_partition(*partition))
+            .collect()
+    }
+
     async fn route_to_owned(&self, make_message: impl Fn() -> ShuffleMessage) {
         if self.draining.load(Ordering::SeqCst) {
             return;
         }
         let messages: Vec<(i32, ShuffleMessage)> = self
-            .owned_partitions()
+            .tickable_partitions()
             .into_iter()
             .map(|partition| (partition, make_message()))
             .collect();
@@ -558,8 +586,8 @@ impl EventDispatcher {
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
     /// without spawning workers. An idle partition never spawns a worker — and the periodic redrive
-    /// routes through `route_to_owned` → `NoWorker` for worker-less partitions, so it never fires for
-    /// one either; this paginates the whole outbox directly and re-produces every entry regardless of
+    /// routes through `route_to_owned`, which skips worker-less partitions, so it never fires for one
+    /// either; this paginates the whole outbox directly and re-produces every entry regardless of
     /// backlog size.
     ///
     /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
@@ -729,7 +757,9 @@ fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<
 /// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
 /// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
 pub struct CohortStreamEventsConsumer {
-    consumer: StreamConsumer<CohortConsumerContext>,
+    /// `Arc` so the commit task and consume loop share one consumer; rdkafka supports concurrent
+    /// `recv` and `commit`.
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     topic: String,
     dispatcher: Arc<EventDispatcher>,
     handle: Handle,
@@ -760,7 +790,7 @@ impl CohortStreamEventsConsumer {
         restore_manifest: Option<OffsetManifest>,
     ) -> Self {
         Self {
-            consumer,
+            consumer: Arc::new(consumer),
             topic,
             dispatcher,
             handle,
@@ -773,13 +803,23 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Run until the lifecycle handle signals shutdown. Commit is deadline-driven, not a `select!`
-    /// arm, to avoid cancelling an in-flight `consume_batch` and dropping buffered events.
+    /// Run until the lifecycle handle signals shutdown.
+    ///
+    /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
+    /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
+    /// synchronous commit. Liveness is reported inline from `handle_outcome`.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
-        let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
+        let commit_task = tokio::spawn(run_commit_loop(
+            self.consumer.clone(),
+            self.dispatcher.clone(),
+            self.topic.clone(),
+            self.offset_commit_interval,
+            self.handle.clone(),
+        ));
+
         // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
@@ -817,20 +857,13 @@ impl CohortStreamEventsConsumer {
                         continue;
                     }
                     self.handle_outcome(outcome).await;
-                    let now = tokio::time::Instant::now();
-                    if now >= commit_deadline {
-                        fsync_then_commit(
-                            self.dispatcher.store(),
-                            &self.consumer,
-                            self.dispatcher.tracker(),
-                            self.dispatcher.owned_committable_offsets(),
-                            &self.topic,
-                            CommitMode::Async,
-                        );
-                        commit_deadline = now + self.offset_commit_interval;
-                    }
                 }
             }
+        }
+
+        // Await the commit task before the final synchronous commit so the two don't race.
+        if let Err(err) = commit_task.await {
+            warn!(error = %err, "offset-commit task did not exit cleanly");
         }
 
         let tracker = self.dispatcher.shutdown().await;
@@ -1080,6 +1113,35 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
     commit_offsets(consumer, tracker, offsets, topic, mode);
+}
+
+/// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
+/// of the consume loop so a stalled loop can't block offset advancement. Exits on shutdown.
+async fn run_commit_loop(
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
+    dispatcher: Arc<EventDispatcher>,
+    topic: String,
+    interval: Duration,
+    handle: Handle,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            _ = handle.shutdown_recv() => break,
+            _ = ticker.tick() => {
+                fsync_then_commit(
+                    dispatcher.store(),
+                    &consumer,
+                    dispatcher.tracker(),
+                    dispatcher.owned_committable_offsets(),
+                    &topic,
+                    CommitMode::Async,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1945,6 +2007,44 @@ mod tests {
 
         dispatcher.revoke_partition_sync(0);
         dispatcher.route_sweep(123).await;
+    }
+
+    #[tokio::test]
+    async fn maintenance_ticks_skip_owned_partitions_without_a_worker() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Three owned partitions, but only 0 and 2 ever spawned a worker. Partition 1 is owned and
+        // worker-less — the steady state of an idle partition that never received an event, which is
+        // what produced the `no_worker` route-drop noise.
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher.assign_partition(2);
+        let mut rx0 = dispatcher.router.add_partition(0).unwrap();
+        let mut rx2 = dispatcher.router.add_partition(2).unwrap();
+
+        let mut tickable = dispatcher.tickable_partitions();
+        tickable.sort_unstable();
+        assert_eq!(
+            tickable,
+            vec![0, 2],
+            "a tick targets only owned partitions with a live worker, never the worker-less one",
+        );
+
+        // The fan-out reaches the worker-bearing partitions and silently skips the worker-less one
+        // (no `no_worker` drop): only 0 and 2 receive the sweep.
+        dispatcher.route_sweep(777).await;
+        for rx in [&mut rx0, &mut rx2] {
+            let batch = rx
+                .recv()
+                .await
+                .expect("a worker-bearing partition got the sweep");
+            assert_eq!(batch.len(), 1);
+            match &batch[0] {
+                ShuffleMessage::Sweep { due_before_ms } => assert_eq!(*due_before_ms, 777),
+                other => panic!("expected Sweep, got {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]

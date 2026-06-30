@@ -82,6 +82,17 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
     // wants single-exec mode like the other coding agents.
     'opencode',
+    // Amp is Sourcegraph's coding agent; its MCP client self-reports
+    // `clientInfo.name` as `amp-mcp-client` and benefits from single-exec mode.
+    'amp-mcp-client',
+    // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
+    // wants the same single-exec mode as the coding agents.
+    'poke',
+    // Grok (xAI) — both Grok Build (the terminal coding agent) and the grok.com
+    // assistant connect custom MCP servers and render text rather than MCP Apps
+    // UI, so they benefit from the same single-exec mode and formatted-text
+    // rendering as the other coding agents.
+    'grok',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
@@ -131,7 +142,9 @@ export function resolveEffectiveClientName(
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
 // PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
-// emission in single-exec mode. Slack-launched runs send `"slack"` instead.
+// emission in single-exec mode. Slack-launched runs send `"slack"` and
+// posthog_ai (Max) runs send `"posthog_ai"`; only PostHog Code renders MCP UI
+// apps, so this is the sole consumer that gates UI-apps payload emission.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
 // OAuth application names (from token introspection) for upstream tools that

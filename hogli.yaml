@@ -144,6 +144,9 @@ devbox:
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
+    devbox:clone:
+        click: hogli_commands.devbox.cli:devbox_clone
+        description: Clone a running devbox into a new one (carries full disk state)
     devbox:stop:
         click: hogli_commands.devbox.cli:devbox_stop
         description: Stop your devbox (preserves disk, stops billing)
@@ -548,7 +551,7 @@ build:
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
+        description: Generate HogQL grammar definitions (C++)
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
@@ -998,6 +1001,9 @@ utilities:
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
+    worktrees:clean:
+        click: hogli_commands.worktrees:worktrees_clean
+        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development

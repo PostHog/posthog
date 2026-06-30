@@ -4,6 +4,7 @@ import { combineUrl } from 'kea-router'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,9 +14,13 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
-import { RunnerBadge, RunsTable } from '../components/runTables'
+import { DistributionBar } from '../components/DistributionBar'
+import { RunActivityChart } from '../components/RunActivityChart'
+import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
+import { WorkflowHealthHeader } from '../components/WorkflowHealthHeader'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Where a workflow's CI spend goes, split by runner tier — a small table (not bespoke chips) so it reads
@@ -42,12 +47,22 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
             render: (_, cost) => <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />,
         },
     ]
+    // Where the money goes — one stacked bar over the table, a segment per tier sized by its $ share.
+    // Free (GitHub-hosted) runners are $0, so they don't take a slice; the bar reads as "billable spend".
+    const costSegments = costs.map((cost, i) => ({
+        key: `${cost.provider}:${cost.runner_label}`,
+        label: cost.runner_label || cost.provider,
+        value: cost.estimated_cost_usd ?? 0,
+        color: getSeriesColor(i),
+        caption: formatCost(cost.estimated_cost_usd ?? null),
+    }))
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-baseline gap-2">
                 <h3 className="mb-0">Cost by runner</h3>
                 <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
             </div>
+            <DistributionBar segments={costSegments} />
             <LemonTable
                 data-attr="engineering-analytics-workflow-runner-costs"
                 size="small"
@@ -93,14 +108,18 @@ export function WorkflowRunsScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
-        dateFrom,
         loadFailed,
         sourceId,
         repoOwner,
         repoName,
         workflowName,
+        healthSummary,
+        costSummary,
+        runsTruncated,
     } = useValues(workflowRunsLogic)
-    const { loadRuns, setRunExpanded, setDateRange } = useActions(workflowRunsLogic)
+    const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
 
@@ -193,11 +212,14 @@ export function WorkflowRunsScene(): JSX.Element {
                 <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
                 <DateFilter
                     dateFrom={dateFrom}
-                    onChange={(from, to) => setDateRange(from ?? '-30d', to ?? null)}
+                    dateTo={dateTo}
+                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                     size="small"
                 />
             </div>
+            <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
+            <RunActivityChart runs={runRows} truncated={runsTruncated} />
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Runs</h3>

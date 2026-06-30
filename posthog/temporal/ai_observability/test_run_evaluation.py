@@ -960,30 +960,41 @@ class TestRunEvaluationWorkflow:
         evaluation.refresh_from_db()
         assert evaluation.enabled is True
 
-    @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
-        evaluation_obj = setup_data["evaluation"]
-        team = setup_data["team"]
-
+    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self):
         evaluation = {
-            "id": str(evaluation_obj.id),
+            "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "provider_key_id": None,
+            },
         }
 
         event_data = create_mock_event_data(
-            team.id,
+            1,
             properties={
                 "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
                 "$ai_output_choices": [{"role": "assistant", "content": "4"}],
             },
         )
 
-        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+        with (
+            patch(
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
+        ):
+            mock_get_or_create.return_value = (
+                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
+                False,
+            )
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = StructuredOutputParseError(
@@ -993,8 +1004,9 @@ class TestRunEvaluationWorkflow:
             with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-            assert exc_info.value.non_retryable is True
-            assert exc_info.value.details[0] == {"error_type": "parse_error"}
+        mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
     @pytest.mark.parametrize(
         "raised_exception, expected_label",
@@ -1387,25 +1399,73 @@ class TestExecuteHogEvalActivity:
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_hog_eval_unexpected_error_raises(self, setup_data):
-        team = setup_data["team"]
+    async def test_hog_eval_length_null_returns_skipped(self):
+        from posthog.cdp.validation import compile_hog
 
+        bytecode = compile_hog("return length(null) > 0", "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return length(null) > 0", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Runtime error: Can not call length on null" in result["reasoning"]
+        assert "TypeError" not in result["reasoning"]
+        assert "NoneType" not in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_hog_eval_comparison_type_error_returns_skipped(self):
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
+        assert "Unexpected error during evaluation" not in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_hog_eval_unexpected_error_raises(self):
         from posthog.cdp.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
         evaluation = {
-            "id": str(setup_data["evaluation"].id),
+            "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
             "evaluation_config": {"source": "return true", "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
         }
 
-        event_data = create_mock_event_data(team.id)
+        event_data = create_mock_event_data(1)
 
         # An unexpected error is a bug in our code, so it must still surface to error tracking.
         unexpected_error = {
