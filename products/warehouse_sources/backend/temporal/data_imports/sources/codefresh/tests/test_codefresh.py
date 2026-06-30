@@ -189,6 +189,23 @@ class TestPagePagination:
         assert batches == [[{"id": "b1"}]]
         assert manager.saved == []
 
+    def test_empty_page_stops_even_when_next_page_advertised(self, monkeypatch: Any) -> None:
+        # A misbehaving API that streams empty pages with nextPage=True must not loop forever.
+        config = _page_config(page_size=2)
+        pages = {
+            "https://g.codefresh.io/api/workflow?limit=2&page=1": {
+                "workflows": {"docs": []},
+                "pagination": {"nextPage": True},
+            },
+        }
+        monkeypatch.setattr(codefresh, "_fetch_page", _fetch_stub(pages))
+        manager = _FakeResumableManager()
+
+        batches = list(_iter_page(MagicMock(), config, {}, MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert batches == []
+        assert manager.saved == []
+
     def test_resume_starts_from_saved_page_and_session(self, monkeypatch: Any) -> None:
         config = _page_config(page_size=2)
         pages = {
@@ -224,7 +241,7 @@ class TestUnpaginatedEndpoint:
         assert manager.saved == []
 
     def test_empty_response_yields_nothing(self, monkeypatch: Any) -> None:
-        pages = {"https://g.codefresh.io/api/hermes/triggers": []}
+        pages: dict[str, Any] = {"https://g.codefresh.io/api/hermes/triggers": []}
         monkeypatch.setattr(codefresh, "_fetch_page", _fetch_stub(pages))
 
         batches = list(get_rows("token", "triggers", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
@@ -259,6 +276,7 @@ class TestValidateCredentials:
             ("unauthorized", 401, None, False),
             ("forbidden_at_create_is_accepted", 403, None, True),
             ("forbidden_for_specific_schema_is_rejected", 403, "projects", False),
+            ("rate_limited", 429, None, False),
             ("server_error", 500, None, False),
         ]
     )

@@ -3,6 +3,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import CodefreshResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
@@ -25,8 +27,10 @@ class TestCodefreshSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/codefresh"
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key"]
-        assert config.fields[0].type == "password"
-        assert config.fields[0].required is True
+        api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.type == "password"
+        assert api_key_field.required is True
 
     @parameterized.expand(
         [

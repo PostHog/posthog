@@ -146,8 +146,12 @@ def _iter_page(
         pagination = data.get("pagination", {}) if isinstance(data, dict) else {}
         session_id = pagination.get("sessionId") or session_id
 
-        if items:
-            yield [_flatten(item, config.flatten_key) for item in items]
+        # An empty page terminates the stream even if the API keeps advertising nextPage. Without
+        # this, a server-side cursor bug that streams empty pages forever would loop indefinitely.
+        if not items:
+            break
+
+        yield [_flatten(item, config.flatten_key) for item in items]
 
         if not pagination.get("nextPage"):
             break
@@ -202,6 +206,10 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
             return False, f"Your Codefresh API key is missing the access scope required to sync '{schema_name}'."
         # Valid token, but it lacks scope for the probe resource — don't block source creation.
         return True, None
+    if response.status_code == 429 or response.status_code >= 500:
+        # Transient: a rate-limit or server error doesn't mean the key is bad. Surface it as a
+        # retryable failure rather than telling the user their credentials are invalid.
+        return False, "Codefresh is temporarily unavailable. Please try again in a moment."
     return False, f"Codefresh API returned an unexpected status ({response.status_code})."
 
 
