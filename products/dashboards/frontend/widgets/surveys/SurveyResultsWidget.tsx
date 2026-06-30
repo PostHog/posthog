@@ -169,15 +169,20 @@ function SurveyResponseRow({ response }: { response: SurveyResultsWidgetResponse
     return (
         <div className="flex flex-col gap-1 rounded border p-2">
             <div className="flex items-center justify-between gap-2 text-xs text-muted">
-                <PersonDisplay
-                    // `properties` must be present (even empty) for PersonDisplay to render the
-                    // link to the person page — asLink and the Link branch both gate on it.
-                    person={{ distinct_id: response.distinct_id, properties: {} }}
-                    displayName={response.person_display_name ?? undefined}
-                    withIcon
-                    noPopover
+                {/* PersonDisplay has no target prop, so wrap it to open the profile in a new tab. */}
+                <Link
+                    to={urls.personByDistinctId(response.distinct_id)}
+                    target="_blank"
                     className="min-w-0 truncate font-medium text-primary"
-                />
+                >
+                    <PersonDisplay
+                        person={{ distinct_id: response.distinct_id, properties: {} }}
+                        displayName={response.person_display_name ?? undefined}
+                        withIcon
+                        noPopover
+                        noLink
+                    />
+                </Link>
                 {response.submitted_at ? <TZLabel time={response.submitted_at} /> : null}
             </div>
             {response.answers.map((answer) => {
