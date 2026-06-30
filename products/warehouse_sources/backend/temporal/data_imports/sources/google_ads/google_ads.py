@@ -554,7 +554,7 @@ def _search_with_transient_retry(
     Each retry re-requests the same ``page_token``, so there is no partial state to reconcile. The
     transient status may itself arrive wrapped in a ``GoogleAdsException`` (see
     ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
-    ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
+    stale-page-token handling and Temporal's retry policy still apply.
     """
     attempt = 0
     while True:
@@ -567,17 +567,26 @@ def _search_with_transient_retry(
             time.sleep(min(2 * attempt, 30))
 
 
-def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
-    """Return True if a ``GoogleAdsException`` was caused by an expired/invalid page token.
+_STALE_PAGE_TOKEN_REQUEST_ERRORS = ("INVALID_PAGE_TOKEN", "EXPIRED_PAGE_TOKEN")
+
+
+def _is_stale_page_token_error(exc: GoogleAdsException) -> bool:
+    """Return True if a ``GoogleAdsException`` was caused by a stale page token.
 
     Google Ads search page tokens are ephemeral, but our resumption contract
     persists them (see ``_search_as_arrow_tables``). When a sync resumes from a
-    token Google has already expired, the API rejects the request with
-    ``request_error: INVALID_PAGE_TOKEN``. The proto text representation is the
-    same for proto-plus and raw protobuf failures, so we match on it directly.
+    token Google no longer accepts, the API rejects the request with either
+    ``request_error: INVALID_PAGE_TOKEN`` (malformed/unrecognised) or
+    ``request_error: EXPIRED_PAGE_TOKEN`` (a once-valid token aged out between
+    runs) — both mean the same thing for us: restart pagination from the first
+    page. The proto text representation is the same for proto-plus and raw
+    protobuf failures, so we match on it directly.
     """
     failure = getattr(exc, "failure", None)
-    return failure is not None and "INVALID_PAGE_TOKEN" in str(failure)
+    if failure is None:
+        return False
+    failure_text = str(failure)
+    return any(request_error in failure_text for request_error in _STALE_PAGE_TOKEN_REQUEST_ERRORS)
 
 
 def _search_as_arrow_tables(
@@ -596,9 +605,10 @@ def _search_as_arrow_tables(
       yielded but never acked by a save is simply re-yielded. Merge semantics
       over ``primary_keys`` dedupe those repeated rows.
     * A resumed token may have expired between runs (Google Ads page tokens are
-      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` we discard
-      the saved token and restart pagination from the first page — the same
-      merge semantics make re-yielding already-synced rows safe.
+      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` or
+      ``EXPIRED_PAGE_TOKEN`` we discard the saved token and restart pagination
+      from the first page — the same merge semantics make re-yielding
+      already-synced rows safe.
     """
     page_token = ""
     if resumable_source_manager.can_resume():
@@ -623,7 +633,7 @@ def _search_as_arrow_tables(
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
-            if page_token and _is_invalid_page_token_error(e):
+            if page_token and _is_stale_page_token_error(e):
                 resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
                 page_token = ""
                 continue
