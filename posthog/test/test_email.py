@@ -24,6 +24,7 @@ from posthog.email import (
     CUSTOMER_IO_TEMPLATE_ID_MAP,
     EmailMessage,
     _send_email,
+    _send_via_http,
     _send_via_smtp,
     sanitize_email_properties,
 )
@@ -128,13 +129,29 @@ class TestEmail(BaseTest):
         [
             ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
             ("transient_oserror", ConnectionResetError("reset"), True),
+            ("transient_timeout", TimeoutError("hung relay"), True),
+            # Send-path 4xx ("try again later") must re-raise so autoretry fires, not be swallowed.
+            ("transient_data_greylist", smtplib.SMTPDataError(451, b"greylisted, try later"), True),
+            ("transient_sender_421", smtplib.SMTPSenderRefused(421, b"service unavailable", "from@posthog.com"), True),
+            (
+                "transient_recipients_greylist",
+                smtplib.SMTPRecipientsRefused({"x@posthog.com": (450, b"greylisted")}),
+                True,
+            ),
             ("permanent_auth", smtplib.SMTPAuthenticationError(535, b"bad creds"), False),
+            ("permanent_data_5xx", smtplib.SMTPDataError(554, b"transaction failed"), False),
             ("permanent_recipients", smtplib.SMTPRecipientsRefused({}), False),
+            (
+                "permanent_recipients_5xx",
+                smtplib.SMTPRecipientsRefused({"x@posthog.com": (550, b"no such user")}),
+                False,
+            ),
         ]
     )
     def test_smtp_error_retry_classification(self, name, exc, should_reraise) -> None:
-        # Transient errors re-raise (autoretry fires); auth/permanent stay swallowed (no retry-storm
-        # of the relay's per-IP limit). Both record one failed metric.
+        # Transient errors (connection drops + send-path 4xx greylisting/421) re-raise so autoretry
+        # fires; auth/5xx/permanent stay swallowed (no retry-storm of the relay's per-IP limit).
+        # Both record one failed metric.
         failed_labels = {"outcome": "failed", "transport": "smtp"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
 
@@ -158,6 +175,86 @@ class TestEmail(BaseTest):
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 1.0)
+
+    def test_smtp_transient_failure_preserves_already_sent_recipients(self) -> None:
+        # A transient failure on a later recipient must not roll back the recipients already
+        # accepted by the relay — otherwise the task's autoretry re-sends the whole batch and
+        # duplicates the already-delivered emails. Each delivery commits its own `sent_at`.
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.send_messages",
+                side_effect=[1, smtplib.SMTPServerDisconnected("dropped mid-batch")],
+            ),
+        ):
+            kwargs = {
+                "to": [
+                    {"raw_email": "first@posthog.com", "recipient": "first@posthog.com"},
+                    {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
+                ],
+                "campaign_key": "batch_transient",
+                "subject": "Subject",
+                "txt_body": "",
+                "html_body": "<p>hi</p>",
+                "headers": {},
+            }
+            with self.assertRaises(smtplib.SMTPServerDisconnected):
+                _send_via_smtp(**kwargs)
+
+        first = MessagingRecord.objects.filter(raw_email="first@posthog.com", campaign_key="batch_transient").first()
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(first.sent_at)  # committed before the failure → a retry skips it
+        second = MessagingRecord.objects.filter(raw_email="second@posthog.com", campaign_key="batch_transient").first()
+        self.assertIsNone(second)  # its transaction rolled back → retried fresh, no half-written row
+
+    def test_smtp_connection_built_with_bounded_timeout(self) -> None:
+        # Without a socket timeout a silently-hung relay pins the worker forever and the new
+        # TimeoutError retry branch can never fire — so the backend must get a bounded timeout.
+        mock_backend_cls = MagicMock()
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            override_instance_config("EMAIL_TIMEOUT", 17),
+            patch("posthog.email.import_string", return_value=mock_backend_cls),
+            self.settings(EMAIL_BACKEND="some.smtp.Backend"),
+        ):
+            _send_via_smtp(
+                to=[{"raw_email": "t@posthog.com", "recipient": "t@posthog.com"}],
+                campaign_key="timeout_kwarg",
+                subject="Subject",
+                txt_body="",
+                html_body="<p>hi</p>",
+                headers={},
+            )
+
+        self.assertEqual(mock_backend_cls.call_args.kwargs.get("timeout"), 17)
+
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_failed_metric_counts_undelivered_recipients(self, mock_post) -> None:
+        # `failed` must count every recipient that didn't get through (the failing one + any not yet
+        # attempted), per recipient like `sent` — not once per batch — or the alertable failure rate
+        # under-reports multi-recipient batches.
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = {}
+        bad = MagicMock(status_code=500, text="boom")
+        mock_post.side_effect = [ok, bad]
+
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            _send_via_http(
+                to=[
+                    {"raw_email": "a@posthog.com"},
+                    {"raw_email": "b@posthog.com"},
+                    {"raw_email": "c@posthog.com"},
+                ],
+                campaign_key="http_failcount",
+                template_name="2fa_enabled",
+                properties={},
+            )
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
 
     @patch("posthoganalytics.capture")
     @patch("posthog.email.requests.post")
