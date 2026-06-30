@@ -214,11 +214,7 @@ class DatabricksClient:
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
 
-    # Timeout (seconds) for the TCP reachability preflight we run before `sql.connect`. The Databricks
-    # SDK's OIDC endpoint discovery inside `sql.connect` ignores `_socket_timeout` and retries for ~5
-    # minutes on an unreachable/invalid host (https://github.com/databricks/databricks-sdk-py/issues/1046),
-    # blocking the worker thread the whole time. A short TCP probe lets us fail fast instead — 30s is
-    # generous for a TCP connect to a live host while bounding the bad-host failure.
+    # Timeout (seconds) for the TCP reachability preflight in `_check_host_reachable`.
     DEFAULT_CONNECT_TIMEOUT = 30.0
 
     def __init__(
@@ -242,8 +238,6 @@ class DatabricksClient:
         # to be longer than the client-side per-call timeouts so the client fires first and the
         # server only kicks in as a last resort.
         self.statement_timeout_seconds = statement_timeout_seconds
-        # Timeout for the TCP reachability preflight that works around an SDK hang on invalid hosts
-        # (see ``_check_host_reachable``).
         self.connect_timeout_seconds = connect_timeout_seconds
 
         self._connection: None | Connection = None
@@ -311,7 +305,6 @@ class DatabricksClient:
 
     async def _connect(self):
         """Establish a raw Databricks connection in a separate thread."""
-        # Reachability preflight: bounds the SDK's ~5-minute OIDC-discovery hang on invalid hosts.
         await self._check_host_reachable()
 
         def get_credential_provider():

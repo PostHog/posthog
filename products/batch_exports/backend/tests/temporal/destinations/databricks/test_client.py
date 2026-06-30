@@ -146,8 +146,10 @@ class TestConnect:
         ``connect_timeout_seconds`` — *before* ``sql.connect`` is ever called, so no worker thread
         is left blocking on the hang-prone SDK call.
         """
+        # 192.0.2.1 is reserved as non-routable (RFC 5737 TEST-NET-1), so the preflight connect fails
+        # fast (no DNS, no real host).
         client = DatabricksClient(
-            server_hostname="test",
+            server_hostname="192.0.2.1",
             http_path="test",
             client_id="test",
             client_secret="test",
@@ -156,11 +158,9 @@ class TestConnect:
             connect_timeout_seconds=0.01,
         )
 
-        module = "products.batch_exports.backend.temporal.destinations.databricks_batch_export"
-        with (
-            patch(f"{module}.socket.create_connection", side_effect=OSError("unreachable")) as mock_create_connection,
-            patch(f"{module}.sql.connect") as mock_sql_connect,
-        ):
+        with patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect"
+        ) as mock_sql_connect:
             with pytest.raises(
                 DatabricksConnectionError,
                 match="Failed to connect to Databricks. Please check that your connection details are valid.",
@@ -168,7 +168,6 @@ class TestConnect:
                 async with client.connect():
                     pass
 
-        mock_create_connection.assert_called_once_with(("test", 443), timeout=0.01)
         mock_sql_connect.assert_not_called()
 
 
