@@ -379,6 +379,11 @@ impl S3SourceConfig {
             .region(Region::new(self.region.clone()))
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
+            // S3-compatible stores (GCS) return whole-object checksums on ranged GETs, which the
+            // SDK then validates against the partial body and fails. Only validate when requested.
+            .response_checksum_validation(
+                aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
+            )
             .timeout_config(
                 TimeoutConfig::builder()
                     .operation_timeout(Duration::from_secs(30))

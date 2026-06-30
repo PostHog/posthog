@@ -11,6 +11,7 @@ from products.notifications.backend.cache import invalidate_unread_count_for_use
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
     AC_RESOURCE_TYPES,
+    RESOURCE_EDITED_EVENT_TYPE,
     NotificationOnlyResourceType,
     NotificationType,
     TargetType,
@@ -86,6 +87,67 @@ def has_been_dispatched(
         resource_id=resource_id,
         source_id=source_id,
     ).exists()
+
+
+def publish_resource_edited(
+    *,
+    team: Team,
+    resource_type: str,
+    resource_id: str,
+    updated_at: str,
+    actor_user_id: int | None = None,
+    ac_resource_type: str | None = None,
+) -> None:
+    """Push a transient "this resource was edited elsewhere" event over the realtime stream, so an
+    open editor (e.g. the workflow builder) can refresh instead of clobbering edits made via MCP/API.
+
+    Unlike create_notification this persists NO NotificationEvent row: it is editor-state sync, not an
+    inbox notification — it must not appear in the popover, must not bump the unread count, and there
+    are no user mute preferences to honour. It rides the same Kafka → livestream → SSE transport; the
+    Go handler passes unknown fields through and filters delivery by resolved_user_ids.
+
+    `resource_type` is the value the frontend matches on (e.g. "HogFlow"); `ac_resource_type` is the
+    access-control scope used to drop recipients without viewer access (e.g. "hog_flow").
+    """
+    organization_id = team.organization_id
+
+    if not posthoganalytics.feature_enabled(
+        "real-time-notifications",
+        str(organization_id),
+        groups={"organization": str(organization_id)},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        return
+
+    resolver = RecipientsResolver()
+    recipient_user_ids = resolver.resolve(TargetType.TEAM, str(team.id), team.id)
+    if ac_resource_type and ac_resource_type in AC_RESOURCE_TYPES:
+        recipient_user_ids = resolver.filter_by_access_control(recipient_user_ids, ac_resource_type, team)
+
+    if not recipient_user_ids:
+        return
+
+    payload = {
+        "organization_id": str(organization_id),
+        "team_id": team.id,
+        "notification_type": RESOURCE_EDITED_EVENT_TYPE,
+        "resource_type": resource_type,
+        "resource_id": str(resource_id),
+        "updated_at": updated_at,
+        "actor_user_id": actor_user_id,
+        "resolved_user_ids": recipient_user_ids,
+        "priority": "normal",
+    }
+
+    def _on_commit() -> None:
+        try:
+            producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
+            producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
+        except Exception:
+            logger.exception("notifications.resource_edited_publish_failed", resource_id=str(resource_id))
+
+    transaction.on_commit(_on_commit)
 
 
 def create_notification(data: NotificationData) -> NotificationEvent | None:
