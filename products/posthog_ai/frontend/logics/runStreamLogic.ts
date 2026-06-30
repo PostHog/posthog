@@ -1198,6 +1198,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         markTurnComplete: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
+        /**
+         * Open a run optimistically before its real id exists: flips the thread to the provisioning
+         * indicator and, when a first message is given, renders it immediately as the human bubble. The
+         * composable seam for an optimistic-create UI — mount a surface keyed by a client `streamKey`,
+         * call this on send, then attach the real run (`bootstrapRun({ justCreatedRun: true })`) once
+         * created; the live SSE echo dedups the seeded message. Pure composition of `setRunOpening` +
+         * `pushHumanMessage`.
+         */
+        startOptimisticRun: (message?: string) => ({ message }),
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Union the products an answer was grounded in — accumulates across the whole session. */
@@ -2296,6 +2305,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+        },
+        startOptimisticRun: ({ message }) => {
+            actions.setRunOpening(true)
+            if (message) {
+                actions.pushHumanMessage(message)
+            }
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so

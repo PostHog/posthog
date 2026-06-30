@@ -5,9 +5,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { uuid } from 'lib/utils/dom'
 
 import { ClaudeRuntimeAdapterEnumApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { tasksLogic } from '../../logics/tasksLogic'
@@ -26,6 +28,15 @@ export interface TaskCreateForm {
 // The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
 // want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
 export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
+
+// The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
+// `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
+// for a future zero-flash in-place handoff — today the scene navigates to the detail page once the run exists).
+export interface ActiveCreation {
+    streamKey: string
+    taskId?: string
+    runId?: string
+}
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
@@ -63,6 +74,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         applySuggestion: (item: SuggestionItem) => ({ item }),
         setHeadline: (headline: string) => ({ headline }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+        setActiveCreation: (creation: ActiveCreation) => ({ creation }),
+        clearActiveCreation: true,
     }),
 
     reducers({
@@ -105,6 +118,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 setHeadline: (_, { headline }) => headline,
             },
         ],
+        // The in-flight optimistic create. While set (and no task is selected) the scene shows the pending
+        // run thread instead of the composer.
+        activeCreation: [
+            null as ActiveCreation | null,
+            {
+                setActiveCreation: (_, { creation }) => creation,
+                clearActiveCreation: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -115,7 +137,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        // Release the manually-mounted optimistic stream once the create resolves (navigated to the real run)
+        // or fails (returned to the composer), so the throwaway draft instance never leaks.
+        clearActiveCreation: () => {
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
+        },
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
@@ -168,6 +196,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
+            // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
+            // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
+            // composable optimistic-open primitive). Hold a manual mount so the seed is in place when the pending
+            // pane renders, and survives across the React swap; released by `clearActiveCreation`.
+            const streamKey = `draft-${uuid()}`
+            const stream = runStreamLogic({ streamKey })
+            cache.activeCreationUnmount = stream.mount()
+            actions.setActiveCreation({ streamKey })
+            stream.actions.startOptimisticRun(description)
+
             try {
                 const taskData: TaskUpsertProps = {
                     title: '',
@@ -179,7 +217,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
 
                 const newTask = await api.tasks.create(taskData)
-                lemonToast.success('Task created successfully')
 
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
@@ -194,9 +231,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
+                actions.clearActiveCreation()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
+                // Show the existing failure and return to the composer with the typed text intact.
+                actions.clearActiveCreation()
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }

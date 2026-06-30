@@ -98,6 +98,32 @@ const { draft, isSubmitting, queuedMessages } = useValues(runInteractionLogic(pr
 composer children for an interactive one. For something even more bespoke, drop to the Tier 2 primitives
 (`ThreadView`, `ResourcesBar`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
 
+### Optimistically open a run before it exists
+
+To show the thread the instant a user hits send — their message + a "spinning up" indicator — before the
+create/run round-trips finish, mount `RunSurface.Root` in its **pending** state (a `null` `runId` keyed by a
+client `streamKey`), seed it via `runStreamLogic.startOptimisticRun(message)`, then supply the real `runId`
+once created; the surface attaches it (preserving the seed) and the live SSE echo dedups the message.
+
+```tsx
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
+
+const streamKey = `draft-${uuid()}`
+const stream = runStreamLogic({ streamKey })
+stream.mount() // hold it across the render swap; release when done
+stream.actions.startOptimisticRun(message) // empty → "spinning up" + the typed message
+
+// render the pending surface (no run yet):
+;<RunSurface.Root taskId="" runId={null} streamKey={streamKey} interaction="live">
+  <RunSurface.Thread />
+</RunSurface.Root>
+
+// …after api create/run resolve, set runId on the same surface to attach + stream it.
+```
+
+The tasks runner composes exactly this (`scenes/TaskTracker/taskTrackerSceneLogic.ts` + `TaskCreateThread`).
+
 ### Bespoke / compact thread via `Thread.*` atoms
 
 ```tsx
