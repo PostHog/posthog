@@ -13,7 +13,7 @@ use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
 use crate::store::StoreConfig;
-use crate::workers::{CascadeConfig, TransferRetryPolicy};
+use crate::workers::{CascadeConfig, PersonMemoConfig, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -57,6 +57,15 @@ pub struct Config {
     /// Teams the filter catalog is scoped to. Set `all` to disable the gate. See [`TeamAllowlist`].
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
+
+    /// Memoize person-property results per `(team, person)`, skipping re-evaluation when a person's
+    /// properties are unchanged. Default on.
+    #[envconfig(from = "COHORT_PERSON_MEMO_ENABLED", default = "true")]
+    pub cohort_person_memo_enabled: bool,
+
+    /// Per-worker LRU capacity (entries) for the person-property result memo.
+    #[envconfig(from = "COHORT_PERSON_MEMO_CAPACITY", default = "20000")]
+    pub cohort_person_memo_capacity: usize,
 
     /// Bounded buffer (in sub-batches) per per-partition worker channel.
     /// Routing to a partition this far behind blocks rather than growing memory unbounded.
@@ -228,6 +237,14 @@ pub struct Config {
     /// How often processed offsets are committed back to Kafka.
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
+
+    /// Tokio runtime worker threads. `0` (default) lets Tokio size the pool from
+    /// `available_parallelism()`, which accounts for a CFS CPU *limit* (`cpu.max`) but not CPU
+    /// *requests*/shares — so on a requests-only pod (no `limits.cpu`), or when the cgroup fs isn't
+    /// readable, it returns the *node's* core count and over-subscribes the runtime. Set this to the
+    /// pod's CPU budget to cap the pool regardless of how the limit is expressed.
+    #[envconfig(default = "0")]
+    pub tokio_worker_threads: usize,
 
     /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
@@ -418,6 +435,13 @@ impl Config {
             enabled: self.cohort_cascade_enabled,
             depth_cap: self.cohort_cascade_depth_cap,
             fanout_cap: self.cohort_cascade_fanout_cap,
+        }
+    }
+
+    pub fn person_memo_config(&self) -> PersonMemoConfig {
+        PersonMemoConfig {
+            enabled: self.cohort_person_memo_enabled,
+            capacity: self.cohort_person_memo_capacity,
         }
     }
 
@@ -650,6 +674,8 @@ mod tests {
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
             team_allowlist: TeamAllowlist::All,
+            cohort_person_memo_enabled: true,
+            cohort_person_memo_capacity: 20000,
             partition_channel_buffer: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
@@ -687,6 +713,7 @@ mod tests {
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
+            tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
             sweep_safety_margin_ms: 300000,
             store_path: "cohort-store".to_string(),
@@ -1205,6 +1232,35 @@ mod tests {
             !config.stage2_orphan_gc_enabled,
             "the kill-switch disables the cf_stage2 orphan GC",
         );
+    }
+
+    #[test]
+    fn person_memo_defaults_on_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            defaults.cohort_person_memo_enabled,
+            "the person memo defaults on",
+        );
+        assert_eq!(defaults.cohort_person_memo_capacity, 20000);
+        assert!(
+            defaults.person_memo_config().enabled,
+            "person_memo_config threads the enabled flag",
+        );
+        assert_eq!(defaults.person_memo_config().capacity, 20000);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_PERSON_MEMO_ENABLED", "false"),
+            ("COHORT_PERSON_MEMO_CAPACITY", "5000"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(
+            !config.cohort_person_memo_enabled,
+            "the kill-switch disables the memo",
+        );
+        assert_eq!(config.cohort_person_memo_capacity, 5000);
     }
 
     #[test]
