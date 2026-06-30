@@ -696,7 +696,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
                             } catch {
-                                lemonToast.error('File is not valid')
+                                lemonToast.error('The uploaded file is not valid — it must be a readable JSON file.')
                                 return
                             }
                         }

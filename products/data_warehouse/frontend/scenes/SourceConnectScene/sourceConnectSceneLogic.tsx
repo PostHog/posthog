@@ -115,7 +115,7 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                         (formValues.payload ?? {}) as Record<string, any>
                     )
                 } catch {
-                    lemonToast.error('File is not valid')
+                    lemonToast.error('The uploaded file is not valid — it must be a readable JSON file.')
                     return
                 }
                 const credential = await externalDataSourcesStoreCredentialsCreate(
