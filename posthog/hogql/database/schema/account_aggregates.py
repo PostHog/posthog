@@ -85,7 +85,9 @@ _account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPos
     # of this hidden backing table — matching the `NOT cpv.is_deleted` filter in the lazy join.
     predicates=[
         parse_expr("account_id IN (SELECT id FROM system.accounts)"),
-        parse_expr("is_deleted != true"),
+        # `NOT is_deleted` (not `is_deleted != true`): the predicate is pushed into the federated
+        # PostgreSQL query, where comparing a boolean column to an integer literal is a type error.
+        parse_expr("NOT is_deleted"),
     ],
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
