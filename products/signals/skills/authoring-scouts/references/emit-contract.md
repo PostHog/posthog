@@ -3,9 +3,9 @@
 How a scout calls `signals-scout-emit-signal`, and how to write a scout's **Decide**
 section so it emits well-calibrated findings. This is the contract the signal-emitting fleet
 runs on — author your scout so its findings fit this shape. (The canonical generalist,
-`signals-scout-general`, is report-only and authors `SignalReport`s directly instead; see its
-`references/report.md`.) The harness validates request shape but does **not** grade prose
-quality; that's on the scout.
+`signals-scout-general`, is report-only and authors `SignalReport`s directly instead, via the
+report channel — whose contract rides in the harness prompt, not a bundled reference.) The
+harness validates request shape but does **not** grade prose quality; that's on the scout.
 
 ## Fields
 

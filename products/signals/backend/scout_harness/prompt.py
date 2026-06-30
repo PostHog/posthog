@@ -246,19 +246,28 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
-  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
-  `report:` scratchpad entry is a pointer*).
-- **Edit when it already exists.** If a report covers the issue, prefer
-  `signals-scout-edit-report`: `append_note` to add your fresh evidence (additive,
-  audit-friendly, and works on any report — even one you didn't author), or
-  rewrite `title`/`summary` on a report you own. One living report beats three
-  near-duplicates fragmenting the inbox.
-- **Author only when it's genuinely new.** A materially new issue — or a known one
-  with new evidence that changes the verdict — warrants a fresh report. Never
-  retry an `emit_report` that looked like it failed: a retry that actually
-  succeeded the first time silently doubles the report. If unsure whether it
-  landed, look it up with `inbox-reports-list` rather than re-emitting."""
+  to report on) with `ordering=-updated_at` — the default ordering buckets by your
+  own reviewer-match and status first, so without it the most recent duplicate can
+  sort below older rows and you'd miss it — and read the closest matches with
+  `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer
+  from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter
+  by `source_product=<your product>`: a report you authored persists its backing
+  signals under `source_product=signals_scout`, so a product-named filter matches
+  none of your own reports.
+- **Edit when it already exists *and is still live*.** If a report covers the issue,
+  prefer `signals-scout-edit-report`: `append_note` to add your fresh evidence
+  (additive, audit-friendly, and works on any report — even one you didn't author),
+  or rewrite `title`/`summary` on a report you own. One living report beats three
+  near-duplicates fragmenting the inbox. But `edit_report` can't change a report's
+  status, so appending to a `resolved` / `suppressed` / `failed` report buries a real
+  relapse under a closed item — when the match is no longer live, treat the relapse
+  as genuinely new (author a fresh report and repoint your `report:` pointer at it).
+- **Author only when it's genuinely new.** A materially new issue — a known one with
+  new evidence that changes the verdict, or a relapse whose prior report is no longer
+  live — warrants a fresh report. Never retry an `emit_report` that looked like it
+  failed: a retry that actually succeeded the first time silently doubles the report.
+  If unsure whether it landed, look it up with `inbox-reports-list` rather than
+  re-emitting."""
 
 _AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
 
@@ -268,9 +277,13 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
-  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
-  `report:` scratchpad entry is a pointer*).
+  to report on) with `ordering=-updated_at` (the default ordering can sort the most
+  recent duplicate below older rows) and read the closest matches with
+  `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer
+  from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter
+  by `source_product=<your product>`: a report you authored persists its backing
+  signals under `source_product=signals_scout`, so a product-named filter matches
+  none of your own reports.
 - **Don't duplicate an existing report.** This run can't edit reports, so if one
   already covers the issue, leave it alone — record a `remember(...)` note and
   skip rather than authoring a near-duplicate.

@@ -229,6 +229,13 @@ class TestPromptBuilder(BaseTest):
         # discipline re-opens the duplicate / stale-edit failure mode.
         assert "scratchpad entry is a pointer" in prompt
         assert "source of truth" in prompt
+        # The dedup nuances are centralized here (lifted out of the per-scout bodies), so the
+        # prompt is now their only source: a scout must search `ordering=-updated_at` (or the most
+        # recent duplicate sorts below older rows) and must NOT filter by its product name (its own
+        # report-channel signals persist under `source_product=signals_scout`). Dropping either from
+        # the prompt silently re-opens the duplicate-report failure mode fleet-wide.
+        assert "ordering=-updated_at" in prompt
+        assert "source_product=signals_scout" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "signals-scout-emit-signal" not in prompt
