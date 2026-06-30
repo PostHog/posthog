@@ -29878,6 +29878,8 @@ export namespace Schemas {
       invocation_id: string;
       /** The email step (action node) within the workflow that sent this email. */
       action_id: string;
+      /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+      function_id: string;
       /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
       parent_run_id: string;
       /** Asset kind. Currently always 'email'. */
@@ -32246,6 +32248,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMessageAssetList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      count?: number;
+      results?: MessageAsset[];
     }
 
     export interface PaginatedMessageCategoryList {
@@ -59438,6 +59449,39 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsPersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: EnvironmentsPersonsEmailsListFormat;
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsPersonsEmailsListFormat = typeof EnvironmentsPersonsEmailsListFormat[keyof typeof EnvironmentsPersonsEmailsListFormat];
+
+
+    export const EnvironmentsPersonsEmailsListFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
     format?: EnvironmentsPersonsPropertiesTimelineRetrieveFormat;
     };
@@ -66400,6 +66444,39 @@ export namespace Schemas {
 
 
     export const PersonsDeletePropertyCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: PersonsEmailsListFormat;
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PersonsEmailsListFormat = typeof PersonsEmailsListFormat[keyof typeof PersonsEmailsListFormat];
+
+
+    export const PersonsEmailsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
