@@ -108,34 +108,44 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     // in-progress rows show a spinner, settled rows link to the result. Refetch after each scan and poll while
     // anything visible is still running (or queued), so a row swaps spinner → "View observation" on its own.
     const [observationBySession, setObservationBySession] = useState<Map<string, RowObservation>>(new Map())
-    // Drives the table's loading bar on each status refetch so the user sees the periodic refresh.
+    // Drives the table's loading bar on foreground refetches (initial load, post-scan). Background polls
+    // reload silently so the table stays interactable instead of blanking on each tick.
     const [refreshingObservations, setRefreshingObservations] = useState(false)
     const visibleIdsKey = sessionRecordings.map((recording) => recording.id).join(',')
 
-    const refetchObservations = useCallback(async () => {
-        const ids = visibleIdsKey ? visibleIdsKey.split(',') : []
-        if (!currentTeamId || ids.length === 0) {
-            return
-        }
-        setRefreshingObservations(true)
-        try {
-            const response = await visionScannersObservationsList(String(currentTeamId), scannerId, {
-                session_id: visibleIdsKey,
-                limit: ids.length,
-            })
-            setObservationBySession((prev) => {
-                const next = new Map(prev)
-                for (const observation of response.results ?? []) {
-                    next.set(observation.session_id, { id: observation.id, status: observation.status })
+    const refetchObservations = useCallback(
+        async (background = false) => {
+            const ids = visibleIdsKey ? visibleIdsKey.split(',') : []
+            if (!currentTeamId || ids.length === 0) {
+                return
+            }
+            if (!background) {
+                setRefreshingObservations(true)
+            }
+            try {
+                const response = await visionScannersObservationsList(String(currentTeamId), scannerId, {
+                    session_id: visibleIdsKey,
+                    limit: ids.length,
+                })
+                setObservationBySession((prev) => {
+                    const next = new Map(prev)
+                    for (const observation of response.results ?? []) {
+                        next.set(observation.session_id, { id: observation.id, status: observation.status })
+                    }
+                    return next
+                })
+            } catch {
+                // Best-effort enrichment — on failure we just leave the rows scannable.
+            } finally {
+                // Only the foreground path touches the flag — a background poll resolving mid-flight must
+                // not clear an overlay a concurrent foreground fetch is still showing.
+                if (!background) {
+                    setRefreshingObservations(false)
                 }
-                return next
-            })
-        } catch {
-            // Best-effort enrichment — on failure we just leave the rows scannable.
-        } finally {
-            setRefreshingObservations(false)
-        }
-    }, [visibleIdsKey, currentTeamId, scannerId])
+            }
+        },
+        [visibleIdsKey, currentTeamId, scannerId]
+    )
 
     // Initial load + whenever a scan is triggered (which creates a new pending observation to pick up).
     useEffect(() => {
@@ -176,7 +186,8 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
         const interval = setInterval(() => {
             // Skip polling while the browser tab is backgrounded; it resumes on the next tick when visible again.
             if (document.visibilityState === 'visible') {
-                void refetchObservations()
+                // Background reload — keeps the table interactable instead of blanking it each tick.
+                void refetchObservations(true)
             }
         }, 4000)
         return () => clearInterval(interval)

@@ -289,6 +289,20 @@ export const CustomPropertyDisplayTypeEnumApi = {
 } as const
 
 /**
+ * A place that uses a custom property definition (read-only).
+ */
+export interface CustomPropertyReferenceApi {
+    /** Id of the referring entity (e.g. the workflow id). */
+    readonly id: string
+    /** Display name of the referring entity. */
+    readonly name: string
+    /** Status of the referring entity (e.g. workflow status). */
+    readonly status: string
+    /** Kind of reference. Currently always 'workflow'. */
+    readonly type: string
+}
+
+/**
  * A team-scoped definition of a custom account property — the attribute side of the model.
  *
  * Holds only the property's shape (name, display type, big-number flag). Per-account values are
@@ -324,6 +338,8 @@ export interface CustomPropertyDefinitionApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references: readonly CustomPropertyReferenceApi[]
 }
 
 export interface PaginatedCustomPropertyDefinitionListApi {
@@ -371,6 +387,8 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references?: readonly CustomPropertyReferenceApi[]
 }
 
 export interface CustomerJourneyApi {

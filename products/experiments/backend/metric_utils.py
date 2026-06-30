@@ -179,6 +179,21 @@ def collect_metric_events_and_action_ids(metrics: list[dict[str, Any]]) -> tuple
     return event_names, action_ids
 
 
+def collect_metric_warehouse_tables(metrics: list[dict[str, Any]]) -> set[str]:
+    """Collect ExperimentDataWarehouseNode table names referenced by metric queries."""
+    table_names: set[str] = set()
+    stack: list[Any] = list(metrics)
+    while stack:
+        obj = stack.pop()
+        if isinstance(obj, dict):
+            if obj.get("kind") == "ExperimentDataWarehouseNode" and obj.get("table_name"):
+                table_names.add(obj["table_name"])
+            stack.extend(obj.values())
+        elif isinstance(obj, list):
+            stack.extend(obj)
+    return table_names
+
+
 def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str]]:
     """Resolve action IDs to their step event names in a single query."""
     if not action_ids:
