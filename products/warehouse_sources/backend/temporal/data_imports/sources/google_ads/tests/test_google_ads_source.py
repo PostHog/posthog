@@ -1,3 +1,4 @@
+import datetime as dt
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +9,13 @@ from django.db import OperationalError
 import grpc
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
-from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
+from google.ads.googleads.v23.errors.types.errors import (
+    ErrorCode,
+    ErrorDetails,
+    GoogleAdsError,
+    GoogleAdsFailure,
+    QuotaErrorDetails,
+)
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
@@ -24,12 +31,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
+    _is_quota_exhausted_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
     _search_fields_with_transient_retry,
+    _transient_retry_backoff_seconds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -650,6 +659,44 @@ class _StatusCodeRpcError(grpc.RpcError):
         return self._status_code
 
 
+class _MessageRpcError(grpc.RpcError):
+    """A raw gRPC error reporting both a ``StatusCode`` and a ``details()`` message string."""
+
+    def __init__(self, status_code: grpc.StatusCode, details: str):
+        self._status_code = status_code
+        self._details = details
+
+    def code(self) -> grpc.StatusCode:
+        return self._status_code
+
+    def details(self) -> str:
+        return self._details
+
+
+def _grpc_resource_exhausted_error() -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.RESOURCE_EXHAUSTED)
+
+
+def _quota_google_ads_exception(retry_delay_seconds: float | None = None) -> GoogleAdsException:
+    """A server-side quota ``RESOURCE_EXHAUSTED`` as the SDK raises it: the transport status on
+    ``error`` and a ``QuotaErrorDetails`` (optionally carrying a ``retry_delay``) on ``failure``.
+    """
+    details = ErrorDetails()
+    if retry_delay_seconds is not None:
+        details = ErrorDetails(
+            quota_error_details=QuotaErrorDetails(retry_delay=dt.timedelta(seconds=retry_delay_seconds))
+        )
+    failure = GoogleAdsFailure(
+        errors=[GoogleAdsError(message="Resource has been exhausted (e.g. check quota).", details=details)]
+    )
+    return GoogleAdsException(error=_grpc_resource_exhausted_error(), call=None, failure=failure, request_id="req-1")
+
+
+def _client_message_size_error() -> google_api_exceptions.ResourceExhausted:
+    """The client-side ``RESOURCE_EXHAUSTED`` raised when an inbound page exceeds the receive cap."""
+    return google_api_exceptions.ResourceExhausted("Received message larger than max (90000000 vs. 67108864)")
+
+
 def _grpc_unavailable_error() -> grpc.RpcError:
     return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
 
@@ -684,10 +731,64 @@ class TestTransientGrpcErrorDetection:
             # INVALID_PAGE_TOKEN / GoogleAdsException handling, not the transient retry.
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
             (ValueError("boom"), False),
+            # A quota RESOURCE_EXHAUSTED is transient but rides its own longer-backoff path, so it
+            # must NOT be classified by the short-backoff UNAVAILABLE/INTERNAL detector.
+            (_quota_google_ads_exception(), False),
+            (_grpc_resource_exhausted_error(), False),
         ],
     )
     def test_is_transient_grpc_error(self, exc, expected):
         assert _is_transient_grpc_error(exc) is expected
+
+
+class TestQuotaExhaustedErrorDetection:
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            # Server-side quota throttle, both as the SDK-wrapped exception and the bare gRPC status.
+            (_quota_google_ads_exception(), True),
+            (_grpc_resource_exhausted_error(), True),
+            (_google_ads_exception_wrapping(_grpc_resource_exhausted_error()), True),
+            # The client-side "Received message larger than max" RESOURCE_EXHAUSTED is our own receive
+            # cap, not a throttle — it has its own fix and must not be retried as a quota error.
+            (_client_message_size_error(), False),
+            (
+                _MessageRpcError(
+                    grpc.StatusCode.RESOURCE_EXHAUSTED, "Received message larger than max (90000000 vs. 67108864)"
+                ),
+                False,
+            ),
+            # Non-RESOURCE_EXHAUSTED statuses are not quota errors.
+            (_grpc_unavailable_error(), False),
+            (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
+            (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_quota_exhausted_error(self, exc, expected):
+        assert _is_quota_exhausted_error(exc) is expected
+
+    @pytest.mark.parametrize(
+        "exc, attempt, expected",
+        [
+            # Quota with no API hint: a longer backoff than UNAVAILABLE/INTERNAL, growing per attempt.
+            (_quota_google_ads_exception(), 1, 30),
+            (_quota_google_ads_exception(), 2, 60),
+            # Capped so a quota error never wedges the activity for long.
+            (_quota_google_ads_exception(), 5, 60),
+            # The API's own retry_delay hint is honored when present (capped at the ceiling).
+            (_quota_google_ads_exception(retry_delay_seconds=45), 1, 45),
+            (_quota_google_ads_exception(retry_delay_seconds=120), 1, 60),
+            # Fast transient blips keep their short growing backoff.
+            (_grpc_unavailable_error(), 1, 2),
+            (_grpc_internal_error(), 2, 4),
+            # Non-transient errors signal the caller to re-raise.
+            (_client_message_size_error(), 1, None),
+            (ValueError("boom"), 1, None),
+        ],
+    )
+    def test_transient_retry_backoff_seconds(self, exc, attempt, expected):
+        assert _transient_retry_backoff_seconds(exc, attempt) == expected
 
 
 class _FlakyService:
@@ -784,6 +885,65 @@ class TestSearchTransientRetry:
                 )
 
         # First call raises and propagates immediately — no retry, no backoff.
+        assert service.calls == 1
+        assert sleep.call_count == 0
+
+    def test_rides_out_quota_exhausted_error_with_longer_backoff(self):
+        # The reported failure: a server-side quota RESOURCE_EXHAUSTED used to fail the whole sync.
+        service = _FlakyService(_single_page(), error=_quota_google_ads_exception(), fail_times=2)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            tables = list(
+                _search_as_arrow_tables(
+                    service=service,  # type: ignore[arg-type]
+                    customer_id="1234567890",
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        # Two quota failures ridden out, then the page served — with the longer quota backoff.
+        assert service.calls == 3
+        assert sleep.call_args_list == [mock.call(30), mock.call(60)]
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_quota_exhausted_error_honors_api_retry_delay(self):
+        service = _FlakyService(_single_page(), error=_quota_google_ads_exception(retry_delay_seconds=45), fail_times=1)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            list(
+                _search_as_arrow_tables(
+                    service=service,  # type: ignore[arg-type]
+                    customer_id="1234567890",
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        assert sleep.call_args_list == [mock.call(45)]
+
+    def test_client_message_size_resource_exhausted_is_not_retried(self):
+        # Same RESOURCE_EXHAUSTED status, but the client-side receive-cap variant must re-raise so
+        # its own fix (raising the receive limit) applies — not be ridden out as a quota throttle.
+        service = _FlakyService(_single_page(), error=_client_message_size_error(), fail_times=99)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(google_api_exceptions.ResourceExhausted):
+                list(
+                    _search_as_arrow_tables(
+                        service=service,  # type: ignore[arg-type]
+                        customer_id="1234567890",
+                        query="SELECT campaign.name FROM campaign",
+                        table=_single_row_table(),
+                        resumable_source_manager=manager,  # type: ignore[arg-type]
+                    )
+                )
+
         assert service.calls == 1
         assert sleep.call_count == 0
 

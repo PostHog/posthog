@@ -529,6 +529,19 @@ _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
 _TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
 
+# Google also throttles us server-side with a ``RESOURCE_EXHAUSTED`` quota error ("Resource has
+# been exhausted (e.g. check quota)."). That is transient — the quota window refills — but it
+# recovers on a quota-window timescale rather than a network blip, so it earns a longer, more
+# respectful backoff than ``UNAVAILABLE``/``INTERNAL``, honoring the API's own ``retry_delay`` hint
+# when it carries one. This is distinct from the *client-side* ``RESOURCE_EXHAUSTED`` ("Received
+# message larger than max ...") — our own inbound cap tripping, which is not a throttle, has its own
+# fix (raising the receive limit, see ``_ensure_grpc_receive_limit``), and must keep re-raising.
+_QUOTA_RETRY_BACKOFF_SECONDS = 30
+# Cap so a single quota error never wedges the activity for long; Temporal's retry policy and the
+# next scheduled sync cover anything that outlasts the in-process retries.
+_QUOTA_RETRY_BACKOFF_MAX_SECONDS = 60
+_CLIENT_MESSAGE_SIZE_MARKER = "larger than max"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -547,6 +560,92 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
 
 
+def _grpc_status_code(exc: typing.Any) -> grpc.StatusCode | None:
+    """Return the gRPC ``StatusCode`` an error carries, or ``None``.
+
+    The gapic ``GoogleAPICallError`` exposes it as the non-callable ``grpc_status_code`` attribute
+    (its ``code`` is the HTTP status); the raw ``grpc`` ``_InactiveRpcError`` exposes it via a
+    callable ``code()``.
+    """
+    grpc_status = getattr(exc, "grpc_status_code", None)
+    if isinstance(grpc_status, grpc.StatusCode):
+        return grpc_status
+    code = getattr(exc, "code", None)
+    if callable(code):
+        result = code()
+        if isinstance(result, grpc.StatusCode):
+            return result
+    return None
+
+
+def _grpc_error_message(exc: typing.Any) -> str:
+    """Best-effort status message for a gRPC/gapic error.
+
+    The raw ``grpc`` error exposes it via a callable ``details()``; the gapic error via its
+    ``message`` attribute (its ``details`` is a list of detail protos, not the status string).
+    """
+    details = getattr(exc, "details", None)
+    if callable(details):
+        try:
+            return details() or ""
+        except Exception:
+            pass
+    message = getattr(exc, "message", None)
+    if isinstance(message, str):
+        return message
+    return str(exc)
+
+
+def _is_quota_exhausted_error(exc: BaseException) -> bool:
+    """Return True for a server-side quota ``RESOURCE_EXHAUSTED`` throttle, which is transient.
+
+    Excludes the client-side "Received message larger than max" variant (same status code), which
+    is not a throttle and is fixed by raising the receive limit, not by retrying.
+    """
+    candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    if _grpc_status_code(candidate) != grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return False
+    return _CLIENT_MESSAGE_SIZE_MARKER not in _grpc_error_message(candidate).lower()
+
+
+def _quota_retry_delay_seconds(exc: BaseException) -> float | None:
+    """Return the longest ``retry_delay`` the API attached to a quota error, in seconds, if any.
+
+    Google Ads quota errors carry a ``QuotaErrorDetails.retry_delay`` per offending error; honoring
+    it backs off exactly as long as the API asks rather than guessing. Returns ``None`` when no
+    positive delay is present (e.g. a bare gRPC ``RESOURCE_EXHAUSTED`` with no ads ``failure``).
+    """
+    failure = getattr(exc, "failure", None)
+    if failure is None:
+        return None
+    longest: float | None = None
+    for error in getattr(failure, "errors", None) or []:
+        details = getattr(error, "details", None)
+        quota = getattr(details, "quota_error_details", None) if details is not None else None
+        retry_delay = getattr(quota, "retry_delay", None) if quota is not None else None
+        seconds = retry_delay.total_seconds() if retry_delay is not None else None
+        if seconds:
+            longest = seconds if longest is None else max(longest, seconds)
+    return longest
+
+
+def _transient_retry_backoff_seconds(exc: BaseException, attempt: int) -> float | None:
+    """Backoff (seconds) before retrying ``exc`` on its ``attempt``-th failure.
+
+    Returns ``None`` when ``exc`` is not a transient error we ride out in-process, signalling the
+    caller to re-raise. ``UNAVAILABLE``/``INTERNAL`` get a short growing backoff; a quota throttle
+    gets a longer one, preferring the API's own ``retry_delay`` hint and capped so the activity
+    never wedges for long.
+    """
+    if _is_transient_grpc_error(exc):
+        return min(2 * attempt, 30)
+    if _is_quota_exhausted_error(exc):
+        hinted = _quota_retry_delay_seconds(exc)
+        backoff = hinted if hinted is not None else _QUOTA_RETRY_BACKOFF_SECONDS * attempt
+        return min(backoff, _QUOTA_RETRY_BACKOFF_MAX_SECONDS)
+    return None
+
+
 _T = typing.TypeVar("_T")
 
 
@@ -555,8 +654,10 @@ def _call_with_transient_retry(
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
 ) -> _T:
-    """Run ``call``, retrying a transient gRPC failure (see ``_is_transient_grpc_error``) with backoff.
+    """Run ``call``, retrying a transient gRPC failure with backoff.
 
+    Transient here covers both the fast ``UNAVAILABLE``/``INTERNAL`` blips and a server-side quota
+    ``RESOURCE_EXHAUSTED`` throttle (which backs off longer — see ``_transient_retry_backoff_seconds``).
     A non-transient error re-raises immediately so the caller's handling and Temporal's retry policy
     still apply; the final attempt re-raises rather than sleeping.
     """
@@ -566,9 +667,10 @@ def _call_with_transient_retry(
             return call()
         except Exception as e:
             attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+            backoff = _transient_retry_backoff_seconds(e, attempt)
+            if attempt >= max_attempts or backoff is None:
                 raise
-            time.sleep(min(2 * attempt, 30))
+            time.sleep(backoff)
 
 
 def _search_with_transient_retry(
