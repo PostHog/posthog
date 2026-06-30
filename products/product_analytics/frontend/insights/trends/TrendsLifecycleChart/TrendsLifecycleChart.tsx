@@ -6,6 +6,8 @@ import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,6 +21,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -28,7 +31,6 @@ import {
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -37,7 +39,8 @@ interface TrendsLifecycleChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const LIFECYCLE_TOOLTIP_CONFIG = { placement: 'cursor' as const }
+const LIFECYCLE_TOOLTIP_CONFIG_LEGACY = { pinnable: true, placement: 'top' as const }
 
 const handleChartError = makeChartErrorHandler('trends-lifecycle-chart')
 
@@ -49,6 +52,8 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
+    const { featureFlags } = useValues(featureFlagLogic)
+    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
@@ -113,7 +118,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                tooltip: tooltipEnabled ? LIFECYCLE_TOOLTIP_CONFIG : LIFECYCLE_TOOLTIP_CONFIG_LEGACY,
                 legend: legendConfig,
             }),
         [
@@ -130,6 +135,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             showPercentagesOnSeries,
             valueLabelFormatter,
             legendConfig,
+            tooltipEnabled,
         ]
     )
 
@@ -173,27 +179,28 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const sharedProps = {
+                context: ctx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                dateRange: insightData?.resolved_date_range ?? undefined,
+                trendsFilter,
+                formula,
+                baseCurrency,
+                groupTypeLabel: 'Users' as const,
+                renderSeriesOverride: renderLifecycleSeriesLabel,
+            }
+            if (tooltipEnabled) {
+                return <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows />
+            }
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
                       handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps, LIFECYCLE_PERSONS_MODAL_OPTIONS)
                   }
                 : undefined
-            return (
-                <TrendsTooltip
-                    context={ctx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    dateRange={insightData?.resolved_date_range ?? undefined}
-                    trendsFilter={trendsFilter}
-                    formula={formula}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel="Users"
-                    onRowClick={onRowClick}
-                    renderSeriesOverride={renderLifecycleSeriesLabel}
-                />
-            )
+            return <InsightSeriesTooltip {...sharedProps} onRowClick={onRowClick} />
         },
         [
             timezone,
@@ -203,6 +210,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             trendsFilter,
             formula,
             baseCurrency,
+            tooltipEnabled,
             canHandleClick,
             clickDeps,
         ]
