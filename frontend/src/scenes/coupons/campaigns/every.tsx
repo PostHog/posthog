@@ -22,17 +22,15 @@ const EveryHero: React.FC = () => {
 
 export const everyCampaign: CampaignConfig = {
     name: 'EVERY Goodie Bag',
-    heroTitle: 'Up to $4K in PostHog credits for EVERY Goodie Bag customers',
-    heroSubtitle:
-        "$2K for PostHog's AI products for everyone, plus $2K in core product credits for new PostHog customers.",
+    heroTitle: '$2K in AI credits + $2K in core credits',
+    heroSubtitle: 'PostHog makes your product self-driving by turning context into code improvements.',
     HeroImage: EveryHero,
     benefits: [
         {
-            title: "$2K credits toward PostHog's AI products",
+            title: '$2K AI credits',
             description: (
                 <>
-                    All eligible EVERY Goodie Bag customers receive $2K in credits toward PostHog's AI products. Today,
-                    that includes:
+                    All eligible EVERY Goodie Bag customers receive $2K in AI credits. Today, those credits cover:
                     <ul className="mt-1 ml-4 list-disc text-muted text-sm">
                         <li>PostHog AI (including the Slack agent)</li>
                         <li>Inbox (self-driving PRs based on your data)</li>
@@ -41,13 +39,12 @@ export const everyCampaign: CampaignConfig = {
             ),
         },
         {
-            title: "Early access to new features in PostHog's AI products",
-            description:
-                "Get access to select new products and features across PostHog's AI products as they become available.",
+            title: 'Early access to new AI features',
+            description: 'Get access to select new AI features as they become available.',
         },
         {
-            title: '$2K PostHog core credits*',
-            description: `New PostHog customers are also eligible for $2K in credits for PostHog core products, such as product analytics, session replay, error tracking, LLM observability, and data warehouse.`,
+            title: '$2K core credits*',
+            description: `New PostHog customers are also eligible for $2K in credits for PostHog core tools, such as product analytics, session replay, error tracking, LLM observability, and data warehouse.`,
         },
         {
             title: '12-month access',
@@ -57,12 +54,11 @@ export const everyCampaign: CampaignConfig = {
     eligibilityCriteria: [
         'Active EVERY Goodie Bag annual subscriber',
         'Active paid subscription to PostHog',
-        `Organizations with a paid PostHog invoice before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} qualify only for credits toward PostHog's AI products`,
+        `Organizations with a non-$0 PostHog invoice before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} qualify only for AI credits`,
     ],
     footerNote: (
         <span className="text-xs">
-            *Credits toward PostHog's AI products and PostHog core credits are separate. Both currently exclude PostHog
-            Code and AI Gateway.
+            *AI credits and core credits are separate. Both currently exclude PostHog Code and AI Gateway.
         </span>
     ),
 }
