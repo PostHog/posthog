@@ -127,6 +127,18 @@ def has_enabled_source(team_id: int) -> bool:
     return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
 
 
+def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
+    """Team ids with at least one enabled source of ``source_product`` — the enrolment list a
+    product's own scheduled emitter fans out over (e.g. engineering_analytics' CI-signals
+    coordinator). Per-``source_type`` and org AI-approval gating still happens in ``emit_signal``;
+    this is the cheap pre-filter so a sweep skips teams that never turned the product on."""
+    return list(
+        SignalSourceConfig.objects.filter(source_product=source_product, enabled=True)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 def onboarding_sources(team_id: int) -> list[OnboardingSource]:
     """The onboarding sources, in order, with current enabled state (for pre-checking the checkboxes)."""
     enabled_pairs = set(

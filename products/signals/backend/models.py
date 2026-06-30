@@ -49,6 +49,7 @@ class SignalSourceConfig(UUIDModel):
         HEALTH_CHECKS = "health_checks", "Health checks"
         ENDPOINTS = "endpoints", "Endpoints"
         REPLAY_VISION = "replay_vision", "Replay Vision"
+        ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering analytics"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -64,6 +65,9 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
+        CI_BROKEN_MASTER = "ci_broken_master", "CI broken master"
+        CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)

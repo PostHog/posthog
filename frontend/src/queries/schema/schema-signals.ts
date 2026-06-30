@@ -16,6 +16,7 @@ export enum SignalSourceProduct {
     LOGS = 'logs',
     HEALTH_CHECKS = 'health_checks',
     REPLAY_VISION = 'replay_vision',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
 }
 
 export enum SignalSourceType {
@@ -34,6 +35,9 @@ export enum SignalSourceType {
     ALERT_STATE_CHANGE = 'alert_state_change',
     HEALTH_ISSUE = 'health_issue',
     SCANNER_FINDING = 'scanner_finding',
+    CI_FLAKY_CHECK = 'ci_flaky_check',
+    CI_BROKEN_MASTER = 'ci_broken_master',
+    CI_DURATION_REGRESSION = 'ci_duration_regression',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -447,6 +451,72 @@ export interface HealthCheckSignalInput extends SignalInputBase {
     extra: HealthCheckSignalExtra
 }
 
+// Engineering analytics — CI signals derived from the GitHub PR/CI warehouse read layer.
+// Detection lives once in products/engineering_analytics/backend/logic/signals (the same curated
+// layer that backs the MCP read tools); these variants are the typed emit contract. Every value is
+// computed deterministically over a window, so the `extra` is the evidence the research agent grounds on.
+
+export interface EngineeringAnalyticsCIFlakyCheckSignalExtra extends SignalExtraBase {
+    repo_owner: string
+    repo_name: string
+    /** The GitHub Actions workflow that flipped failure→success on a re-run of the same commit. */
+    workflow_name: string
+    /** Distinct head commits where a failing run later passed on re-run, within the window. */
+    flaky_count: number
+    /** Distinct head commits the workflow ran on in the window (the flaky-rate denominator). */
+    total_commits: number
+    window_days: number
+    /** A few example head SHAs that flapped, so the agent can start from a concrete run. */
+    sample_head_shas: string[]
+}
+
+export interface EngineeringAnalyticsCIFlakyCheckSignalInput extends SignalInputBase {
+    source_type: 'ci_flaky_check'
+    source_product: 'engineering_analytics'
+    extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
+}
+
+export interface EngineeringAnalyticsCIBrokenMasterSignalExtra extends SignalExtraBase {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    /** The default branch the failures are on (e.g. 'master' / 'main'). */
+    branch: string
+    /** Success rate over completed runs in the window, in [0, 1]. */
+    success_rate: number
+    run_count: number
+    /** Conclusion of the most recent completed run (e.g. 'failure', 'timed_out'). */
+    latest_conclusion: string
+    window_hours: number
+}
+
+export interface EngineeringAnalyticsCIBrokenMasterSignalInput extends SignalInputBase {
+    source_type: 'ci_broken_master'
+    source_product: 'engineering_analytics'
+    extra: EngineeringAnalyticsCIBrokenMasterSignalExtra
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalExtra extends SignalExtraBase {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    /** p95 run duration (seconds) over the current window. */
+    current_p95_seconds: number
+    /** p95 run duration (seconds) over the immediately-preceding baseline window of equal length. */
+    baseline_p95_seconds: number
+    /** Fractional increase of current p95 over baseline (0.5 = +50%). */
+    pct_increase: number
+    current_p50_seconds: number
+    baseline_p50_seconds: number
+    window_days: number
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalInput extends SignalInputBase {
+    source_type: 'ci_duration_regression'
+    source_product: 'engineering_analytics'
+    extra: EngineeringAnalyticsCIDurationRegressionSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -491,3 +561,6 @@ export type SignalInput =
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput
+    | EngineeringAnalyticsCIFlakyCheckSignalInput
+    | EngineeringAnalyticsCIBrokenMasterSignalInput
+    | EngineeringAnalyticsCIDurationRegressionSignalInput

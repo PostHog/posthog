@@ -3,6 +3,7 @@ import {
     EndpointExecutionFailedSignalCard,
     endpointExecutionFailedSignalCardEntry,
 } from './EndpointExecutionFailedSignalCard'
+import { EngineeringAnalyticsSignalCard, engineeringAnalyticsSignalCardEntry } from './EngineeringAnalyticsSignalCard'
 import { ErrorTrackingSignalCard, errorTrackingSignalCardEntry } from './ErrorTrackingSignalCard'
 import { GithubIssueSignalCard, githubIssueSignalCardEntry } from './GithubIssueSignalCard'
 import { HealthCheckSignalCard, healthCheckSignalCardEntry } from './HealthCheckSignalCard'
@@ -24,6 +25,7 @@ import { ZendeskTicketSignalCard, zendeskTicketSignalCardEntry } from './Zendesk
 export {
     ConversationsTicketSignalCard,
     EndpointExecutionFailedSignalCard,
+    EngineeringAnalyticsSignalCard,
     ErrorTrackingSignalCard,
     GithubIssueSignalCard,
     HealthCheckSignalCard,
@@ -53,6 +55,7 @@ export const SIGNAL_CARD_REGISTRY: SignalCardEntry[] = [
     healthCheckSignalCardEntry,
     conversationsTicketSignalCardEntry,
     endpointExecutionFailedSignalCardEntry,
+    engineeringAnalyticsSignalCardEntry,
     logsAlertSignalCardEntry,
     signalsScoutSignalCardEntry,
     // External sources

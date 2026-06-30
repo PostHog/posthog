@@ -1,0 +1,268 @@
+"""The three v1 CI signal detectors, run over the curated GitHub read layer.
+
+Each detector is a pure function of a ``CuratedGitHubSource`` plus thresholds and returns
+``CISignalFinding`` objects — no emission, no Temporal, no Django here, so they're unit-testable
+against a seeded warehouse. ``ci_broken_master`` and ``ci_duration_regression`` reuse
+``query_workflow_health`` (the same aggregate the MCP ``workflow_health`` tool returns) rather than
+re-deriving success-rate / percentiles, so detection and the read surface can never disagree.
+``ci_flaky_check`` needs a per-commit re-run shape the health aggregate doesn't expose, so it runs
+its own curated query.
+
+Thresholds are conservative defaults — tuned to surface real, actionable conditions, not noise — and
+are arguments so a team-level config can override them later without touching the SQL.
+"""
+
+from datetime import UTC, datetime, timedelta
+
+import structlog
+
+from posthog.hogql import ast
+
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
+from products.engineering_analytics.backend.logic.signals.contracts import (
+    SOURCE_TYPE_BROKEN_MASTER,
+    SOURCE_TYPE_DURATION_REGRESSION,
+    SOURCE_TYPE_FLAKY_CHECK,
+    CISignalFinding,
+)
+
+logger = structlog.get_logger(__name__)
+
+# Flaky: a commit whose run failed then passed on re-run. Surface a workflow once it has flapped on at
+# least this many distinct commits in the window — below that it's likely a genuine fix, not flake.
+FLAKY_WINDOW_DAYS = 7
+FLAKY_MIN_COMMITS = 3
+
+# Broken master: the default branch is red. Short window (the branch's *current* state), enough runs to
+# be real, success rate at or below the floor with the latest completed run failing.
+BROKEN_MASTER_WINDOW_HOURS = 24
+BROKEN_MASTER_MIN_RUNS = 3
+BROKEN_MASTER_MAX_SUCCESS_RATE = 0.5
+DEFAULT_BRANCHES = ("master", "main")
+
+# Duration regression: p95 up meaningfully vs the immediately-preceding window of equal length. Both
+# windows need enough runs for a stable percentile; require a relative *and* absolute jump so a 2s→4s
+# blip on a fast check doesn't fire.
+DURATION_WINDOW_DAYS = 7
+DURATION_MIN_RUNS = 20
+DURATION_MIN_PCT_INCREASE = 0.5
+DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
+
+# Per-commit re-run shape: did this (commit, workflow) fail at least once and pass on a later attempt?
+_FLAKY_SELECT = """
+    WITH per_commit AS (
+        SELECT
+            repo_owner,
+            repo_name,
+            workflow_name,
+            head_sha,
+            countIf(conclusion IN ('failure', 'timed_out')) AS fails,
+            countIf(conclusion = 'success' AND run_attempt > 1) AS rerun_passes
+        FROM __RUNS_SOURCE__ AS r
+        WHERE run_started_at >= {date_from} AND head_sha != ''
+        GROUP BY repo_owner, repo_name, workflow_name, head_sha
+    )
+    SELECT
+        repo_owner,
+        repo_name,
+        workflow_name,
+        countIf(fails > 0 AND rerun_passes > 0) AS flaky_count,
+        count() AS total_commits,
+        arraySlice(groupArrayIf(head_sha, fails > 0 AND rerun_passes > 0), 1, 5) AS sample_head_shas
+    FROM per_commit
+    GROUP BY repo_owner, repo_name, workflow_name
+    ORDER BY flaky_count DESC
+    LIMIT 100
+"""
+
+
+def detect_flaky_checks(
+    curated: CuratedGitHubSource,
+    *,
+    window_days: int = FLAKY_WINDOW_DAYS,
+    min_flaky_commits: int = FLAKY_MIN_COMMITS,
+) -> list[CISignalFinding]:
+    date_from = datetime.now(UTC) - timedelta(days=window_days)
+    sql = _FLAKY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.signals.flaky_checks",
+        placeholders={"date_from": ast.Constant(value=date_from)},
+    )
+    findings: list[CISignalFinding] = []
+    for repo_owner, repo_name, workflow_name, flaky_count, total_commits, sample_head_shas in response.results or []:
+        if flaky_count < min_flaky_commits:
+            continue
+        repo = f"{repo_owner}/{repo_name}"
+        shas = list(sample_head_shas or [])
+        findings.append(
+            CISignalFinding(
+                source_type=SOURCE_TYPE_FLAKY_CHECK,
+                source_id=f"{repo}:{workflow_name}:flaky",
+                description=(
+                    f"CI workflow '{workflow_name}' is flaky on {repo}: {flaky_count} commit(s) in the last "
+                    f"{window_days}d failed and then passed on a re-run of the same commit "
+                    f"(out of {total_commits} commits the workflow ran on). Flaky required checks erode trust "
+                    f"in CI and burn re-run minutes."
+                ),
+                weight=0.7,
+                extra={
+                    "repo_owner": repo_owner,
+                    "repo_name": repo_name,
+                    "workflow_name": workflow_name,
+                    "flaky_count": int(flaky_count),
+                    "total_commits": int(total_commits),
+                    "window_days": window_days,
+                    "sample_head_shas": shas,
+                },
+                remediation_human=(
+                    f"Identify the non-deterministic test(s) in the '{workflow_name}' workflow and quarantine "
+                    f"or fix them so the check stops failing on unrelated commits."
+                ),
+                remediation_agent=(
+                    f"Investigate the '{workflow_name}' workflow on {repo}. Pull the failing-then-passing logs "
+                    f"for the sample commits ({', '.join(shas) or 'recent flaky runs'}), isolate the "
+                    f"non-deterministic test(s), and open a PR that quarantines them via the repo's "
+                    f".test_quarantine.json (see the hogli quarantine tooling) or fixes the root-cause flake. "
+                    f"Do not mask it with a blanket retry."
+                ),
+                priority="P2",
+            )
+        )
+    return findings
+
+
+def detect_broken_master(
+    curated: CuratedGitHubSource,
+    *,
+    window_hours: int = BROKEN_MASTER_WINDOW_HOURS,
+    min_runs: int = BROKEN_MASTER_MIN_RUNS,
+    max_success_rate: float = BROKEN_MASTER_MAX_SUCCESS_RATE,
+    default_branches: tuple[str, ...] = DEFAULT_BRANCHES,
+) -> list[CISignalFinding]:
+    now = datetime.now(UTC)
+    date_from = now - timedelta(hours=window_hours)
+    findings: list[CISignalFinding] = []
+    for branch in default_branches:
+        # A repo uses one default branch; the other query returns nothing rather than erroring.
+        for item in query_workflow_health(curated=curated, date_from=date_from, date_to=now, branch=branch):
+            if item.run_count < min_runs or item.success_rate is None or not item.latest_run_failed:
+                continue
+            if item.success_rate > max_success_rate:
+                continue
+            repo = f"{item.repo.owner}/{item.repo.name}"
+            latest_conclusion = item.latest_run_conclusion or "failure"
+            findings.append(
+                CISignalFinding(
+                    source_type=SOURCE_TYPE_BROKEN_MASTER,
+                    source_id=f"{repo}:{branch}:{item.workflow_name}:broken",
+                    description=(
+                        f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}: "
+                        f"{item.success_rate:.0%} success over the last {window_hours}h ({item.run_count} runs), "
+                        f"latest completed run '{latest_conclusion}'. The default branch is red — every PR "
+                        f"branched from it inherits the failure."
+                    ),
+                    weight=0.85,
+                    extra={
+                        "repo_owner": item.repo.owner,
+                        "repo_name": item.repo.name,
+                        "workflow_name": item.workflow_name,
+                        "branch": branch,
+                        "success_rate": float(item.success_rate),
+                        "run_count": int(item.run_count),
+                        "latest_conclusion": latest_conclusion,
+                        "window_hours": window_hours,
+                    },
+                    remediation_human=(
+                        f"Find the change that broke '{item.workflow_name}' on {branch} and revert it or land a fix."
+                    ),
+                    remediation_agent=(
+                        f"The '{item.workflow_name}' workflow is failing on {branch} of {repo}. Pull the latest "
+                        f"failing run's logs, bisect the recent merges to {branch} to find the breaking change, "
+                        f"and open a revert or a targeted fix PR. Prioritize unblocking the branch."
+                    ),
+                    priority="P1",
+                )
+            )
+    return findings
+
+
+def detect_ci_duration_regressions(
+    curated: CuratedGitHubSource,
+    *,
+    window_days: int = DURATION_WINDOW_DAYS,
+    min_runs: int = DURATION_MIN_RUNS,
+    min_pct_increase: float = DURATION_MIN_PCT_INCREASE,
+    min_abs_increase_seconds: float = DURATION_MIN_ABS_INCREASE_SECONDS,
+) -> list[CISignalFinding]:
+    now = datetime.now(UTC)
+    window = timedelta(days=window_days)
+    current = {
+        (i.repo.owner, i.repo.name, i.workflow_name): i
+        for i in query_workflow_health(curated=curated, date_from=now - window, date_to=now, branch=None)
+    }
+    baseline = {
+        (i.repo.owner, i.repo.name, i.workflow_name): i
+        for i in query_workflow_health(curated=curated, date_from=now - 2 * window, date_to=now - window, branch=None)
+    }
+    findings: list[CISignalFinding] = []
+    for key, cur in current.items():
+        base = baseline.get(key)
+        if base is None or cur.run_count < min_runs or base.run_count < min_runs:
+            continue
+        if cur.p95_seconds is None or base.p95_seconds is None or base.p95_seconds <= 0:
+            continue
+        increase = cur.p95_seconds - base.p95_seconds
+        pct_increase = increase / base.p95_seconds
+        if pct_increase < min_pct_increase or increase < min_abs_increase_seconds:
+            continue
+        owner, repo_name, workflow_name = key
+        repo = f"{owner}/{repo_name}"
+        findings.append(
+            CISignalFinding(
+                source_type=SOURCE_TYPE_DURATION_REGRESSION,
+                source_id=f"{repo}:{workflow_name}:duration",
+                description=(
+                    f"CI workflow '{workflow_name}' got slower on {repo}: p95 run time rose {pct_increase:.0%} "
+                    f"({base.p95_seconds:.0f}s → {cur.p95_seconds:.0f}s) vs the prior {window_days}d. A slower "
+                    f"check stretches every PR's time-to-green."
+                ),
+                weight=0.6,
+                extra={
+                    "repo_owner": owner,
+                    "repo_name": repo_name,
+                    "workflow_name": workflow_name,
+                    "current_p95_seconds": float(cur.p95_seconds),
+                    "baseline_p95_seconds": float(base.p95_seconds),
+                    "pct_increase": float(pct_increase),
+                    "current_p50_seconds": float(cur.p50_seconds) if cur.p50_seconds is not None else 0.0,
+                    "baseline_p50_seconds": float(base.p50_seconds) if base.p50_seconds is not None else 0.0,
+                    "window_days": window_days,
+                },
+                remediation_human=(
+                    f"Profile the '{workflow_name}' workflow and bring its p95 back toward the "
+                    f"{base.p95_seconds:.0f}s baseline."
+                ),
+                remediation_agent=(
+                    f"The '{workflow_name}' workflow's p95 duration regressed from {base.p95_seconds:.0f}s to "
+                    f"{cur.p95_seconds:.0f}s over the last {window_days}d on {repo}. Compare a recent slow run "
+                    f"against a baseline-window run, find what got slower (a new/slow test, a heavier job, lost "
+                    f"caching), and propose the optimization."
+                ),
+                priority="P3",
+            )
+        )
+    return findings
+
+
+def detect_all(curated: CuratedGitHubSource) -> list[CISignalFinding]:
+    """Run every detector with default thresholds, isolating failures so one bad detector (or a
+    transient query error) doesn't suppress the others' findings."""
+    findings: list[CISignalFinding] = []
+    for detector in (detect_flaky_checks, detect_broken_master, detect_ci_duration_regressions):
+        try:
+            findings.extend(detector(curated))
+        except Exception:
+            logger.exception("ci_signal_detector_failed", detector=detector.__name__)
+    return findings

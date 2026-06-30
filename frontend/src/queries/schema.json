@@ -17599,6 +17599,229 @@
             "required": ["results"],
             "type": "object"
         },
+        "EngineeringAnalyticsCIBrokenMasterSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "branch": {
+                    "description": "The default branch the failures are on (e.g. 'master' / 'main').",
+                    "type": "string"
+                },
+                "latest_conclusion": {
+                    "description": "Conclusion of the most recent completed run (e.g. 'failure', 'timed_out').",
+                    "type": "string"
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repo_owner": {
+                    "type": "string"
+                },
+                "run_count": {
+                    "type": "number"
+                },
+                "success_rate": {
+                    "description": "Success rate over completed runs in the window, in [0, 1].",
+                    "type": "number"
+                },
+                "window_hours": {
+                    "type": "number"
+                },
+                "workflow_name": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "repo_owner",
+                "repo_name",
+                "workflow_name",
+                "branch",
+                "success_rate",
+                "run_count",
+                "latest_conclusion",
+                "window_hours"
+            ],
+            "type": "object"
+        },
+        "EngineeringAnalyticsCIBrokenMasterSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIBrokenMasterSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "engineering_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ci_broken_master",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
+        "EngineeringAnalyticsCIDurationRegressionSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline_p50_seconds": {
+                    "type": "number"
+                },
+                "baseline_p95_seconds": {
+                    "description": "p95 run duration (seconds) over the immediately-preceding baseline window of equal length.",
+                    "type": "number"
+                },
+                "current_p50_seconds": {
+                    "type": "number"
+                },
+                "current_p95_seconds": {
+                    "description": "p95 run duration (seconds) over the current window.",
+                    "type": "number"
+                },
+                "pct_increase": {
+                    "description": "Fractional increase of current p95 over baseline (0.5 = +50%).",
+                    "type": "number"
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repo_owner": {
+                    "type": "string"
+                },
+                "window_days": {
+                    "type": "number"
+                },
+                "workflow_name": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "repo_owner",
+                "repo_name",
+                "workflow_name",
+                "current_p95_seconds",
+                "baseline_p95_seconds",
+                "pct_increase",
+                "current_p50_seconds",
+                "baseline_p50_seconds",
+                "window_days"
+            ],
+            "type": "object"
+        },
+        "EngineeringAnalyticsCIDurationRegressionSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIDurationRegressionSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "engineering_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ci_duration_regression",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
+        "EngineeringAnalyticsCIFlakyCheckSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "flaky_count": {
+                    "description": "Distinct head commits where a failing run later passed on re-run, within the window.",
+                    "type": "number"
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repo_owner": {
+                    "type": "string"
+                },
+                "sample_head_shas": {
+                    "description": "A few example head SHAs that flapped, so the agent can start from a concrete run.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "total_commits": {
+                    "description": "Distinct head commits the workflow ran on in the window (the flaky-rate denominator).",
+                    "type": "number"
+                },
+                "window_days": {
+                    "type": "number"
+                },
+                "workflow_name": {
+                    "description": "The GitHub Actions workflow that flipped failure→success on a re-run of the same commit.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "repo_owner",
+                "repo_name",
+                "workflow_name",
+                "flaky_count",
+                "total_commits",
+                "window_days",
+                "sample_head_shas"
+            ],
+            "type": "object"
+        },
+        "EngineeringAnalyticsCIFlakyCheckSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIFlakyCheckSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "engineering_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ci_flaky_check",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
         "EnrichedReviewer": {
             "additionalProperties": false,
             "properties": {
@@ -42739,6 +42962,15 @@
                 },
                 {
                     "$ref": "#/definitions/ReplayVisionScannerFindingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIFlakyCheckSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIBrokenMasterSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EngineeringAnalyticsCIDurationRegressionSignalInput"
                 }
             ]
         },
@@ -42826,7 +43058,8 @@
                 "signals_scout",
                 "logs",
                 "health_checks",
-                "replay_vision"
+                "replay_vision",
+                "engineering_analytics"
             ],
             "type": "string"
         },
@@ -42846,7 +43079,10 @@
                 "cross_source_issue",
                 "alert_state_change",
                 "health_issue",
-                "scanner_finding"
+                "scanner_finding",
+                "ci_flaky_check",
+                "ci_broken_master",
+                "ci_duration_regression"
             ],
             "type": "string"
         },

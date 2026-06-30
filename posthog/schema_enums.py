@@ -3042,6 +3042,7 @@ class SignalSourceProduct(StrEnum):
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -3060,6 +3061,9 @@ class SignalSourceType(StrEnum):
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
+    CI_FLAKY_CHECK = "ci_flaky_check"
+    CI_BROKEN_MASTER = "ci_broken_master"
+    CI_DURATION_REGRESSION = "ci_duration_regression"
 
 
 class Severity(StrEnum):

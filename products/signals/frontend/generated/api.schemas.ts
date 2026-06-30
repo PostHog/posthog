@@ -1659,6 +1659,7 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `engineering_analytics` - Engineering analytics
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1676,6 +1677,7 @@ export const SourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -1692,6 +1694,9 @@ export const SourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_master` - CI broken master
+ * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1710,6 +1715,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenMaster: 'ci_broken_master',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export interface SignalSourceConfigApi {

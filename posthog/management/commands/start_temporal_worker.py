@@ -177,7 +177,12 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
-from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
+from products.engineering_analytics.backend.facade.temporal import (
+    CI_SIGNALS_ACTIVITIES,
+    CI_SIGNALS_WORKFLOWS,
+    JOB_LOGS_ACTIVITIES,
+    JOB_LOGS_WORKFLOWS,
+)
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
@@ -274,7 +279,8 @@ _task_queue_specs = [
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
-        + JOB_LOGS_WORKFLOWS,
+        + JOB_LOGS_WORKFLOWS
+        + CI_SIGNALS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -291,7 +297,8 @@ _task_queue_specs = [
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
-        + JOB_LOGS_ACTIVITIES,
+        + JOB_LOGS_ACTIVITIES
+        + CI_SIGNALS_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,

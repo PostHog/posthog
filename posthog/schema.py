@@ -1072,6 +1072,72 @@ class EndpointLastExecutionTimesRequest(BaseModel):
     names: list[str]
 
 
+class EngineeringAnalyticsCIBrokenMasterSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    branch: str = Field(
+        ...,
+        description="The default branch the failures are on (e.g. 'master' / 'main').",
+    )
+    latest_conclusion: str = Field(
+        ...,
+        description=("Conclusion of the most recent completed run (e.g. 'failure', 'timed_out')."),
+    )
+    repo_name: str
+    repo_owner: str
+    run_count: float
+    success_rate: float = Field(..., description="Success rate over completed runs in the window, in [0, 1].")
+    window_hours: float
+    workflow_name: str
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline_p50_seconds: float
+    baseline_p95_seconds: float = Field(
+        ...,
+        description=("p95 run duration (seconds) over the immediately-preceding baseline window of equal length."),
+    )
+    current_p50_seconds: float
+    current_p95_seconds: float = Field(..., description="p95 run duration (seconds) over the current window.")
+    pct_increase: float = Field(
+        ...,
+        description="Fractional increase of current p95 over baseline (0.5 = +50%).",
+    )
+    repo_name: str
+    repo_owner: str
+    window_days: float
+    workflow_name: str
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    flaky_count: float = Field(
+        ...,
+        description=("Distinct head commits where a failing run later passed on re-run, within the window."),
+    )
+    repo_name: str
+    repo_owner: str
+    sample_head_shas: list[str] = Field(
+        ...,
+        description=("A few example head SHAs that flapped, so the agent can start from a concrete run."),
+    )
+    total_commits: float = Field(
+        ...,
+        description=("Distinct head commits the workflow ran on in the window (the flaky-rate denominator)."),
+    )
+    window_days: float
+    workflow_name: str = Field(
+        ...,
+        description=("The GitHub Actions workflow that flipped failure→success on a re-run of the same commit."),
+    )
+
+
 class ErrorBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4769,6 +4835,45 @@ class EndpointsUsageOverviewItem(BaseModel):
     value: float | None = None
 
 
+class EngineeringAnalyticsCIBrokenMasterSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EngineeringAnalyticsCIBrokenMasterSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["engineering_analytics"] = "engineering_analytics"
+    source_type: Literal["ci_broken_master"] = "ci_broken_master"
+    weight: float
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EngineeringAnalyticsCIDurationRegressionSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["engineering_analytics"] = "engineering_analytics"
+    source_type: Literal["ci_duration_regression"] = "ci_duration_regression"
+    weight: float
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["engineering_analytics"] = "engineering_analytics"
+    source_type: Literal["ci_flaky_check"] = "ci_flaky_check"
+    weight: float
+
+
 class EnrichedReviewer(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7051,6 +7156,9 @@ class SignalInput(
         | LogsAlertStateChangeSignalInput
         | HealthCheckSignalInput
         | ReplayVisionScannerFindingSignalInput
+        | EngineeringAnalyticsCIFlakyCheckSignalInput
+        | EngineeringAnalyticsCIBrokenMasterSignalInput
+        | EngineeringAnalyticsCIDurationRegressionSignalInput
     ]
 ):
     root: (
@@ -7069,6 +7177,9 @@ class SignalInput(
         | LogsAlertStateChangeSignalInput
         | HealthCheckSignalInput
         | ReplayVisionScannerFindingSignalInput
+        | EngineeringAnalyticsCIFlakyCheckSignalInput
+        | EngineeringAnalyticsCIBrokenMasterSignalInput
+        | EngineeringAnalyticsCIDurationRegressionSignalInput
     )
 
 
