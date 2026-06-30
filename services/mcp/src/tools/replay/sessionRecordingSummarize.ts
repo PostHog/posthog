@@ -42,6 +42,9 @@ type SseEvent = SummaryEvent | ErrorEvent | DoneEvent
 
 type SseResult = WithPostHogUrl<Record<string, SessionResult>>
 
+const STILL_GENERATING_MESSAGE =
+    'Summary still generating (first-time summaries call an AI model and take ~5 min each). Completed summaries are cached — call session-recording-summarize again with the same session_ids to retrieve them instantly and finish the rest.'
+
 /**
  * Hand-written session-recording-summarize tool that uses SSE streaming
  * to avoid gateway timeouts on long-running summary generation (~5 min).
@@ -63,36 +66,49 @@ const sessionRecordingSummarize = (): ToolBase<typeof schema, SseResult> =>
             }
 
             const results: Record<string, SessionResult> = {}
-            let sawDone = false
 
-            await context.api.requestSSE<SseEvent>({
-                method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/stream_batch/`,
-                body,
-                onEvent: (event, data) => {
-                    if (event === 'summary') {
-                        const d = data as SummaryEvent
-                        if (d.session_id && d.summary) {
-                            results[d.session_id] = d.summary
-                        }
-                    } else if (event === 'error') {
-                        const d = data as ErrorEvent
-                        if (d.session_id) {
-                            results[d.session_id] = {
-                                error: d.error,
-                                error_message: d.error_message,
+            try {
+                await context.api.requestSSE<SseEvent>({
+                    method: 'POST',
+                    path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/stream_batch/`,
+                    body,
+                    onEvent: (event, data) => {
+                        if (event === 'summary') {
+                            const d = data as SummaryEvent
+                            if (d.session_id && d.summary) {
+                                results[d.session_id] = d.summary
+                            }
+                        } else if (event === 'error') {
+                            const d = data as ErrorEvent
+                            if (d.session_id) {
+                                results[d.session_id] = {
+                                    error: d.error,
+                                    error_message: d.error_message,
+                                }
                             }
                         }
-                    } else if (event === 'done') {
-                        sawDone = true
-                    }
-                },
-            })
+                    },
+                })
+            } catch (error) {
+                // The stream was cut short — most often the overall timeout firing before a long batch
+                // finishes. If nothing arrived at all it's a genuine failure (auth, validation, server
+                // error), so surface it. Otherwise keep the summaries that did complete; the unfinished
+                // ones are filled in as `incomplete` below.
+                if (Object.keys(results).length === 0) {
+                    throw error
+                }
+            }
 
-            if (!sawDone) {
-                throw new Error(
-                    `SSE stream ended without a done event — results may be incomplete (received ${Object.keys(results).length}/${params.session_ids.length} sessions)`
-                )
+            // Any session without a result is still generating. Report it per-session (matching the
+            // tool's contract) instead of failing the whole call — completed summaries are cached, so
+            // calling again with the same IDs returns them instantly and continues the rest.
+            for (const sessionId of params.session_ids) {
+                if (!(sessionId in results)) {
+                    results[sessionId] = {
+                        error: 'incomplete',
+                        error_message: STILL_GENERATING_MESSAGE,
+                    }
+                }
             }
 
             return withPostHogUrl(context, results, '/replay')
