@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, path, propsChanged, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -69,11 +69,6 @@ export const infoTabLogic = kea<infoTabLogicType>([
     }),
     afterMount(({ actions, props }) => {
         if (props.viewId) {
-            actions.loadUpstream(props.viewId)
-        }
-    }),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.viewId && props.viewId !== oldProps.viewId) {
             actions.loadUpstream(props.viewId)
         }
     }),
