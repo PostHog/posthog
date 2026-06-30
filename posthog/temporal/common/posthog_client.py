@@ -81,7 +81,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 }
             }
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
-            if api_key:
+            # Callers can opt an exception out of error-tracking capture by setting
+            # `skip_error_tracking_capture` on it — used for transient infra hiccups (e.g. a
+            # PgBouncer pool-saturation timeout) that Temporal retries, so they don't surface
+            # as brand-new error-tracking issues on every attempt.
+            if api_key and not getattr(e, "skip_error_tracking_capture", False):
                 try:
                     capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
                 except Exception as capture_error:

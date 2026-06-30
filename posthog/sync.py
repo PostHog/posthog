@@ -26,6 +26,23 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
+# Substrings identifying transient database failures that callers should retry rather than
+# treat as a real bug. PgBouncer (the transaction pooler) kills a query that waits too long
+# for a free backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
+# connections as connection failures. Both are pool-saturation hiccups that self-heal on retry.
+TRANSIENT_DB_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def is_transient_db_error(error: BaseException) -> bool:
+    """True if `error` looks like a transient database connection-pool failure worth retrying."""
+    message = str(error)
+    return any(marker in message for marker in TRANSIENT_DB_ERROR_MARKERS)
+
+
 class DatabaseSyncToAsync(SyncToAsync):
     """
     SyncToAsync version that cleans up old database connections when it exits.

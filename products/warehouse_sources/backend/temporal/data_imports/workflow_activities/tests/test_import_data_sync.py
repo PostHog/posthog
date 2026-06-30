@@ -111,6 +111,24 @@ async def test_retryable_setup_error_is_reraised():
     handle_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_transient_db_error_is_reraised_and_flagged_to_skip_capture():
+    # A PgBouncer pool-saturation error (`query_wait_timeout`) can surface on any DB query during
+    # source setup. It must be re-raised so Temporal retries (not routed through the non-retryable
+    # handler), and flagged so the Temporal interceptor doesn't report it as a new error-tracking
+    # issue on every attempt.
+    error = Exception("connection failed: ... ERROR: query_wait_timeout")
+    source = _make_source(error, {"The DNS query name does not exist": None})
+
+    with _patched_activity(source) as handle_mock:
+        with pytest.raises(Exception, match="query_wait_timeout") as ctx:
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_not_awaited()
+    assert ctx.value is error
+    assert getattr(error, "skip_error_tracking_capture", False) is True
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True

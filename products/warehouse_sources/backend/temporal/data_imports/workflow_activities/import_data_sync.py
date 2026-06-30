@@ -11,7 +11,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.sync import database_sync_to_async_pool
+from posthog.sync import database_sync_to_async_pool, is_transient_db_error
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -315,6 +315,17 @@ async def _handle_import_error(
     )
     if is_non_retryable_error:
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+    elif is_transient_db_error(error):
+        # A transient PgBouncer pool-saturation hiccup (e.g. `query_wait_timeout`) can surface on
+        # any DB query in the activity and self-heals on Temporal's retry. Re-raise so the activity
+        # retries, but flag the exception so the Temporal interceptor doesn't report it as a
+        # brand-new error-tracking issue — it's infra noise, not a bug in the import.
+        try:
+            error.skip_error_tracking_capture = True  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        await logger.awarning("Transient database error during import_data_activity - retrying", error=error_msg)
+        raise error
     else:
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")
