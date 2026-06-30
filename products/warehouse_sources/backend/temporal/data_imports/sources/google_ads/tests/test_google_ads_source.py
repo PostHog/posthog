@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
+    _search_fields_with_transient_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -766,6 +767,59 @@ class TestSearchTransientRetry:
                 )
 
         # First call raises and propagates immediately — no retry, no backoff.
+        assert service.calls == 1
+        assert sleep.call_count == 0
+
+
+class _FlakyFieldService:
+    """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""
+
+    def __init__(self, pager: object, error: BaseException, fail_times: int):
+        self.pager = pager
+        self.error = error
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def search_google_ads_fields(self, query: str):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        return self.pager
+
+
+class TestSearchFieldsTransientRetry:
+    def test_rides_out_transient_internal_error(self):
+        pager = object()
+        service = _FlakyFieldService(pager, error=_grpc_internal_error(), fail_times=2)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            result = _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        # The reported INTERNAL blip on schema discovery is now ridden out in-process, not surfaced.
+        assert result is pager
+        assert service.calls == 3
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_persistent_internal_is_reraised_for_temporal_to_retry(self):
+        service = _FlakyFieldService(object(), error=_grpc_internal_error(), fail_times=99)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(grpc.RpcError):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert service.calls == 4
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_non_transient_error_is_not_retried(self):
+        service = _FlakyFieldService(
+            object(), error=google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), fail_times=99
+        )
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(google_api_exceptions.PermissionDenied):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
         assert service.calls == 1
         assert sleep.call_count == 0
 
