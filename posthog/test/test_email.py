@@ -159,7 +159,7 @@ class TestEmail(BaseTest):
             override_instance_config("EMAIL_HOST", "localhost"),
             patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=exc),
         ):
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
                 "campaign_key": f"retry_{name}",
                 "subject": "Subject",
@@ -187,7 +187,7 @@ class TestEmail(BaseTest):
                 side_effect=[1, smtplib.SMTPServerDisconnected("dropped mid-batch")],
             ),
         ):
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "to": [
                     {"raw_email": "first@posthog.com", "recipient": "first@posthog.com"},
                     {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
@@ -201,10 +201,14 @@ class TestEmail(BaseTest):
             with self.assertRaises(smtplib.SMTPServerDisconnected):
                 _send_via_smtp(**kwargs)
 
-        first = MessagingRecord.objects.filter(raw_email="first@posthog.com", campaign_key="batch_transient").first()
+        first = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("first@posthog.com"), campaign_key="batch_transient"
+        ).first()
         self.assertIsNotNone(first)
         self.assertIsNotNone(first.sent_at)  # committed before the failure → a retry skips it
-        second = MessagingRecord.objects.filter(raw_email="second@posthog.com", campaign_key="batch_transient").first()
+        second = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("second@posthog.com"), campaign_key="batch_transient"
+        ).first()
         self.assertIsNone(second)  # its transaction rolled back → retried fresh, no half-written row
 
     def test_smtp_connection_built_with_bounded_timeout(self) -> None:
