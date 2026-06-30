@@ -201,6 +201,10 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
         self.sensitive_config = row.sensitive_config
         self.config = row.config
         self.errors = row.errors
+
+        # `_obtain_token()` sets the token or raises above; guard so the `str` return type holds.
+        if auth.token is None:
+            raise OAuth2AuthRequestError("Token endpoint returned no access token")
         return auth.token
 
 

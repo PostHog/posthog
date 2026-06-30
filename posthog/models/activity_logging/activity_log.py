@@ -635,6 +635,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "connection_id",
         "destination_id",
         "are_tables_created",
+        # Reverse relation to a fail-closed model: reading through it in `changes_between` raises
+        # TeamScopeError when a source is saved outside request scope, and it isn't source-config intent.
+        "custom_oauth2_integrations",
     ],
     "ExternalDataSchema": [
         "status",
