@@ -812,6 +812,69 @@ export interface ScannerStatsResponseApi {
     by_type: ScannerStatsByTypeApi
 }
 
+/**
+ * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+ */
+export interface SuggestTagsRequestApi {
+    /**
+     * The classifier's instruction prompt — the single dimension to categorize sessions by.
+     * @maxLength 10000
+     */
+    prompt: string
+    /**
+     * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+     * @maxItems 200
+     * @items.maxLength 200
+     */
+    tags?: string[]
+    /** Whether the classifier assigns multiple tags per session. */
+    multi_label?: boolean
+    /** Whether the classifier may emit tags outside the fixed vocabulary. */
+    allow_freeform_tags?: boolean
+    /**
+     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+     * @nullable
+     */
+    scanner_id?: string | null
+}
+
+/**
+ * * `observed` - observed
+ * * `product` - product
+ * * `prompt` - prompt
+ */
+export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
+
+export const TagSuggestionSourceEnumApi = {
+    Observed: 'observed',
+    Product: 'product',
+    Prompt: 'prompt',
+} as const
+
+/**
+ * One grounded tag suggestion.
+ */
+export interface TagSuggestionApi {
+    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+    tag: string
+    /** One sentence explaining the specific evidence this tag is grounded in. */
+    rationale: string
+    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+     *
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt */
+    source: TagSuggestionSourceEnumApi
+}
+
+/**
+ * Grounded tag suggestions for the classifier config editor.
+ */
+export interface SuggestTagsResponseApi {
+    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+    suggestions: TagSuggestionApi[]
+}
+
 export type VisionActionsListParams = {
     /**
      * Number of results to return per page.

@@ -413,7 +413,10 @@ def get_rows(
                             }
                         )
 
-                        if batcher.should_yield():
+                        # A single batch can split into several ready chunks, so drain them all
+                        # before batching the next item — otherwise the next batch() trips the
+                        # "table already ready" guard.
+                        while batcher.should_yield():
                             py_table = batcher.get_table()
                             yield py_table
 
@@ -437,14 +440,14 @@ def get_rows(
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
-                if batcher.should_yield():
+                while batcher.should_yield():
                     py_table = batcher.get_table()
                     yield py_table
 
                     last_cur = py_table.column("id")[-1].as_py()
                     resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
 
-        if batcher.should_yield(include_incomplete_chunk=True):
+        while batcher.should_yield(include_incomplete_chunk=True):
             py_table = batcher.get_table()
             yield py_table
 

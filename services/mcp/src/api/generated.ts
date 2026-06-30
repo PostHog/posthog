@@ -5171,6 +5171,8 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Postgresql: 'postgresql',
+      AwsS3: 'aws-s3',
+      S3Compatible: 's3-compatible',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -5491,6 +5493,7 @@ export namespace Schemas {
       Cohorts: 'cohorts',
       CohortsWithAll: 'cohorts_with_all',
       DataWarehouse: 'data_warehouse',
+      DataWarehouseSourceTables: 'data_warehouse_source_tables',
       DataWarehouseProperties: 'data_warehouse_properties',
       DataWarehousePersonProperties: 'data_warehouse_person_properties',
       Elements: 'elements',
@@ -7246,6 +7249,7 @@ export namespace Schemas {
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;
+      showPieTotal?: boolean | null;
       showTotalRow?: boolean | null;
       showValuesOnSeries?: boolean | null;
       showXAxisBorder?: boolean | null;
@@ -15810,6 +15814,7 @@ export namespace Schemas {
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
      * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16464,6 +16469,7 @@ export namespace Schemas {
       NextdoorAds: 'NextdoorAds',
       AppLovin: 'AppLovin',
       Baserow: 'Baserow',
+      Plunk: 'Plunk',
     } as const;
 
     /**
@@ -17131,7 +17137,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17859,6 +17866,24 @@ export namespace Schemas {
     }
 
     /**
+     * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+     *
+     * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+     * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+     * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+     * reviewer is never silently dropped.
+     */
+    export interface SuggestedReviewer {
+      /**
+         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
+      user_uuid?: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -17880,6 +17905,11 @@ export namespace Schemas {
          * @nullable
          */
       append_note?: string | null;
+      /**
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EditReportResponse {
@@ -17889,6 +17919,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether a note artefact was appended. */
       note_appended: boolean;
+      /** Whether the report's suggested reviewers were replaced. */
+      reviewers_set: boolean;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -18168,8 +18200,11 @@ export namespace Schemas {
          * @nullable
          */
       priority_explanation?: string | null;
-      /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
-      suggested_reviewers?: string[];
+      /**
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EmitReportResponse {
@@ -18697,6 +18732,7 @@ export namespace Schemas {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
+     * * `snowflake` - snowflake
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -18705,6 +18741,7 @@ export namespace Schemas {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
       Mysql: 'mysql',
+      Snowflake: 'snowflake',
     } as const;
 
     /**
@@ -22195,7 +22232,8 @@ export namespace Schemas {
        *
        * * `duckdb` - duckdb
        * * `postgres` - postgres
-       * * `mysql` - mysql */
+       * * `mysql` - mysql
+       * * `snowflake` - snowflake */
       readonly engine: EngineEnum | null;
     }
 
@@ -22855,7 +22893,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -22947,7 +22986,8 @@ export namespace Schemas {
        *
        * * `duckdb` - duckdb
        * * `postgres` - postgres
-       * * `mysql` - mysql */
+       * * `mysql` - mysql
+       * * `snowflake` - snowflake */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -30036,6 +30076,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
+
+
+    export const OperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -30530,7 +30584,7 @@ export namespace Schemas {
       by_run: RunCost[];
       /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
       jobs_available: boolean;
-      /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+      /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
       billable_minutes: number;
       /**
          * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
@@ -34425,6 +34479,39 @@ export namespace Schemas {
     }
 
     /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type TracingViewFilters = { [key: string]: unknown };
+
+    export interface TracingView {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: TracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at: string;
+      /** User who created the view. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracingViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingView[];
+    }
+
+    /**
      * Insight enriched with view-count and recent-viewer fields, used by the trending action.
      */
     export interface TrendingInsight {
@@ -37103,7 +37190,8 @@ export namespace Schemas {
        *
        * * `duckdb` - duckdb
        * * `postgres` - postgres
-       * * `mysql` - mysql */
+       * * `mysql` - mysql
+       * * `snowflake` - snowflake */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -41477,6 +41565,30 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type PatchedTracingViewFilters = { [key: string]: unknown };
+
+    export interface PatchedTracingView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: PatchedTracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at?: string;
+      /** User who created the view. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -43944,6 +44056,47 @@ export namespace Schemas {
       source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
+    }
+
+    export interface QuarantineRequest {
+      /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
+       *
+       * * `quarantine` - QUARANTINE
+       * * `extend` - EXTEND
+       * * `remove` - REMOVE */
+      operation: OperationEnum;
+      /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+      selector: string;
+      /**
+         * Optional 'owner/name' repository override; defaults to the team's most active repo.
+         * @nullable
+         */
+      repo?: string | null;
+      /** Why the test is quarantined. Required for quarantine and extend; ignored by remove. */
+      reason?: string;
+      /** GitHub team or user handle responsible for the fix, e.g. '@PostHog/team-x'. Required for quarantine and extend. */
+      owner?: string;
+      /** Existing tracking issue URL, carried forward on extend and remove. Ignored by quarantine, which files a fresh issue. */
+      issue?: string;
+      /**
+         * ISO date the quarantine expires (at most 30 days out). Defaults to 14 days from today. Ignored by remove.
+         * @nullable
+         */
+      expires?: string | null;
+      /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.
+       *
+       * * `run` - RUN
+       * * `skip` - SKIP */
+      mode?: QuarantineModeEnum;
+    }
+
+    export interface QuarantineRequestResult {
+      /** URL of the opened pull request that edits the quarantine file. */
+      pr_url: string;
+      /** URL of the tracking issue filed for a new quarantine; empty for extend and remove. */
+      issue_url: string;
+      /** Branch the pull request was opened from. */
+      branch: string;
     }
 
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
@@ -47045,6 +47198,25 @@ export namespace Schemas {
     }
 
     /**
+     * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
+     */
+    export interface ScoutMember {
+      /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
+      user_uuid: string;
+      /** The member's email — use to match a finding's owner by name/email. */
+      email: string;
+      /** The member's first name (may be empty). */
+      first_name: string;
+      /** The member's last name (may be empty). */
+      last_name: string;
+      /**
+         * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
+    /**
      * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
      * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
      * change without a deploy to either app.
@@ -48702,7 +48874,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -49396,7 +49569,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -50082,7 +50256,8 @@ export namespace Schemas {
        * * `Talkwalker` - Talkwalker
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow */
+       * * `Baserow` - Baserow
+       * * `Plunk` - Plunk */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50165,6 +50340,70 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+     */
+    export interface SuggestTagsRequest {
+      /**
+         * The classifier's instruction prompt — the single dimension to categorize sessions by.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * @maxItems 200
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Whether the classifier assigns multiple tags per session. */
+      multi_label?: boolean;
+      /** Whether the classifier may emit tags outside the fixed vocabulary. */
+      allow_freeform_tags?: boolean;
+      /**
+         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
+    }
+
+    /**
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt
+     */
+    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
+
+
+    export const TagSuggestionSourceEnum = {
+      Observed: 'observed',
+      Product: 'product',
+      Prompt: 'prompt',
+    } as const;
+
+    /**
+     * One grounded tag suggestion.
+     */
+    export interface TagSuggestion {
+      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+      tag: string;
+      /** One sentence explaining the specific evidence this tag is grounded in. */
+      rationale: string;
+      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+       *
+       * * `observed` - observed
+       * * `product` - product
+       * * `prompt` - prompt */
+      source: TagSuggestionSourceEnum;
+    }
+
+    /**
+     * Grounded tag suggestions for the classifier config editor.
+     */
+    export interface SuggestTagsResponse {
+      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+      suggestions: TagSuggestion[];
     }
 
     /**
@@ -52960,6 +53199,25 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogPattern {
+      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      pattern: string;
+      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+      count: number;
+      /** Share of the sampled log volume this pattern represents (0–100). */
+      volume_share_pct: number;
+      /** Sampled occurrences at severity "error" or "fatal". */
+      error_count: number;
+      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      first_seen: string;
+      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      last_seen: string;
+      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+      examples: string[];
+      /** Up to 4 distinct service names this pattern was observed in. */
+      services: string[];
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -53140,6 +53398,35 @@ export namespace Schemas {
     export interface _LogsFacetValuesResponse {
       /** Facet values with cross-filtered counts, ordered by count descending. */
       results: _LogFacetValue[];
+    }
+
+    export interface _LogsPatternsBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsRequest {
+      /** The patterns query to execute. */
+      query: _LogsPatternsBody;
+    }
+
+    export interface _LogsPatternsResponse {
+      /** Mined patterns ordered by `count` descending. */
+      patterns: _LogPattern[];
+      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      scanned_count: number;
+      /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+      total_count: number;
+      /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+      sampled: boolean;
     }
 
     export interface _LogsQueryBody {
@@ -58261,6 +58548,17 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type EnvironmentsTracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsUserInterviewTopicsListParams = {
     /**
@@ -64913,6 +65211,14 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsScoutMembersListParams = {
+    /**
+     * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type SignalsScoutProjectProfileGetParams = {
     /**
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
@@ -65592,6 +65898,17 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type TracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 

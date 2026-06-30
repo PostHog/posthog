@@ -1,3 +1,4 @@
+import functools
 from typing import Any, cast
 
 import pytest
@@ -346,6 +347,90 @@ class TestSubscriptionPageSize:
             )
 
         assert captured["limit"] == SUBSCRIPTION_PAGE_LIMIT
+
+
+class TestStripeBatcherDrainsSplitChunks:
+    def test_flat_resource_drains_all_split_chunks_per_batch(self):
+        # A single batch() can split a flushed buffer into several ready chunks (large rows over the
+        # per-table byte cap). get_rows must drain every chunk before batching the next object,
+        # otherwise the following batch() raises "Batcher already has a table ready to yield."
+        objects = [{"id": f"ch_{i}", "description": "x" * 10} for i in range(6)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        # Tiny caps force every 2-row buffer flush to split into single-row chunks.
+        splitting_batcher = functools.partial(
+            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
+        )
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint="charge",
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(6)]
+
+    def test_nested_resource_drains_all_split_chunks_per_batch(self):
+        nested_objects = [{"id": f"cbt_{i}", "amount": 100, "note": "y" * 10} for i in range(6)]
+
+        def nested_method(customer=None, params=None):
+            return _list_object(nested_objects)
+
+        splitting_batcher = functools.partial(
+            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
+        )
+
+        with patch.object(stripe_module, "Batcher", splitting_batcher):
+            rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_1"}])
+
+        assert [row["id"] for row in rows] == [f"cbt_{i}" for i in range(6)]
+
+    def test_final_incomplete_chunk_drain_splits(self):
+        # The final drain takes a different path: get_table() flushes the leftover buffer and can
+        # itself produce multiple chunks. A large chunk_size keeps every row in the buffer until the
+        # end, so all rows go through that final drain — which must drain every split chunk.
+        objects = [{"id": f"ch_{i}", "description": "z" * 10} for i in range(4)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        splitting_batcher = functools.partial(
+            stripe_module.Batcher, chunk_size=100, max_table_bytes=1, max_column_offset_bytes=1
+        )
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint="charge",
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(4)]
 
 
 class TestCustomerMightHaveBalanceTransactions:

@@ -18,8 +18,14 @@ import {
     visionScannersObserveCreate,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
+    visionScannersSuggestTagsCreate,
 } from '../generated/api'
-import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
+import type {
+    EstimateResponseApi,
+    ObservationStatsApi,
+    ReplayObservationApi,
+    TagSuggestionApi,
+} from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -220,6 +226,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
+        appendClassifierTags: (tags: string[]) => ({ tags }),
+        loadTagSuggestions: true,
+        loadTagSuggestionsSuccess: (suggestions: TagSuggestionApi[]) => ({ suggestions }),
+        loadTagSuggestionsFailure: true,
+        acceptTagSuggestion: (tag: string) => ({ tag }),
+        acceptAllTagSuggestions: true,
+        dismissTagSuggestions: true,
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -386,6 +399,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setSubmitIntent: (_, { intent }) => intent,
                 loadScannerSuccess: () => 'save' as 'save' | 'advance',
+            },
+        ],
+        tagSuggestions: [
+            [] as TagSuggestionApi[],
+            {
+                loadTagSuggestions: () => [],
+                loadTagSuggestionsSuccess: (_, { suggestions }) => suggestions,
+                loadTagSuggestionsFailure: () => [],
+                // Accepted suggestions leave the panel; the listener adds them to the vocabulary.
+                acceptTagSuggestion: (state, { tag }) => state.filter((s) => s.tag !== tag),
+                dismissTagSuggestions: () => [],
+            },
+        ],
+        tagSuggestionsLoading: [
+            false,
+            {
+                loadTagSuggestions: () => true,
+                loadTagSuggestionsSuccess: () => false,
+                loadTagSuggestionsFailure: () => false,
             },
         ],
         observations: [
@@ -696,6 +728,57 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
+            },
+
+            // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
+            appendClassifierTags: ({ tags }) => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                // Keep existing tags, append new ones, dedupe case-insensitively (existing tags win).
+                const existing = scanner.scanner_config.tags ?? []
+                const seen = new Set(existing.map((t) => t.toLowerCase()))
+                const merged = [...existing]
+                for (const tag of tags) {
+                    const trimmed = tag.trim()
+                    if (trimmed && !seen.has(trimmed.toLowerCase())) {
+                        seen.add(trimmed.toLowerCase())
+                        merged.push(trimmed)
+                    }
+                }
+                if (merged.length !== existing.length) {
+                    actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            loadTagSuggestions: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                const scanner = values.scanner
+                if (!teamId || !scanner || scanner.scanner_type !== 'classifier') {
+                    actions.loadTagSuggestionsFailure()
+                    return
+                }
+                const config = scanner.scanner_config
+                try {
+                    const response = await visionScannersSuggestTagsCreate(String(teamId), {
+                        prompt: config.prompt ?? '',
+                        tags: config.tags ?? [],
+                        multi_label: config.multi_label ?? true,
+                        allow_freeform_tags: config.allow_freeform_tags ?? false,
+                        scanner_id: props.id !== 'new' ? props.id : undefined,
+                    })
+                    actions.loadTagSuggestionsSuccess(response.suggestions ?? [])
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
+                    actions.loadTagSuggestionsFailure()
+                }
+            },
+            acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),
+            acceptAllTagSuggestions: () => {
+                // Read the suggestions before dismiss clears them.
+                actions.appendClassifierTags(values.tagSuggestions.map((s) => s.tag))
+                actions.dismissTagSuggestions()
             },
 
             // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags

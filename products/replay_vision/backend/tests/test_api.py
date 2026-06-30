@@ -1530,6 +1530,8 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             distinct_id="estimate-distinct-id",
             first_timestamp=first_timestamp,
             last_timestamp=first_timestamp + timedelta(minutes=5),
+            # Clear the scanner eligibility bounds the estimate applies, so these sessions count.
+            active_milliseconds=30_000,
         )
 
     @parameterized.expand(

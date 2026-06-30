@@ -319,6 +319,7 @@ function DataWarehouseQueryInner(): JSX.Element {
                         onComplete={handleSourceConnected}
                         featured
                         showWizard
+                        autoConfigureTables
                         title="Choose a source"
                         subtitle="You can always connect more sources later."
                     />
