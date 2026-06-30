@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import psycopg
@@ -38,6 +38,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
+    get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
@@ -10202,3 +10203,35 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
+
+
+class TestGetDirectConnectionMetadata(SimpleTestCase):
+    def _source_impl(self, error: Exception, non_retryable: dict | None = None) -> Mock:
+        impl = Mock()
+        impl.get_connection_metadata.side_effect = error
+        impl.get_non_retryable_errors.return_value = non_retryable or {}
+        return impl
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_expected_connection_error_is_not_captured(self, mock_capture):
+        # An unreachable customer host fails the best-effort metadata probe — already surfaced by
+        # credential validation, so it must degrade to the fallback without flooding error tracking.
+        impl = self._source_impl(
+            psycopg.OperationalError('connection to server at "192.0.2.1", port 5432 failed: Network is unreachable')
+        )
+        fallback = {"database": "existing"}
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=fallback)
+
+        self.assertEqual(result, fallback)
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_unexpected_error_is_still_captured(self, mock_capture):
+        error = ValueError("unexpected bug in metadata probe")
+        impl = self._source_impl(error)
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=None)
+
+        self.assertEqual(result, {})
+        mock_capture.assert_called_once_with(error)

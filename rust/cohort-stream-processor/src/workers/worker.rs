@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
@@ -55,6 +55,11 @@ use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReaso
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
+
+/// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
+/// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
+/// wall-clock interval adapts to per-event cost across catalogs of different sizes.
+const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct Stage1Worker {
     partition_id: u16,
@@ -116,12 +121,14 @@ async fn run_worker(
     let mut queue = EvictionQueue::<Stage1Key>::new();
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
-        rebuild_eviction_queue(partition_id, &store, &mut queue);
+        rebuild_eviction_queue(partition_id, &store, &mut queue).await;
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
     let mut stage2_gc_cursor = Stage2GcCursor::default();
 
+    // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
+    let mut last_yield = Instant::now();
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
         let mut buffer = OutputBuffer::new();
@@ -268,6 +275,11 @@ async fn run_worker(
                         );
                     }
                 }
+            }
+
+            if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
+                tokio::task::yield_now().await;
+                last_yield = Instant::now();
             }
         }
 
@@ -771,7 +783,7 @@ async fn handle_sweep(
 /// stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX` deadlines
 /// (permanent). Corrupt records are counted and skipped — the event path re-derives them. A scan error
 /// stops early; new events reschedule any missing keys.
-fn rebuild_eviction_queue(
+async fn rebuild_eviction_queue(
     partition_id: u16,
     store: &CohortStore,
     queue: &mut EvictionQueue<Stage1Key>,
@@ -808,6 +820,9 @@ fn rebuild_eviction_queue(
         if page_len < REBUILD_SCAN_PAGE {
             break;
         }
+        // Workers re-seed concurrently on restart; yield between pages so the boot scan doesn't
+        // saturate the runtime before the consume loop starts.
+        tokio::task::yield_now().await;
     }
     if rebuilt > 0 {
         counter!(EVICTION_QUEUE_REBUILT_KEYS_TOTAL, "partition" => partition_id.to_string())

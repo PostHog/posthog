@@ -490,8 +490,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
+    # Signals implementation PRs are bot-authored and always benefit from the PR
+    # follow-up loop (fixing CI, replying to and resolving review threads), so they
+    # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
+    # that gates other origins. This mirrors the babysitting the Slack coding bot
+    # gets for its PRs.
     pr_loop_enabled = (
-        posthoganalytics.feature_enabled(
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
             groups={"organization": organization_id},

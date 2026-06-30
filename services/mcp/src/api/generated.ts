@@ -8239,363 +8239,6 @@ export namespace Schemas {
     }
 
     /**
-     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
-     */
-    export type AgentRevisionSpecModels = {
-      mode: 'auto';
-      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-      level?: 'low' | 'medium' | 'high';
-      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-      optimize_for?: 'cost' | 'availability';
-    } | {
-      mode: 'manual';
-      /**
-         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-         * @minItems 1
-         */
-      models: ({
-      /**
-         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
-      /** Per-model reasoning effort override (else the spec default). */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    })[];
-      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-      optimize_for?: 'cost' | 'availability';
-    };
-
-    export type AgentRevisionSpecTriggersItem = {
-      type: 'slack';
-      config: {
-      channel_id?: string;
-      mention_only: boolean;
-      auto_resume_threads: boolean;
-      allow_workspace_participants: boolean;
-      ack_reaction?: string;
-      allow_direct_messages: boolean;
-      trusted_workspaces: string[] | '*';
-    };
-    } | {
-      type: 'webhook';
-      config: {
-      path: string;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'cron';
-      config: {
-      /** @minLength 1 */
-      name: string;
-      /** @minLength 1 */
-      schedule: string;
-      timezone?: string;
-      /**
-         * @minLength 1
-         * @maxLength 4096
-         */
-      prompt: string;
-      external_key?: string;
-      catch_up?: 'all' | 'most_recent' | 'skip';
-      /**
-         * @minimum 1
-         * @maximum 604800
-         */
-      max_catch_up_age_seconds?: number;
-    };
-    } | {
-      type: 'chat';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'mcp';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    };
-
-    export type AgentRevisionSpecToolsItem = {
-      kind: 'native';
-      id: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    } | {
-      kind: 'custom';
-      id: string;
-      path: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-      requires_identity?: string;
-    } | {
-      kind: 'custom_template';
-      from_template: string;
-      alias: string;
-      /** @minimum 1 */
-      version?: number;
-    } | {
-      kind: 'client';
-      /** @minLength 1 */
-      id: string;
-      /** @minLength 1 */
-      description: string;
-      args_schema?: { [key: string]: unknown };
-      required?: boolean;
-      /**
-         * @minimum 1
-         * @maximum 600000
-         */
-      timeout_ms?: number;
-      interactive?: boolean;
-    };
-
-    export type AgentRevisionSpecMcpsItemAuth = {
-      provider?: string;
-    };
-
-    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
-
-    export type AgentRevisionSpecMcpsItemToolsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    };
-
-    export type AgentRevisionSpecMcpsItem = {
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: AgentRevisionSpecMcpsItemAuth;
-      secrets?: string[];
-      headers?: AgentRevisionSpecMcpsItemHeaders;
-      tools?: AgentRevisionSpecMcpsItemToolsItem[];
-    };
-
-    export type AgentRevisionSpecSkillsItem = {
-      id: string;
-      path: string;
-      description?: string;
-      from_template?: string;
-      alias?: string;
-      /** @minimum 1 */
-      version?: number;
-      source_version_id?: string;
-    };
-
-    export type AgentRevisionSpecIdentityProvidersItem = {
-      kind: 'posthog';
-      /** @minLength 1 */
-      id?: string;
-      binding?: 'principal';
-      scopes?: string[];
-      client_id?: string;
-    } | {
-      kind: 'oauth2';
-      /** @minLength 1 */
-      id: string;
-      binding?: 'principal';
-      authorize_url: string;
-      token_url: string;
-      /** @minLength 1 */
-      client_id: string;
-      client_secret_ref?: string;
-      scopes?: string[];
-      userinfo_url?: string;
-    };
-
-    export type AgentRevisionSpecSecretsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      /**
-         * @minItems 1
-         * @items.minLength 1
-         */
-      allowed_hosts: string[];
-    };
-
-    export type AgentRevisionSpecLimits = {
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_turns: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_tool_calls: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_wall_seconds: number;
-      /**
-         * @maximum 200000
-         * @exclusiveMinimum 0
-         */
-      max_output_tokens?: number;
-      /**
-         * @maximum 16384
-         * @exclusiveMinimum 0
-         */
-      max_memory_mb: number;
-      /**
-         * @maximum 8
-         * @exclusiveMinimum 0
-         */
-      max_cpu_cores: number;
-    };
-
-    export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
-
-
-    export const AgentRevisionSpecReasoning = {
-      Minimal: 'minimal',
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-    } as const;
-
-    export type AgentRevisionSpecFrameworkPromptOmitItem = typeof AgentRevisionSpecFrameworkPromptOmitItem[keyof typeof AgentRevisionSpecFrameworkPromptOmitItem];
-
-
-    export const AgentRevisionSpecFrameworkPromptOmitItem = {
-      MetaToolGuidance: 'meta_tool_guidance',
-      StateContract: 'state_contract',
-      ToolFailureGuidance: 'tool_failure_guidance',
-      ApprovalGuidance: 'approval_guidance',
-      ReasoningHint: 'reasoning_hint',
-    } as const;
-
-    export type AgentRevisionSpecFrameworkPrompt = {
-      omit: AgentRevisionSpecFrameworkPromptOmitItem[];
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      version_pin?: number;
-    };
-
-    export type AgentRevisionSpecResume = {
-      enabled: boolean;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_completed_age_ms: number;
-    };
-
-    export type AgentRevisionSpec = {
-      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-      models: AgentRevisionSpecModels;
-      triggers: AgentRevisionSpecTriggersItem[];
-      tools: AgentRevisionSpecToolsItem[];
-      mcps: AgentRevisionSpecMcpsItem[];
-      skills: AgentRevisionSpecSkillsItem[];
-      identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
-      secrets: AgentRevisionSpecSecretsItem[];
-      limits: AgentRevisionSpecLimits;
-      reasoning?: AgentRevisionSpecReasoning;
-      framework_prompt?: AgentRevisionSpecFrameworkPrompt;
-      resume?: AgentRevisionSpecResume;
-    };
-
-    /**
      * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
      * @nullable
      */
@@ -8654,7 +8297,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256: string | null;
-      spec?: AgentRevisionSpec;
+      spec?: unknown;
       /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
       readonly skill_refs: readonly SkillRef[];
       /** @nullable */
@@ -12181,6 +11824,16 @@ export namespace Schemas {
       updated: BulkUpdateTagsItem[];
       skipped: BulkUpdateTagsError[];
     }
+
+    /**
+     * * `zip` - zip
+     */
+    export type BundleFormatEnum = typeof BundleFormatEnum[keyof typeof BundleFormatEnum];
+
+
+    export const BundleFormatEnum = {
+      Zip: 'zip',
+    } as const;
 
     /**
      * * `b2b` - B2B
@@ -20458,6 +20111,7 @@ export namespace Schemas {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -20470,6 +20124,7 @@ export namespace Schemas {
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
+      Minimax: 'minimax',
     } as const;
 
     /**
@@ -22456,7 +22111,7 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
-      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
          * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -25604,6 +25259,74 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+    }
+
+    /**
+     * * `running` - running
+     * * `succeeded` - succeeded
+     * * `failed` - failed
+     */
+    export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
+
+
+    export const HogInvocationRerunFilterStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+     */
+    export interface HogInvocationRerunFilter {
+      /** Inclusive lower bound on `scheduled_at` (UTC). */
+      window_start: string;
+      /** Exclusive upper bound on `scheduled_at` (UTC). */
+      window_end: string;
+      /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+      status?: HogInvocationRerunFilterStatusEnum[];
+      /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+      error_kind?: string[];
+      /**
+         * Skip invocations that have already been attempted this many times or more.
+         * @minimum 1
+         * @maximum 255
+         */
+      max_attempts?: number;
+      /**
+         * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+         * @minimum 1
+         * @maximum 10000
+         */
+      max_count?: number;
+      /**
+         * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+    }
+
+    /**
+     * Rerun invocations of a hog function or hog flow from their stored payloads.
+     */
+    export interface HogInvocationRerunRequest {
+      /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+      filter: HogInvocationRerunFilter;
+    }
+
+    /**
+     * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+     * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+     * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+     * Use `rerun_job_id` to look up progress on the wrapper job later.
+     */
+    export interface HogInvocationRerunResponse {
+      /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+      rerun_job_id: string;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      queued_count: number;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      skipped_count: number;
     }
 
     export interface HogInvocationResult {
@@ -33048,6 +32771,8 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `title_change` - Title Change
+     * * `summary_change` - Summary Change
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -33065,6 +32790,8 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      TitleChange: 'title_change',
+      SummaryChange: 'summary_change',
     } as const;
 
     export interface _User {
@@ -34049,7 +33776,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -34163,6 +33891,51 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    export interface TaskRunArtifactMetadata {
+      /**
+         * Name of the local skill included in a skill_bundle artifact.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source for the uploaded skill bundle, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the uploaded skill bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the local skill bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /**
+         * Version of the local skill bundle metadata schema.
+         * @minimum 1
+         */
+      schema_version: number;
+    }
+
     export interface TaskRunArtifactResponse {
       /** Stable identifier for the artifact within this run */
       id?: string;
@@ -34176,6 +33949,8 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key for the artifact */
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
@@ -35175,6 +34950,61 @@ export namespace Schemas {
       results: VisionAction[];
     }
 
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped
+     */
+    export type VisionActionRunStatusEnum = typeof VisionActionRunStatusEnum[keyof typeof VisionActionRunStatusEnum];
+
+
+    export const VisionActionRunStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedVisionActionRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionActionRun[];
+    }
+
     export interface WarehouseColumnAnnotation {
       readonly id: string;
       /** ID of the data warehouse table this annotation describes. */
@@ -35570,363 +35400,6 @@ export namespace Schemas {
     }
 
     /**
-     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
-     */
-    export type PatchedAgentRevisionSpecModels = {
-      mode: 'auto';
-      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-      level?: 'low' | 'medium' | 'high';
-      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-      optimize_for?: 'cost' | 'availability';
-    } | {
-      mode: 'manual';
-      /**
-         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-         * @minItems 1
-         */
-      models: ({
-      /**
-         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
-      /** Per-model reasoning effort override (else the spec default). */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    })[];
-      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-      optimize_for?: 'cost' | 'availability';
-    };
-
-    export type PatchedAgentRevisionSpecTriggersItem = {
-      type: 'slack';
-      config: {
-      channel_id?: string;
-      mention_only: boolean;
-      auto_resume_threads: boolean;
-      allow_workspace_participants: boolean;
-      ack_reaction?: string;
-      allow_direct_messages: boolean;
-      trusted_workspaces: string[] | '*';
-    };
-    } | {
-      type: 'webhook';
-      config: {
-      path: string;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'cron';
-      config: {
-      /** @minLength 1 */
-      name: string;
-      /** @minLength 1 */
-      schedule: string;
-      timezone?: string;
-      /**
-         * @minLength 1
-         * @maxLength 4096
-         */
-      prompt: string;
-      external_key?: string;
-      catch_up?: 'all' | 'most_recent' | 'skip';
-      /**
-         * @minimum 1
-         * @maximum 604800
-         */
-      max_catch_up_age_seconds?: number;
-    };
-    } | {
-      type: 'chat';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'mcp';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    };
-
-    export type PatchedAgentRevisionSpecToolsItem = {
-      kind: 'native';
-      id: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    } | {
-      kind: 'custom';
-      id: string;
-      path: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-      requires_identity?: string;
-    } | {
-      kind: 'custom_template';
-      from_template: string;
-      alias: string;
-      /** @minimum 1 */
-      version?: number;
-    } | {
-      kind: 'client';
-      /** @minLength 1 */
-      id: string;
-      /** @minLength 1 */
-      description: string;
-      args_schema?: { [key: string]: unknown };
-      required?: boolean;
-      /**
-         * @minimum 1
-         * @maximum 600000
-         */
-      timeout_ms?: number;
-      interactive?: boolean;
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItemAuth = {
-      provider?: string;
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
-
-    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItem = {
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
-      secrets?: string[];
-      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
-      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
-    };
-
-    export type PatchedAgentRevisionSpecSkillsItem = {
-      id: string;
-      path: string;
-      description?: string;
-      from_template?: string;
-      alias?: string;
-      /** @minimum 1 */
-      version?: number;
-      source_version_id?: string;
-    };
-
-    export type PatchedAgentRevisionSpecIdentityProvidersItem = {
-      kind: 'posthog';
-      /** @minLength 1 */
-      id?: string;
-      binding?: 'principal';
-      scopes?: string[];
-      client_id?: string;
-    } | {
-      kind: 'oauth2';
-      /** @minLength 1 */
-      id: string;
-      binding?: 'principal';
-      authorize_url: string;
-      token_url: string;
-      /** @minLength 1 */
-      client_id: string;
-      client_secret_ref?: string;
-      scopes?: string[];
-      userinfo_url?: string;
-    };
-
-    export type PatchedAgentRevisionSpecSecretsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      /**
-         * @minItems 1
-         * @items.minLength 1
-         */
-      allowed_hosts: string[];
-    };
-
-    export type PatchedAgentRevisionSpecLimits = {
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_turns: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_tool_calls: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_wall_seconds: number;
-      /**
-         * @maximum 200000
-         * @exclusiveMinimum 0
-         */
-      max_output_tokens?: number;
-      /**
-         * @maximum 16384
-         * @exclusiveMinimum 0
-         */
-      max_memory_mb: number;
-      /**
-         * @maximum 8
-         * @exclusiveMinimum 0
-         */
-      max_cpu_cores: number;
-    };
-
-    export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
-
-
-    export const PatchedAgentRevisionSpecReasoning = {
-      Minimal: 'minimal',
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-    } as const;
-
-    export type PatchedAgentRevisionSpecFrameworkPromptOmitItem = typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem[keyof typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem];
-
-
-    export const PatchedAgentRevisionSpecFrameworkPromptOmitItem = {
-      MetaToolGuidance: 'meta_tool_guidance',
-      StateContract: 'state_contract',
-      ToolFailureGuidance: 'tool_failure_guidance',
-      ApprovalGuidance: 'approval_guidance',
-      ReasoningHint: 'reasoning_hint',
-    } as const;
-
-    export type PatchedAgentRevisionSpecFrameworkPrompt = {
-      omit: PatchedAgentRevisionSpecFrameworkPromptOmitItem[];
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      version_pin?: number;
-    };
-
-    export type PatchedAgentRevisionSpecResume = {
-      enabled: boolean;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_completed_age_ms: number;
-    };
-
-    export type PatchedAgentRevisionSpec = {
-      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-      models: PatchedAgentRevisionSpecModels;
-      triggers: PatchedAgentRevisionSpecTriggersItem[];
-      tools: PatchedAgentRevisionSpecToolsItem[];
-      mcps: PatchedAgentRevisionSpecMcpsItem[];
-      skills: PatchedAgentRevisionSpecSkillsItem[];
-      identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
-      secrets: PatchedAgentRevisionSpecSecretsItem[];
-      limits: PatchedAgentRevisionSpecLimits;
-      reasoning?: PatchedAgentRevisionSpecReasoning;
-      framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
-      resume?: PatchedAgentRevisionSpecResume;
-    };
-
-    /**
      * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
      * @nullable
      */
@@ -35946,7 +35419,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256?: string | null;
-      spec?: PatchedAgentRevisionSpec;
+      spec?: unknown;
       /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
       readonly skill_refs?: readonly SkillRef[];
       /** @nullable */
@@ -37570,7 +37043,7 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
-      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
          * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -40534,6 +40007,28 @@ export namespace Schemas {
       content?: unknown;
     }
 
+    /**
+     * Editable human-facing fields on a signal report (PATCH).
+     *
+     * Both fields are optional so a caller can change either independently, but at least one
+     * must be supplied. Every other report field — status, weights, judgments — is owned by the
+     * signals pipeline and is deliberately not writable here.
+     */
+    export interface PatchedSignalReportContentUpdate {
+      /**
+         * New human-facing title for the report. Omit to leave the title unchanged.
+         * @minLength 1
+         * @maxLength 300
+         */
+      title?: string;
+      /**
+         * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      summary?: string;
+    }
+
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -41392,7 +40887,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -46861,6 +46357,32 @@ export namespace Schemas {
       trigger?: TriggerEnum;
     }
 
+    export interface RecapHighlight {
+      /** Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'. */
+      id: string;
+      /** Emoji for the highlight. */
+      emoji: string;
+      /** Short headline for the highlight, e.g. 'Rising star page'. */
+      title: string;
+      /** The standout value, e.g. a page path or visitor count. */
+      value: string;
+      /** Supporting sentence for the highlight. */
+      detail: string;
+    }
+
+    export interface RecapPersona {
+      /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
+      id: string;
+      /** Display name for the persona, e.g. 'Traffic Magnet'. */
+      name: string;
+      /** Emoji representing the persona. */
+      emoji: string;
+      /** One-line explanation of why this persona was assigned this week. */
+      blurb: string;
+      /** Hex accent color for rendering the persona card. */
+      color: string;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -47530,6 +47052,19 @@ export namespace Schemas {
       banner_message: string | null;
       /** The team's enforced scout run caps and current usage. */
       limits: ScoutLimits;
+    }
+
+    /**
+     * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+     * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+     * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
+     */
+    export interface ScoutRunIdsBatchRequest {
+      /**
+         * UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.
+         * @maxItems 200
+         */
+      run_ids: string[];
     }
 
     /**
@@ -51386,6 +50921,7 @@ export namespace Schemas {
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
      * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle
      */
     export type TaskRunArtifactTypeEnum = typeof TaskRunArtifactTypeEnum[keyof typeof TaskRunArtifactTypeEnum];
 
@@ -51398,6 +50934,7 @@ export namespace Schemas {
       Artifact: 'artifact',
       TreeSnapshot: 'tree_snapshot',
       UserAttachment: 'user_attachment',
+      SkillBundle: 'skill_bundle',
     } as const;
 
     export interface TaskRunArtifactFinalizeUpload {
@@ -51416,7 +50953,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51433,6 +50971,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -51449,7 +50989,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51467,6 +51008,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -51482,6 +51025,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -51519,7 +51064,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51538,6 +51084,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
@@ -51821,7 +51369,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51838,6 +51387,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -51854,7 +51405,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51872,6 +51424,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -51887,6 +51441,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -52967,6 +52523,41 @@ export namespace Schemas {
       run_id: string;
     }
 
+    export interface WebAnalyticsRecapResponse {
+      /** Unique visitors. */
+      visitors: NumericMetric;
+      /** Total pageviews. */
+      pageviews: NumericMetric;
+      /** Total sessions. */
+      sessions: NumericMetric;
+      /** Bounce rate (0–100). */
+      bounce_rate: NumericMetric;
+      /** Average session duration. */
+      avg_session_duration: DurationMetric;
+      /** Top 5 pages by unique visitors. */
+      top_pages: TopPage[];
+      /** Top 5 traffic sources by unique visitors. */
+      top_sources: TopSource[];
+      /** Goal conversions. */
+      goals: Goal[];
+      /** Link to the Web analytics dashboard for this project. */
+      dashboard_url: string;
+      /** The single weekly persona assigned from this week's data. */
+      persona: RecapPersona;
+      /** Up to three screenshot-worthy superlatives for the week. */
+      highlights: RecapHighlight[];
+      /** Human-readable period label, e.g. 'Last 7 days'. */
+      period_label: string;
+      /** First date included in the recap period, in the project timezone. */
+      period_start: string;
+      /** Final date included in the recap period, in the project timezone. */
+      period_end: string;
+      /** Name of the project this recap is for. */
+      project_name: string;
+      /** Canonical link to this project's weekly recap. */
+      recap_url: string;
+    }
+
     export interface WeeklyDigestResponse {
       /** Unique visitors. */
       visitors: NumericMetric;
@@ -53915,6 +53506,39 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    /**
+     * Per-emission attributes (high-cardinality labels on the data point).
+     */
+    export type _MetricEventSampleAttributes = {[key: string]: string};
+
+    /**
+     * Attributes of the resource (host, pod, service version) that emitted the metric.
+     */
+    export type _MetricEventSampleResourceAttributes = {[key: string]: string};
+
+    export interface _MetricEventSample {
+      /** When the metric was emitted, ISO 8601. */
+      timestamp: string;
+      /** Metric this emission belongs to. */
+      metric_name: string;
+      /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
+      metric_type: string;
+      /** The emitted value. */
+      value: number;
+      /** Unit of the value, if any. */
+      unit: string;
+      /** Service that emitted the metric. */
+      service_name: string;
+      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      trace_id: string;
+      /** Span this emission belongs to; empty if none. */
+      span_id: string;
+      /** Per-emission attributes (high-cardinality labels on the data point). */
+      attributes: _MetricEventSampleAttributes;
+      /** Attributes of the resource (host, pod, service version) that emitted the metric. */
+      resource_attributes: _MetricEventSampleResourceAttributes;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -53987,6 +53611,39 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+    }
+
+    export interface _MetricSamplesBody {
+      /**
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Lower bound (inclusive) for the sample window. ISO 8601. */
+      dateFrom: string;
+      /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
+      dateTo?: string;
+      /**
+         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * @maxLength 255
+         */
+      traceId?: string;
+      /**
+         * Max emissions to return, newest first. Defaults to 100, capped at 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+    }
+
+    export interface _MetricSamplesRequest {
+      /** The raw-emissions query to execute. */
+      query: _MetricSamplesBody;
+    }
+
+    export interface _MetricSamplesResponse {
+      /** Raw emissions ordered by timestamp descending. */
+      results: _MetricEventSample[];
     }
 
     /**
@@ -54345,6 +54002,24 @@ export namespace Schemas {
     export interface _TracingQueryRequest {
       /** The tracing spans query to execute. */
       query: _TracingQueryBody;
+    }
+
+    export interface _TracingSparklineQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _TracingSparklineQueryBody;
     }
 
     export interface _TracingTimeseriesQueryBody {
@@ -57132,6 +56807,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -58823,6 +58499,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsWebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
+    };
+
     export type EnvironmentsWebAnalyticsWeeklyDigestParams = {
     /**
      * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
@@ -59939,6 +59626,13 @@ export namespace Schemas {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string;
+    };
+
+    export type AgentApplicationsSpecSchemaParams = {
+    /**
+     * Return only this top-level slice of the spec schema to save tokens — one of `models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, `limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema.
+     */
+    section?: string;
     };
 
     export type AgentFleetApprovalsListParams = {
@@ -63649,6 +63343,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -65255,6 +64950,28 @@ export namespace Schemas {
     text?: string;
     };
 
+    export type SignalsScoutRunsRecentEmissionsParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission from the prior page).
+     */
+    date_to?: string;
+    /**
+     * Max rows to return (default 50, hard cap 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string;
+    };
+
     export type SignalsScoutScratchpadSearchParams = {
     /**
      * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
@@ -65939,6 +65656,17 @@ export namespace Schemas {
     scanner?: string;
     };
 
+    export type VisionActionsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -66305,6 +66033,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
     };
 
     export type WebAnalyticsWeeklyDigestParams = {

@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
@@ -41,6 +42,8 @@ function InternalInlineSourceSetup({
 }: InlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
     const { onClear } = useActions(sourceWizardLogic)
+    const { searchParams, location } = useValues(router)
+    const { replace } = useActions(router)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
@@ -48,6 +51,27 @@ function InternalInlineSourceSetup({
 
     // Filter out unreleased sources
     const availableConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
+
+    // Resume an OAuth round-trip: an OAuth source redirects the whole page to the provider and
+    // back to this onboarding URL with ?kind=<source>. On mount, re-open the wizard for that
+    // source so the user lands back where they left off (credentials are restored by the wizard
+    // from the state saved before the redirect). Runs once — subsequent picks use the grid.
+    useEffect(() => {
+        const kind = searchParams.kind
+        if (!kind) {
+            return
+        }
+        const match = availableConnectors.find((c) => c.name.toLowerCase() === String(kind).toLowerCase())
+        if (match) {
+            setSelectedSource(match.name)
+            setCurrentView('connecting')
+        }
+        // Consume the param so a later remount (refresh, back-navigation, cancel) doesn't force the
+        // wizard back open after the connection has already been handled.
+        const { kind: _kind, ...restParams } = searchParams
+        replace(location.pathname, restParams)
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
     const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)
     const hiddenSources = availableConnectors.filter((c: SourceConfig) => !c.featured)
     const sourcesToShow = expanded ? availableConnectors : featuredSources

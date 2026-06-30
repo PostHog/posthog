@@ -283,6 +283,7 @@ describe('SessionBatchRecorder', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
         },
         message: {
             distinct_id: distinctId,

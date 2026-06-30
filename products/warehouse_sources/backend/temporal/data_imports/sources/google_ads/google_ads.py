@@ -15,6 +15,10 @@ from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
+from google.ads.googleads.v23.services.services.google_ads_field_service import (
+    GoogleAdsFieldServiceClient,
+    pagers as field_service_pagers,
+)
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
@@ -372,8 +376,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     """
     client = google_ads_client(config, team_id)
     gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
-    fields_query = gaf_service.search_google_ads_fields(
-        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    fields_query = _search_fields_with_transient_retry(
+        gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
     )
     fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
@@ -543,6 +547,30 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
 
 
+_T = typing.TypeVar("_T")
+
+
+def _call_with_transient_retry(
+    call: collections.abc.Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> _T:
+    """Run ``call``, retrying a transient gRPC failure (see ``_is_transient_grpc_error``) with backoff.
+
+    A non-transient error re-raises immediately so the caller's handling and Temporal's retry policy
+    still apply; the final attempt re-raises rather than sleeping.
+    """
+    attempt = 0
+    while True:
+        try:
+            return call()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
 def _search_with_transient_retry(
     service: GoogleAdsServiceClient,
     request: dict,
@@ -554,30 +582,47 @@ def _search_with_transient_retry(
     Each retry re-requests the same ``page_token``, so there is no partial state to reconcile. The
     transient status may itself arrive wrapped in a ``GoogleAdsException`` (see
     ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
-    ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
+    stale-page-token handling and Temporal's retry policy still apply.
     """
-    attempt = 0
-    while True:
-        try:
-            return service.search(request=request)
-        except Exception as e:
-            attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
-                raise
-            time.sleep(min(2 * attempt, 30))
+    return _call_with_transient_retry(lambda: service.search(request=request), max_attempts=max_attempts)
 
 
-def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
-    """Return True if a ``GoogleAdsException`` was caused by an expired/invalid page token.
+def _search_fields_with_transient_retry(
+    service: GoogleAdsFieldServiceClient,
+    query: str,
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> field_service_pagers.SearchGoogleAdsFieldsPager:
+    """Call ``GoogleAdsFieldService.search_google_ads_fields``, retrying a transient gRPC failure.
+
+    Schema discovery hits the same transient ``UNAVAILABLE`` / ``INTERNAL`` blips as the row search
+    (see ``_is_transient_grpc_error``), so riding them out in-process keeps a momentary Google-side
+    error from failing the whole import. Non-transient errors re-raise immediately so the caller's
+    handling and Temporal's retry policy still apply.
+    """
+    return _call_with_transient_retry(lambda: service.search_google_ads_fields(query=query), max_attempts=max_attempts)
+
+
+_STALE_PAGE_TOKEN_REQUEST_ERRORS = ("INVALID_PAGE_TOKEN", "EXPIRED_PAGE_TOKEN")
+
+
+def _is_stale_page_token_error(exc: GoogleAdsException) -> bool:
+    """Return True if a ``GoogleAdsException`` was caused by a stale page token.
 
     Google Ads search page tokens are ephemeral, but our resumption contract
     persists them (see ``_search_as_arrow_tables``). When a sync resumes from a
-    token Google has already expired, the API rejects the request with
-    ``request_error: INVALID_PAGE_TOKEN``. The proto text representation is the
-    same for proto-plus and raw protobuf failures, so we match on it directly.
+    token Google no longer accepts, the API rejects the request with either
+    ``request_error: INVALID_PAGE_TOKEN`` (malformed/unrecognised) or
+    ``request_error: EXPIRED_PAGE_TOKEN`` (a once-valid token aged out between
+    runs) — both mean the same thing for us: restart pagination from the first
+    page. The proto text representation is the same for proto-plus and raw
+    protobuf failures, so we match on it directly.
     """
     failure = getattr(exc, "failure", None)
-    return failure is not None and "INVALID_PAGE_TOKEN" in str(failure)
+    if failure is None:
+        return False
+    failure_text = str(failure)
+    return any(request_error in failure_text for request_error in _STALE_PAGE_TOKEN_REQUEST_ERRORS)
 
 
 def _search_as_arrow_tables(
@@ -596,9 +641,10 @@ def _search_as_arrow_tables(
       yielded but never acked by a save is simply re-yielded. Merge semantics
       over ``primary_keys`` dedupe those repeated rows.
     * A resumed token may have expired between runs (Google Ads page tokens are
-      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` we discard
-      the saved token and restart pagination from the first page — the same
-      merge semantics make re-yielding already-synced rows safe.
+      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` or
+      ``EXPIRED_PAGE_TOKEN`` we discard the saved token and restart pagination
+      from the first page — the same merge semantics make re-yielding
+      already-synced rows safe.
     """
     page_token = ""
     if resumable_source_manager.can_resume():
@@ -623,7 +669,7 @@ def _search_as_arrow_tables(
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
-            if page_token and _is_invalid_page_token_error(e):
+            if page_token and _is_stale_page_token_error(e):
                 resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
                 page_token = ""
                 continue
