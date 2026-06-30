@@ -1,4 +1,3 @@
-import re
 from typing import TYPE_CHECKING, cast
 
 import sqlparse
@@ -13,6 +12,8 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import validate_snowflake_account_id
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -41,13 +42,6 @@ _RAW_SNOWFLAKE_BLOCKED_FUNCTIONS = frozenset({"RESULT_SCAN", "LAST_QUERY_ID"})
 DIRECT_SNOWFLAKE_ROW_CAP_ERROR = (
     f"Snowflake query returned more than {DIRECT_SNOWFLAKE_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
-
-# A Snowflake account identifier is either the org-account form (`orgname-account_name`)
-# or the legacy dotted form (`account.region.cloud`) — letters, digits, hyphens, underscores,
-# and dots only. Rejecting anything else keeps a crafted value from steering the connector at
-# an arbitrary host (the account is interpolated into the host it dials), closing the SSRF gap
-# that host validation covers for the Postgres and MySQL adapters.
-_SNOWFLAKE_ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Snowflake's Python connector reports column types as integer codes in
 # cursor.description[*].type_code, decoded to names via FIELD_ID_TO_NAME. Those names are
@@ -97,14 +91,6 @@ def snowflake_error_to_message(error: Exception) -> str:
     if not message:
         return "Snowflake query failed."
     return message.splitlines()[0]
-
-
-def validate_snowflake_account_id(account_id: str | None) -> str:
-    candidate = (account_id or "").strip()
-    if not candidate or not _SNOWFLAKE_ACCOUNT_ID_RE.fullmatch(candidate):
-        raise ExposedHogQLError("Invalid Snowflake account identifier.")
-    return candidate
-
 
 def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
     sql = ensure_single_direct_statement(sql)

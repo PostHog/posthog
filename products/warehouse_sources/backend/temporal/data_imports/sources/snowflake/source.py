@@ -15,7 +15,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from posthog.hogql.direct_sql.snowflake_adapter import validate_snowflake_account_id
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions_capture import capture_exception
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import validate_snowflake_account_id
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
