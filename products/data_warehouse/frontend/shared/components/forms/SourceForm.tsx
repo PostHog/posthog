@@ -14,6 +14,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,6 +22,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
@@ -30,20 +32,33 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CDC_SOURCE_TYPES } from '../../cdc'
+import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
+import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
+import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
+import { supportsDirectQuery } from './schemaGroupingUtils'
+
+// Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
+const NO_OP_SET_VALUE = (): void => undefined
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
     sourceWizardLogicProps?: SourceWizardLogicProps
+    /** Override the form value setter — for hosts other than the wizard (e.g. the connect page). */
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    /** Where the OAuth authorize flow returns to — for hosts other than the wizard (e.g. the connect page). */
+    oauthRedirectUrl?: string
 }
 
 export function SourceAccessMethodSelector({
@@ -82,7 +97,7 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    Run queries live against this database connection. Data from this source can&apos;t
                                     be joined with PostHog data.
                                 </div>
                             </div>
@@ -99,7 +114,8 @@ export const sourceFieldToElement = (
     sourceConfig: SourceConfig,
     lastValue?: any,
     isUpdateMode?: boolean,
-    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
+    oauthRedirectUrl?: string
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -163,7 +179,8 @@ export const sourceFieldToElement = (
                                             sourceConfig,
                                             lastValue?.[field.name],
                                             isUpdateMode,
-                                            setSourceConnectionDetailsValue
+                                            setSourceConnectionDetailsValue,
+                                            oauthRedirectUrl
                                         )
                                     )}
                                 </Group>
@@ -187,7 +204,8 @@ export const sourceFieldToElement = (
                         sourceConfig,
                         lastValue?.[optionField.name],
                         isUpdateMode,
-                        setSourceConnectionDetailsValue
+                        setSourceConnectionDetailsValue,
+                        oauthRedirectUrl
                     )
                 )
 
@@ -234,16 +252,29 @@ export const sourceFieldToElement = (
     if (field.type === 'oauth') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
-                {({ value, onChange }) => (
-                    <SourceIntegrationChoice
-                        key={field.name}
-                        sourceConfig={sourceConfig}
-                        value={value}
-                        onChange={onChange}
-                        integration={field.kind}
-                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                    />
-                )}
+                {({ value, onChange }) =>
+                    // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
+                    // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
+                    oauthRedirectUrl ? (
+                        <IntegrationChoice
+                            key={field.name}
+                            value={value}
+                            onChange={onChange}
+                            integration={field.kind}
+                            redirectUrl={oauthRedirectUrl}
+                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                        />
+                    ) : (
+                        <SourceIntegrationChoice
+                            key={field.name}
+                            sourceConfig={sourceConfig}
+                            value={value}
+                            onChange={onChange}
+                            integration={field.kind}
+                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                        />
+                    )
+                }
             </LemonField>
         )
     }
@@ -271,13 +302,21 @@ export const sourceFieldToElement = (
             sourceConfig,
             lastValue,
             isUpdateMode,
-            setSourceConnectionDetailsValue
+            setSourceConnectionDetailsValue,
+            oauthRedirectUrl
         )
     }
 
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
+    }
+
+    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
+        // Special case — once the user picks an OAuth integration the selector swaps the
+        // text input for a dropdown populated from the Search Console API. Avoids the
+        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
+        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (
@@ -428,13 +467,24 @@ function CDCPrerequisitesCheck(): JSX.Element {
     )
 }
 
-function CDCConfigSection(): JSX.Element {
+function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
 
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
+                {sourceName === 'Supabase' && (
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">Supabase CDC needs the direct connection + IPv4 add-on</p>
+                        <p className="text-xs m-0">
+                            Logical replication doesn't work through the Supabase pooler. Use the{' '}
+                            <strong>direct host</strong> (<code>db.&lt;ref&gt;.supabase.co</code>) and enable Supabase's{' '}
+                            <strong>IPv4 add-on</strong> (Project settings → Add-ons) so PostHog can reach it. The
+                            pooler host is fine for standard syncs but won't work for CDC.
+                        </p>
+                    </LemonBanner>
+                )}
                 <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
                         <div
@@ -641,23 +691,47 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
     sourceWizardLogicProps,
+    setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
+    oauthRedirectUrl,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const setSourceConnectionDetailsValue = sourceWizardLogicProps
-        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
-        : undefined
+    const { currentOrganization } = useValues(organizationLogic)
+    const setSourceConnectionDetailsValue =
+        setSourceConnectionDetailsValueOverride ??
+        (sourceWizardLogicProps
+            ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+            : undefined)
+
+    // The Custom REST source can open on an AI "draft from docs" intro screen (rendered by
+    // CustomSourceManifestBuilder, gated on the AI builder flag). While that intro is up, the rest of
+    // the source form — description, table prefix — is just noise, so hide it until the user moves on
+    // to the builder. `showBuilder` lives on the (singleton) builder logic; mount it here with the
+    // same props the child uses so the single instance initializes consistently regardless of mount
+    // order (notably: an existing source opens straight in the builder, not the intro).
+    const customManifestSetValue = setSourceConfigValue ?? setSourceConnectionDetailsValue
+    const { showBuilder: customManifestShowBuilder } = useValues(
+        customSourceManifestBuilderLogic({
+            initialManifestJson: jobInputs?.manifest_json,
+            setValue: customManifestSetValue ?? NO_OP_SET_VALUE,
+        })
+    )
+    const customAiIntroActive =
+        sourceConfig.name === 'Custom' &&
+        isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization) &&
+        !customManifestShowBuilder
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
+    const isDirectQuerySource = supportsDirectQuery(sourceConfig.name) && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -681,7 +755,7 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+            {!isUpdateMode && supportsDirectQuery(sourceConfig.name) && showAccessMethodSelector && (
                 <>
                     <LemonField name="access_method">
                         {({ value, onChange }) => (
@@ -697,15 +771,15 @@ export function SourceFormComponent({
                     <LemonDivider />
                 </>
             )}
-            {isPostgresDirectQuery && (
+            {isDirectQuerySource && (
                 <LemonField
                     name="prefix"
                     label="Name"
-                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                    help={`Required. This name is shown in the query editor when selecting a ${sourceConfig.name} connection.`}
                 >
                     {({ value, onChange }) => {
                         const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
-                        const displayValue = value?.trim() || 'My Postgres database'
+                        const displayValue = value?.trim() || `My ${sourceConfig.name} database`
 
                         return (
                             <>
@@ -719,14 +793,17 @@ export function SourceFormComponent({
                                 />
                                 {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p className="mb-0">
-                                    Shown as: <strong>{displayValue} (Postgres)</strong>
+                                    Shown as:{' '}
+                                    <strong>
+                                        {displayValue} ({sourceConfig.name})
+                                    </strong>
                                 </p>
                             </>
                         )
                     }}
                 </LemonField>
             )}
-            {shouldShowDescription && (
+            {shouldShowDescription && !customAiIntroActive && (
                 <LemonField
                     name="description"
                     label="Description (optional)"
@@ -763,23 +840,25 @@ export function SourceFormComponent({
                     )
                 ) : (
                     availableSources[sourceConfig.name].fields
-                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .filter((field) => !(isDirectQuerySource && field.type === 'ssh-tunnel'))
                         .map((field) =>
                             sourceFieldToElement(
                                 field,
                                 sourceConfig,
                                 jobInputs?.[field.name],
                                 isUpdateMode,
-                                setSourceConnectionDetailsValue
+                                setSourceConnectionDetailsValue,
+                                oauthRedirectUrl
                             )
                         )
                 )}
             </Group>
             {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
+                showCdcConfig &&
+                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
-            {showPrefix && !isPostgresDirectQuery && (
+                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
+            {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"
@@ -799,9 +878,10 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const cleanedPrefix = value ? value.trim() : ''
                         const sourceType = sourceConfig.name.toLowerCase()
-                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
+                        const tableName = (
+                            cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`
+                        ).toLowerCase()
                         return (
                             <>
                                 <LemonInput

@@ -200,7 +200,7 @@ class SlackThreadHandler:
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Open in PostHog Code",
+                        "text": "Open in PostHog",
                         "emoji": True,
                     },
                     "url": task_url,
@@ -245,7 +245,7 @@ class SlackThreadHandler:
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Open in PostHog Code",
+                        "text": "Open in PostHog",
                         "emoji": True,
                     },
                     "url": task_url,
@@ -304,7 +304,7 @@ class SlackThreadHandler:
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Open in PostHog Code",
+                        "text": "Open in PostHog",
                         "emoji": True,
                     },
                     "url": task_url,
@@ -335,7 +335,7 @@ class SlackThreadHandler:
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "See details in PostHog Code",
+                                "text": "See details in PostHog",
                                 "emoji": True,
                             },
                             "url": task_url,
@@ -362,7 +362,7 @@ class SlackThreadHandler:
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "Open in PostHog Code",
+                                "text": "Open in PostHog",
                                 "emoji": True,
                             },
                             "url": task_url,

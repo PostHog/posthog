@@ -18,8 +18,6 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
-from posthog.schema import ProductIntentContext, ProductKey
-
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -29,6 +27,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
 from products.experiments.backend.models.experiment import Experiment
@@ -1281,7 +1280,9 @@ class VercelIntegration:
             capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
 
 
-def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
+def _safe_vercel_sync(
+    operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None], *, is_delete: bool = False
+) -> None:
     """
     Safety wrapper for Vercel sync operations triggered by Django signals.
 
@@ -1291,8 +1292,15 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
     Operations are silently skipped if Vercel integration is not configured and
     exceptions are caught and logged rather than bubbling up to the caller.
+
+    On delete (``is_delete=True``) we never auto-create a Vercel resource: with no existing resource there is
+    nothing to delete from Vercel, and creating one is actively harmful during team deletion. Signals run in the
+    caller's transaction, so the team-deletion cascade would re-insert an Integration row for a team being deleted
+    in that same transaction — orphaning it and failing the commit with an IntegrityError on the team FK.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
+        if is_delete:
+            return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
             return
@@ -1343,6 +1351,7 @@ def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, create
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1360,6 +1369,7 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+        is_delete=True,
     )
 
 
@@ -1371,6 +1381,7 @@ def sync_experiment_experimentation_item(sender, instance: Experiment, created, 
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1388,4 +1399,5 @@ def delete_experiment_experimentation_item(sender, instance: Experiment, **kwarg
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+        is_delete=True,
     )

@@ -3,7 +3,9 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
+from functools import cached_property
 from typing import Any, Optional
+from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
@@ -112,12 +114,19 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
 
     instance: Optional[Project]
 
+    # Declared explicitly (not a passthrough): Team.project_id is an FK attname the model-field merge can't
+    # resolve, and a Project's own id equals its primary Team's project_id (Project ↔ Team is 1:1).
+    project_id = serializers.IntegerField(
+        source="id", read_only=True, help_text="ID of the project this environment belongs to."
+    )
+
     class Meta:
         model = Project
         fields = (
             "id",
             "uuid",  # Compat with TeamSerializer
             "organization",
+            "project_id",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "name",
             "completed_snippet_onboarding",  # Compat with TeamSerializer
@@ -275,10 +284,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
-        ).first()
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        level = self._membership_levels_by_org.get(organization.id)
+        return OrganizationMembership.Level(level) if level is not None else None
+
+    @cached_property
+    def _membership_levels_by_org(self) -> dict[UUID, int]:
+        return dict(
+            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
+                "organization_id", "level"
+            )
+        )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):

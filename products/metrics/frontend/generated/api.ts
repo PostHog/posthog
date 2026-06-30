@@ -13,9 +13,13 @@ import type {
     AppMetricsTotalsResponseApi,
     MetricsHasMetricsRetrieve200,
     MetricsValuesRetrieveParams,
+    _MetricAnomalyReportApi,
+    _MetricAnomalyRequestApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
+    _MetricSamplesRequestApi,
+    _MetricSamplesResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
@@ -60,6 +64,27 @@ export const eventFilterMetricsTotalsRetrieve = async (
     })
 }
 
+export const getMetricsCharacterizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/characterize/`
+}
+
+/**
+ * Characterize a metric anomaly: compare an anomaly window against a
+ * baseline, find the onset, and rank which label values moved.
+ */
+export const metricsCharacterizeCreate = async (
+    projectId: string,
+    _metricAnomalyRequestApi: _MetricAnomalyRequestApi,
+    options?: RequestInit
+): Promise<_MetricAnomalyReportApi> => {
+    return apiMutator<_MetricAnomalyReportApi>(getMetricsCharacterizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricAnomalyRequestApi),
+    })
+}
+
 export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/has_metrics/`
 }
@@ -88,6 +113,27 @@ export const metricsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsSamplesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/samples/`
+}
+
+/**
+ * Raw individual emissions for a metric (the events model), newest
+ * first — backs the Samples view and the metric->trace pivot.
+ */
+export const metricsSamplesCreate = async (
+    projectId: string,
+    _metricSamplesRequestApi: _MetricSamplesRequestApi,
+    options?: RequestInit
+): Promise<_MetricSamplesResponseApi> => {
+    return apiMutator<_MetricSamplesResponseApi>(getMetricsSamplesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricSamplesRequestApi),
     })
 }
 

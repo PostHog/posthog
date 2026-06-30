@@ -32,10 +32,11 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
-                    const limit = Number(req.url.searchParams.get('limit'))
-                    const offset = Number(req.url.searchParams.get('offset'))
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
+                    const limit = Number(url.searchParams.get('limit'))
+                    const offset = Number(url.searchParams.get('offset'))
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -49,13 +50,14 @@ describe('infiniteListLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/property_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('filter_by_event_names')) {
-                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
+                    if (url.searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = url.searchParams.get('filter_by_event_names') === 'true'
                         results = results.filter(
                             (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
                         )
@@ -123,6 +125,14 @@ describe('infiniteListLogic', () => {
                     remoteItems: partial({
                         results: partial([partial({ name: 'event1' })]),
                     }),
+                })
+        })
+
+        it('stamps the remote load duration so callers can report search latency', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ loadDurationMs: expect.any(Number) }),
                 })
         })
 
@@ -444,6 +454,31 @@ describe('infiniteListLogic', () => {
             const names = internalLogic.values.localItems.results.map((item: any) => item.name)
             expect(names).toContain('Team activity')
             expect(names).not.toContain('All internal events')
+        })
+    })
+
+    describe('listGroupType with no matching built group', () => {
+        let noGroupLogic: ReturnType<typeof infiniteListLogic.build>
+        // A group-analytics index with no matching group type mapping, so `group` resolves to undefined.
+        const groupsListType = `${TaxonomicFilterGroupType.GroupsPrefix}_55` as TaxonomicFilterGroupType
+
+        beforeEach(() => {
+            noGroupLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListNoGroup',
+                listGroupType: groupsListType,
+                taxonomicGroupTypes: [groupsListType],
+                showNumericalPropsOnly: false,
+            })
+            noGroupLogic.mount()
+        })
+
+        it('returns empty localItems instead of throwing', async () => {
+            await expectLogic(noGroupLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    group: undefined,
+                    localItems: partial({ count: 0, results: [] }),
+                })
         })
     })
 

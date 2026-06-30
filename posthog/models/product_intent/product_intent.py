@@ -10,12 +10,11 @@ import structlog
 from celery import shared_task
 from rest_framework import serializers
 
-from posthog.schema import ProductIntentContext, ProductKey
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
@@ -376,7 +375,16 @@ def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
         capture_exception(e)
         was_added = True
     if was_added:
-        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        try:
+            calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        except Exception as e:
+            # Broker errors (e.g. kombu.OperationalError when the broker is unavailable)
+            # must not 500 the callers — this runs on every team/project retrieve. The
+            # debounce key is already set, so the team stays debounced for the window;
+            # capture so a chronic broker problem still surfaces in monitoring.
+            logger.warning("product_activation_enqueue_failure", team_id=team_id, exc_info=True)
+            capture_exception(e)
+            return False
         return True
     return False
 

@@ -4,17 +4,17 @@
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -45,14 +45,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -77,17 +79,17 @@
   SELECT 'Entry page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -118,14 +120,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -149,17 +153,17 @@
   SELECT 'Referrer' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -190,14 +194,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -221,17 +227,17 @@
   SELECT 'Device' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -262,14 +268,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -294,17 +302,17 @@
   SELECT 'Browser' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -335,14 +343,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -367,17 +377,17 @@
   SELECT 'Country' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -408,14 +418,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -440,17 +452,17 @@
   SELECT 'Channel' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -510,14 +522,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -541,17 +555,17 @@
   SELECT 'UTM source' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -582,14 +596,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -627,17 +643,17 @@
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -668,14 +684,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -700,17 +718,17 @@
   SELECT 'Entry page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -741,14 +759,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -772,17 +792,17 @@
   SELECT 'Referrer' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -813,14 +833,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -844,17 +866,17 @@
   SELECT 'Device' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -885,14 +907,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -917,17 +941,17 @@
   SELECT 'Browser' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -958,14 +982,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -990,17 +1016,17 @@
   SELECT 'Country' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1031,14 +1057,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1063,17 +1091,17 @@
   SELECT 'Channel' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1133,14 +1161,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1164,17 +1194,17 @@
   SELECT 'UTM source' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1205,14 +1235,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1250,17 +1282,17 @@
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1291,14 +1323,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1323,17 +1357,17 @@
   SELECT 'Entry page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1364,14 +1398,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1395,17 +1431,17 @@
   SELECT 'Referrer' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1436,14 +1472,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1467,17 +1505,17 @@
   SELECT 'Device' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1508,14 +1546,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1540,17 +1580,17 @@
   SELECT 'Browser' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1581,14 +1621,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1613,17 +1655,17 @@
   SELECT 'Country' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1654,14 +1696,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1686,17 +1730,17 @@
   SELECT 'Channel' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1756,14 +1800,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1787,17 +1833,17 @@
   SELECT 'UTM source' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
-                and(ifNull(greaterOrEquals(start_timestamp,
-                                           assumeNotNull(toDateTime('2025-01-22 00:00:00',
-                                                                    'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                      assumeNotNull(toDateTime('2025-01-29 23:59:59',
-                                                                                                                               'UTC'))), 0))) AS current_visitors,
-                                                                                                                                            uniqIf(person_id,
-                                                                                                                                                   and(ifNull(greaterOrEquals(start_timestamp,
-                                                                                                                                                                              assumeNotNull(toDateTime('2025-01-15 00:00:00',
-                                                                                                                                                                                                       'UTC'))), 0), ifNull(lessOrEquals(start_timestamp,
-                                                                                                                                                                                                                                         assumeNotNull(toDateTime('2025-01-22 23:59:59',
-                                                                                                                                                                                                                                                                  'UTC'))), 0))) AS previous_visitors
+                and(greaterOrEquals(start_timestamp,
+                                    assumeNotNull(toDateTime('2025-01-22 00:00:00',
+                                                             'UTC'))), lessOrEquals(start_timestamp,
+                                                                                    assumeNotNull(toDateTime('2025-01-29 23:59:59',
+                                                                                                             'UTC'))))) AS current_visitors,
+                                                                                                                      uniqIf(person_id,
+                                                                                                                             and(greaterOrEquals(start_timestamp,
+                                                                                                                                                 assumeNotNull(toDateTime('2025-01-15 00:00:00',
+                                                                                                                                                                          'UTC'))), lessOrEquals(start_timestamp,
+                                                                                                                                                                                                 assumeNotNull(toDateTime('2025-01-22 23:59:59',
+                                                                                                                                                                                                                          'UTC'))))) AS previous_visitors
   FROM (
   SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                           events.person_id)) AS person_id,
@@ -1828,14 +1874,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,

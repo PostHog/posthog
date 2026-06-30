@@ -3,12 +3,12 @@
 Two distinct skill families live in this directory:
 
 1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
-   `authoring-signals-scouts/`, `exploring-signals-scouts/`. First-party PostHog skills
+   `authoring-scouts/`, `exploring-scouts/`. First-party PostHog skills
    published via `products/posthog_ai/dist/skills/` and loaded by users through the PostHog
    MCP. They teach a caller how to query, browse, and reason about signals data. Two are
-   meta skills about the scout fleet itself: `authoring-signals-scouts/` teaches a user's
+   meta skills about the scout fleet itself: `authoring-scouts/` teaches a user's
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
-   in this directory), and `exploring-signals-scouts/` is its read-only counterpart —
+   in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
    how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
@@ -34,12 +34,26 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 
 - `signals-scout-general/` — cross-product generalist. Looks for cross-product
   correlations and surfaces no specialist covers, rather than deep-diving a single
-  product. Carries two progressively-disclosed references: `references/emit.md` (the
-  emit contract) and `references/conventions.md` (scratchpad key prefixes + the
-  four-states dedupe classifier + cross-project noise patterns). This is the entry
-  point if you want to understand how a scout decides what to investigate end-to-end.
+  product. The first canonical scout on the **report channel** (its frontmatter
+  `allowed_tools` lists `emit_report` / `edit_report`): it authors fully-validated
+  correlations 1:1 as `SignalReport`s directly, rather than firing weak `emit_signal`
+  findings for the pipeline to cluster. Carries two progressively-disclosed references:
+  `references/conventions.md` (scratchpad key prefixes + the four-states author/edit
+  classifier + cross-project noise patterns) and `references/report.md` (the report
+  channel — when to author vs. edit, fields, status mapping, reviewer routing, dedupe).
+  This is the entry point if you want to understand how a scout decides what to
+  investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
+- `signals-scout-apm/` — RED-metrics anomaly watcher for the distributed tracing (APM /
+  OpenTelemetry spans) product. Scores each `(service, operation)` against its own
+  seasonality-matched baseline (the same window 7 days ago, via `apm-spans-aggregate`'s
+  `compare_to`) for error-rate steps, p95 latency regressions, new error signatures,
+  failing downstream dependencies, and service traffic cliffs. Its discriminator is a
+  _rate_ regression with a steady denominator — error rate / p95 stepping up while request
+  volume holds is signal; counts moving in lockstep with traffic are baseline. Distinct
+  from `signals-scout-ai-observability`, which watches `$ai_*` LLM traces, not OTel spans;
+  raw log lines are the logs scout's territory.
 - `signals-scout-logs/` — anomaly watcher for logs (rate / level / pattern shifts).
 - `signals-scout-error-tracking/` — anomaly watcher for error tracking
   (issue spikes, regressions, suppression-rule churn).
@@ -58,7 +72,22 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   starvation, and active flows failing for the people they trigger on. Its
   discriminator is configured-to-deliver vs actually-delivering — drafts, paused
   exports, and deliberately disabled functions are operator choices, not signal;
-  data warehouse / external-data syncs are the health-checks scout's territory.
+  data warehouse / external-data syncs (data coming _in_) are the
+  data-warehouse scout's territory.
+- `signals-scout-data-warehouse/` — import-integrity watcher for the data
+  warehouse: external data sources, their per-table sync schemas, webhook push
+  channels, and materialized views. Watches for source connections in Error
+  (cascading to every armed table under them), schemas Failed or stuck Running,
+  schemas that read Completed but have fallen behind their own sync cadence (a
+  silent, growing data gap), webhook push channels broken behind a green status,
+  row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
+  configured-to-sync (`should_sync: true`) vs actually-syncing and
+  promised-freshness vs actual-freshness — paused schemas, billing limits, and
+  draft sources are operator choices, not signal. The mirror image of
+  data-pipelines (which watches data leaving PostHog); active `external_data_failure`
+  health issues overlap the health-checks scout, so it dedupes against the inbox and
+  owns the silent gaps the active-failure summary misses (staleness behind a green
+  status, broken webhooks, row cliffs).
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-session-replay/` — capture-integrity + friction watcher for session
@@ -71,6 +100,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   output. Its discriminator is concentration-vs-diffusion — friction that piles up
   in one place is signal, friction that tracks traffic is baseline; exceptions per
   se are the error-tracking scout's territory.
+- `signals-scout-replay-vision/` — agentic pull watcher over Replay Vision scanners
+  (the standing LLM probes that write `$recording_observed` events). Replay Vision is
+  the newer evolution of session replay, so this scout and `signals-scout-session-replay`
+  intentionally coexist for now. Watches two promises: that enabled scanners are
+  actually observing (throughput / success-rate cliffs, exhausted quota — a silent
+  watch gap), and that what the scanners see in aggregate gets surfaced (a monitor's
+  `yes`-rate or a scorer's mean stepping away from its own baseline, a classifier tag
+  or recurring summarizer theme concentrating across many sessions). It is the
+  complement to the per-session push path: scanners with `emits_signals: true` already
+  emit one signal per session (source `replay_vision`, type `scanner_finding`) into the
+  same inbox, so this scout never repeats them — it adds the cross-session shape the
+  per-session probe can't see. Its discriminators are
+  aggregate-shift-vs-per-session-baseline and
+  configured-to-observe-vs-actually-observing; raw friction / capture is the
+  session-replay scout's territory and exceptions are the error-tracking scout's.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
@@ -92,6 +136,19 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-observability-gaps/` — the odd one out. Watches for _structural
   gaps_ between events being captured and existing insight / dashboard / alert
   coverage, and emits P3 _recommendations_ rather than P0–P2 _anomalies_.
+- `signals-scout-insight-alerts/` — digest + triage layer over the team's own
+  configured insight alerts (threshold / detector alerts on insights). Doesn't
+  re-detect anomalies — the user already set the thresholds — it reads each alert's
+  recent firing history (`alerts-list` to triage all alerts cheaply, `alert-get` to
+  deep-read the firing checks of the few candidates) and surfaces the recent firings a
+  human most likely missed. Its discriminator is missed-ness × materiality ×
+  persistence, weighting hardest toward firings the standard notification path stayed
+  silent on (no subscribers, suppressed by the investigation agent, or an alert
+  silently Errored and no longer evaluating); skips snoozed / disabled / flapping /
+  already-notified-and-resolved. Complements `observability-gaps` (which recommends
+  _creating_ alerts) and `anomaly-detection` (which scores insights the team _views_,
+  whether or not they're alerted) — this one owns the firings of alerts that already
+  exist.
 - `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
   violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
   post-deploy page-scoped regressions, suspicious third-party domains).
@@ -119,20 +176,53 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   resolved status's promise against the post-deploy data stream. Emits only
   failed validations; confirmations are scratchpad memory. It never detects new
   problems — that's the rest of the fleet's territory.
+- `signals-scout-product-analytics/` — behavioral-regression watcher for the core
+  product-analytics primitives (funnels, retention, lifecycle, stickiness, paths).
+  Curates a watchlist of the team's saved funnel / retention / lifecycle insights
+  (and at most one inferred activation flow where none is saved) and re-scores each
+  flow's _derived rate_ — step-to-step conversion %, cohort return %, lifecycle
+  composition — against its own trailing, seasonality-matched baseline. Its
+  discriminator is a rate regression with a steady denominator: a conversion/retention
+  drop while entrants hold is a real product regression; a drop where entrants also
+  collapsed is a capture/volume problem and belongs elsewhere. Fills the seam neither
+  neighbor covers — `anomaly-detection` scores raw time-series insights the team views
+  (its `alert-simulate` path targets time-series, not funnels), and
+  `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
+  scout owns its behavioral health. Acquisition/attribution is the web-analytics
+  scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-customer-analytics/` — account-health watcher for the Customer
+  analytics (Accounts) product, where each `system.accounts` row is a customer
+  organization keyed to its analytics by `external_id` (the group key). Curates a
+  watchlist of commercially-staked accounts (assigned CSM / AE / owner, or a CRM
+  link) and scores each account's product engagement — weekly volume / WAU /
+  key-feature usage — against its own trailing baseline, watching for churn-risk
+  shapes (an engagement cliff, dormancy onset, single-threaded champion departure)
+  and the positive inverse (an expansion signal worth an upsell). Its discriminator
+  is a per-account engagement regression while the fleet holds, weighted by
+  commercial ownership: one staked account sliding is signal, the whole fleet moving
+  together is a capture/aggregate problem for another scout. The linchpin is the
+  account→group join — it verifies that `external_id` actually matches a live group
+  key before trusting any per-account number (a seeded/CRM-sourced roster that
+  doesn't join is a config gap, not a finding). Fills the seam neither commercial
+  neighbor covers — `product-analytics` scores aggregate user-grain flows and
+  `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
+  individual account's engagement trajectory. Acquisition is the web-analytics
+  scout's territory.
 
 ### How the coordinator decides what runs
 
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
-`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 60 =
-hourly) and a `last_run_at` stamp. Every tick the coordinator:
+`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 =
+every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
    JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
    `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
-   (`_register_missing_configs`) — on an enrolled team, authoring a skill is enough
-   to get a scout.
+   (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
+   authoring a skill is enough to get a scout. To register (and tune) one immediately
+   instead, use the `signals-scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -140,7 +230,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `signals-scout-config-update` MCP
-tool. See `scout_coordinator._collect_planned_runs` for the exact due-check.
+tool, and settable at creation time via `signals-scout-config-create` (an upsert that
+registers the config immediately instead of waiting for the tick). See
+`scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
 
@@ -150,8 +242,8 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
-  due tick dispatches it.
+- auto-register an enabled `SignalScoutConfig` on the default every-24-hours schedule
+  for it so the next due tick dispatches it.
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
 template if your scout is broad; pick a specialist as the template if it is
@@ -165,14 +257,23 @@ prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 recurring token cost on every run — and push detail into references that are only
 read when needed.
 
-The generalist (`signals-scout-general`) carries two references the rest of the
-fleet also reasons in terms of:
+The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
+directly and does not `emit_signal`, so it carries two references:
 
-- **`references/emit.md`** — the emit contract: required/recommended fields, the
-  confidence rubric, severity mapping, dedupe keys, `finding_id`
-  idempotency, and a worked example.
-- **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
+- **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
+- **`references/report.md`** — the report channel (`emit-report` / `edit-report`):
+  when to author a fresh report vs. edit an existing one, the field schema, the
+  safety × actionability status mapping, reviewer routing (`suggested_reviewers` via
+  `org-member-get-github-login`), and the non-idempotency + pipeline-rewrite caveats.
+  Bundled because the generalist is the first canonical scout on the channel; a scout
+  reads only its own files at runtime, so any future report-channel adopter bundles its
+  own copy rather than pointing here.
+
+The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
+cluster; those specialists carry their own emit/dedupe contract where they need it,
+and its canonical write-up now lives in
+`authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

@@ -1,13 +1,9 @@
 ---
 name: signals-scout-session-replay
 description: >
-  Focused Signals scout for PostHog projects using session replay. Watches two promises
-  the replay product makes: that sessions are actually being recorded (capture integrity —
-  recording volume vanishing while site traffic doesn't), and that the friction evidence
-  inside recordings gets seen (rage-click / dead-click clusters concentrating on a page
-  or element, error-after-interaction cohorts, recurring replay vision themes nobody
-  aggregates). Emits findings only when they clear the confidence bar; otherwise writes
-  durable memory and closes out empty. Self-contained peer in the signals-scout-* fleet.
+  Signals scout for PostHog session replay. Watches that sessions keep recording (capture
+  cliffs) and that friction inside recordings — rage/dead-click clusters,
+  error-after-interaction cohorts — gets surfaced.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (mostly read-only, plus signal_scout_internal:write). Assumes the signals-scout MCP

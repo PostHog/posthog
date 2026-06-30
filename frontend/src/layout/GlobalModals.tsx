@@ -1,4 +1,5 @@
-import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
@@ -9,69 +10,52 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
-import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
-
 import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
-import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
-import type { globalModalsLogicType } from './GlobalModalsType'
+import { globalModalsLogic } from './globalModalsLogic'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
-import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
 
-export const globalModalsLogic = kea<globalModalsLogicType>([
-    path(['layout', 'navigation', 'globalModalsLogic']),
-    actions({
-        showCreateOrganizationModal: true,
-        hideCreateOrganizationModal: true,
-        showCreateProjectModal: true,
-        hideCreateProjectModal: true,
-    }),
-    reducers({
-        isCreateOrganizationModalShown: [
-            false,
-            {
-                showCreateOrganizationModal: () => true,
-                hideCreateOrganizationModal: () => false,
-            },
-        ],
-        isCreateProjectModalShown: [
-            false,
-            {
-                showCreateProjectModal: () => true,
-                hideCreateProjectModal: () => false,
-            },
-        ],
-    }),
-    bindModalToUrl({
-        urlKey: 'create-organization',
-        openActionKey: 'showCreateOrganizationModal',
-        closeActionKey: 'hideCreateOrganizationModal',
-        isOpenKey: 'isCreateOrganizationModalShown',
-    }),
-])
+// The session player modal anchors the entire replay player graph; loading it only when a
+// recording is opened keeps that graph out of the chunk every logged-in page downloads.
+const SessionPlayerModal = lazy(() =>
+    import('scenes/session-recordings/player/modal/SessionPlayerModal').then((m) => ({
+        default: m.SessionPlayerModal,
+    }))
+)
+
+// Same trick for the logs viewer, whose sparkline anchors chart.js.
+const LogsViewerModal = lazy(() =>
+    import('products/logs/frontend/components/LogsViewer/LogsViewerModal').then((m) => ({
+        default: m.LogsViewerModal,
+    }))
+)
 
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
     const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
+    const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
+    const { isOpen: isLogsViewerModalOpen } = useValues(logsViewerModalLogic)
+    // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
+    const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
+    const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { isConfigureHomeModalOpen } = useValues(navigationLogic)
     const { hideConfigureHomeModal } = useActions(navigationLogic)
-    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
-    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
@@ -80,8 +64,16 @@ export function GlobalModals(): JSX.Element {
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
-            <SessionPlayerModal />
-            <LogsViewerModal />
+            {shouldRenderSessionPlayerModal ? (
+                <Suspense fallback={null}>
+                    <SessionPlayerModal />
+                </Suspense>
+            ) : null}
+            {shouldRenderLogsViewerModal ? (
+                <Suspense fallback={null}>
+                    <LogsViewerModal />
+                </Suspense>
+            ) : null}
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogMode />
@@ -92,10 +84,6 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
-            <ConfigurePromotedProductModal
-                isOpen={isConfigurePromotedProductModalOpen}
-                onClose={hideConfigurePromotedProductModal}
-            />
             <MaybeWelcomeDialog />
             <ComposeTicketModal />
         </>

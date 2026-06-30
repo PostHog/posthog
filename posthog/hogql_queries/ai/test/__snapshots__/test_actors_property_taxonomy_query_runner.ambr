@@ -9,7 +9,7 @@
                      toString(prop_value) AS prop
      FROM
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
-               tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
@@ -18,7 +18,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___industry)]) AS prop_index,
           [toString(groups.properties___industry)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC
@@ -46,7 +46,7 @@
                      toString(prop_value) AS prop
      FROM
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'does not exist'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS `properties___does not exist`,
-               tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
@@ -55,7 +55,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.`properties___does not exist`)]) AS prop_index,
           [toString(groups.`properties___does not exist`)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC
@@ -83,7 +83,7 @@
                      toString(prop_value) AS prop
      FROM
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'employee_count'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___employee_count,
-               tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
@@ -92,7 +92,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___employee_count)]) AS prop_index,
           [toString(groups.properties___employee_count)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC
@@ -128,7 +128,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
      JOIN arrayEnumerate([toString(persons.properties___age)]) AS prop_index,
           [toString(persons.properties___age)] AS prop_value
      WHERE isNotNull(prop_value)
@@ -167,7 +167,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
      JOIN arrayEnumerate([toString(persons.properties___email)]) AS prop_index,
           [toString(persons.properties___email)] AS prop_value
      WHERE isNotNull(prop_value)
@@ -206,7 +206,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
      JOIN arrayEnumerate([toString(persons.`properties___does not exist`)]) AS prop_index,
           [toString(persons.`properties___does not exist`)] AS prop_value
      WHERE isNotNull(prop_value)
@@ -245,7 +245,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
      JOIN arrayEnumerate([toString(persons.properties___age)]) AS prop_index,
           [toString(persons.properties___age)] AS prop_value
      WHERE isNotNull(prop_value)

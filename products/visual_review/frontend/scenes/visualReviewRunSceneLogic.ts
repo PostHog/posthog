@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +28,8 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { isReportingOnlyRun } from '../lib/runPredicates'
+import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -38,7 +41,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     props({} as VisualReviewRunSceneLogicProps),
     key((props) => props.runId),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentProjectId'], visualReviewPreferencesLogic, ['addImagesToComment']],
+        actions: [visualReviewPreferencesLogic, ['setAddImagesToComment']],
     })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
@@ -273,6 +277,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
         isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
+        isReportingOnly: [(s) => [s.run], (run): boolean => isReportingOnlyRun(run)],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -312,13 +317,20 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
 
             try {
+                const addImages = values.addImagesToComment
                 // approve_all approves any still-pending changes (tolerated ones are left alone),
                 // commits the approved baseline, and greens the gate.
                 await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
+                    add_images_to_comment_on_pr: addImages,
                 })
                 actions.finalizeRunSuccess()
-                lemonToast.success('Run finalized — baseline committed')
+                posthog.capture('visual_review_run_finalized', { added_images_to_comment: addImages })
+                lemonToast.success(
+                    addImages
+                        ? 'Run finalized — baseline committed, PR commented with snapshots'
+                        : 'Run finalized — baseline committed, PR commented'
+                )
                 actions.loadRun()
                 // Patch in place — refetching all snapshots after finalize made the whole grid
                 // flash and lost the user's selection. Server is the source of truth on next mount;
@@ -353,10 +365,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
-            // Find the next pending snapshot in sorted order before the async call
+            // Find the next pending snapshot in sorted order before the async call.
+            // Skip quarantined snapshots when they're hidden, otherwise approving advances
+            // onto an unrelated quarantined item the user can't see in the thumbnail strip.
             const sorted = values.sortedChangedSnapshots
             const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
-            const nextPending = sorted.slice(currentIdx + 1).find((s) => s.review_state === 'pending')
+            const nextPending = sorted
+                .slice(currentIdx + 1)
+                .find(
+                    (s) =>
+                        s.review_state === 'pending' &&
+                        (values.showQuarantinedThumbnails || !values.quarantinedIdentifierSet.has(s.identifier))
+                )
 
             try {
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)

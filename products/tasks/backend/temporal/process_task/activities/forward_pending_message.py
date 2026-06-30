@@ -49,10 +49,11 @@ def forward_pending_user_message(run_id: str) -> None:
     successful delivery or non-retryable failure. Keeps it in state on retryable
     failure to preserve recoverability.
     """
+    from products.tasks.backend.logic.services.agent_command import send_user_message
+    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+    from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.services.agent_command import send_user_message
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
@@ -120,6 +121,7 @@ def forward_pending_user_message(run_id: str) -> None:
 
         if not result.success and result.retryable:
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
+            observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
                 "forward_pending_message_retryable_failure",
                 run_id=run_id,
@@ -143,6 +145,7 @@ def forward_pending_user_message(run_id: str) -> None:
         if result.success:
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
+            observe_followup_delivery_failed(task_run, retryable=False)
             logger.warning(
                 "forward_pending_message_non_retryable_failure",
                 run_id=run_id,

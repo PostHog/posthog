@@ -1,14 +1,12 @@
-import uuid
 from datetime import datetime
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, mock_open, patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from boto3 import resource
 from botocore.client import Config
@@ -56,13 +54,14 @@ def make_insight_result(cache_key: str) -> InsightResult:
 TEST_PREFIX = "Test-Exports"
 
 
-@patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+@patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
 @patch(
     "products.exports.backend.tasks.image_exporter.open",
     new_callable=mock_open,
     read_data=b"image_data",
 )
 @patch("os.remove")
+@override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")
 class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset
 
@@ -270,7 +269,7 @@ class TestImageExporter(APIBaseTest):
                 f"URL should contain cache key for insight {insight.id}"
             )
 
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
     def test_export_includes_dashboard_variables(self, *args: Any) -> None:
@@ -316,7 +315,7 @@ class TestImageExporter(APIBaseTest):
                 "variables_override should match the transformed dashboard variables"
             )
 
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
     def test_export_includes_tile_filter_overrides(self, *args: Any) -> None:
@@ -519,9 +518,10 @@ class TestImageExporter(APIBaseTest):
             }
 
 
-@patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+@patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
 @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
+@override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")
 class TestHeatmapExportURLEncoding(APIBaseTest):
     def test_heatmap_urls_with_query_params_are_encoded_in_exporter_url(
         self,
@@ -576,9 +576,10 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         assert params["dataURL"] != [data_url]
 
 
-@patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+@patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
 @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
+@override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")
 class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
     def test_query_override_produces_different_results_than_saved_query(
         self,
@@ -700,74 +701,6 @@ class TestBuildCdpEndpoint(SimpleTestCase):
         assert params["timeout"] == ["1000"]
 
 
-class TestShouldUseBrowserless(SimpleTestCase):
-    @staticmethod
-    def _make_asset(created_by: Any) -> ExportedAsset:
-        team = SimpleNamespace(uuid=uuid.uuid4(), id=42, organization_id="org-99")
-        return cast(ExportedAsset, SimpleNamespace(team=team, created_by=created_by))
-
-    def test_returns_false_when_cdp_url_empty(self) -> None:
-        asset = self._make_asset(created_by=SimpleNamespace(distinct_id="user-1"))
-        with patch.object(settings, "BROWSERLESS_CDP_URL", ""):
-            with patch("products.exports.backend.tasks.image_exporter.posthoganalytics.feature_enabled") as mock_flag:
-                assert image_exporter._should_use_browserless(asset) is False
-                mock_flag.assert_not_called()
-
-    @parameterized.expand([("enabled", True), ("disabled", False)])
-    def test_returns_flag_value_and_calls_with_expected_args(self, _name: str, flag_value: bool) -> None:
-        created_by = SimpleNamespace(distinct_id="user-1")
-        asset = self._make_asset(created_by=created_by)
-
-        with (
-            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
-            patch(
-                "products.exports.backend.tasks.image_exporter.posthoganalytics.feature_enabled",
-                return_value=flag_value,
-            ) as mock_flag,
-        ):
-            assert image_exporter._should_use_browserless(asset) is flag_value
-
-        mock_flag.assert_called_once()
-        call_args, call_kwargs = mock_flag.call_args
-        assert call_args[0] == "image-exporter-use-browserless"
-        assert call_args[1] == "user-1"
-        assert call_kwargs["groups"]["organization"] == "org-99"
-        assert call_kwargs["groups"]["project"] == "42"
-
-    def test_falls_back_to_team_uuid_when_no_created_by(self) -> None:
-        asset = self._make_asset(created_by=None)
-
-        with (
-            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
-            patch(
-                "products.exports.backend.tasks.image_exporter.posthoganalytics.feature_enabled",
-                return_value=True,
-            ) as mock_flag,
-        ):
-            assert image_exporter._should_use_browserless(asset) is True
-
-        call_args = mock_flag.call_args[0]
-        assert call_args[1] == str(asset.team.uuid)
-
-
-class TestScreenshotAssetDispatcher(SimpleTestCase):
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_selenium")
-    def test_routes_to_browserless_when_flag_on(self, mock_selenium: Any, mock_browserless: Any) -> None:
-        image_exporter._screenshot_asset("p", "u", 800, ".ExportedInsight", use_browserless=True)
-
-        mock_browserless.assert_called_once()
-        mock_selenium.assert_not_called()
-
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_selenium")
-    def test_routes_to_selenium_by_default(self, mock_selenium: Any, mock_browserless: Any) -> None:
-        image_exporter._screenshot_asset("p", "u", 800, ".ExportedInsight", use_browserless=False)
-
-        mock_selenium.assert_called_once()
-        mock_browserless.assert_not_called()
-
-
 class TestScreenshotAssetBrowserless(SimpleTestCase):
     def test_connect_error_is_wrapped_as_browserless_unavailable(self) -> None:
         playwright_obj = MagicMock()
@@ -877,6 +810,24 @@ class TestDimensionHelpers(SimpleTestCase):
         assert image_exporter._cap_height(raw_height, effective_max, "https://example.com", final=final) == expected
 
 
+class TestMeasureContentWidthJS(SimpleTestCase):
+    # The vertical funnel (FunnelStepsBarChart, quill-charts) renders neither a <table> nor a
+    # .FunnelBarVertical, so the measurement JS must target its own selector. If that selector is
+    # absent — or is checked after the generic <table> fallback — funnel measurement returns null,
+    # _resolve_width keeps the wide 4000px funnel viewport, and the bars end up stranded on the left
+    # of a mostly-empty image. The selector must stay in sync with the data-attr rendered by
+    # FunnelStepsBarChart.tsx.
+    def test_funnel_canvas_selector_is_present_and_measured_before_table_fallback(self) -> None:
+        js = image_exporter.MEASURE_CONTENT_WIDTH_JS
+
+        canvas_index = js.find("funnel-steps-bar-chart-canvas")
+        table_fallback_index = js.find("tableElement")
+
+        assert canvas_index != -1, "vertical funnels would fall through to the table path and never get cropped"
+        assert table_fallback_index != -1
+        assert canvas_index < table_fallback_index
+
+
 class TestIsBrowserlessConnectionError(SimpleTestCase):
     @parameterized.expand(
         [
@@ -903,6 +854,7 @@ class TestIsBrowserlessConnectionError(SimpleTestCase):
         assert image_exporter._is_browserless_connection_error(Exception(message)) is expected
 
 
+@override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")
 class TestImageExportRenderMetrics(APIBaseTest):
     exported_asset: ExportedAsset
 
@@ -927,15 +879,12 @@ class TestImageExportRenderMetrics(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
-    def test_render_duration_success_counter_increments_for_selenium(
-        self, mock_screenshot_asset: Any, *args: Any
-    ) -> None:
-        success_labels = {"backend": "selenium", "outcome": "success"}
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
+    def test_render_duration_success_counter_increments(self, mock_screenshot_asset: Any, *args: Any) -> None:
+        success_labels = {"backend": "browserless", "outcome": "success"}
         before = self._sample("image_export_render_duration_seconds_count", success_labels)
 
-        # Empty CDP URL makes _should_use_browserless return False (selenium) without evaluating the flag.
-        with self.settings(OBJECT_STORAGE_ENABLED=False, BROWSERLESS_CDP_URL=""):
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
 
         after = self._sample("image_export_render_duration_seconds_count", success_labels)
@@ -944,17 +893,17 @@ class TestImageExportRenderMetrics(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
-    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
-    def test_render_failure_counters_increment_for_selenium(self, mock_screenshot_asset: Any, *args: Any) -> None:
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
+    def test_render_failure_counters_increment(self, mock_screenshot_asset: Any, *args: Any) -> None:
         # QueryError classifies as "user" via classify_failure_type.
         mock_screenshot_asset.side_effect = QueryError("bad query")
 
-        failure_labels = {"backend": "selenium", "failure_type": "user"}
-        duration_labels = {"backend": "selenium", "outcome": "failure"}
+        failure_labels = {"backend": "browserless", "failure_type": "user"}
+        duration_labels = {"backend": "browserless", "outcome": "failure"}
         failure_before = self._sample("image_export_render_failure_total", failure_labels)
         duration_before = self._sample("image_export_render_duration_seconds_count", duration_labels)
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False, BROWSERLESS_CDP_URL=""):
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
             with self.assertRaises(QueryError):
                 image_exporter.export_image(self.exported_asset)
 

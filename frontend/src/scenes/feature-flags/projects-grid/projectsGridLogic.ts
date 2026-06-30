@@ -2,13 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FeatureFlagType, OrganizationFeatureFlag, OrganizationType } from '~/types'
+import { OrganizationFeatureFlag, OrganizationFeatureFlagRow, OrganizationType } from '~/types'
 
 import type { projectsGridLogicType } from './projectsGridLogicType'
 
@@ -17,9 +15,8 @@ export const PAGE_SIZE = 25
 export interface LoadFlagsResult {
     offset: number
     search: string
-    count: number
     next: string | null
-    results: FeatureFlagType[]
+    results: OrganizationFeatureFlagRow[]
 }
 
 const storageKey = (teamId: number): string => `ff-projects-grid.picked-teams.${teamId}`
@@ -27,14 +24,7 @@ const storageKey = (teamId: number): string => `ff-projects-grid.picked-teams.${
 export const projectsGridLogic = kea<projectsGridLogicType>([
     path(['scenes', 'feature-flags', 'projects-grid', 'projectsGridLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            organizationLogic,
-            ['currentOrganization'],
-            projectLogic,
-            ['currentProjectId'],
-        ],
+        values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -52,11 +42,13 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         flags: [
-            [] as FeatureFlagType[],
+            [] as OrganizationFeatureFlagRow[],
             {
                 loadFlagsPageSuccess: (state, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset === 0 ? flagsPage.results : [...state, ...flagsPage.results],
                 setSearch: () => [],
+                setPickedTeamIds: () => [],
+                resetPickedTeamIds: () => [],
             },
         ],
         flagsOffset: [
@@ -65,6 +57,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset + flagsPage.results.length,
                 setSearch: () => 0,
+                setPickedTeamIds: () => 0,
+                resetPickedTeamIds: () => 0,
             },
         ],
         flagsHasMore: [
@@ -72,6 +66,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             {
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) => flagsPage.next !== null,
                 setSearch: () => true,
+                setPickedTeamIds: () => true,
+                resetPickedTeamIds: () => true,
             },
         ],
         siblingsByFlagKey: [
@@ -112,12 +108,20 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         flagsPage: [
             null as LoadFlagsResult | null,
             {
-                loadFlagsPage: async ({ offset, search }: { offset: number; search: string }) => {
-                    const params = toParams({ limit: PAGE_SIZE, offset, search })
-                    const response = await api.get<Omit<LoadFlagsResult, 'offset' | 'search'>>(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${params}`
-                    )
-                    return { offset, search, ...response }
+                loadFlagsPage: async ({ offset, search }: { offset: number; search: string }, breakpoint) => {
+                    const orgId = values.currentOrganization?.id
+                    if (!orgId) {
+                        return { offset, search, next: null, results: [] }
+                    }
+                    const response = await api.organizationFeatureFlags.keys(orgId, {
+                        team_ids: values.visibleColumns,
+                        search,
+                        limit: PAGE_SIZE,
+                        offset,
+                    })
+                    // Abort if a newer load (e.g. from a project-picker change) superseded this one.
+                    breakpoint()
+                    return { offset, search, next: response.next, results: response.results }
                 },
             },
         ],
@@ -160,9 +164,12 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         },
         setPickedTeamIds: ({ teamIds }) => {
             localStorage.setItem(storageKey(getCurrentTeamId()), JSON.stringify(teamIds))
+            // Comparing more projects can surface flags that only exist in those projects, so reload rows.
+            actions.loadFlagsPage({ offset: 0, search: values.search })
         },
         resetPickedTeamIds: () => {
             localStorage.removeItem(storageKey(getCurrentTeamId()))
+            actions.loadFlagsPage({ offset: 0, search: values.search })
         },
     })),
     afterMount(({ actions }) => {
@@ -171,7 +178,9 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             try {
                 const parsed = JSON.parse(raw)
                 if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'number')) {
+                    // setPickedTeamIds triggers the initial row load with the hydrated projects.
                     actions.setPickedTeamIds(parsed)
+                    return
                 }
             } catch {
                 // ignore malformed entry

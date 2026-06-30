@@ -1,13 +1,8 @@
 ---
 name: signals-scout-revenue-analytics
 description: >
-  Focused Signals scout for PostHog projects using revenue analytics. Watches the
-  derived revenue product for upstream failures (Stripe sync stalls, capture
-  regressions), config drift (missing subscription property, currency mix surprises,
-  broken Stripe↔person joins, deferred-revenue gaps), and goal-miss escalations.
-  Emits findings only when they clear the confidence bar; otherwise writes durable
-  memory and closes out empty. Self-contained peer in the signals-scout-* fleet —
-  no dependencies on other skills.
+  Signals scout for PostHog revenue analytics. Watches for upstream failures (Stripe sync
+  stalls, capture regressions), config drift, and goal-miss escalations.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
@@ -278,7 +273,7 @@ Harness-level:
 - `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 For deeper investigation, the sandbox image bakes
-`posthog:auditing-warehouse-data-health` (catches Stripe-source failures upstream of
+`posthog:auditing-warehouse-source-health` (catches Stripe-source failures upstream of
 revenue analytics) and `posthog:diagnosing-failed-warehouse-syncs` (recovery actions
 for a failing sync).
 

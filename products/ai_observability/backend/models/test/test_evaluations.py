@@ -251,6 +251,38 @@ class TestEvaluationModel(BaseTest):
         self.assertIn("bytecode", evaluation.evaluation_config)
         self.assertNotEqual(evaluation.evaluation_config["bytecode"], original_bytecode)
 
+    def test_sentiment_evaluation_defaults_to_user_messages_source(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment Eval",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        evaluation.refresh_from_db()
+
+        self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
+        self.assertEqual(evaluation.output_config, {})
+
+    def test_unsupported_evaluation_output_type_combination_rejected(self):
+        with self.assertRaises(ValidationError):
+            Evaluation.objects.create(
+                team=self.team,
+                name="Bad Eval",
+                evaluation_type="llm_judge",
+                evaluation_config={},
+                output_type="sentiment",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
+
     def test_preserves_other_condition_fields(self):
         """
         Other condition fields (id, rollout_percentage) should be preserved during save
@@ -344,18 +376,25 @@ class TestEvaluationStatusCoercion(BaseTest):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
         evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.status_reason_detail = "The trial limit was reached."
         evaluation.save()
 
         evaluation.status = EvaluationStatus.PAUSED
         evaluation.save()
         self.assertIsNone(evaluation.status_reason)
+        self.assertIsNone(evaluation.status_reason_detail)
 
     def test_set_status_helper_transitions_all_three_fields(self):
         evaluation = self._create(enabled=True)
-        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        evaluation.set_status(
+            EvaluationStatus.ERROR,
+            EvaluationStatusReason.HOG_ERROR,
+            "Must return boolean, got int: 42",
+        )
         evaluation.refresh_from_db()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.HOG_ERROR)
+        self.assertEqual(evaluation.status_reason_detail, "Must return boolean, got int: 42")
         self.assertFalse(evaluation.enabled)
 
     def test_refresh_from_db_resets_change_tracking_baseline(self):

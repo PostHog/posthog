@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBook, IconCheck, IconPencil, IconPlusSmall, IconRefresh, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonCollapse, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -16,7 +16,7 @@ import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceM
 import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
 import { StatusTag } from '../components/StatusTag'
-import { KnowledgeSource, businessKnowledgeLogic } from './businessKnowledgeLogic'
+import { type AggregatedGap, KnowledgeSource, businessKnowledgeLogic } from './businessKnowledgeLogic'
 
 const REFRESH_INTERVAL_OPTIONS: RefreshIntervalOption[] = [
     { value: 'manual', label: 'Manual only' },
@@ -33,8 +33,10 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
-    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds } = useValues(businessKnowledgeLogic)
-    const { openCreateModal, openEditModal, deleteSource, refreshSource } = useActions(businessKnowledgeLogic)
+    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, gapSuggestions, gapSuggestionsLoading } =
+        useValues(businessKnowledgeLogic)
+    const { openCreateModal, openEditModal, deleteSource, refreshSource, acceptGapSuggestion, dismissGapSuggestion } =
+        useActions(businessKnowledgeLogic)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -47,7 +49,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBook /> }}
                 actions={
-                    <LemonButton type="primary" icon={<IconPlusSmall />} onClick={openCreateModal}>
+                    <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
                         Add source
                     </LemonButton>
                 }
@@ -58,6 +60,15 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 <span>•</span>
                 <span>{totalChunks.toLocaleString()} chunks indexed</span>
             </div>
+
+            {gapSuggestions.length > 0 && (
+                <GapSuggestionsPanel
+                    suggestions={gapSuggestions}
+                    loading={gapSuggestionsLoading}
+                    onAccept={acceptGapSuggestion}
+                    onDismiss={dismissGapSuggestion}
+                />
+            )}
 
             <LemonTable<KnowledgeSource>
                 dataSource={sources}
@@ -107,7 +118,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
-                        render: (_, row) => <StatusTag status={row.status} />,
+                        render: (_, row) => <StatusTag source={row} />,
                     },
                     {
                         title: 'Pages / chunks',
@@ -185,5 +196,73 @@ export function BusinessKnowledgeScene(): JSX.Element {
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
             <EditKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
         </SceneContent>
+    )
+}
+
+function GapSuggestionsPanel({
+    suggestions,
+    loading,
+    onAccept,
+    onDismiss,
+}: {
+    suggestions: AggregatedGap[]
+    loading: boolean
+    onAccept: (normalizedTopic: string, topic: string) => void
+    onDismiss: (normalizedTopic: string) => void
+}): JSX.Element {
+    return (
+        <LemonCollapse
+            className="mb-4"
+            panels={[
+                {
+                    key: 'gap_suggestions',
+                    header: (
+                        <span className="flex items-center gap-1">
+                            Suggested additions
+                            <LemonTag type="highlight" size="small">
+                                {suggestions.length}
+                            </LemonTag>
+                        </span>
+                    ),
+                    content: loading ? (
+                        <div className="text-muted text-sm p-2">Loading suggestions...</div>
+                    ) : (
+                        <div className="space-y-2">
+                            <p className="text-muted text-xs">
+                                Topics customers asked about that the AI couldn't answer from your knowledge base.
+                                Accept to create a source, or dismiss.
+                            </p>
+                            {suggestions.map((gap) => (
+                                <LemonCard key={gap.normalized_topic} className="flex items-center justify-between p-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-medium truncate">{gap.topic}</div>
+                                        <div className="text-xs text-muted">
+                                            {gap.ticket_count} ticket{gap.ticket_count !== 1 ? 's' : ''}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1 ml-2">
+                                        <LemonButton
+                                            size="small"
+                                            type="primary"
+                                            icon={<IconCheck />}
+                                            tooltip="Accept — create a source for this topic"
+                                            onClick={() => onAccept(gap.normalized_topic, gap.topic)}
+                                        >
+                                            Accept
+                                        </LemonButton>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconX />}
+                                            tooltip="Dismiss"
+                                            onClick={() => onDismiss(gap.normalized_topic)}
+                                        />
+                                    </div>
+                                </LemonCard>
+                            ))}
+                        </div>
+                    ),
+                },
+            ]}
+        />
     )
 }

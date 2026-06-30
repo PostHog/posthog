@@ -1,9 +1,8 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from posthog.schema import ProductItemCategory, ProductKey
-
 from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory, ProductKey
 
 # Base weights for high-value products.
 # Analysis: https://us.posthog.com/project/2/notebooks/x3AWOfsm

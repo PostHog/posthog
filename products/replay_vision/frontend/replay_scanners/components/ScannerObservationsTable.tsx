@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -88,19 +88,23 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
+        observationSubjectFilter,
         hasActiveObservationFilters,
         availableTags,
         observationStats,
         scanner,
+        triggeringOnDemandObservation,
+        refreshing,
     } = useValues(logic)
     const {
-        loadObservations,
+        refreshObservations,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
+        setObservationSubjectFilter,
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
@@ -119,6 +123,21 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     {obs.session_id}
                 </Link>
             ),
+        },
+        {
+            title: 'Recording subject',
+            key: 'recording_subject',
+            sorter: true,
+            render: (_, obs) =>
+                obs.recording_subject_email ? (
+                    <Tooltip title={obs.distinct_id ?? undefined}>
+                        <span className="truncate block max-w-[16rem]">{obs.recording_subject_email}</span>
+                    </Tooltip>
+                ) : obs.distinct_id ? (
+                    <span className="font-mono text-xs text-muted truncate block max-w-[16rem]">{obs.distinct_id}</span>
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Status',
@@ -192,13 +211,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-3">
-                <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
-                </p>
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
+                                <LemonInput
+                                    type="search"
+                                    size="small"
+                                    placeholder="Recording subject email"
+                                    value={observationSubjectFilter}
+                                    onChange={setObservationSubjectFilter}
+                                    className="w-56"
+                                />
                                 <FilterPill<ObservationStatusValue>
                                     label="Status"
                                     options={STATUS_OPTIONS}
@@ -227,11 +252,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationTagFilter}
                                     />
                                 )}
-                                {hasActiveObservationFilters && (
-                                    <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => clearObservationFilters()}
+                                    disabledReason={hasActiveObservationFilters ? undefined : 'No active filters'}
+                                >
+                                    Clear filters
+                                </LemonButton>
                             </>
                         )}
                         <Tooltip
@@ -245,39 +273,38 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 size="small"
                                 type="secondary"
                                 icon={<IconRefresh />}
-                                onClick={() => loadObservations()}
-                                loading={observationsLoading}
+                                onClick={() => refreshObservations()}
+                                loading={refreshing}
                                 data-attr="vision-observations-refresh"
-                            />
+                            >
+                                Refresh
+                            </LemonButton>
                         </Tooltip>
                     </div>
-                    {observationStats.total > 0 && (
-                        <div className="flex gap-4 text-sm">
-                            <Metric label="Total" value={observationStats.total} />
-                            {observationStats.successRate !== null && (
-                                <Metric
-                                    label="Success rate"
-                                    value={`${observationStats.successRate}%`}
-                                    valueClass="text-success"
-                                />
-                            )}
-                            {observationStats.failed > 0 && (
-                                <Metric label="Failed" value={observationStats.failed} valueClass="text-danger" />
-                            )}
-                            {observationStats.ineligible > 0 && (
-                                <Metric label="Ineligible" value={observationStats.ineligible} />
-                            )}
-                            {observationStats.inFlight > 0 && (
-                                <Metric label="In flight" value={observationStats.inFlight} />
-                            )}
-                        </div>
-                    )}
+                    {/* Always rendered (0 / N/A when empty) so a zero-match filter doesn't drop the metrics and shift the controls. */}
+                    <div className="flex gap-4 text-sm">
+                        <Metric label="Total" value={observationStats.total} />
+                        <Metric
+                            label="Success rate"
+                            value={observationStats.successRate !== null ? `${observationStats.successRate}%` : 'N/A'}
+                            valueClass={observationStats.successRate !== null ? 'text-success' : undefined}
+                        />
+                        <Metric
+                            label="Failed"
+                            value={observationStats.failed}
+                            valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
+                        />
+                        <Metric label="Ineligible" value={observationStats.ineligible} />
+                        {observationStats.inFlight > 0 && (
+                            <Metric label="In flight" value={observationStats.inFlight} />
+                        )}
+                    </div>
                 </div>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={observationsLoading}
+                loading={refreshing || triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,

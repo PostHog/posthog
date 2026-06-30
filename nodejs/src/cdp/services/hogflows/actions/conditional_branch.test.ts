@@ -3,9 +3,9 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import { ConditionalBranchHandler, checkConditions } from './conditional_branch'
@@ -230,6 +230,21 @@ describe('action.conditional_branch', () => {
             })
 
             // Condition does not match, so the step reschedules itself rather than advancing.
+            expect(result.scheduledAt).toBeDefined()
+            expect(result.nextAction).toBeUndefined()
+        })
+
+        it('does not fire immediately when the condition has no properties (always-true bytecode)', async () => {
+            // An empty property condition compiles to always-true bytecode. It must not match on
+            // entry and advance the wait; the step should park until an event wakes it or it times out.
+            waitAction.config.condition = { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
             expect(result.scheduledAt).toBeDefined()
             expect(result.nextAction).toBeUndefined()
         })

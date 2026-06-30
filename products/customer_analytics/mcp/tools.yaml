@@ -37,6 +37,12 @@ tools:
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
                     team.
         feature_flag: customer-analytics-csp
+    accounts-custom-property-values-create:
+        operation: accounts_custom_property_values_create
+        enabled: false
+    accounts-custom-property-values-list:
+        operation: accounts_custom_property_values_list
+        enabled: false
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
@@ -67,7 +73,10 @@ tools:
             account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
             `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
-            for a single account by id.
+            for a single account by id. To link a user to a specific account rather than the bare list, deep-link it
+            with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
+            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that
+            account, expands it, and opens the tab.
         param_overrides:
             tags:
                 description: >
@@ -173,10 +182,30 @@ tools:
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id external identifiers) and `tags`.
+            zendesk_id external identifiers) and `tags`. To link a user to this account rather than the bare list,
+            deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
+            optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
+        enabled: false
+    custom-property-definitions-create:
+        operation: custom_property_definitions_create
+        enabled: false
+    custom-property-definitions-destroy:
+        operation: custom_property_definitions_destroy
+        enabled: false
+    custom-property-definitions-list:
+        operation: custom_property_definitions_list
+        enabled: false
+    custom-property-definitions-partial-update:
+        operation: custom_property_definitions_partial_update
+        enabled: false
+    custom-property-definitions-retrieve:
+        operation: custom_property_definitions_retrieve
+        enabled: false
+    custom-property-definitions-update:
+        operation: custom_property_definitions_update
         enabled: false
     customer-journeys-create:
         operation: customer_journeys_create

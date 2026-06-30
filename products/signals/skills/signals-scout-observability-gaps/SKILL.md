@@ -1,13 +1,9 @@
 ---
 name: signals-scout-observability-gaps
 description: >
-  Focused Signals scout for finding observability gaps in PostHog itself — significant
-  event volumes the team isn't tracking, custom events with no insight or dashboard
-  coverage, insights pointing at events that have stopped firing, dashboards missing
-  related context, critical events with no alerts. Watches the event-stream-vs-saved-
-  inventory delta as the team's product evolves and emits findings recommending new
-  insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for observability gaps — significant event volumes with no insight, dashboard,
+  or alert coverage. Recommends new insights, dashboards, or alerts as the team's product
+  evolves.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
@@ -67,6 +63,18 @@ against the fresh profile, then run **at most one fresh probe** — an angle no 
 run has covered — to earn the close-out rather than inherit it. If the tripwire is
 untriggered and the probe comes back clean, close out empty in minutes. Don't re-run
 coverage SQL a run verified hours ago; that's duplication, not diligence.
+
+One asymmetry to bake in: the **coverage** families (1, 3, 4, 5, 6) saturate
+_permanently_ on a mature team — every high-volume event already has dense coverage —
+but **insight drift (family 2) does not.** Drift is generated continuously as the
+product renames and sunsets events, so on an otherwise-saturated team it is the one
+durably productive angle. Lead with it and treat the coverage families as
+inherit-saturation unless their tripwire fires.
+
+When several probe angles exist (new-event emergence, alert coverage, insight drift),
+**rotate**: each run picks the _stalest_ angle — the one untouched longest — and
+inherits the others' recent readings. Rotating earns a genuinely fresh close-out each
+tick without re-running identical SQL hourly.
 
 ## How a run works
 
@@ -136,8 +144,11 @@ Direct calls:
 - For zero-volume events, search `event-definitions-list` for similar names suggesting
   a rename (Levenshtein-close, same prefix, same property shape).
 
-Strong signal: insight has been viewed in the last 30d AND its primary event has 0
-firings in 7d AND a similar-named event is firing > 100/day.
+Strong signal: the insight is live (recent `last_modified_at`, or pinned to a live
+dashboard via `system.dashboard_tiles`) AND its primary event has 0 firings in 7d AND
+a similar-named event is firing > 100/day. Note `system.insights` exposes
+`last_modified_at` but has **no** `last_viewed_at` column — prove "live" by
+modification recency or a live dashboard tile, not view recency.
 
 #### 3. Critical event with no alerts configured
 
@@ -288,6 +299,11 @@ a separate "run metadata" scratchpad entry — the run summary already serves th
 - **Incident-investigation scaffolding** — short-lived events created during an
   incident, often with incident-named insights attached. They stop firing when the
   incident closes; flagging the stoppage as drift is a false positive.
+- **One-time backfills / deploy spikes** — a newly-instrumented event can dump its
+  whole history in a single ingest, faking a high-reach "stable" metric. Before
+  trusting volume, bucket the candidate by hour (`toStartOfHour`): if nearly all
+  events _and_ distinct users land in one hour, it's a backfill, not a stable metric —
+  disqualify it (it fails the 7-complete-day bar regardless of raw reach).
 - **Legacy event-name variants** — insights that deliberately union an old and a new
   event name for historical continuity are well-maintained, not drifted. Read the
   insight's query JSON before declaring a dead event "still referenced."

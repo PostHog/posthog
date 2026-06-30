@@ -47,23 +47,35 @@ SDK_LIBRARIES = [
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
 
+# Remote config requests are tracked for telemetry only; billing consumes just the decide and
+# local evaluation events (see usage_report.py), so the remote config event never bills.
+_REQUEST_BUCKET_PREFIXES = {
+    FlagRequestType.DECIDE: "decide_requests",
+    FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
+    FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
+}
+
+USAGE_EVENT_NAMES = {
+    FlagRequestType.DECIDE: "decide usage",
+    FlagRequestType.LOCAL_EVALUATION: "local evaluation usage",
+    FlagRequestType.REMOTE_CONFIG: "remote config usage",
+}
+
+
+def _request_bucket_prefix(request_type: FlagRequestType) -> str:
+    try:
+        return _REQUEST_BUCKET_PREFIXES[request_type]
+    except KeyError:
+        raise ValueError(f"Unknown request type: {request_type}") from None
+
+
 def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
-    if request_type == FlagRequestType.DECIDE:
-        return f"posthog:decide_requests:{team_id}"
-    elif request_type == FlagRequestType.LOCAL_EVALUATION:
-        return f"posthog:local_evaluation_requests:{team_id}"
-    else:
-        raise ValueError(f"Unknown request type: {request_type}")
+    return f"posthog:{_request_bucket_prefix(request_type)}:{team_id}"
 
 
 def get_team_request_library_key(team_id: int, request_type: FlagRequestType, library: str) -> str:
     """Get the Redis key for SDK-specific request counts."""
-    if request_type == FlagRequestType.DECIDE:
-        return f"posthog:decide_requests:sdk:{team_id}:{library}"
-    elif request_type == FlagRequestType.LOCAL_EVALUATION:
-        return f"posthog:local_evaluation_requests:sdk:{team_id}:{library}"
-    else:
-        raise ValueError(f"Unknown request type: {request_type}")
+    return f"posthog:{_request_bucket_prefix(request_type)}:sdk:{team_id}:{library}"
 
 
 def increment_request_count(
@@ -158,71 +170,51 @@ def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
+def _capture_team_usage_for_request_type(
+    ph_client: "Posthog",
+    client: redis.Redis,
+    team_id: int,
+    team_uuid: str,
+    request_type: FlagRequestType,
+    billing_token: str | None,
+) -> None:
+    key_name = get_team_request_key(team_id, request_type)
+    total_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(client, key_name)
+    sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, request_type)
+
+    if total_count == 0 or not billing_token:
+        return
+
+    properties: dict = {
+        "count": total_count,
+        "team_id": team_id,
+        "team_uuid": team_uuid,
+        "min_time": min_time,
+        "max_time": max_time,
+        "token": billing_token,
+    }
+    if sdk_breakdown:
+        properties["sdk_breakdown"] = sdk_breakdown
+
+    ph_client.capture(
+        distinct_id=team_id,
+        event=USAGE_EVENT_NAMES[request_type],
+        properties=properties,
+    )
+
+
 def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
     try:
         client = get_client()
-        total_decide_request_count = 0
-        total_local_evaluation_request_count = 0
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
-            decide_key_name = get_team_request_key(team_id, FlagRequestType.DECIDE)
-            (
-                total_decide_request_count,
-                min_time,
-                max_time,
-            ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
-
-            # Extract SDK breakdown for decide requests
-            decide_sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
-
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            if total_decide_request_count > 0 and billing_token:
-                properties: dict = {
-                    "count": total_decide_request_count,
-                    "team_id": team_id,
-                    "team_uuid": team_uuid,
-                    "min_time": min_time,
-                    "max_time": max_time,
-                    "token": billing_token,
-                }
-                if decide_sdk_breakdown:
-                    properties["sdk_breakdown"] = decide_sdk_breakdown
-
-                ph_client.capture(
-                    distinct_id=team_id,
-                    event="decide usage",
-                    properties=properties,
-                )
-
-            local_evaluation_key_name = get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION)
-            (
-                total_local_evaluation_request_count,
-                min_time,
-                max_time,
-            ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
-
-            # Extract SDK breakdown for local evaluation requests
-            local_eval_sdk_breakdown = _extract_sdk_breakdown_from_redis(
-                client, team_id, FlagRequestType.LOCAL_EVALUATION
-            )
-
-            if total_local_evaluation_request_count > 0 and billing_token:
-                properties = {
-                    "count": total_local_evaluation_request_count,
-                    "team_id": team_id,
-                    "team_uuid": team_uuid,
-                    "min_time": min_time,
-                    "max_time": max_time,
-                    "token": billing_token,
-                }
-                if local_eval_sdk_breakdown:
-                    properties["sdk_breakdown"] = local_eval_sdk_breakdown
-
-                ph_client.capture(
-                    distinct_id=team_id,
-                    event="local evaluation usage",
-                    properties=properties,
-                )
+            for request_type in (
+                FlagRequestType.DECIDE,
+                FlagRequestType.LOCAL_EVALUATION,
+                FlagRequestType.REMOTE_CONFIG,
+            ):
+                _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:
         # lock wasn't acquired, which means another worker is working on this, so we don't need to do anything

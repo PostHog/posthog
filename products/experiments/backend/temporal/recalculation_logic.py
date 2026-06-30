@@ -4,30 +4,36 @@ The thin ``@temporalio.activity.defn`` entrypoints live in ``recalculation_activ
 module holds the DB-touching ``_*_sync`` implementations plus the pure helpers they compose from.
 """
 
+import time
 import dataclasses
 from datetime import datetime
+from typing import Any
 
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import (
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
-)
+from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import look_up_clickhouse_error_code_meta
+from posthog.event_usage import groups
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -36,6 +42,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
@@ -93,6 +100,43 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetricToRecalculate]:
+    """All metrics to recalculate for an experiment, in (primary, secondary, saved) order.
+
+    Single source of truth for "which metrics does this experiment have" — used both to set
+    ``total_metrics`` at recalculation-create time and by the discovery activity. Touches the DB
+    (saved-metric links), so call inside a team scope / sync context.
+
+    Note: this sync helper takes an ``Experiment``. The async Temporal activity in
+    ``recalculation_activities.py`` shares the name but takes a ``recalculation_id`` — disambiguate by
+    import path and argument type at the call site.
+    """
+    metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
+
+    def _add(metric_uuid: str | None, metric_type: str) -> None:
+        if metric_uuid:
+            metrics_to_recalculate.append(
+                ExperimentMetricToRecalculate(
+                    experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
+                )
+            )
+
+    # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
+    for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
+        for metric in source or []:
+            _add(metric.get("uuid"), metric_type)
+
+    # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
+    # primary/secondary is recorded on the link's metadata["type"] (default "primary").
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        saved_query = link.saved_metric.query
+        metric_uuid = saved_query.get("uuid") if saved_query else None
+        metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
+        _add(metric_uuid, metric_type)
+
+    return metrics_to_recalculate
+
+
 @database_sync_to_async
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -102,28 +146,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
-
-        def _add(metric_uuid: str | None, metric_type: str) -> None:
-            if metric_uuid:
-                metrics_to_recalculate.append(
-                    ExperimentMetricToRecalculate(
-                        experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
-                    )
-                )
-
-        # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
-        for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
-            for metric in source or []:
-                _add(metric.get("uuid"), metric_type)
-
-        # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
-        # primary/secondary is recorded on the link's metadata["type"] (default "primary").
-        for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-            saved_query = link.saved_metric.query
-            metric_uuid = saved_query.get("uuid") if saved_query else None
-            metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-            _add(metric_uuid, metric_type)
+        metrics_to_recalculate = discover_experiment_metrics(experiment)
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
@@ -159,7 +182,12 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            proposed_query_to = timezone.now()
+            # query_to is the run's data-window end, not bare "now": for a stopped experiment
+            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
+            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
+            # timeseries point on every run. A running experiment still advances with now.
+            experiment = Experiment.objects.get(id=state.experiment_id)
+            proposed_query_to = experiment_window_end(experiment, timezone.now())
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
@@ -181,60 +209,106 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
         # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
-        ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
-            completed_at=timezone.now(),
-            status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+        won = (
+            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
+                completed_at=timezone.now(),
+                status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+            )
+            == 1
         )
+        # Emit the run-level analytics event only on the winning (first) completion, so a retried
+        # mark_completed doesn't double-count.
+        if won:
+            _capture_results_refresh_completed(update)
         return None
+
+
+def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> None:
+    """Run-level analytics: 'experiment results refresh completed' with the final counts. Mirrors the
+    legacy client-side event. Telemetry must never fail the activity, so swallow any error."""
+    try:
+        recalc = (
+            ExperimentMetricsRecalculation.objects.select_related("experiment", "experiment__team")
+            .filter(id=update.recalculation_id)
+            .first()
+        )
+        if recalc is None:
+            return
+        experiment = recalc.experiment
+        team = experiment.team
+        distinct_id = (
+            experiment.created_by.distinct_id
+            if experiment.created_by and experiment.created_by.distinct_id
+            else f"team_{team.id}"
+        )
+        total_duration_ms = (
+            round((recalc.completed_at - recalc.created_at).total_seconds() * 1000)
+            if recalc.completed_at and recalc.created_at
+            else None
+        )
+        # Split the full duration into the time the workflow actually executed (start activity to finish)
+        # and the time it waited in the queue before the start activity ran (request to start). Their sum
+        # is total_duration_ms. started_at is set by the start activity, so it is present on any completed run.
+        execution_duration_ms = (
+            round((recalc.completed_at - recalc.started_at).total_seconds() * 1000)
+            if recalc.completed_at and recalc.started_at
+            else None
+        )
+        queue_duration_ms = (
+            round((recalc.started_at - recalc.created_at).total_seconds() * 1000)
+            if recalc.started_at and recalc.created_at
+            else None
+        )
+        # Hours since the experiment launched, matching the legacy frontend definition exactly
+        # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
+        experiment_duration_hours = (
+            round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
+        )
+        primary_metrics_count = len(experiment.metrics or [])
+        secondary_metrics_count = len(experiment.metrics_secondary or [])
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event="experiment results refresh completed",
+                properties={
+                    "experiment_id": experiment.id,
+                    "team_id": team.id,
+                    "recalculation_id": str(recalc.id),
+                    "status": recalc.status,
+                    "total_metrics": recalc.total_metrics,
+                    "succeeded_metrics": update.succeeded_metrics,
+                    "failed_metrics": update.failed_metrics,
+                    "total_duration_ms": total_duration_ms,
+                    "execution_duration_ms": execution_duration_ms,
+                    "queue_duration_ms": queue_duration_ms,
+                    "trigger": recalc.trigger,
+                    "execution_mode": "recalculation",
+                    # Legacy-named aliases + missing properties for parity with the frontend
+                    # 'experiment results refresh completed' event, so the original experiments
+                    # dashboards work against workflow runs with the same property names.
+                    "triggered_by": recalc.trigger,
+                    "successful_count": update.succeeded_metrics,
+                    "errored_count": update.failed_metrics,
+                    "cached_count": 0,
+                    "total_metrics_count": recalc.total_metrics,
+                    "primary_metrics_count": primary_metrics_count,
+                    "secondary_metrics_count": secondary_metrics_count,
+                    "experiment_status": experiment.status or experiment.computed_status,
+                    "experiment_duration_hours": experiment_duration_hours,
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.warning(
+            "experiment_results_refresh_completed_capture_failed",
+            recalculation_id=update.recalculation_id,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
 # Calculation helpers
 # ---------------------------------------------------------------------------
-
-
-def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
-    """Resolve a metric_uuid to its definition dict, across inline AND saved/shared metrics.
-
-    Inline metrics are dicts in experiment.metrics / metrics_secondary. Saved metrics live on the M2M
-    through-model and carry their definition (with uuid) in saved_metric.query.
-    """
-    for metric in (experiment.metrics or []) + (experiment.metrics_secondary or []):
-        if metric.get("uuid") == metric_uuid:
-            return metric
-
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        saved_query = link.saved_metric.query
-        if saved_query and saved_query.get("uuid") == metric_uuid:
-            # Merge per-experiment breakdowns from link.metadata into the saved query, mirroring the
-            # daily-warming activity. Without this, recalc would compute the unbroken-down version of a
-            # saved metric the experiment has configured with breakdowns.
-            metadata = link.metadata or {}
-            return {
-                **saved_query,
-                "breakdownFilter": {
-                    **(saved_query.get("breakdownFilter") or {}),
-                    "breakdowns": metadata.get("breakdowns") or [],
-                },
-            }
-
-    return None
-
-
-# Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics never enter this
-# workflow, so there is no fallback — an unexpected metric_type surfaces as a calculation-step error.
-_METRIC_BUILDERS = {
-    "mean": ExperimentMeanMetric,
-    "funnel": ExperimentFunnelMetric,
-    "ratio": ExperimentRatioMetric,
-    "retention": ExperimentRetentionMetric,
-}
-
-
-def _build_metric(
-    metric_dict: dict,
-) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
-    return _METRIC_BUILDERS[metric_dict["metric_type"]](**metric_dict)
 
 
 def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message: str) -> None:
@@ -262,17 +336,21 @@ def _store_result(
     status: str,
     result: dict | None,
     error_message: str | None,
+    query_id: str | None = None,
 ) -> None:
+    # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+    # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+    # duplicate. This heals rows written under the old per-run fingerprint scheme.
     ExperimentMetricResult.objects.update_or_create(
         experiment_id=experiment_id,
         metric_uuid=metric_uuid,
-        fingerprint=recalc_fp,
         query_to=query_to,
         defaults={
+            "fingerprint": recalc_fp,
             "query_from": query_from,
             "status": status,
             "result": result,
-            "query_id": None,
+            "query_id": query_id,
             "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
             "error_message": error_message,
         },
@@ -288,13 +366,90 @@ def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> M
 
 
 # ---------------------------------------------------------------------------
+# Product analytics (recalculation flow)
+#
+# These mirror the legacy client-side events ('experiment metric finished' / 'experiment metric error'),
+# now that metrics are computed on the backend instead of in the browser. execution_mode='recalculation'
+# distinguishes them from legacy events on the same dashboards.
+# ---------------------------------------------------------------------------
+
+
+def _capture_experiment_metric_event(
+    experiment: Experiment,
+    metric_uuid: str,
+    metric_type: str,
+    metric_dict: dict | None,
+    event: str,
+    extra_properties: dict[str, Any],
+) -> None:
+    """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
+    is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
+
+    `metric_type` is the primary/secondary classification carried from discovery
+    (`ExperimentMetricToRecalculate.metric_type`), threaded through the workflow + activity args so the
+    capture path doesn't have to re-query the M2M to resolve it.
+    """
+    try:
+        team = experiment.team
+        distinct_id = (
+            experiment.created_by.distinct_id
+            if experiment.created_by and experiment.created_by.distinct_id
+            else f"team_{team.id}"
+        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties={
+                    "experiment_id": experiment.id,
+                    "team_id": team.id,
+                    "metric_uuid": metric_uuid,
+                    "metric_kind": (metric_dict or {}).get("metric_type"),
+                    "is_primary": metric_type == "primary",
+                    "execution_mode": "recalculation",
+                    **extra_properties,
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.warning(
+            "experiment_metric_event_capture_failed",
+            event=event,
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+            exc_info=True,
+        )
+
+
+# error_type values mirror the client-side `classifyError` taxonomy (experimentLogic.tsx) so
+# recalculation failures land on the same dashboards as the legacy client events.
+def _classify_query_error_type(e: Exception) -> str:
+    if isinstance(e, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
+        return "timeout"
+    if isinstance(e, ClickHouseQueryMemoryLimitExceeded):
+        return "out_of_memory"
+    if isinstance(e, ServerException):
+        name = look_up_clickhouse_error_code_meta(e).name
+        if name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
+            return "timeout"
+        if name == "MEMORY_LIMIT_EXCEEDED":
+            return "out_of_memory"
+    return "server_error"
+
+
+# ---------------------------------------------------------------------------
 # Calculation
 # ---------------------------------------------------------------------------
 
 
 @database_sync_to_async
 def _calculate_experiment_metric_for_recalculation_sync(
-    experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+    experiment_id: int,
+    metric_uuid: str,
+    recalculation_id: str,
+    query_to: str,
+    metric_type: str = "primary",
+    is_final_attempt: bool = True,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -337,7 +492,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except Experiment.DoesNotExist:
             return _fail(recalculation_id, metric_uuid, "discovery", f"Experiment {experiment_id} not found or deleted")
 
-        metric_dict = _find_metric_dict(experiment, metric_uuid)
+        metric_dict = find_metric_dict(experiment, metric_uuid)
         if metric_dict is None:
             return _fail(
                 recalculation_id,
@@ -356,20 +511,51 @@ def _calculate_experiment_metric_for_recalculation_sync(
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
+        recalc_fp = compute_recalc_fingerprint(config_fp)
 
+        # Skip the query if this metric is already computed for this exact config and window; a config change
+        # changes the fingerprint, so a stale result won't match and recomputes.
+        already_computed = ExperimentMetricResult.objects.filter(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=query_to_dt,
+            fingerprint=recalc_fp,
+            status=ExperimentMetricResult.Status.COMPLETED,
+        ).exists()
+        if already_computed:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
+        # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for
+        # `system.query_log` (covers every attempt, including Temporal retries). Bound before the try so the
+        # failure paths can always persist it.
+        client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
+
+        calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
-            # the runner falls back to its default ("now-ish"), so every metric in the run would query a
-            # slightly different time window — defeating the "one query_to for the whole run" guarantee.
+            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
+            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
+            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=_build_metric(metric_dict)),
+                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
-                override_end_date=query_to_dt,
+                as_of=query_to_dt,
                 workload=Workload.OFFLINE,
+                # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
+                # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
+                user=experiment.created_by,
             )
-            tag_queries(trigger="warming/experiment_metrics_recalculation")
+
+            # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
+            # expensive without reverse-engineering the trigger string.
+            tag_queries(
+                trigger="warming/experiment_metrics_recalculation",
+                team_id=state.team_id,
+                product=Product.EXPERIMENTS,
+                feature=Feature.CACHE_WARMUP,
+                client_query_id=client_query_id,
+            )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = result.model_dump(mode="json")
 
@@ -382,6 +568,15 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result=result_dict,
                 error_message=None,
+                query_id=client_query_id,
+            )
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric finished",
+                {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
             )
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -397,6 +592,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.FAILED,
                 result=None,
                 error_message=message,
+                query_id=client_query_id,
             )
             logger.warning(
                 "Experiment metric recalculation failed due to insufficient data",
@@ -404,12 +600,25 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 metric_uuid=metric_uuid,
                 error=message,
             )
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric error",
+                {
+                    "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                    "error_type": "insufficient_data",
+                    "error_message": message,
+                },
+            )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
         except Exception as e:
             # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
-            # Record the failure so the UI sees it, then re-raise so Temporal's retry policy gets a chance.
-            # If all attempts fail, the workflow's gather(return_exceptions=True) counts this metric as failed.
+            # Persist the failure ONLY on the final attempt, then re-raise; on earlier attempts we re-raise
+            # without persisting so Temporal retries while the metric stays in its loading/dim state on the
+            # frontend, rather than flashing an error for a failure that may yet succeed on the next attempt.
             # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             capture_exception(
@@ -420,20 +629,38 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "recalculation_id": recalculation_id,
                 },
             )
-            _store_result(
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
-                query_from=experiment.start_date,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.FAILED,
-                result=None,
-                error_message=message,
-            )
-            _record_failure(recalculation_id, metric_uuid, "calculation", message)
+            if is_final_attempt:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                # Emit only on the terminal failure (retries exhausted) — the error the user actually
+                # sees. error_type mirrors the client taxonomy so it lands on the same dashboards.
+                # Earlier attempts re-raise silently to avoid double-counting a failure that may still succeed.
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": _classify_query_error_type(e),
+                        "error_message": message,
+                    },
+                )
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
             )
             raise

@@ -27,10 +27,14 @@ BEDROCK_MODELS = BEDROCK_MODEL_IDS
 # OAuth application IDs per region
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
 POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
+POSTHOG_CODE_DEV_APP_ID = "019ebb47-c750-0000-e1ea-723a6ff112d3"
 TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
 TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
+POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
+POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
+POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
 # is the same code regardless of where the task was initiated, so the model
@@ -41,7 +45,6 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
@@ -50,6 +53,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5-mini",
+        "@cf/zai-org/glm-5.2",
     }
 )
 
@@ -60,19 +64,18 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "posthog_code": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
     ),
     "background_agents": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
             {
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
-                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.4",
@@ -85,7 +88,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=False,
     ),
     "slack_app": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
         billable=True,
@@ -142,7 +145,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         billable=False,
@@ -151,6 +154,32 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
+    ),
+    "conversations": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
+    "warehouse_semantic_enrichment": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
+    # Drafts a Custom REST source manifest from API docs. Low volume, high stakes, long context —
+    # pinned to Opus rather than the cheap per-row model the enrichment context layer uses.
+    "warehouse_custom_source_builder": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-opus-4-8"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
+    "posthog_ai": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
+        allowed_models=None,  # any model
+        allow_api_keys=True,
+        billable=True,
     ),
 }
 
@@ -214,7 +243,8 @@ def check_product_access(
     Check if request is authorized for product.
     Returns (allowed, error_message).
     """
-    config = get_product_config(product)
+    resolved_product = resolve_product_alias(product)
+    config = PRODUCTS.get(resolved_product)
     if config is None:
         return False, f"Unknown product: {product}"
 

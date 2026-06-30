@@ -6,7 +6,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -204,7 +204,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
     listeners(({ actions, values }) => {
         // Closure-scoped in-flight lock for `loadFullTrace`. Mirrors the pattern used
         // by sibling lazy loaders in this product (llmPersonsLazyLoaderLogic,
-        // llmSentimentLazyLoaderLogic, traceReviewsLazyLoaderLogic, etc.). We can't
+        // traceReviewsLazyLoaderLogic, etc.). We can't
         // rely on `values.loadingFullTraces` for this guard because kea reducers run
         // synchronously *before* listeners — so the reducer has already added this
         // traceId by the time the listener checks. The closure-scoped Set lets the
@@ -248,6 +248,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                 }
                 try {
                     const response = await api.query(traceQuery)

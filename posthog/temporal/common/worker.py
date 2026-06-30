@@ -19,11 +19,6 @@ from posthog.temporal.ai_observability.eval_reports.metrics import (
     EvalReportsMetricsInterceptor,
 )
 from posthog.temporal.ai_observability.metrics import EvalsMetricsInterceptor
-from posthog.temporal.ai_observability.sentiment.metrics import (
-    SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
-    SENTIMENT_LATENCY_HISTOGRAM_METRICS,
-    SentimentMetricsInterceptor,
-)
 from posthog.temporal.ai_observability.trace_clustering.metrics import (
     CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -51,16 +46,28 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
+    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
+    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+    SurfacingScoringMetricsInterceptor,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.logs.backend.temporal.metrics import (
+from products.experiments.backend.temporal.recalculation_metrics import (
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    ExperimentsRecalculationMetricsInterceptor,
+)
+from products.logs.backend.facade.temporal import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
     LogsAlertingMetricsInterceptor,
 )
-from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
+from products.tasks.backend.facade.temporal import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
 
 logger = get_write_only_logger()
 
@@ -70,6 +77,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
+# Unit: ms
 BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     30_000.0,  # 30 seconds
@@ -81,6 +89,23 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
+]
+
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS = ("batch_exports_queue_wait_time",)
+# Unit: ns
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS = [
+    1_000_000.0,  # 1 ms
+    5_000_000.0,  # 5 ms
+    10_000_000.0,  # 10 ms
+    100_000_000.0,  # 100 ms
+    500_000_000.0,  # 500 ms
+    1_000_000_000.0,  # 1 s
+    5_000_000_000.0,  # 5 s
+    10_000_000_000.0,  # 10 s
+    30_000_000_000.0,  # 30 s
+    60_000_000_000.0,  # 1 min
+    300_000_000_000.0,  # 5 min
+    600_000_000_000.0,  # 10 min
 ]
 
 EVALS_LATENCY_HISTOGRAM_METRICS = (
@@ -127,13 +152,14 @@ ALL_INTERCEPTOR_CLASSES = [
     SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
+    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     MCPAClusteringMetricsInterceptor,
-    SentimentMetricsInterceptor,
     EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
+    ExperimentsRecalculationMetricsInterceptor,
 ]
 
 
@@ -239,6 +265,12 @@ async def create_worker(
                 itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        | dict(
+            zip(
+                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
         | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
@@ -249,7 +281,6 @@ async def create_worker(
             )
         )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(SENTIMENT_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -262,8 +293,26 @@ async def create_worker(
                 itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        | dict(
+            zip(
+                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
+            )
+        )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
     )
     if task_queue == settings.DATA_MODELING_TASK_QUEUE:

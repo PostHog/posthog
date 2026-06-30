@@ -75,6 +75,15 @@ class TestErrorTracking(BaseTest):
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
+    def test_merge_syncs_target_issue_to_clickhouse(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+
+        with patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse:
+            issue_two.merge(issue_ids=[issue_one.id])
+
+        sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
+
     def test_splitting_fingerprints(self):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
 
@@ -107,6 +116,16 @@ class TestErrorTracking(BaseTest):
         new_issue_two = ErrorTrackingIssue.objects.get(id=override_two.issue_id)
         assert new_issue_two.name == "Untitled issue"
         assert new_issue_two.description is None
+
+    def test_split_syncs_original_and_new_issues_to_clickhouse(self):
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
+
+        with patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse:
+            new_issues = issue.split(fingerprints=[{"fingerprint": "fingerprint_one"}])
+
+        sync_issues_to_clickhouse.assert_called_once_with(
+            issue_ids=[issue.id] + [new_issue.id for new_issue in new_issues], team_id=self.team.id
+        )
 
     def test_merge_reassigns_spike_events(self):
         issue_one = self.create_issue(["fingerprint_one"])

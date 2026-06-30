@@ -1,3 +1,6 @@
+import json
+import time
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,6 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.notebooks.backend import presence
 from products.notebooks.backend.collab import SubmitResult, submit_steps
 from products.notebooks.backend.models import Notebook
 
@@ -179,7 +183,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.notebooks.backend.api.notebook.submit_steps")
+    @patch("products.notebooks.backend.presentation.views.notebook.submit_steps")
     def test_collab_save_returns_410_when_steps_expired(self, mock_submit):
         notebook = self._create_notebook(SAMPLE_DOC)
 
@@ -232,7 +236,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
     def test_collab_save_rejected_stale_logs_attempted_content(self):
         notebook = self._create_notebook(SAMPLE_DOC)
 
-        with patch("products.notebooks.backend.api.notebook.submit_steps") as mock_submit:
+        with patch("products.notebooks.backend.presentation.views.notebook.submit_steps") as mock_submit:
             mock_submit.return_value = SubmitResult(status="stale", version=5, steps_since=None)
             self._collab_save(
                 notebook,
@@ -295,8 +299,8 @@ _TEST_STREAM_LIFETIME = 0.3
 _TEST_STREAM_BLOCK_MS = 50
 
 
-@patch("products.notebooks.backend.collab.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
-@patch("products.notebooks.backend.collab.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
+@patch("products.notebooks.backend.collab_stream.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
+@patch("products.notebooks.backend.collab_stream.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
 class TestNotebookCollabStreamAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -337,7 +341,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "text/event-stream"
-        assert response["Cache-Control"] == "no-cache"
+        assert response["Cache-Control"] == "no-cache, no-transform"
         assert response["X-Accel-Buffering"] == "no"
 
         body = self._consume_stream(response)
@@ -390,6 +394,27 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         body = self._consume_stream(response)
         assert "event: step" not in body
         assert ": keepalive" in body
+
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
+        side_effect=lambda callback: callback(),
+    )
+    def test_stream_delivers_update_event_after_full_doc_patch(self, _mock_on_commit):
+        notebook = self._create_notebook()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"content": UPDATED_DOC, "version": notebook["version"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        stream_response = self.client.get(self._stream_url(notebook["short_id"]), HTTP_LAST_EVENT_ID="0-0")
+
+        assert stream_response.status_code == status.HTTP_200_OK
+        body = self._consume_stream(stream_response)
+        assert "event: update" in body
+        assert f"id: {notebook['version'] + 1}-1" in body
+        assert f'"version":{notebook["version"] + 1}' in body
 
     def test_stream_requires_authentication(self):
         notebook = self._create_notebook()
@@ -447,3 +472,291 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Drain the generator so the background bridge thread terminates before the test ends.
         self._consume_stream(response)
+
+    def _presence_url(self, short_id: str) -> str:
+        return f"/api/projects/{self.team.id}/notebooks/{short_id}/collab/presence/"
+
+    def test_presence_endpoint_broadcasts_on_stream(self):
+        notebook = self._create_notebook()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": notebook["version"], "cursor": {"head": 7}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        body = self._consume_stream(self.client.get(self._stream_url(notebook["short_id"])))
+        assert "event: presence" in body
+        assert '"client_id":"caret-client"' in body
+        assert '"cursor":{"head":7}' in body
+        assert f'"user_id":{self.user.pk}' in body
+        assert '"user_name"' in body
+        # Presence frames must not carry an id: line — Last-Event-ID belongs to the content stream
+        presence_frame = next(frame for frame in body.split("\n\n") if "event: presence" in frame)
+        assert "id:" not in presence_frame
+
+    def test_stream_skips_presence_older_than_backfill_window(self):
+        notebook = self._create_notebook()
+        stream_key = presence.PRESENCE_STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"])
+
+        stale_payload = json.dumps(
+            {
+                "type": "presence",
+                "client_id": "old-client",
+                "user_id": 1,
+                "user_name": "Old",
+                "version": 0,
+                "cursor": {},
+            }
+        )
+        stale_id = f"{int(time.time() * 1000) - 60_000}-0"
+        redis_module.get_client().xadd(stream_key, {"data": stale_payload}, id=stale_id)
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "fresh-client", "version": notebook["version"], "cursor": {"head": 1}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        body = self._consume_stream(self.client.get(self._stream_url(notebook["short_id"])))
+        assert '"client_id":"fresh-client"' in body
+        assert '"client_id":"old-client"' not in body
+
+    def test_presence_requires_cursor(self):
+        notebook = self._create_notebook()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": notebook["version"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_presence_returns_404_for_notebook_in_other_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_notebook = Notebook.objects.create(team=other_team, created_by=self.user)
+
+        response = self.client.post(
+            self._presence_url(other_notebook.short_id),
+            data={"client_id": "caret-client", "version": 0, "cursor": {"head": 0}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_presence_rejects_personal_api_key_without_write_scope(self):
+        notebook = self._create_notebook()
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read-only-key",
+            secure_value=hash_key_value(key_value),
+            scopes=["notebook:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": 0, "cursor": {"head": 0}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def _markdown_doc(markdown: str) -> dict:
+    return {
+        "type": "doc",
+        "content": [{"type": "ph-markdown-notebook", "attrs": {"nodeId": "n1", "markdown": markdown}}],
+    }
+
+
+class TestNotebookMarkdownSaveAPI(APIBaseTest):
+    def _create_markdown_notebook(self, markdown: str = "# Title\n\nHello"):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/",
+            data={"content": _markdown_doc(markdown)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()
+
+    def _markdown_save(self, notebook, *, version, markdown, title=None, client_id="md-client"):
+        payload = {
+            "client_id": client_id,
+            "version": version,
+            "content": _markdown_doc(markdown),
+            "text_content": markdown,
+        }
+        if title is not None:
+            payload["title"] = title
+        return self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data=payload,
+            format="json",
+        )
+
+    def test_markdown_save_accepted(self):
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="# Title\n\nHello world")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == notebook["version"] + 1
+        assert data["content"] == _markdown_doc("# Title\n\nHello world")
+
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.version == notebook["version"] + 1
+        assert nb.text_content == "# Title\n\nHello world"
+
+    def test_markdown_save_appends_replayable_diff_to_stream(self):
+        from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes, markdown_crc
+
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+        self._markdown_save(notebook, version=notebook["version"], markdown="# Title\n\nHello world")
+
+        import json as json_module
+
+        client = redis_module.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"]))
+        assert len(entries) == 1
+        stream_id, fields = entries[0]
+        assert stream_id.decode() == f"{notebook['version'] + 1}-0"
+        payload = json_module.loads(fields[b"data"])
+        assert payload["type"] == "update"
+        assert payload["client_id"] == "md-client"
+        assert payload["base_crc"] == markdown_crc("# Title\n\nHello")
+        assert apply_utf16_text_changes("# Title\n\nHello", payload["diff"]) == "# Title\n\nHello world"
+
+    def test_markdown_save_conflict_returns_foldable_updates(self):
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes
+
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        first = self._markdown_save(notebook, version=version, markdown="base text plus A", client_id="client-a")
+        assert first.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus B", client_id="client-b")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert data["code"] == "conflict"
+        assert data["version"] == version + 1
+        assert len(data["updates"]) == 1
+        update = data["updates"][0]
+        assert update["version"] == version + 1
+        assert update["client_id"] == "client-a"
+        assert apply_utf16_text_changes("base text", update["diff"]) == "base text plus A"
+
+        # The losing client's content was not persisted
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.version == version + 1
+        assert nb.content == _markdown_doc("base text plus A")
+
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
+        side_effect=lambda callback: callback(),
+    )
+    def test_markdown_save_conflict_replays_legacy_patch_diff(self, _mock_on_commit):
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes
+
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"content": _markdown_doc("base text via patch"), "version": version},
+            format="json",
+        )
+        assert patch_response.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus mine")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert data["version"] == version + 1
+        assert apply_utf16_text_changes("base text", data["updates"][0]["diff"]) == "base text via patch"
+
+    def test_markdown_save_with_unreplayable_gap_returns_410(self):
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        # Postgres advanced without any stream entry (e.g. failed publish): nothing to replay.
+        Notebook.objects.filter(short_id=notebook["short_id"]).update(version=version + 1)
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus mine")
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json()["code"] == "conflict_stale"
+
+    def test_markdown_save_with_cursor_broadcasts_author_presence_in_update(self):
+        from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
+
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data={
+                "client_id": "md-client",
+                "version": notebook["version"],
+                "content": _markdown_doc("# Title\n\nHello world"),
+                "cursor": {"node_index": 1, "offset": 11},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        client = redis_module.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"]))
+        payload = json.loads(entries[0][1][b"data"])
+        assert payload["cursor"] == {"node_index": 1, "offset": 11}
+        assert payload["user_id"] == self.user.pk
+        assert "user_name" in payload
+
+    def test_markdown_save_rejects_non_markdown_content(self):
+        notebook = self._create_markdown_notebook()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data={
+                "client_id": "md-client",
+                "version": notebook["version"],
+                "content": SAMPLE_DOC,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_markdown_save_preserves_title_when_omitted_and_clears_when_blank(self):
+        notebook = self._create_markdown_notebook()
+        rename = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"title": "Keep me"},
+            format="json",
+        )
+        assert rename.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="changed once")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Keep me"
+
+        response = self._markdown_save(notebook, version=notebook["version"] + 1, markdown="changed twice", title="")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == ""
+
+    def test_markdown_save_logs_activity(self):
+        notebook = self._create_markdown_notebook("before")
+
+        self._markdown_save(notebook, version=notebook["version"], markdown="after")
+
+        log = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Notebook", item_id=notebook["short_id"], activity="updated"
+        ).last()
+        assert log is not None
+
+    def test_markdown_save_requires_authentication(self):
+        notebook = self._create_markdown_notebook()
+        self.client.logout()
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="anything")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

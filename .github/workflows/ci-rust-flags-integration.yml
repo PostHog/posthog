@@ -5,22 +5,28 @@ on:
     pull_request:
         paths:
             - 'rust/feature-flags/**'
+            - 'rust/personhog-replica/**'
+            - 'rust/personhog-router/**'
             - 'posthog/api/test/rust_integration/**'
             - 'posthog/api/feature_flag.py'
             - 'posthog/api/cohort.py'
             - 'posthog/models/feature_flag/**'
             - 'posthog/models/cohort/**'
+            - 'posthog/models/group_type_mapping.py'
             - '.github/workflows/ci-rust-flags-integration.yml'
     push:
         branches:
             - master
         paths:
             - 'rust/feature-flags/**'
+            - 'rust/personhog-replica/**'
+            - 'rust/personhog-router/**'
             - 'posthog/api/test/rust_integration/**'
             - 'posthog/api/feature_flag.py'
             - 'posthog/api/cohort.py'
             - 'posthog/models/feature_flag/**'
             - 'posthog/models/cohort/**'
+            - 'posthog/models/group_type_mapping.py'
             - '.github/workflows/ci-rust-flags-integration.yml'
 
 permissions:
@@ -37,6 +43,9 @@ env:
     REDIS_URL: 'redis://localhost:6379/'
     TEST: 1
     UV_HTTP_TIMEOUT: 300
+    # Shared by the Rust flags service and the pytest step — the batch flag evaluation
+    # tests (static cohort generation) authenticate with it. Test-only value.
+    INTERNAL_REQUEST_TOKEN: 'rust-integration-internal-token'
 
 jobs:
     rust-flags-integration:
@@ -84,7 +93,9 @@ jobs:
                   enable-cache: true
 
             - name: Install system dependencies
-              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
+              # protobuf-compiler (protoc) is needed to build personhog-router: its
+              # transitive etcd-client dep compiles proto files in a build script.
+              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client protobuf-compiler
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -121,7 +132,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
 
-            - name: Build Rust flags service
+            - name: Build Rust services
               working-directory: rust
               env:
                   # Debug builds compile much faster than release (~4 min vs ~9 min).
@@ -129,7 +140,10 @@ jobs:
                   # debug_assert! checks that intentionally panic on data invariant
                   # violations, which would crash the service mid-test-run.
                   RUSTFLAGS: '-C debug-assertions=no'
-              run: cargo build -p feature-flags
+              # The Django flag API reads person/group/cohort data exclusively through
+              # personhog (no ORM fallback), so the replica and router run alongside the
+              # flags service. Building them together keeps one RUSTFLAGS/cache context.
+              run: cargo build -p feature-flags -p personhog-replica -p personhog-router
 
             - name: Download MaxMind Database
               run: |
@@ -172,6 +186,48 @@ jobs:
                   CACHE_TTL_SECONDS: '0'
                   RUST_BACKTRACE: '1'
 
+            - name: Start personhog services
+              working-directory: rust
+              run: |
+                  # personhog-replica serves person/group/cohort reads from the persons DB;
+                  # personhog-router fronts it and is what Django talks to via PERSONHOG_ADDR.
+                  # Both run as raw binaries against the existing postgres — the read path
+                  # needs no etcd, config server, or leader election.
+                  PRIMARY_DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog_persons' \
+                  GRPC_ADDRESS='127.0.0.1:50051' \
+                      ./target/debug/personhog-replica > /tmp/personhog-replica.log 2>&1 &
+                  PERSONHOG_REPLICA_PID=$!
+                  echo "PERSONHOG_REPLICA_PID=$PERSONHOG_REPLICA_PID" >> $GITHUB_ENV
+
+                  REPLICA_URL='http://127.0.0.1:50051' \
+                  GRPC_ADDRESS='127.0.0.1:50052' \
+                      ./target/debug/personhog-router > /tmp/personhog-router.log 2>&1 &
+                  PERSONHOG_ROUTER_PID=$!
+                  echo "PERSONHOG_ROUTER_PID=$PERSONHOG_ROUTER_PID" >> $GITHUB_ENV
+
+                  # gRPC has no HTTP readiness endpoint, so probe the listening port directly.
+                  wait_for_grpc() {
+                      local name=$1 pid=$2 port=$3
+                      for i in {1..30}; do
+                          if ! kill -0 "$pid" 2>/dev/null; then
+                              echo "ERROR: $name exited unexpectedly"
+                              return 1
+                          fi
+                          if timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+                              echo "$name is accepting connections on $port"
+                              return 0
+                          fi
+                          echo "Waiting for $name on $port... ($i/30)"
+                          sleep 2
+                      done
+                      echo "ERROR: $name failed to accept connections on $port"
+                      return 1
+                  }
+                  wait_for_grpc personhog-replica "$PERSONHOG_REPLICA_PID" 50051
+                  wait_for_grpc personhog-router "$PERSONHOG_ROUTER_PID" 50052
+              env:
+                  RUST_BACKTRACE: '1'
+
             - name: Start Django API server
               run: |
                   python manage.py runserver 127.0.0.1:8000 --noreload &
@@ -202,10 +258,13 @@ jobs:
                   # Django reads PERSONS_DB_WRITER_URL (not PERSONS_DATABASE_URL) to
                   # configure the persons_db_writer database alias.
                   PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+                  # Person/group/cohort reads go through personhog (no ORM fallback), so the
+                  # flag API needs the router address to create group- and cohort-based flags.
+                  PERSONHOG_ADDR: 'localhost:50052'
 
             - name: Run integration tests
               run: |
-                  pytest posthog/api/test/rust_integration/test_flags.py -v --tb=short
+                  pytest posthog/api/test/rust_integration/ -v --tb=short
               env:
                   SKIP_RUST_INTEGRATION_TESTS: '0'
                   FEATURE_FLAGS_SERVICE_URL: 'http://127.0.0.1:3001'
@@ -214,18 +273,21 @@ jobs:
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
                   PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
 
-            - name: Dump Rust flags service logs
+            - name: Dump service logs
               if: failure()
               run: |
                   echo "=== Rust flags service logs ==="
                   cat /tmp/rust-flags.log || echo "No log file found"
+                  echo "=== personhog-replica logs ==="
+                  cat /tmp/personhog-replica.log || echo "No log file found"
+                  echo "=== personhog-router logs ==="
+                  cat /tmp/personhog-router.log || echo "No log file found"
 
             - name: Stop services
               if: always()
               run: |
-                  if [ -n "$RUST_FLAGS_PID" ]; then
-                      kill $RUST_FLAGS_PID || true
-                  fi
-                  if [ -n "$DJANGO_PID" ]; then
-                      kill $DJANGO_PID || true
-                  fi
+                  for pid in "$RUST_FLAGS_PID" "$PERSONHOG_REPLICA_PID" "$PERSONHOG_ROUTER_PID" "$DJANGO_PID"; do
+                      if [ -n "$pid" ]; then
+                          kill "$pid" || true
+                      fi
+                  done

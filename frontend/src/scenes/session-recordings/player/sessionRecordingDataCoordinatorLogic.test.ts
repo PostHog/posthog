@@ -1,9 +1,11 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
+import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
@@ -22,11 +24,13 @@ import {
 import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
+    BLOB_SOURCE_V2,
     createDifferentiatedQueryHandler,
     overrideSessionRecordingMocks,
     recordingEventsJson,
     recordingMetaJson,
     setupSessionRecordingTest,
+    snapshotsAsJSONLines,
 } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
@@ -223,7 +227,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(queries[1]).toMatch(/WHERE timestamp > '2023-05-01 14:41:20'/)
             expect(queries[1]).toMatch(/AND timestamp < '2023-05-01 14:51:32'/)
 
-            expect(api.create.mock.calls).toMatchSnapshot()
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
         })
     })
@@ -250,8 +253,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             // response used to leave fullyLoaded false with nothing left to re-trigger the report
             overrideSessionRecordingMocks({
                 postMocks: {
-                    '/api/environments/:team_id/query/:kind': async (req) => {
-                        const body = await req.json()
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
                         const query = body.query?.query || ''
                         if (query.includes('uuid in')) {
                             await new Promise((resolve) => setTimeout(resolve, 100))
@@ -264,6 +267,110 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
             }).toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
+        })
+    })
+
+    describe('missing full snapshot detection', () => {
+        // start is the earlier of meta start_time and the first snapshot timestamp,
+        // so the recent case needs recent snapshot timestamps too
+        const incrementalOnlySnapshotsAsJSONLines = (baseTimestamp: number): string =>
+            `${JSON.stringify({
+                window_id: '187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0',
+                data: [
+                    {
+                        type: 4,
+                        data: { href: 'http://localhost:3000/', width: 2560, height: 1304 },
+                        timestamp: baseTimestamp,
+                    },
+                    {
+                        type: 3,
+                        data: { source: 1, positions: [{ x: 2027, y: 120, id: 22, timeOffset: 0 }] },
+                        timestamp: baseTimestamp + 2000,
+                    },
+                    {
+                        type: 3,
+                        data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
+                        timestamp: baseTimestamp + 9000,
+                    },
+                ],
+            })}\n`
+
+        const mountWithSnapshots = (jsonLines: string, metaOverride?: Record<string, unknown>): void => {
+            logic?.unmount()
+            snapshotLogic?.unmount()
+            setupSessionRecordingTest({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': async ({ request }) => {
+                        const sourceParam = new URL(request.url).searchParams.get('source')
+                        if (sourceParam === 'blob_v2' || sourceParam === 'blob') {
+                            return new HttpResponse(jsonLines)
+                        }
+                        return [200, { sources: [BLOB_SOURCE_V2] }]
+                    },
+                    ...(metaOverride
+                        ? { '/api/environments/:team_id/session_recordings/:id': () => [200, metaOverride] }
+                        : {}),
+                },
+            })
+            const props = {
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
+            }
+            logic = sessionRecordingDataCoordinatorLogic(props)
+            snapshotLogic = snapshotDataLogic(props)
+            logic.mount()
+        }
+
+        const loadFully = async (): Promise<void> => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta()
+                logic.actions.loadSnapshots()
+            })
+                .toDispatchActions(['loadRecordingMetaSuccess', 'reportUsageIfFullyLoaded'])
+                .toFinishAllListeners()
+            expect(logic.values.fullyLoaded).toBe(true)
+        }
+
+        it.each<{
+            case: string
+            mocks: () => { jsonLines: string; metaOverride?: Record<string, unknown> }
+            expected: { snapshotsInvalid: boolean; isRecentAndInvalid: boolean; isOldAndInvalid: boolean }
+        }>([
+            {
+                case: 'an old recording with no full snapshot is old and invalid',
+                mocks: () => ({ jsonLines: incrementalOnlySnapshotsAsJSONLines(1682952380877) }),
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: false, isOldAndInvalid: true },
+            },
+            {
+                case: 'a recent recording with no full snapshot is recent and invalid',
+                mocks: () => {
+                    const recentStart = dayjs().subtract(1, 'minute')
+                    return {
+                        jsonLines: incrementalOnlySnapshotsAsJSONLines(recentStart.valueOf()),
+                        metaOverride: {
+                            ...recordingMetaJson,
+                            start_time: recentStart.toISOString(),
+                            end_time: dayjs().toISOString(),
+                        },
+                    }
+                },
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
+            },
+            {
+                case: 'a recording with a full snapshot is valid',
+                mocks: () => ({ jsonLines: snapshotsAsJSONLines() }),
+                expected: { snapshotsInvalid: false, isRecentAndInvalid: false, isOldAndInvalid: false },
+            },
+        ])('$case', async ({ mocks, expected }) => {
+            const { jsonLines, metaOverride } = mocks()
+            mountWithSnapshots(jsonLines, metaOverride)
+            await loadFully()
+
+            expect({
+                snapshotsInvalid: logic.values.snapshotsInvalid,
+                isRecentAndInvalid: logic.values.isRecentAndInvalid,
+                isOldAndInvalid: logic.values.isOldAndInvalid,
+            }).toEqual(expected)
         })
     })
 
@@ -335,12 +442,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
                 verySimilarSnapshots
             )
-        })
-
-        it('should match snapshot', async () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-
-            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })

@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
@@ -153,7 +154,6 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
-    events_truncated: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
@@ -171,6 +171,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
     metadata: SessionMetadata
+    # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
+    distinct_id: str | None = None
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
@@ -203,14 +205,27 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
+    # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
+    signals: list[SignalFinding] = Field(default_factory=list)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
+class EmbedObservationInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits embedding requests for an observation's reasoning/summary."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    scanner_id: UUID
+    model_output: AnyScannerOutput
+
+
 class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Input to the summarizer-side-effect activity that emits per-facet embedding requests."""
+    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
+    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
 
     team_id: int
     session_id: str
@@ -225,6 +240,15 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
     session_id: str
     observation_id: UUID
     classifier_output: ClassifierOutput
+
+
+class EmitObservationSignalInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits the side-mission findings as PostHog Signals."""
+
+    team_id: int
+    observation_id: UUID
+    exported_asset_id: int
+    signals: list[SignalFinding]
 
 
 class MarkObservationSucceededInputs(BaseModel, frozen=True):

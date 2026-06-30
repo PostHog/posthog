@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
     IconActivity,
@@ -21,7 +21,8 @@ import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -98,9 +99,13 @@ const PlanPrice = ({
 const PlanCard = ({
     addon,
     onExpandCompare,
+    purchaseDisabledReason,
+    onPurchaseClick,
 }: {
     addon: BillingProductV2AddonType
     onExpandCompare: () => void
+    purchaseDisabledReason?: string
+    onPurchaseClick?: () => void
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const pricedPlan = addon.plans?.find((p) => p.flat_rate)
@@ -151,11 +156,27 @@ const PlanCard = ({
                     </Link>
                 </div>
             )}
-            {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
-                <PlanPrice addon={addon} unit_amount_usd={pricedPlan.unit_amount_usd} unit_label={pricedPlan.unit} />
-            )}
-            <div className="mt-auto">
-                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
+            {/* Pin price + actions to the bottom. The action area reserves a fixed height with the
+                button bottom-aligned so prices line up across cards regardless of trial state (the
+                "Start trial" label/button stack is taller than a lone "Cancel trial" button). */}
+            <div className="mt-auto flex flex-col gap-3">
+                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
+                    <PlanPrice
+                        addon={addon}
+                        unit_amount_usd={pricedPlan.unit_amount_usd}
+                        unit_label={pricedPlan.unit}
+                    />
+                )}
+                <div className="flex min-h-16 flex-col justify-end">
+                    <BillingProductAddonActions
+                        addon={addon}
+                        buttonSize="small"
+                        align="left"
+                        hidePricingNote
+                        purchaseDisabledReason={purchaseDisabledReason}
+                        onPurchaseClick={onPurchaseClick}
+                    />
+                </div>
             </div>
         </div>
     )
@@ -219,7 +240,7 @@ const ComparisonTable = ({
     }
 
     return (
-        <div>
+        <div className="overflow-x-auto">
             <div className="grid" style={gridStyle}>
                 <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
                 {addons.map((addon) => (
@@ -269,12 +290,26 @@ const ComparisonTable = ({
     )
 }
 
-export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+export const PlatformAddonComparison = ({
+    product,
+    actionsSlot,
+}: {
+    product: BillingProductV2Type
+    /** Optional content rendered between the package cards and the feature-comparison table (e.g. onboarding nav). */
+    actionsSlot?: JSX.Element
+}): JSX.Element | null => {
+    const { billing } = useValues(billingLogic)
     const comparableAddons = (Object.keys(COMPARISON_PLANS) as BillingPlan[])
         .map((type) => product.addons?.find((addon) => addon.type === type && !addon.legacy_product))
         .filter((addon): addon is BillingProductV2AddonType => !!addon)
     const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
     const [isCompareOpen, setIsCompareOpen] = useState(false)
+    // One activation at a time: the cards' loading state is per-addon, so without this a fast click on
+    // one package then another fires two activate calls before the page reloads. The first click flips
+    // this, disabling every card's CTA. Reset when billing reloads so the error path re-enables them
+    // (success reloads the whole page, so the flag doesn't need clearing there).
+    const [activating, setActivating] = useState(false)
+    useEffect(() => setActivating(false), [billing])
 
     if (comparableAddons.length === 0) {
         return null
@@ -308,11 +343,19 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         <div className="flex flex-col gap-4">
             {legacyAddon && <LegacyPlanHero addon={legacyAddon} />}
 
-            <div className="grid gap-3 grid-cols-3">
+            <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
                 {comparableAddons.map((addon) => (
-                    <PlanCard key={addon.type} addon={addon} onExpandCompare={() => setIsCompareOpen(true)} />
+                    <PlanCard
+                        key={addon.type}
+                        addon={addon}
+                        onExpandCompare={() => setIsCompareOpen(true)}
+                        purchaseDisabledReason={activating ? 'Please wait…' : undefined}
+                        onPurchaseClick={() => setActivating(true)}
+                    />
                 ))}
             </div>
+
+            {actionsSlot}
 
             {features.length > 0 && (
                 <LemonCollapse

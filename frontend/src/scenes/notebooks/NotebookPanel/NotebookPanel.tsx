@@ -1,7 +1,6 @@
 import './NotebookPanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -16,7 +15,12 @@ import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/Si
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { NotebookCollabStatus, NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import {
+    NotebookCollabStatus,
+    NotebookExpandButton,
+    NotebookPresence,
+    NotebookSyncInfo,
+} from '../Notebook/NotebookMeta'
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
@@ -32,7 +36,7 @@ export function NotebookPanel(): JSX.Element | null {
         832: 'medium',
     })
 
-    const contentWidthHasEffect = useMemo(() => size === 'medium', [size])
+    const contentWidthHasEffect = size === 'medium'
 
     return (
         <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')} {...dropProperties}>
@@ -59,6 +63,7 @@ export function NotebookPanel(): JSX.Element | null {
 
                             <div className="flex-1" />
                             <div className="flex items-center gap-1">
+                                {selectedNotebook && <NotebookPresence shortId={selectedNotebook} />}
                                 <NotebookMenu shortId={selectedNotebook} />
                                 {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
                                 <Link

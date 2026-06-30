@@ -3,6 +3,24 @@
 // `CustomSourceManifestBuilder` renders it. Keeping these functions pure makes the
 // build ⇄ parse round-trip directly unit-testable.
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import type { OrganizationType } from '~/types'
+
+// The AI manifest builder needs both the feature flag and the org's AI-data-processing
+// consent: the backend (`draft_custom_manifest`) rejects drafting without consent, so the
+// frontend must gate on the same pair to avoid offering an intro that can't succeed.
+export function isCustomSourceAiBuilderEnabled(
+    featureFlags: FeatureFlagsSet,
+    currentOrganization: OrganizationType | null
+): boolean {
+    return (
+        !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
+        !!currentOrganization?.is_ai_data_processing_approved
+    )
+}
+
 // Each enum-like value set is declared once as an `as const` tuple; the union type
 // and the runtime guard (via `isMember`) are derived from it, so the allowed values
 // can't drift between the type, the parser, and the component's select options.
@@ -58,10 +76,10 @@ function isMember<T extends string>(values: readonly T[], value: string): value 
 
 // Stable client-only ids so React lists keep input/focus state attached to the
 // right row across mid-list removals. Never serialized into the manifest.
-let streamIdSeq = 0
+let tableIdSeq = 0
 let headerIdSeq = 0
-export function nextStreamId(): string {
-    return `stream-${streamIdSeq++}`
+export function nextTableId(): string {
+    return `table-${tableIdSeq++}`
 }
 export function nextHeaderId(): string {
     return `header-${headerIdSeq++}`
@@ -73,7 +91,7 @@ export interface HeaderEntry {
     value: string
 }
 
-export interface StreamForm {
+export interface TableForm {
     id: string
     name: string
     path: string
@@ -86,6 +104,22 @@ export interface StreamForm {
     cursor_path: string
     cursor_type: CursorType
     start_param: string
+    // strftime pattern for the outgoing watermark; empty → ISO-8601 default
+    datetime_format: string
+    // Fan-out (parent/child): when `parent_table` is set, PostHog fetches that
+    // table first and calls this one once per parent row, injecting
+    // `parent_resolve_field` into the `{parent_path_param}` placeholder in the
+    // path. `include_from_parent` lists parent fields copied onto each child row.
+    // Empty `parent_table` means a top-level table.
+    parent_table: string
+    parent_resolve_field: string
+    parent_path_param: string
+    include_from_parent: string
+    // Raw-authored `endpoint.params` entries the builder has no UI for (static
+    // query params, the engine's incremental specs, extra resolve params).
+    // Carried verbatim through parse → build so editing a table in the builder
+    // never silently drops a query param the manifest author wrote by hand.
+    passthrough_params: Record<string, unknown>
 }
 
 export interface ManifestState {
@@ -98,7 +132,7 @@ export interface ManifestState {
     auth_username: string
     auth_password: string
     headers: HeaderEntry[]
-    streams: StreamForm[]
+    tables: TableForm[]
 }
 
 export interface AuthSecrets {
@@ -111,9 +145,20 @@ export function emptyHeader(): HeaderEntry {
     return { id: nextHeaderId(), key: '', value: '' }
 }
 
-export function emptyStream(): StreamForm {
+// The cleared (top-level) state of every parent-dependency field. Single
+// source for the three places that reset a dependency — emptyTable, removing
+// a parent table, and the builder's "None" selection — so a new parent field
+// only needs a default here.
+export const EMPTY_PARENT_FIELDS = {
+    parent_table: '',
+    parent_resolve_field: '',
+    parent_path_param: '',
+    include_from_parent: '',
+} satisfies Partial<TableForm>
+
+export function emptyTable(): TableForm {
     return {
-        id: nextStreamId(),
+        id: nextTableId(),
         name: '',
         path: '',
         method: 'GET',
@@ -125,7 +170,63 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
+        datetime_format: '',
+        passthrough_params: {},
+        ...EMPTY_PARENT_FIELDS,
     }
+}
+
+function splitCsv(value: string): string[] {
+    return value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+}
+
+/**
+ * Names of the tables that `tables[index]` may depend on: named, not itself,
+ * and top-level — nesting is capped at one level (a table that already has a
+ * parent can't be a parent itself), mirroring the backend validation. This also
+ * makes cycles structurally impossible to build in the UI.
+ */
+export function eligibleParentTables(tables: TableForm[], index: number): string[] {
+    return tables
+        .filter(
+            (other, otherIndex) =>
+                otherIndex !== index && other.name.trim().length > 0 && other.parent_table.trim().length === 0
+        )
+        .map((other) => other.name)
+}
+
+/**
+ * Applies a patch to one table. Renaming a table follows through to children
+ * that reference it via `parent_table` — otherwise their dependency would
+ * dangle silently and only fail at save time.
+ */
+export function updateTableInList(tables: TableForm[], index: number, patch: Partial<TableForm>): TableForm[] {
+    const oldName = tables[index]?.name
+    const updated = tables.map((table, i) => (i === index ? { ...table, ...patch } : table))
+    const newName = patch.name
+    if (newName === undefined || !oldName || newName === oldName) {
+        return updated
+    }
+    return updated.map((table, i) =>
+        i !== index && table.parent_table === oldName ? { ...table, parent_table: newName } : table
+    )
+}
+
+/**
+ * Removes a table. Children that depended on it have the parent dependency
+ * cleared (back to top-level) so they don't reference a table that no longer
+ * exists.
+ */
+export function removeTableFromList(tables: TableForm[], index: number): TableForm[] {
+    const removedName = tables[index]?.name
+    const remaining = tables.filter((_, i) => i !== index)
+    if (!removedName || remaining.some((table) => table.name === removedName)) {
+        return remaining
+    }
+    return remaining.map((table) => (table.parent_table === removedName ? { ...table, ...EMPTY_PARENT_FIELDS } : table))
 }
 
 export function defaultState(): ManifestState {
@@ -139,7 +240,7 @@ export function defaultState(): ManifestState {
         auth_username: '',
         auth_password: '',
         headers: [],
-        streams: [emptyStream()],
+        tables: [emptyTable()],
     }
 }
 
@@ -178,43 +279,66 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
         client.headers = headerMap
     }
 
-    const resources = state.streams.map((stream) => {
+    const resources = state.tables.map((table) => {
         const endpoint: Record<string, unknown> = {
-            path: stream.path,
-            data_selector: stream.data_selector || 'data',
+            path: table.path,
+            data_selector: table.data_selector || 'data',
         }
-        if (stream.method !== 'GET') {
-            endpoint.method = stream.method
+        if (table.method !== 'GET') {
+            endpoint.method = table.method
         }
-        endpoint.paginator = serializePaginator(stream.paginator)
-        if (stream.incremental_enabled && stream.cursor_path.trim()) {
+        endpoint.paginator = serializePaginator(table.paginator)
+        if (table.incremental_enabled && table.cursor_path.trim()) {
             const incremental: Record<string, unknown> = {
-                cursor_path: stream.cursor_path.trim(),
-                start_param: stream.start_param.trim() || stream.cursor_path.trim(),
+                cursor_path: table.cursor_path.trim(),
+                start_param: table.start_param.trim() || table.cursor_path.trim(),
             }
             // Only emit cursor_type when it differs from the backend default
             // (datetime) — keeps round-tripped manifests minimal. The Custom
             // source reads it for incremental-field typing and strips it before
             // the REST engine builds its Incremental tracker.
-            if (stream.cursor_type !== 'datetime') {
-                incremental.cursor_type = stream.cursor_type
+            if (table.cursor_type !== 'datetime') {
+                incremental.cursor_type = table.cursor_type
+            }
+            if (table.datetime_format.trim()) {
+                incremental.datetime_format = table.datetime_format.trim()
             }
             endpoint.incremental = incremental
         }
-        const primaryKeys = stream.primary_key
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean)
+        // Fan-out: bind the parent's field into the path placeholder via a
+        // `resolve` param, merged onto the raw-authored params the builder has
+        // no UI for. The dependency is emitted whenever a parent is selected,
+        // even half-filled: an incomplete dependency must fail backend validation
+        // loudly (the builder UI flags the missing pieces inline) rather than be
+        // silently dropped — that would sync this table as an unrelated
+        // top-level endpoint.
+        const parentTable = table.parent_table.trim()
+        const params: Record<string, unknown> = { ...table.passthrough_params }
+        if (parentTable) {
+            params[table.parent_path_param.trim()] = {
+                type: 'resolve',
+                resource: parentTable,
+                field: table.parent_resolve_field.trim(),
+            }
+        }
+        if (Object.keys(params).length > 0) {
+            endpoint.params = params
+        }
+        const primaryKeys = splitCsv(table.primary_key)
         const resource: Record<string, unknown> = {
-            name: stream.name,
+            name: table.name,
             // Fall back to 'id' when the field is cleared — an empty primary_key
             // array produces a broken resource downstream.
             primary_key: primaryKeys.length === 0 ? 'id' : primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
             endpoint,
         }
+        const includeFromParent = splitCsv(table.include_from_parent)
+        if (parentTable && includeFromParent.length > 0) {
+            resource.include_from_parent = includeFromParent
+        }
         // sort_mode only affects incremental resume safety. Emit only when the
         // user explicitly opts into descending order — backend default is asc.
-        if (stream.sort_mode === 'desc') {
+        if (table.sort_mode === 'desc') {
             resource.sort_mode = 'desc'
         }
         return resource
@@ -317,7 +441,7 @@ export function parseManifestIntoState(rawJson: string | undefined): ManifestSta
         value: String(value),
     }))
     const resources: unknown[] = Array.isArray(manifest.resources) ? manifest.resources : []
-    const streams: StreamForm[] = resources.length > 0 ? resources.map(parseStream) : [emptyStream()]
+    const tables: TableForm[] = resources.length > 0 ? resources.map(parseTable) : [emptyTable()]
     return {
         base_url: asString(client.base_url),
         auth_type: authType,
@@ -328,11 +452,11 @@ export function parseManifestIntoState(rawJson: string | undefined): ManifestSta
         auth_username: asString(auth.username),
         auth_password: asString(auth.password),
         headers,
-        streams,
+        tables,
     }
 }
 
-function parseStream(resource: unknown): StreamForm {
+function parseTable(resource: unknown): TableForm {
     const r = asObject(resource)
     const endpoint = asObject(r.endpoint)
     const paginatorRaw = asObject(endpoint.paginator)
@@ -344,8 +468,31 @@ function parseStream(resource: unknown): StreamForm {
     const cursorTypeRaw = asString(incremental.cursor_type, 'datetime')
     const cursorType: CursorType = isMember(CURSOR_TYPES, cursorTypeRaw) ? cursorTypeRaw : 'datetime'
     const primaryKey = r.primary_key
+    // Recover a fan-out dependency from the first `resolve` param: its key is the
+    // path placeholder, and it names the parent table + the parent field bound in.
+    // Every other params entry (static query params, incremental specs, extra
+    // resolve params on a malformed manifest) is preserved verbatim so a builder
+    // edit can't silently drop it.
+    const params = asObject(endpoint.params)
+    let parentTable = ''
+    let parentResolveField = ''
+    let parentPathParam = ''
+    const passthroughParams: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(params)) {
+        const spec = asObject(value)
+        if (spec.type === 'resolve' && !parentPathParam) {
+            parentPathParam = key
+            parentTable = asString(spec.resource)
+            parentResolveField = asString(spec.field)
+        } else {
+            passthroughParams[key] = value
+        }
+    }
+    const includeFromParent = Array.isArray(r.include_from_parent)
+        ? (r.include_from_parent as unknown[]).map((field) => String(field)).join(', ')
+        : ''
     return {
-        id: nextStreamId(),
+        id: nextTableId(),
         name: asString(r.name),
         path: asString(endpoint.path),
         method: asString(endpoint.method) === 'POST' ? 'POST' : 'GET',
@@ -357,5 +504,11 @@ function parseStream(resource: unknown): StreamForm {
         cursor_path: asString(incremental.cursor_path),
         cursor_type: cursorType,
         start_param: asString(incremental.start_param),
+        datetime_format: asString(incremental.datetime_format),
+        parent_table: parentTable,
+        parent_resolve_field: parentResolveField,
+        parent_path_param: parentPathParam,
+        include_from_parent: includeFromParent,
+        passthrough_params: passthroughParams,
     }
 }

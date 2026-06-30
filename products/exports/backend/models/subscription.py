@@ -1,3 +1,7 @@
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -10,8 +14,6 @@ from django.utils import timezone
 
 from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
-from posthog.schema import SubscriptionFreeTierLimit
-
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
@@ -22,12 +24,52 @@ from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
+
+    # Resolved lazily via __getattr__ below; declared here so consumers type-check as int.
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
-# Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
-SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
+# Carries request-derived analytics props (source, referer, ...) into the post_save signal,
+# which has no request context. Set by the API layer around request-originated saves so the
+# canonical "<kind> subscription created/updated" events get source attribution; stays None
+# for system saves (Temporal, management commands), which then report without a source.
+subscription_request_analytics_props: ContextVar[Optional["AnalyticsProps"]] = ContextVar(
+    "subscription_request_analytics_props", default=None
+)
+
+
+@contextmanager
+def attribute_subscription_saves(analytics_props: "AnalyticsProps") -> Iterator[None]:
+    token = subscription_request_analytics_props.set(analytics_props)
+    try:
+        yield
+    finally:
+        subscription_request_analytics_props.reset(token)
+
+
+# Single source of truth shared with the frontend create gate via generated schema
+# (SubscriptionFreeTierLimit.COUNT). Resolved lazily via PEP 562 so posthog.schema (the
+# pydantic models) stays off django.setup(), where this model loads in every process.
+def __getattr__(name: str) -> int:
+    if name == "SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER":
+        from posthog.schema import SubscriptionFreeTierLimit  # noqa: PLC0415
+
+        value = SubscriptionFreeTierLimit.model_fields["root"].default
+        # Cache as a real module attribute: later reads skip __getattr__, and tests
+        # patching the attribute keep working since mock restores what getattr returns.
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _free_tier_subscription_limit() -> int:
+    # Module-attribute lookup (not a direct global read) so tests patching
+    # SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER on this module still take effect.
+    return sys.modules[__name__].SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER
+
 
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
@@ -265,8 +307,10 @@ class Subscription(ModelActivityMixin, models.Model):
             # A None limit means unlimited (paid plans without a numeric cap).
             if allowed is not None and existing_count >= allowed:
                 return f"Your team has reached the limit of {allowed} subscriptions on your plan."
-        elif existing_count >= SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER:
-            return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
+        else:
+            limit = _free_tier_subscription_limit()
+            if existing_count >= limit:
+                return f"Your plan is limited to {limit} subscriptions."
 
         return None
 
@@ -368,9 +412,21 @@ class Subscription(ModelActivityMixin, models.Model):
 def subscription_saved(sender, instance, created, raw, using, **kwargs):
     from posthog.event_usage import report_user_action
 
+    # Partial-field saves are internal bookkeeping (e.g. next_delivery_date rescheduling), not a
+    # user create/update — a real API save writes the whole row. Skip them so re-enabling or the
+    # scheduler doesn't emit a second "<kind> subscription updated" event.
+    if kwargs.get("update_fields"):
+        return
+
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
-        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+        report_user_action(
+            instance.created_by,
+            event_name,
+            instance.get_analytics_metadata(),
+            team=instance.team,
+            analytics_props=subscription_request_analytics_props.get(),
+        )
 
 
 @mutable_receiver(model_activity_signal, sender=Subscription)

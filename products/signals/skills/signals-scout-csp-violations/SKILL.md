@@ -1,13 +1,9 @@
 ---
 name: signals-scout-csp-violations
 description: >
-  Focused Signals scout for PostHog projects collecting Content Security Policy (CSP)
-  violation reports. Watches `$csp_violation` events for fresh blocked-URL clusters,
-  per-directive bursts, page-scoped regressions after deploys, and suspicious
-  third-party domains that may indicate a compromised script. Emits aggregated
-  findings only when a cluster clears the confidence bar; otherwise writes durable
-  memory and closes out empty. Self-contained peer in the signals-scout-* fleet — no
-  dependencies on other skills.
+  Signals scout for Content Security Policy violation reports. Watches `$csp_violation` events
+  for blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious
+  third-party domains.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
@@ -40,6 +36,13 @@ signal is today. Cheap scratchpad entry + close out:
 - key: `pattern:csp_violations:baseline-team{team_id}`
 - content: `"$csp_violation baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
+**Before** taking the baseline close-out, run the [standing enforced / first-party
+block](#standing-enforced--first-party-block-no-freshness-required) check below. "No fresh
+24h burst" is **not** the same as "nothing to emit" — a high-reach `disposition=enforce`
+cluster (or a first-party domain blocked at scale) is a live problem even when it's been
+steady for weeks, and it's exactly what a burst-only reading hides. Only close out as
+baseline once that check is also clean.
+
 If `$csp_violation` is absent from `top_events` entirely (project doesn't ship a CSP
 reporting endpoint at all):
 
@@ -69,14 +72,15 @@ Three cheap reads cold-start a run:
 
 ### Profile shape — count vs distinct_users
 
-| Pattern                                                 | What it usually means                                            |
-| ------------------------------------------------------- | ---------------------------------------------------------------- |
-| Both `count` and `distinct_users` spike in 24h          | Fresh broad-impact CSP regression — deploy missed an allowlist   |
-| `recent_24h_count / count` ≫ `1/7`, users also spike    | Today's burst is unusually broad — investigate first             |
-| `count` very high, `distinct_users` very low (≤ 5)      | Single user / bot / browser extension — usually skip             |
-| `count` ~ `distinct_users` for one blocked URL          | Per-pageload violation hitting every visitor — broken policy     |
-| Steady high `count` across many users + many directives | Mature CSP policy in `report-only` mode — high baseline expected |
-| `count` and `distinct_users` both quiet                 | Nothing fresh today — close out                                  |
+| Pattern                                                 | What it usually means                                             |
+| ------------------------------------------------------- | ----------------------------------------------------------------- |
+| Both `count` and `distinct_users` spike in 24h          | Fresh broad-impact CSP regression — deploy missed an allowlist    |
+| `recent_24h_count / count` ≫ `1/7`, users also spike    | Today's burst is unusually broad — investigate first              |
+| `count` very high, `distinct_users` very low (≤ 5)      | Single user / bot / browser extension — usually skip              |
+| `count` ~ `distinct_users` for one blocked URL          | Per-pageload violation hitting every visitor — broken policy      |
+| Steady high `count` across many users + many directives | Mature CSP policy in `report-only` mode — high baseline expected  |
+| Steady high reach on one `enforce` / first-party domain | **Standing block** — live breakage; emit even with no fresh burst |
+| `count` and `distinct_users` both quiet                 | Nothing fresh today — close out                                   |
 
 ### Explore
 
@@ -109,6 +113,7 @@ WHERE event = '$csp_violation'
 GROUP BY blocked_domain
 HAVING first_seen > now() - INTERVAL 24 HOUR
    AND distinct_users >= 10
+   AND blocked_domain != ''   -- drop inline/eval/extension reports ('unsafe-inline' etc.): non-empty URL but no domain
 ORDER BY occurrences DESC
 LIMIT 20
 ```
@@ -127,6 +132,59 @@ Three lenses for triage — every blocked-URL finding should name which one fits
 Emit only when one of these lenses fits with high confidence (≥ 0.85). If you're
 genuinely unsure which of the three it is, write a `pattern:csp_violations:<entity>`
 scratchpad entry for the next run and close out.
+
+#### Standing enforced / first-party block (no freshness required)
+
+The fresh-domain query above only fires for domains that **first appeared in the last 24h**
+(`first_seen > now() - INTERVAL 24 HOUR`). A policy that has been enforce-blocking a real
+endpoint for weeks never trips it, and its steady volume reads as "baseline" and closes
+out — so a high-reach, actively-enforced block can sit invisible indefinitely. This is the
+scout's biggest blind spot. Two **standing** patterns deserve a finding even with zero
+freshness, because they are breaking functionality for real users _right now_:
+
+1. **High-reach enforced block.** A `disposition=enforce` blocked domain with broad reach
+   (many distinct users _and_ documents) is not baseline noise — it is a live, enforced
+   block degrading those users. Surface it regardless of when it first appeared.
+2. **First-party / own-infra block.** A blocked domain that is the team's own surface (the
+   blocked host equals or is a subdomain of a `$csp_document_url` host, or a known
+   first-party domain) with high reach is an allowlist gap in the team's _own_ policy — a
+   near-certain "widen the policy" fix.
+
+```sql
+SELECT
+    JSONExtractString(properties, '$csp_disposition') AS disposition,
+    JSONExtractString(properties, '$csp_effective_directive') AS directive,
+    domain(JSONExtractString(properties, '$csp_blocked_url')) AS blocked_domain,
+    count() AS occurrences_7d,
+    uniq(person_id) AS distinct_users,
+    uniq(JSONExtractString(properties, '$csp_document_url')) AS distinct_documents
+FROM events
+WHERE event = '$csp_violation'
+  AND timestamp > now() - INTERVAL 7 DAY
+  AND JSONExtractString(properties, '$csp_blocked_url') != ''
+GROUP BY disposition, directive, blocked_domain
+HAVING distinct_users >= 100          -- broad reach, not a single user / extension
+   AND blocked_domain != ''           -- exclude inline/eval/extension noise so named domains fill the limit
+ORDER BY (disposition = 'enforce') DESC, distinct_users DESC
+LIMIT 30
+```
+
+Triage:
+
+- **Enforce + high reach** → emit; these users are actively blocked. Highest priority when
+  the directive is `script-src` / `connect-src` (breaks behaviour, not just styling).
+- **First-party blocked domain** (own CDN, status page, replay proxy, internal endpoint) →
+  emit as "policy allowlist gap — add `{domain}` to `{directive}`". One finding per domain.
+- **Third-party, report-only, high reach but stable** → report-only refinement case;
+  remember (`pattern:`/`allowlist:`) rather than emit, unless it's a fresh domain (that's
+  the fresh-domain path above).
+
+The `blocked_domain != ''` filter already drops the giant inline / `eval` / `unsafe-inline`
+and browser-extension clusters (non-empty `$csp_blocked_url`, empty `domain()`) — the
+baseline noise this surface always carries — so the limit is spent on the reach that
+matters: **named** domains. Dedupe standing emissions with
+`addressed:csp_violations:{blocked_domain}-{directive}` so a confirmed-and-allowlisted (or
+accepted) block doesn't re-surface every run.
 
 #### Per-directive burst
 
@@ -265,7 +323,9 @@ Harness-level:
 
 ## When to stop
 
-- `$csp_violation` row in profile is at baseline → close out empty.
+- `$csp_violation` row in profile is at baseline **and** the standing enforced / first-party
+  block check is clean → close out empty. A steady baseline alone is not enough — a standing
+  high-reach enforced (or first-party) block is a live problem even with no fresh burst.
 - A candidate matches a scratchpad entry with `noise:` / `allowlist:` / `addressed:` /
   `dedupe:` key prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if

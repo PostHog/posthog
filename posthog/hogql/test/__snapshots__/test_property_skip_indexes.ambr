@@ -3,8 +3,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.dmat_string_0, '5')
-                                            AND (events.dmat_string_0 IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.dmat_string_0, '5'), isNotNull(events.dmat_string_0)))
   LIMIT 50000
   '''
 # ---
@@ -116,9 +115,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   LIMIT 50000
   '''
 # ---
@@ -134,9 +131,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   LIMIT 50000
   '''
 # ---
@@ -144,9 +139,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greater(events.mat_test_prop, '5')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(greater(events.mat_test_prop, '5'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   LIMIT 50000
   '''
 # ---
@@ -194,8 +187,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -203,7 +195,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -227,8 +219,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -236,8 +227,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greater(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greater(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -245,7 +235,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%5%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%5%'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -261,8 +251,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -278,8 +267,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -287,8 +275,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greater(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greater(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -296,8 +283,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (lessOrEquals(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(lessOrEquals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -305,8 +291,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greaterOrEquals(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -314,7 +299,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -322,7 +307,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%5%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%5%'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -338,8 +323,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 5)
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 5), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -347,8 +331,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 5.5)
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 5.5), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -356,8 +339,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC'))
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -365,8 +347,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '500')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '500'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -386,8 +367,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'apple')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'apple'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -395,8 +375,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -404,8 +383,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '2024-01-15')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '2024-01-15'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -413,8 +391,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '2024-01-15T10:30:00Z')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '2024-01-15T10:30:00Z'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -422,7 +399,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%value_that_is_long_enough%')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%value_that_is_long_enough%')), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -438,8 +415,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -447,8 +423,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -496,7 +471,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(has(events.properties_group_custom, 'test_prop') ? events.properties_group_custom['test_prop'] : null, '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -504,7 +479,23 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(has(events.properties_group_custom, 'test_prop') ? events.properties_group_custom['test_prop'] : null), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_typed_datetime_mat_col_uses_minmax_index
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ifNull(less(events.mat_typed_datetime_prop, toDateTime64('2024-01-05 00:00:00', 6, 'UTC')), 0), isNotNull(events.mat_typed_datetime_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_typed_numeric_mat_col_uses_minmax_index
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_typed_numeric_prop, 5), isNotNull(events.mat_typed_numeric_prop)))
   LIMIT 50000
   '''
 # ---
@@ -512,8 +503,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -521,7 +511,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), events.mat_pp_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -537,8 +527,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -546,8 +535,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -555,8 +543,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -564,8 +551,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greater(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greater(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -573,7 +559,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), events.mat_pp_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -581,7 +567,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_pp_test_prop, '%5%'), events.mat_pp_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_pp_test_prop, '%5%'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -589,7 +575,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_pp_test_prop, '')), lower('%value_that_is_long_enough%')), events.mat_pp_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_pp_test_prop, '')), lower('%value_that_is_long_enough%')), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -597,8 +583,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_pp_test_prop, '5')
-                                            AND (events.mat_pp_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
   LIMIT 50000
   '''
 # ---
@@ -630,7 +615,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(has(events.person_properties_map_custom, 'test_prop') ? events.person_properties_map_custom['test_prop'] : null, '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -644,10 +629,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(equals(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -662,9 +646,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), and(has(['2', '5'], where_optimization.pmat_test_prop), where_optimization.pmat_test_prop IS NOT NULL)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(has(['2', '5'], where_optimization.pmat_test_prop), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE in(persons.properties___test_prop,
            tuple('2', '5'))
   LIMIT 50000
@@ -680,10 +664,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (less(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(less(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(less(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -698,10 +681,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(equals(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -716,10 +698,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (less(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(less(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(less(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -734,10 +715,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (greater(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(greater(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(greater(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -752,9 +732,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), and(ilike(where_optimization.pmat_test_prop, '%5%'), where_optimization.pmat_test_prop IS NOT NULL)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(ilike(where_optimization.pmat_test_prop, '%5%'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___test_prop), '%5%'), 0)
   LIMIT 50000
   '''
@@ -769,9 +749,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), and(like(lower(coalesce(where_optimization.pmat_test_prop, '')), lower('%value_that_is_long_enough%')), where_optimization.pmat_test_prop IS NOT NULL)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(like(lower(coalesce(where_optimization.pmat_test_prop, '')), lower('%value_that_is_long_enough%')), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___test_prop), '%value_that_is_long_enough%'), 0)
   LIMIT 50000
   '''
@@ -786,10 +766,9 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
-                                                                                                          AND (where_optimization.pmat_test_prop IS NOT NULL))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(equals(where_optimization.pmat_test_prop, '5'), isNotNull(where_optimization.pmat_test_prop))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''

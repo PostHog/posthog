@@ -8,9 +8,10 @@ Personhog is an internal service that owns the source of truth for person-relate
 **All Django code must use this client (or the routed helpers built on it) instead of querying person/group tables via the ORM or raw SQL.**
 Direct ORM queries like `Person.objects.filter(...)` or `PersonDistinctId.objects.filter(...)` are not allowed for new code.
 
-Routed helpers that handle the gate check, gRPC call, ORM fallback, and metrics already exist in
+Routed helpers that handle the gRPC call and metrics already exist in
 `posthog/models/person/util.py` and `posthog/models/group_type_mapping.py` — use these when one fits your use case.
 When no existing helper covers your needs, follow the `_personhog_routed()` pattern in `posthog/models/person/util.py`.
+personhog is the sole read path — there is no ORM fallback.
 
 ## Database tables
 
@@ -36,19 +37,6 @@ Do not query them directly — use the routed helpers or client RPCs.
 `get_personhog_client()` returns a thread-safe singleton `PersonHogClient` instance, configured from Django settings.
 Returns `None` when `PERSONHOG_ADDR` is not set (e.g. in local dev without personhog running).
 
-## Rollout gate
-
-The `use_personhog()` function in `gate.py` controls whether gRPC or ORM is used, based on three settings:
-
-| Setting                        | Description                                               |
-| ------------------------------ | --------------------------------------------------------- |
-| `PERSONHOG_ENABLED`            | Master toggle — must be `True` for gRPC to be used        |
-| `PERSONHOG_ADDR`               | gRPC address (e.g. `localhost:50051`) — must be non-empty |
-| `PERSONHOG_ROLLOUT_PERCENTAGE` | `0`–`100` — percentage of calls routed to gRPC            |
-
-The `PersonHogGateMiddleware` (`middleware.py`) pins the gate decision for the lifetime of an HTTP request,
-ensuring all person/group reads within a single request consistently hit the same backend.
-
 ## Proto converters
 
 `converters.py` provides functions to convert gRPC proto messages into Django model instances or dicts:
@@ -72,6 +60,9 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 
 **Person deletes:**
 `delete_persons`, `delete_persons_batch_for_team`
+
+**Person split:**
+`split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
 
 **Cohort membership:**
 `check_cohort_membership`, `count_cohort_members`, `insert_cohort_members`,
@@ -108,17 +99,14 @@ def test_something(self):
         fake.assert_called("get_person_by_uuid", times=1)
 ```
 
-The `fake_personhog_client()` context manager also forces the gate ON by default.
-Pass `gate_enabled=False` to simulate the gate being off.
-
 ## Observability
 
 The client emits Prometheus metrics at multiple layers:
 
 **Routing metrics** (`metrics.py`):
 
-- `personhog_routing_total` — tracks which source (personhog vs django_orm) was used per operation
-- `personhog_routing_errors_total` — errors that triggered ORM fallback
+- `personhog_routing_total` — counts personhog reads per operation
+- `personhog_routing_errors_total` — personhog read errors per operation
 - `personhog_team_mismatch_total` — persons dropped because personhog returned a mismatched team_id
 
 **gRPC request metrics** (`interceptor.py`):
@@ -136,8 +124,6 @@ The client emits Prometheus metrics at multiple layers:
 ## Directory layout
 
 - `client.py` — `PersonHogClient` with typed methods for each RPC, plus `get_personhog_client()` singleton
-- `gate.py` — `use_personhog()` rollout gate
-- `middleware.py` — `PersonHogGateMiddleware` that pins the gate decision per HTTP request
 - `converters.py` — proto-to-Django conversion functions
 - `fake_client.py` — `FakePersonHogClient` for tests
 - `interceptor.py` — gRPC interceptors for client name headers and request metrics

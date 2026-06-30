@@ -8,6 +8,314 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `schedule` - Schedule
+ * * `threshold` - Threshold
+ */
+export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+
+export const TriggerTypeEnumApi = {
+    Schedule: 'schedule',
+    Threshold: 'threshold',
+} as const
+
+/**
+ * * `group_summary` - Group summary
+ * * `per_observation` - Per observation
+ */
+export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
+
+export const VisionActionModeEnumApi = {
+    GroupSummary: 'group_summary',
+    PerObservation: 'per_observation',
+} as const
+
+/**
+ * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
+ */
+export interface TriggerConfigApi {
+    /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
+    rrule?: string
+    /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
+    timezone?: string
+}
+
+/**
+ * Observation filter applied at synthesis time. All keys optional; this typed shape is the
+ * allowlist, so unknown input keys are dropped rather than persisted.
+ */
+export interface SelectionApi {
+    /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
+    scanner_type?: string
+    /** Restrict to observations produced by these scanner IDs. */
+    scanner_ids?: string[]
+    /** Filter to observations with this monitor verdict. */
+    verdict?: string
+    /** Filter to observations carrying any of these classifier tags. */
+    tags?: string[]
+    /** Lower bound (inclusive) on scorer score. */
+    min_score?: number
+    /** Upper bound (inclusive) on scorer score. */
+    max_score?: number
+    /** Filter to observations with this processing status. */
+    status?: string
+    /** Lookback window in days for the observations gathered at synthesis time. */
+    window_days?: number
+}
+
+/**
+ * Options for the group-summary synthesis step.
+ */
+export interface SynthesisConfigApi {
+    /**
+     * Free-form guidance steering how the group summary is written.
+     * @maxLength 500
+     */
+    prompt_guide?: string
+}
+
+/**
+ * * `slack` - Slack
+ */
+export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
+
+export const DeliveryTargetTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+/**
+ * A single delivery destination. MVP supports Slack only.
+ */
+export interface DeliveryTargetApi {
+    /** Destination channel type. MVP supports 'slack' only.
+     *
+     * * `slack` - Slack */
+    type: DeliveryTargetTypeEnumApi
+    /** ID of the Slack Integration on this team used to deliver the summary. */
+    integration_id: number
+    /** Slack channel ID or name the summary is posted to. */
+    channel: string
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface VisionActionApi {
+    readonly id: string
+    /**
+     * Human-readable action name. Unique within the team.
+     * @maxLength 255
+     */
+    name: string
+    /** Scanner whose observations this action operates on. Must belong to the same team. */
+    scanner: string
+    /** When false, the scheduler skips this action. */
+    enabled?: boolean
+    /** What fires the action. MVP supports 'schedule' only.
+     *
+     * * `schedule` - Schedule
+     * * `threshold` - Threshold */
+    trigger_type?: TriggerTypeEnumApi
+    /** What the action produces. MVP supports 'group_summary' only.
+     *
+     * * `group_summary` - Group summary
+     * * `per_observation` - Per observation */
+    mode?: VisionActionModeEnumApi
+    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+    trigger_config?: TriggerConfigApi
+    /** Observation filter applied at synthesis time. */
+    selection?: SelectionApi
+    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+    synthesis_config?: SynthesisConfigApi
+    /** List of delivery destinations the synthesized summary is sent to. */
+    delivery_config?: DeliveryTargetApi[]
+    /**
+     * Computed next fire time for schedule triggers; the scheduler scans this.
+     * @nullable
+     */
+    readonly next_run_at: string | null
+    /**
+     * Timestamp of the most recent run, or null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /**
+     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+     * @nullable
+     */
+    readonly hog_flow_id: string | null
+    readonly created_at: string
+    /** User who created the action. */
+    readonly created_by: UserBasicApi | null
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionApi[]
+}
+
+export interface PatchedVisionActionApi {
+    readonly id?: string
+    /**
+     * Human-readable action name. Unique within the team.
+     * @maxLength 255
+     */
+    name?: string
+    /** Scanner whose observations this action operates on. Must belong to the same team. */
+    scanner?: string
+    /** When false, the scheduler skips this action. */
+    enabled?: boolean
+    /** What fires the action. MVP supports 'schedule' only.
+     *
+     * * `schedule` - Schedule
+     * * `threshold` - Threshold */
+    trigger_type?: TriggerTypeEnumApi
+    /** What the action produces. MVP supports 'group_summary' only.
+     *
+     * * `group_summary` - Group summary
+     * * `per_observation` - Per observation */
+    mode?: VisionActionModeEnumApi
+    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+    trigger_config?: TriggerConfigApi
+    /** Observation filter applied at synthesis time. */
+    selection?: SelectionApi
+    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+    synthesis_config?: SynthesisConfigApi
+    /** List of delivery destinations the synthesized summary is sent to. */
+    delivery_config?: DeliveryTargetApi[]
+    /**
+     * Computed next fire time for schedule triggers; the scheduler scans this.
+     * @nullable
+     */
+    readonly next_run_at?: string | null
+    /**
+     * Timestamp of the most recent run, or null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at?: string | null
+    /**
+     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+     * @nullable
+     */
+    readonly hog_flow_id?: string | null
+    readonly created_at?: string
+    /** User who created the action. */
+    readonly created_by?: UserBasicApi | null
+    readonly updated_at?: string
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type VisionActionRunStatusEnumApi =
+    (typeof VisionActionRunStatusEnumApi)[keyof typeof VisionActionRunStatusEnumApi]
+
+export const VisionActionRunStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+ */
+export interface VisionActionRunApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+    readonly synthesized_markdown: string
+    /**
+     * Short human-readable reason a run skipped or failed; null on success.
+     * @nullable
+     */
+    readonly error_reason: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionRunApi[]
+}
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -113,61 +421,6 @@ export const ObservationTriggerEnumApi = {
     OnDemand: 'on_demand',
 } as const
 
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
 export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
@@ -197,6 +450,26 @@ export interface ReplayObservationApi {
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
+    /**
+     * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+    /**
+     * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+     * @nullable
+     */
+    readonly recording_subject_email: string | null
+    /**
+     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * @nullable
+     */
+    readonly previous_observation_id: string | null
+    /**
+     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * @nullable
+     */
+    readonly next_observation_id: string | null
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -226,6 +499,8 @@ export interface VisionQuotaApi {
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
+    /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    readonly projected_monthly_observations: number
 }
 
 export interface ReplayScannerApi {
@@ -269,6 +544,11 @@ export interface ReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -327,6 +607,11 @@ export interface PatchedReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations?: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -520,6 +805,32 @@ export interface ScannerStatsResponseApi {
     by_type: ScannerStatsByTypeApi
 }
 
+export type VisionActionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter to the actions belonging to one scanner.
+     */
+    scanner?: string
+}
+
+export type VisionActionsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -530,7 +841,7 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string
     /**
@@ -584,11 +895,15 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string
     /**
@@ -615,7 +930,11 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string
     /**

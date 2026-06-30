@@ -70,13 +70,24 @@
                     },
                     "required": ["source"],
                     "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "default": "user_messages",
+                            "description": "Classify sentiment from user messages in the generation input.",
+                            "enum": ["user_messages"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
                 }
             ],
-            "description": "Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."
+            "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
-            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog",
-            "enum": ["llm_judge", "hog"],
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "enum": ["llm_judge", "hog", "sentiment"],
             "type": "string"
         },
         "model_configuration": {
@@ -89,7 +100,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -97,7 +108,8 @@
                                 "openrouter",
                                 "fireworks",
                                 "azure_openai",
-                                "together_ai"
+                                "together_ai",
+                                "minimax"
                             ],
                             "type": "string"
                         },
@@ -111,7 +123,8 @@
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "description": "Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it."
                         },
                         "provider_key_name": {
                             "anyOf": [
@@ -149,8 +162,8 @@
             "type": "object"
         },
         "output_type": {
-            "description": "Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)",
-            "enum": ["boolean"],
+            "description": "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment",
+            "enum": ["boolean", "sentiment"],
             "type": "string"
         }
     },

@@ -4,15 +4,33 @@ import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AnyPropertyFilter, LiveEvent, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, LiveEvent, PropertyFilterValue, PropertyOperator } from '~/types'
 
 import { deduplicateEvents } from './deduplicateEvents'
 import type { liveEventsLogicType } from './liveEventsLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
+
+export const LIVE_EVENTS_SUPPORTED_OPERATORS: PropertyOperator[] = [
+    PropertyOperator.Exact,
+    PropertyOperator.IsNot,
+    PropertyOperator.IContains,
+    PropertyOperator.NotIContains,
+    PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
+    PropertyOperator.GreaterThan,
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThan,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.IsSet,
+    PropertyOperator.IsNotSet,
+]
 
 export interface LiveEventsLogicProps {
     showLiveStreamErrorToast?: boolean
@@ -22,7 +40,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsLogic']),
     props({} as LiveEventsLogicProps),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions(() => ({
@@ -122,16 +140,47 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
-            for (const pf of properties ?? []) {
-                if (!isEventPropertyFilter(pf) || pf.operator !== PropertyOperator.Exact || !pf.key) {
-                    continue
-                }
-                const vals = Array.isArray(pf.value) ? pf.value : [pf.value]
-                for (const v of vals) {
-                    if (v == null) {
+            if (values.featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]) {
+                const richFilters: { key: string; operator: PropertyOperator; value?: PropertyFilterValue }[] = []
+                for (const pf of properties ?? []) {
+                    if (!isEventPropertyFilter(pf) || !pf.key || !pf.operator) {
                         continue
                     }
-                    url.searchParams.append('property', `${pf.key}=${String(v)}`)
+                    if (!LIVE_EVENTS_SUPPORTED_OPERATORS.includes(pf.operator)) {
+                        continue
+                    }
+                    if (isOperatorFlag(pf.operator)) {
+                        richFilters.push({ key: pf.key, operator: pf.operator })
+                        continue
+                    }
+                    if (pf.value == null) {
+                        continue
+                    }
+                    if (Array.isArray(pf.value)) {
+                        const cleaned = pf.value.filter((v) => v != null)
+                        if (cleaned.length === 0) {
+                            continue
+                        }
+                        richFilters.push({ key: pf.key, operator: pf.operator, value: cleaned })
+                    } else {
+                        richFilters.push({ key: pf.key, operator: pf.operator, value: pf.value })
+                    }
+                }
+                if (richFilters.length > 0) {
+                    url.searchParams.append('properties', JSON.stringify(richFilters))
+                }
+            } else {
+                for (const pf of properties ?? []) {
+                    if (!isEventPropertyFilter(pf) || pf.operator !== PropertyOperator.Exact || !pf.key) {
+                        continue
+                    }
+                    const vals = Array.isArray(pf.value) ? pf.value : [pf.value]
+                    for (const v of vals) {
+                        if (v == null) {
+                            continue
+                        }
+                        url.searchParams.append('property', `${pf.key}=${String(v)}`)
+                    }
                 }
             }
             url.searchParams.append('columns', '$current_url,$screen_name')

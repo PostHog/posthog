@@ -24,9 +24,8 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
-    INACTIVITY_TIMEOUT,
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -96,7 +95,10 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
-from products.tasks.backend.temporal.process_task.credential_refresh import run_credential_refresh_loop
+from products.tasks.backend.temporal.process_task.credential_refresh import (
+    CredentialRefreshExitReason,
+    run_credential_refresh_loop,
+)
 from products.tasks.backend.temporal.utils import log_on_fail
 
 # Names of signals this workflow sends back to the TaskManagement parent. Kept
@@ -203,6 +205,7 @@ class ChildCompletionPayload:
 class SandboxEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
+    SANDBOX_GONE = "sandbox_gone"
 
 
 @temporalio.workflow.defn(name="execute-sandbox")
@@ -241,6 +244,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
+        self._sandbox_gone: bool = False
 
         self._heartbeat_received: bool = False
         self._pending_followups: list[PendingFollowup] = []
@@ -318,15 +322,20 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
     async def _wait_for_signal(self) -> SandboxEvent:
         await workflow.wait_condition(
-            lambda: self._task_completed
-            or self._heartbeat_received
-            or len(self._pending_followups) > 0
-            or len(self._pending_outbound) > 0
+            lambda: (
+                self._task_completed
+                or self._sandbox_gone
+                or self._heartbeat_received
+                or len(self._pending_followups) > 0
+                or len(self._pending_outbound) > 0
+            )
         )
+        if self._sandbox_gone and not self._task_completed:
+            return SandboxEvent.SANDBOX_GONE
         return SandboxEvent.SIGNAL_RECEIVED
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
-        await workflow.sleep(INACTIVITY_TIMEOUT.total_seconds())
+        await workflow.sleep(self.context.inactivity_timeout().total_seconds())
         return SandboxEvent.TIMEOUT_REACHED
 
     async def _wait_for_event(self) -> SandboxEvent:
@@ -411,7 +420,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
             if self.context.has_github_credentials:
-                credential_refresh_task = asyncio.ensure_future(run_credential_refresh_loop(self.context, sandbox_id))
+                credential_refresh_task = asyncio.ensure_future(
+                    self._run_credential_refresh_until_sandbox_gone(sandbox_id)
+                )
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -426,6 +437,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     case SandboxEvent.TIMEOUT_REACHED:
                         timed_out = True
                         break
+                    case SandboxEvent.SANDBOX_GONE:
+                        self._mark_sandbox_gone()
                     case SandboxEvent.SIGNAL_RECEIVED:
                         # complete_task lands here too — `_flush_pending_outbound`
                         # delivers its ACK and the `while not self._task_completed:`
@@ -1088,6 +1101,19 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         # the except blocks in run() cover the other terminal paths.
         if self._task_completed and self._completion_status in {"failed", "cancelled"}:
             await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+
+    async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
+        exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
+        if exit_reason == CredentialRefreshExitReason.SANDBOX_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_sandbox_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            self._sandbox_gone = True
+
+    def _mark_sandbox_gone(self) -> None:
+        self._task_completed = True
 
     # `log_on_fail` only catches `Exception`, so `asyncio.CancelledError`
     # (a `BaseException`) still propagates — required for cooperative

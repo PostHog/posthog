@@ -6,7 +6,8 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,7 +37,7 @@ export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> 
 export interface ExperimentsFilters {
     search?: string
     status?: ExperimentStatus | 'all'
-    created_by_id?: number
+    created_by_id?: number[]
     archived?: boolean
     page?: number
     order?: string
@@ -44,7 +45,7 @@ export interface ExperimentsFilters {
 
 export interface FeatureFlagModalFilters {
     active?: string
-    created_by_id?: number
+    created_by_id?: number[]
     search?: string
     order?: string
     page?: number
@@ -269,17 +270,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
         experiments: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
-                loadExperiments: async () => {
+                loadExperiments: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
                     )
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
                     return {
                         ...response,
                         offset: values.paramsFromFilters.offset,
                     }
                 },
-                archiveExperiment: async (id: number) => {
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
+                archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
+                        disable_feature_flag: disableFeatureFlag,
+                    })
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,
@@ -370,12 +375,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
         featureFlagModalFeatureFlags: [
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
-                loadFeatureFlagModalFeatureFlags: async () => {
+                loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,
                         })}`
                     )
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
                     return response
                 },
             },
@@ -463,7 +470,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return (
+                    !experimentsLoading &&
+                    (experiments.results?.length ?? 0) === 0 &&
+                    objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         pagination: [
@@ -508,12 +519,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     afterMount(({ actions, values }) => {
         actions.loadExperimentsStats()
-        // Sync modal page with URL on mount
+        // Sync modal page with URL on mount. Eligible flags themselves are loaded lazily when the
+        // "link existing flag" modal opens (openFeatureFlagModal listener), not on every list mount.
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
             actions.setFeatureFlagModalFilters({ page: urlPage })
-        } else {
-            actions.loadFeatureFlagModalFeatureFlags()
         }
     }),
     actionToUrl(({ values }) => {
@@ -527,7 +537,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean> = {
+            const searchParams: Record<string, string | number | boolean | number[]> = {
                 ...values.filters,
             }
 
@@ -554,7 +564,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean> = {
+            const searchParams: Record<string, string | number | boolean | number[]> = {
                 ...values.filters,
             }
 
@@ -593,7 +603,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             const { page, search, status, created_by_id, order, archived } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
-                created_by_id,
+                created_by_id: parseNumericArrayFilter(created_by_id),
                 order,
             }
 

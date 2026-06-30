@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     const action = hogFlow.actions.find((action) => action.id === id)
@@ -103,6 +103,32 @@ export async function shouldSkipAction(
 // Special format which the frontend understands and can render as a link
 export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string => {
     return `[Action:${action.id}]`
+}
+
+// A wait condition that targets nothing compiles to always-true bytecode (Python's filter compiler
+// returns `Constant(true)` for an empty filter), which would match on entry and wake the job on every
+// event. We detect that structurally — the same way the compiler decides: a filter is empty when it
+// has no properties, no events, no actions, and no test-account filtering. Checking the structure
+// rather than the compiled bytecode is robust to bytecode/version changes (no need to enumerate the
+// always-true forms) and keeps a real condition expressed through any of those fields evaluable.
+export function isEvaluableCondition(condition?: {
+    filters?: {
+        properties?: unknown[]
+        events?: unknown[]
+        actions?: unknown[]
+        filter_test_accounts?: boolean
+    }
+}): boolean {
+    const filters = condition?.filters
+    if (!filters) {
+        return false
+    }
+    return (
+        (filters.properties?.length ?? 0) > 0 ||
+        (filters.events?.length ?? 0) > 0 ||
+        (filters.actions?.length ?? 0) > 0 ||
+        Boolean(filters.filter_test_accounts)
+    )
 }
 
 const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']

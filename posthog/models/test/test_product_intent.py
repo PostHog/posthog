@@ -841,6 +841,23 @@ class TestEnqueueProductActivationCalcDebounced(BaseTest):
         assert mock_log.call_args.kwargs == {"team_id": self.team.id, "exc_info": True}
         mock_capture.assert_called_once()
 
+    def test_broker_failure_falls_open_and_does_not_raise(self):
+        # A broker outage (e.g. kombu.OperationalError) on .delay() must not 500 the
+        # team/project retrieve endpoints that call this on every render. The helper
+        # swallows the error and returns False instead of propagating.
+        with (
+            patch(
+                "posthog.models.product_intent.product_intent.calculate_product_activation.delay",
+                side_effect=Exception("broker is unavailable"),
+            ),
+            patch("posthog.models.product_intent.product_intent.logger.warning") as mock_log,
+            patch("posthog.models.product_intent.product_intent.capture_exception") as mock_capture,
+        ):
+            assert enqueue_product_activation_calc_debounced(self.team.id) is False
+
+        assert mock_log.call_args.args == ("product_activation_enqueue_failure",)
+        mock_capture.assert_called_once()
+
 
 class TestCachedProductIntentsForTeam(BaseTest):
     def setUp(self):

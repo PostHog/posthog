@@ -56,7 +56,7 @@ Focus:
 - Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
-- Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
+- Presentation layer (DRF) sits above the facade, outside the contract surface — but a product is only soundly skippable once that presentation is thin and reaches internals exclusively through the facade (see [What makes the skip sound](#what-makes-the-skip-sound)); an unsealed presentation that still holds business logic is not
 
 Eventually this grows into:
 
@@ -64,6 +64,24 @@ Eventually this grows into:
 - True selective test execution
 
 But this document is about foundational structure, not full rollout.
+
+### What makes the skip sound
+
+Skipping the full suite for an isolated product is a claim that _a change inside the product can only break the product's own tests._
+tach proves the import half of that claim — no external code reaches past `facade.*` / `presentation.views.*`.
+It cannot prove the other half.
+A product's HTTP API is exercised **in-process** by tests (the Django test client dispatches into the view stack in the same process, not over a real socket), and cross-cutting tests — permissions, schema, activity-log, "every viewset does X" — reach a product's endpoints by URL.
+That couples them to the product's live behavior with **zero imports**, so it is invisible to tach, to `lint-imports`, and to any import-graph audit.
+"No importers" is necessary, not sufficient.
+
+Because this channel can't be enumerated, it is closed by construction rather than inspection:
+
+1. Keep the presentation layer thin and reaching internals only through the facade, so every observable behavior lives either in the facade (tested in-product, inside the boundary) or in the serializer shape (the OpenAPI schema, whose changes already force the full suite).
+2. Keep behavior tests in-product.
+
+A product whose views still hold business logic is not soundly skippable even if nothing imports it.
+This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
+The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
 
 # 3. Folder Structure
 
@@ -253,9 +271,15 @@ Presentation may only import `facade` and other `presentation` modules within th
 
 If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
 
-- **Presentation concern** (response caching, rate limiting) → `presentation/`
-- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Presentation concern** (response caching, rate limiting, user RBAC — see below) → `presentation/`
+- **Business concern** (domain-level caching, tenant scoping, domain invariants) → `logic/`, exposed through the facade
 - **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
+### Who owns RBAC?
+
+User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
+
+The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
 ### Why not mix with the facade?
 

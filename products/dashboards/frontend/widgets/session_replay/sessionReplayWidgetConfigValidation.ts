@@ -34,14 +34,21 @@ export function patchSessionReplayWidgetFilterFields(
     patch: {
         dateFrom?: WidgetDateFromValue
         widgetFilters?: Record<string, StoredWidgetFilter>
+        savedFilterId?: string | null
+        collectionId?: string | null
     }
 ): SessionReplayWidgetConfig {
     const base = parseSessionReplayWidgetConfig(config)
+    // A collection (scope) and a saved filter (refinement) are independent — each patches only its own field.
+    const savedFilterId = patch.savedFilterId !== undefined ? patch.savedFilterId : (base.savedFilterId ?? null)
+    const collectionId = patch.collectionId !== undefined ? patch.collectionId : (base.collectionId ?? null)
 
     return sessionReplayWidgetConfigSchema.parse({
         ...base,
         dateRange: { date_from: patch.dateFrom ?? base.dateRange?.date_from ?? '-7d' },
         widgetFilters: patch.widgetFilters ?? base.widgetFilters ?? {},
+        savedFilterId,
+        collectionId,
     })
 }
 

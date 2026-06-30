@@ -1,10 +1,12 @@
-import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import { Client, Connection, DataConverter, TLSConfig, WorkflowHandle } from '@temporalio/client'
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+
 import { RawKafkaEvent } from '../../types'
-import { isDevEnv } from '../../utils/env-utils'
-import { logger } from '../../utils/logger'
 import { AIObservabilityConfig } from '../config'
 
 export type TemporalServiceConfig = Pick<
@@ -15,9 +17,29 @@ export type TemporalServiceConfig = Pick<
     | 'TEMPORAL_PORT'
     | 'TEMPORAL_HOST'
     | 'TEMPORAL_NAMESPACE'
+    | 'TEMPORAL_SECRET_KEY'
+    | 'TEMPORAL_FALLBACK_SECRET_KEYS'
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+
+const EVALUATION_WORKFLOW_PREFIXES = {
+    hog: 'llma-hog-eval',
+    llm_judge: 'llma-llm-eval',
+    sentiment: 'llma-sentiment-eval',
+} as const
+
+export type EvaluationWorkflowRuntime = keyof typeof EVALUATION_WORKFLOW_PREFIXES
+
+export function isEvaluationWorkflowRuntime(
+    evaluationRuntime: unknown
+): evaluationRuntime is EvaluationWorkflowRuntime {
+    return typeof evaluationRuntime === 'string' && Object.hasOwn(EVALUATION_WORKFLOW_PREFIXES, evaluationRuntime)
+}
+
+function getEvaluationWorkflowPrefix(evaluationRuntime: EvaluationWorkflowRuntime): string {
+    return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime]
+}
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
@@ -82,6 +104,22 @@ export class TemporalService {
         }
     }
 
+    private buildDataConverter(): DataConverter | undefined {
+        const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = this.config
+
+        if (!TEMPORAL_SECRET_KEY) {
+            logger.warn('⚠️ No TEMPORAL_SECRET_KEY configured — workflow payloads will NOT be encrypted')
+            return undefined
+        }
+
+        const fallbackKeys = (TEMPORAL_FALLBACK_SECRET_KEYS ?? '')
+            .split(',')
+            .map((key) => key.trim())
+            .filter(Boolean)
+
+        return { payloadCodecs: [new EncryptionCodec(TEMPORAL_SECRET_KEY, fallbackKeys)] }
+    }
+
     private async createClient(): Promise<Client> {
         const tls = await this.buildTLSConfig()
 
@@ -90,15 +128,19 @@ export class TemporalService {
 
         const connection = await Connection.connect({ address, tls })
 
+        const dataConverter = this.buildDataConverter()
+
         const client = new Client({
             connection,
             namespace: this.config.TEMPORAL_NAMESPACE || 'default',
+            dataConverter,
         })
 
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.config.TEMPORAL_NAMESPACE,
             tlsEnabled: tls !== false,
+            payloadEncryption: dataConverter !== undefined,
         })
 
         return client
@@ -107,11 +149,14 @@ export class TemporalService {
     async startEvaluationRunWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
-        evaluationRuntime: string = 'llm_judge'
+        evaluationRuntime: EvaluationWorkflowRuntime
     ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const prefix = evaluationRuntime === 'hog' ? 'llma-hog-eval' : 'llma-llm-eval'
+        if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
+            throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+        }
+        const prefix = getEvaluationWorkflowPrefix(evaluationRuntime)
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 
         const handle = await client.workflow.start('run-evaluation', {

@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -186,8 +186,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             {
                 initializeMessageStates: (_, { inputCount, outputCount }) => {
                     // Will be initialized based on display option in listener
-                    const inputStates = new Array(inputCount).fill(false)
-                    const outputStates = new Array(outputCount).fill(true)
+                    const inputStates = Array.from({ length: inputCount }, () => false)
+                    const outputStates = Array.from({ length: outputCount }, () => true)
                     return { input: inputStates, output: outputStates }
                 },
                 toggleMessage: (state, { type, index }) => {
@@ -251,13 +251,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (
-                        !values.traceId ||
-                        !(
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                        )
-                    ) {
+                    if (!values.traceId) {
                         return 0
                     }
 
@@ -330,6 +324,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? // dateFrom is a minimum timestamp of an event for a trace.
                           {
@@ -385,16 +380,13 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
         olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.featureFlags],
-            (traceId, featureFlags): SidePanelSceneContext => {
+            (s) => [s.traceId],
+            (traceId): SidePanelSceneContext => {
                 // Discussions are always at the trace level, accessible from anywhere in the trace
                 return {
                     activity_scope: ActivityScope.LLM_TRACE,
                     activity_item_id: traceId || '',
-                    discussions_disabled: !(
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                    ),
+                    discussions_disabled: false,
                     activity_item_context: { trace_id: traceId || '' },
                 }
             },
@@ -405,14 +397,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
-            const inputStates = new Array(inputCount).fill(false).map((_, i) => {
+            const inputStates = Array.from({ length: inputCount }, (_, i) => {
                 if (displayOption === DisplayOption.ExpandAll) {
                     return true
                 }
                 // For collapse except output and last input, only show last input
                 return i === inputCount - 1
             })
-            const outputStates = new Array(outputCount).fill(true)
+            const outputStates = Array.from({ length: outputCount }, () => true)
 
             // Update the states directly
             actions.applySearchResults(inputStates, outputStates)

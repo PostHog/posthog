@@ -33,7 +33,7 @@ IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's var
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- toFloat64() is not supported and will fail if used. Use toFloat() instead. toFloat64OrNull() and toFloatOrNull() are accepted aliases of toFloat().
 - LAG/LEAD are not supported at all.
 - count() does not take * as an argument, it's just count().
 - Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
@@ -234,7 +234,7 @@ def write_sql_from_prompt(
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None, posthog_groups=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
@@ -244,6 +244,7 @@ def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
         posthog_properties=posthog_properties,
+        posthog_groups=posthog_groups,
     )
 
     content: str = ""
@@ -1096,7 +1097,7 @@ Here is the taxonomy for events:
         },
         "$$heatmap": {
             "label": "Heatmap",
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": True,  # Heatmap events are not useful for LLM
         },
         "$copy_autocapture": {

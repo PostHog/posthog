@@ -1,7 +1,7 @@
 {%- set c = audit_constants() -%}
 # Feature flag checks
 
-Run these checks against each flag fetched via `read_data("feature_flags", id)` or `list_data("feature_flags")`.
+Run these checks against each flag fetched via `feature-flag-get-definition` or `feature-flag-get-all`.
 
 ---
 
@@ -47,7 +47,7 @@ Detects flags that were created but never activated.
 
 Detects flags whose linked experiments are all done.
 
-**Look at**: `experiment_set` (list of linked experiment IDs), and for each experiment, check its `end_date` and `archived` status via `read_data("experiments", id)`.
+**Look at**: `experiment_set` (list of linked experiment IDs), and for each experiment, check its `end_date` and `archived` status via `experiment-get`.
 
 **Findings**:
 

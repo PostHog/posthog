@@ -355,6 +355,7 @@ export interface LogsAlertStateIntervalApi {
 /**
  * * `slack` - slack
  * * `webhook` - webhook
+ * * `teams` - teams
  */
 export type NotificationDestinationTypeEnumApi =
     (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
@@ -362,6 +363,7 @@ export type NotificationDestinationTypeEnumApi =
 export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
+    Teams: 'teams',
 } as const
 
 /**
@@ -625,10 +627,11 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack or webhook.
+    /** Destination type — slack, webhook, or teams.
      *
      * * `slack` - slack
-     * * `webhook` - webhook */
+     * * `webhook` - webhook
+     * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -636,7 +639,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook. */
+    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
     webhook_url?: string
 }
 
@@ -984,6 +987,107 @@ export interface ExplainRequestApi {
     timestamp: string
     /** Force regenerate explanation, bypassing cache */
     force_refresh?: boolean
+}
+
+/**
+ * * `severity_text` - severity_text
+ * * `service_name` - service_name
+ */
+export type FacetFieldEnumApi = (typeof FacetFieldEnumApi)[keyof typeof FacetFieldEnumApi]
+
+export const FacetFieldEnumApi = {
+    SeverityText: 'severity_text',
+    ServiceName: 'service_name',
+} as const
+
+export interface _LogsFacetValuesBodyApi {
+    /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+     *
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name */
+    facetField?: FacetFieldEnumApi | null
+    /**
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * @nullable
+     */
+    facetResourceAttribute?: string | null
+    /** Date range. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels (ignored when faceting on severity_text). */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names (ignored when faceting on service_name). */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
+    facetSearch?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsFacetValuesRequestApi {
+    /** The facet values query to execute. */
+    query: _LogsFacetValuesBodyApi
+}
+
+export interface _LogFacetValueApi {
+    /** The facet value (e.g. a severity level or service name). */
+    value: string
+    /** Number of matching log records, with all active filters applied except this facet's own selection. */
+    count: number
+}
+
+export interface _LogsFacetValuesResponseApi {
+    /** Facet values with cross-filtered counts, ordered by count descending. */
+    results: _LogFacetValueApi[]
+}
+
+export interface _LogsPatternsBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsPatternsRequestApi {
+    /** The patterns query to execute. */
+    query: _LogsPatternsBodyApi
+}
+
+export interface _LogPatternApi {
+    /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+    pattern: string
+    /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+    count: number
+    /** Share of the sampled log volume this pattern represents (0–100). */
+    volume_share_pct: number
+    /** Sampled occurrences at severity "error" or "fatal". */
+    error_count: number
+    /** ISO 8601 timestamp of the earliest sampled occurrence. */
+    first_seen: string
+    /** ISO 8601 timestamp of the latest sampled occurrence. */
+    last_seen: string
+    /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+    examples: string[]
+    /** Up to 4 distinct service names this pattern was observed in. */
+    services: string[]
+}
+
+export interface _LogsPatternsResponseApi {
+    /** Mined patterns ordered by `count` descending. */
+    patterns: _LogPatternApi[]
+    /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+    scanned_count: number
+    /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+    total_count: number
+    /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+    sampled: boolean
 }
 
 /**
@@ -1341,6 +1445,8 @@ export interface _LogAttributeValueApi {
     id: string
     /** Display name — currently identical to `id`. */
     name: string
+    /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+    count?: number
 }
 
 export interface _LogsValuesResponseApi {

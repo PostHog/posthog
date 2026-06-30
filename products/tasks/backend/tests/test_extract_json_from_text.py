@@ -2,7 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
-from products.tasks.backend.services.custom_prompt_internals import extract_json_from_text
+from products.tasks.backend.logic.services.custom_prompt_internals import extract_json_from_text
 
 EXPECTED = {"answer": "hello world"}
 JSON_STR = '{"answer": "hello world"}'
@@ -32,3 +32,26 @@ class TestExtractJsonFromText:
     def test_invalid_json_raises(self):
         with pytest.raises(Exception):
             extract_json_from_text("not json at all", label="test")
+
+    @parameterized.expand(
+        [
+            ("empty_string", "", "empty or whitespace-only"),
+            ("whitespace_only", "   \n\t ", "empty or whitespace-only"),
+            ("prose_only", "I checked everything and found nothing worth surfacing.", "prose with no JSON object"),
+            ("fenced_invalid", "```json\nnot: valid json\n```", "code fence but its contents did not parse"),
+        ]
+    )
+    def test_classifies_unparseable_text(self, _name, text, expected_message):
+        with pytest.raises(ValueError, match=expected_message):
+            extract_json_from_text(text, label="initial turn")
+
+    @parameterized.expand(
+        [
+            ("bare_array", "[1, 2, 3]", [1, 2, 3]),
+            ("array_with_whitespace", "  [1, 2, 3]  ", [1, 2, 3]),
+        ]
+    )
+    def test_still_parses_non_object_json(self, _name, text, expected):
+        # The last-resort path must keep parsing valid top-level JSON that isn't an object
+        # (arrays, scalars) — only genuinely unparseable text should raise.
+        assert extract_json_from_text(text, label="test") == expected

@@ -118,6 +118,7 @@ def to_dict(query: BaseModel) -> dict:
                         "selectedInterval",
                         "funnelStepReference",
                         "breakdownSorting",
+                        "legendPosition",
                     ]
                 }
 
@@ -169,6 +170,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+            | ChartDisplayType.METRIC
         ):
             # standard time series
             return ChartDisplayType.ACTIONS_LINE_GRAPH
@@ -197,6 +199,10 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
         case ChartDisplayType.BOX_PLOT:
             # separate runner
             return ChartDisplayType.BOX_PLOT
+
+        case ChartDisplayType.SLOPE_GRAPH:
+            # separate runner — only the two range endpoints, cached on its own key
+            return ChartDisplayType.SLOPE_GRAPH
 
         case ChartDisplayType.AUTO:
             return ChartDisplayType.AUTO

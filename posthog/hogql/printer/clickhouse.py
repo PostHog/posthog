@@ -1,30 +1,33 @@
 import re
 from datetime import date, datetime
-from typing import ClassVar, Literal, Union, cast
+from typing import ClassVar, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
-
-from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery, StructDatabaseField
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, SavedQuery, StructDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
-from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
+from posthog.hogql.printer.base import (
+    BasePrinter,
+    get_channel_definition_dict,
+    get_geoip_city_postal_dict,
+    resolve_field_type,
+)
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
-from posthog.hogql.utils import ilike_matches, like_matches
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.property_groups import property_groups
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -49,22 +52,58 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-# In non-nullable materialized columns, these values are treated as NULL
-MAT_COL_NULL_SENTINELS = ["", "null"]
+def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
+    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
 
-# We skip nullIf/ifNull wrapping for these columns, to improve performance and help skip index usage
+    Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
+    events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
+    Uses a calendar-month interval so the boundary lands on the exact date (no leap-year / 365-day drift).
+    """
+    field_table_type = _table_filter_type(table_type)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Gt,
+        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Call(name="now", args=[]),
+            right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
+        ),
+        type=ast.BooleanType(),
+    )
+
+
+# The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
+# wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
+AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
+
+# Both the property name and its `mat_` column spelling, so visit_compare_operation can match either side of a comparison.
 COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
-    "mat_$ai_trace_id",
-    "mat_$ai_session_id",
-    "mat_$ai_is_error",
-    "$ai_trace_id",
-    "$ai_session_id",
-    "$ai_is_error",
+    *AI_BLOOM_FILTER_PROPERTIES,
+    *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
 }
+
+# The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized): the
+# fixed scrubbing markers property resolution emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
+# 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
+# never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
+INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
 
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+
+    def visit_cte(self, node: ast.CTE):
+        if node.materialized is False:
+            raise ImpossibleASTError("ClickHouse does not support NOT MATERIALIZED CTEs")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
+
+        if node.cte_type == "subquery":
+            if node.columns is not None:
+                raise NotImplementedError("CTE column name lists are not supported in this dialect")
+            materialized = " MATERIALIZED" if node.materialized else ""
+            return f"{self._print_identifier(node.name)} AS{materialized} {self.visit(node.expr)}"
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return str(self._limit_percent_constant_value(limit))
@@ -82,22 +121,6 @@ class ClickHousePrinter(BasePrinter):
     def _validate_within_group_for_aggregation(self, node: ast.Call, func_meta) -> None:
         if node.within_group is not None:
             raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
-
-    def _yield_property_group_columns(self, field_type, table_name: str, field_name: str, property_name: str):
-        if self.context.modifiers.propertyGroupsMode not in (
-            PropertyGroupsMode.ENABLED,
-            PropertyGroupsMode.OPTIMIZED,
-        ):
-            return
-        # For now, we're assuming that properties are in either no groups or one group, so just using the
-        # first group returned is fine. If we start putting properties in multiple groups, this should be
-        # revisited to find the optimal set (i.e. smallest set) of groups to read from.
-        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
-            yield PrintableMaterializedPropertyGroupItem(
-                self.visit(field_type.table_type),
-                self._print_identifier(property_group_column),
-                self.context.add_value(property_name),
-            )
 
     def _render_function_call(self, node: ast.Call, func_meta) -> str:
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
@@ -161,17 +184,24 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
-            # Look through aliases: an alias's declared type can be stale after a
-            # transform (e.g. the property-type swapper) rewrites its inner
-            # expression, so resolve the overload against the real expression.
+            # Prefer concrete fields/calls: transforms can leave a call's
+            # recorded arg_types stale after fields are rewritten.
             first_arg = node.args[0] if len(node.args) > 0 else None
+            first_arg_was_alias = False
             while isinstance(first_arg, ast.Alias):
+                first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = (
-                first_arg.type.resolve_constant_type(self.context)
-                if first_arg is not None and first_arg.type is not None
-                else None
-            )
+            first_arg_constant_type = None
+            if (
+                first_arg is not None
+                and first_arg.type is not None
+                and (
+                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                )
+            ):
+                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
+                first_arg_constant_type = node.type.arg_types[0]
 
             if first_arg_constant_type is not None:
                 for (
@@ -245,6 +275,31 @@ class ClickHousePrinter(BasePrinter):
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
+        elif node.name in ("_lookupGeoipCityName", "_lookupGeoipPostalCode"):
+            # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
+            # geoip_dict_fallback transform. toIPv6OrDefault
+            # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
+            # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
+            # Reads the once-per-query decision from the context (set in prepare_ast_for_printing) rather than
+            # re-probing, so a background cache refresh can never make this gate reject the transform's own calls.
+            if not self.context.geoip_dict_fallback_enabled:
+                raise QueryError(f"{node.name} is not available on this instance")
+            # Deliberately NO property-restriction guard here, reviewers included AI ones: these are pure functions
+            # over GeoLite2, a public IP->geo dataset, and they cannot circumvent property-level access control.
+            # (1) They never expose a restricted input: a restricted property read in the argument (e.g.
+            # `properties.$ip`) is scrubbed to constant NULL by the restriction layer before this function sees it,
+            # so the lookup misses and returns '' — there is no oracle for the restricted value. (2) They never serve
+            # a restricted *stored* property: the "restricted property reads as NULL" contract is enforced where
+            # properties are read (clickhouse_property_resolution + JSONDropKeys) and by the geoip_dict_fallback
+            # transform's own target guard. (3) The only capability left is deriving geo data from an IP the user can
+            # already read, which any external geo service provides — a guard here would add zero protection while
+            # risking the printer rejecting the transform's own emitted calls. Pinned by tests in
+            # test_geoip_dict_fallback.py.
+            attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
+            geoip_dict = get_geoip_city_postal_dict()
+            return (
+                f"dictGetStringOrDefault('{geoip_dict}', '{attribute}', toIPv6OrDefault(coalesce({args[0]}, '')), '')"
+            )
         elif node.name == "lookupDomainType":
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
@@ -265,12 +320,13 @@ class ClickHousePrinter(BasePrinter):
             from_currency, to_currency, amount, *_rest = args
             date = args[3] if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
+            scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
-            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
-            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
+            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
-            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
-            return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
+            safe_from_rate = f"if({from_rate} = 0, toDecimal128(1, {scale}), {from_rate})"
+            return f"if(equals({from_currency}, {to_currency}), toDecimal128({amount}, {scale}), if({from_rate} = 0, toDecimal128(0, {scale}), multiplyDecimal(divideDecimal(toDecimal128({amount}, {scale}), {safe_from_rate}), {to_rate})))"
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if "{}" in relevant_clickhouse_name:
@@ -373,6 +429,13 @@ class ClickHousePrinter(BasePrinter):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
+        # Opt-in inline rendering for the fixed scrubbing sentinels property resolution emits, so its AST-built scrub renders
+        # identically to the `json_extract_trim_quotes` helper's inline string. Gated to a fixed allowlist: the flag is set
+        # only internally, so a value outside it is a bug — refuse to inline it rather than emit unparameterized text.
+        if node.inline_sentinel and isinstance(node.value, str):
+            if node.value not in INLINE_SENTINEL_LITERALS:
+                raise ImpossibleASTError(f"inline_sentinel set on a non-sentinel constant: {node.value!r}")
+            return self._print_escaped_string(node.value)
         if (
             node.value is None
             or isinstance(node.value, bool)
@@ -392,6 +455,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
@@ -416,28 +481,6 @@ class ClickHousePrinter(BasePrinter):
         field_sql = super().visit_field_type(type)
         return self._maybe_apply_json_drop_keys(type, field_sql)
 
-    def _get_materialized_property_source_for_property_type(
-        self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
-        # If this property is restricted by property-level access control, skip the
-        # materialized-column / property-group shortcut and force the JSON-extract path
-        # below. The JSON column itself is wrapped by ``JSONDropKeys`` in
-        # ``_maybe_apply_json_drop_keys`` (see ``visit_field_type``), so the extracted
-        # value collapses to an empty string instead of leaking the materialized value.
-        if self._is_property_type_restricted(type):
-            return None
-        return super()._get_materialized_property_source_for_property_type(type)
-
-    def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
-        if not self.context.restricted_properties or len(type.chain) == 0:
-            return False
-        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
-        if not keys_to_drop:
-            return False
-        # Only the first chain element is a top-level key on the JSON blob; nested
-        # accesses (``properties.foo.bar``) are restricted iff their root key is.
-        return str(type.chain[0]) in keys_to_drop
-
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
         Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
@@ -461,506 +504,12 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field.name not in ("properties", "person_properties"):
             return field_sql
 
-        keys_to_drop = self._get_restricted_keys_for_table_type(type.table_type)
+        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
         if not keys_to_drop:
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        return f"JSONDropKeys({keys_placeholder})({field_sql})"
-
-    def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
-        """
-        Given a table type, returns the set of property names that should be stripped
-        from the JSON blob based on restricted_properties in the context.
-        """
-        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        if not isinstance(table_type, ast.BaseTableType):
-            return set()
-
-        try:
-            table = table_type.resolve_database_table(self.context)
-        except Exception:
-            return set()
-
-        if isinstance(table, EventsPersonSubTable):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        elif isinstance(table, EventsTable):
-            prop_def_type = PropertyDefinition.Type.EVENT
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        else:
-            return set()
-
-        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
-
-    def _get_property_group_source_for_field(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> PrintableMaterializedPropertyGroupItem | None:
-        """
-        Find a property group source for the given field and property name.
-        Used for JSONHas optimizations where we specifically need property group sources
-        (not mat_* columns) because property groups can efficiently check for key existence.
-        """
-        if self.context.modifiers.propertyGroupsMode not in (
-            PropertyGroupsMode.ENABLED,
-            PropertyGroupsMode.OPTIMIZED,
-        ):
-            return None
-
-        field = field_type.resolve_database_field(self.context)
-        table = field_type.table_type
-        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-            table = table.table_type
-
-        if not isinstance(table, ast.TableType):
-            return None
-
-        table_name = table.table.to_printed_clickhouse(self.context)
-        if field is None or not isinstance(field, DatabaseField):
-            return None
-        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
-            return PrintableMaterializedPropertyGroupItem(
-                self.visit(field_type.table_type),
-                self._print_identifier(property_group_column),
-                self.context.add_value(property_name),
-            )
-
-        return None
-
-    def _get_optimized_property_group_call(self, node: ast.Call) -> str | None:
-        """
-        Returns a printed expression corresponding to the provided call, if the function is being applied to a property
-        group value and the function can be rewritten so that it can be eligible for use by the property group's map's
-        key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
-        """
-        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
-            return None
-
-        # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
-        # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
-        # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-
-        match node:
-            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
-                # TODO: can probably optimize chained operations, but will need more thought
-                field_type = resolve_field_type(field)
-                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
-                    property_source = self._get_materialized_property_source_for_property_type(field_type)
-                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return None
-
-                    match function_name:
-                        case "isNull":
-                            return f"not({property_source.has_expr})"
-                        case "isNotNull":
-                            return property_source.has_expr
-                        case _:
-                            raise ValueError(f"unexpected node name: {function_name}")
-            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
-                # TODO: can probably optimize chained operations here as well
-                field_type = resolve_field_type(field)
-                if not isinstance(field_type, ast.FieldType):
-                    return None
-
-                # TRICKY: Materialized property columns do not currently support null values (see comment in
-                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
-                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
-                # property is part of *any* property group, we can use that column instead to evaluate this expression
-                # more efficiently -- even if the materialized column would be a better choice in other situations.
-                if property_source := self._get_property_group_source_for_field(field_type, str(property_name)):
-                    return property_source.has_expr
-
-        return None  # nothing to optimize
-
-    def _get_optimized_materialized_column_equals_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns an optimized printed expression for comparisons involving individually materialized columns.
-
-        When comparing equality between a materialized column and a non-empty, non-null string constant, we can avoid the
-        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the materialized column.
-
-        For example, instead of:
-            ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
-        We can emit:
-            ifNull(equals(events.`mat_$feature_flag`, 'some_value'), 0)
-
-        This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
-        checks are redundant for the comparison result. We keep the outer ifNull to ensure proper
-        boolean semantics when composed with not() or other logical operations.
-        """
-        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            return None
-
-        # Property can be on either side of the comparison
-        property_source: PrintableMaterializedColumn | None = None
-        constant_expr: ast.Constant | None = None
-
-        if (ps := self._get_materialized_string_property_source(node.left)) and (
-            ce := self._get_string_pattern_constant(node.right)
-        ):
-            property_source, constant_expr = ps, ce
-        elif (ps := self._get_materialized_string_property_source(node.right)) and (
-            ce := self._get_string_pattern_constant(node.left)
-        ):
-            property_source, constant_expr = ps, ce
-
-        if property_source is None or constant_expr is None:
-            return None
-
-        # Bail out for sentinel values - let normal code path handle with nullIf wrapping
-        if constant_expr.value in MAT_COL_NULL_SENTINELS:
-            return None
-
-        # These are optimized elsewhere
-        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
-            return None
-
-        # Build the optimized comparison using the raw materialized column
-        materialized_column_sql = str(property_source)
-        constant_sql = self.visit(constant_expr)
-
-        # Wrap in additional handling to ensure proper boolean semantics when composed with not() or other logic.
-        # - equals(NULL, 'value') → NULL, but should be 0 (false) so not() works correctly
-        # - notEquals(NULL, 'value') → NULL, but should be 1 (true) since NULL != 'value'
-        # Use a compound expression for the Eq case to allow skip indexes to be used (which are broken by ifNull)
-        if node.op == ast.CompareOperationOp.Eq:
-            if property_source.is_nullable:
-                return (
-                    f"(equals({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
-                )
-            else:
-                return f"equals({materialized_column_sql}, {constant_sql})"
-        else:
-            if property_source.is_nullable:
-                return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
-            else:
-                return f"notEquals({materialized_column_sql}, {constant_sql})"
-
-    _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
-        ast.CompareOperationOp.Lt: "less",
-        ast.CompareOperationOp.LtEq: "lessOrEquals",
-        ast.CompareOperationOp.Gt: "greater",
-        ast.CompareOperationOp.GtEq: "greaterOrEquals",
-    }
-
-    def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
-        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
-
-        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
-        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
-        """
-        if node.op not in self._RANGE_OP_TO_CH_NAME:
-            return None
-
-        # property_to_expr always emits the column on the left, so we only need to handle that side.
-        if not (
-            (property_source := self._get_materialized_string_property_source(node.left))
-            and isinstance(node.right, ast.Constant)
-            and node.right.value is not None
-        ):
-            return None
-
-        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
-            return None
-
-        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
-        materialized_column_sql = str(property_source)
-        constant_sql = self.visit(node.right)
-
-        if property_source.is_nullable:
-            return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
-
-        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
-        sentinel_exclusions = " AND ".join(
-            f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
-        )
-        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
-
-    def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
-        """
-        Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
-
-        String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
-        wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
-        from doing optimisations that are safe.
-        Returns None if the expression is not a valid string property access or doesn't have a
-        materialized column.
-        """
-        property_type: ast.PropertyType | None = None
-
-        # Check for direct property access
-        expr_type = resolve_field_type(expr)
-        if isinstance(expr_type, ast.PropertyType):
-            property_type = expr_type
-        # Check for toString(properties.X) wrapper
-        elif isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            # Unwrap Alias if present to check the actual structure
-            inner_expr = expr.args[0]
-            if isinstance(inner_expr, ast.Alias):
-                inner_expr = inner_expr.expr
-            # Only match if the inner expression is a direct Field access, not a Call
-            # (e.g., we want toString(properties.X), not toString(toFloat(properties.X)))
-            # This ensures we don't apply the optimization when PropertySwapper has wrapped
-            # the property in a type conversion function
-            if isinstance(inner_expr, ast.Field):
-                inner_type = resolve_field_type(inner_expr)
-                if isinstance(inner_type, ast.PropertyType) and len(inner_type.chain) == 1:
-                    property_type = inner_type
-
-        if property_type is None:
-            return None
-
-        # Only optimize simple property access (not chained like properties.foo.bar)
-        if len(property_type.chain) != 1:
-            return None
-
-        # Check if this property has a non-string type defined - if so, skip the optimization
-        property_name = str(property_type.chain[0])
-        if self.context.property_swapper is not None:
-            prop_info = self.context.property_swapper.event_properties.get(property_name)
-            if prop_info is not None and prop_info.get("type") not in (None, "String"):
-                return None
-
-        # Check if this property uses an individually materialized column (not a property group)
-        property_source = self._get_materialized_property_source_for_property_type(property_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
-            return None
-
-        return property_source
-
-    def _get_string_pattern_constant(self, expr: ast.Expr) -> ast.Constant | None:
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-            return expr
-        return None
-
-    def _get_optimized_materialized_column_ilike_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns an optimized printed expression for ILIKE comparisons involving materialized columns.
-
-        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
-        we bail out and let the normal code path handle it with proper nullif wrapping.
-
-        For patterns that cannot match sentinels, we use the raw materialized column directly,
-        enabling skip index optimization.
-        """
-        if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
-            return None
-
-        if not (
-            (property_source := self._get_materialized_string_property_source(node.left))
-            and (pattern_expr := self._get_string_pattern_constant(node.right))
-        ):
-            return None
-
-        materialized_column_sql = str(property_source)
-        pattern_sql = self.visit(pattern_expr)
-
-        if property_source.is_nullable:
-            if node.op == ast.CompareOperationOp.ILike:
-                if property_source.has_ngram_lower_index:
-                    # Use the ngram_lower index if it exists, must use like instead of ilike.
-                    # ilike(haystack, needle) is equivalent to like(lower(haystack), lower(needle)), though the latter is less CPU
-                    # efficient so ONLY do this if the skip index is present.
-                    # We use coalesce to match the index expression (ngram indexes don't support nullable columns).
-                    return f"and(like(lower(coalesce({materialized_column_sql}, '')), lower({pattern_sql})), {materialized_column_sql} IS NOT NULL)"
-                else:
-                    # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
-                    # and prefer this to wrapping in ifNull because it allows skip index usage.
-                    return (
-                        f"and(ilike({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
-                    )
-            else:
-                # For NOT ILIKE, we need ifNull wrapper because NULL NOT ILIKE pattern should be TRUE.
-                # We don't care about the skip index here, as bloom filters don't help with detecting negative presence
-                return f"ifNull(notILike({materialized_column_sql}, {pattern_sql}), 1)"
-        else:
-            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
-            # regular code path handle it, which handles this case
-            if any(ilike_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
-                return None
-
-            if node.op == ast.CompareOperationOp.ILike:
-                if property_source.has_ngram_lower_index:
-                    return f"like(lower({materialized_column_sql}), lower({pattern_sql}))"
-                else:
-                    return f"ilike({materialized_column_sql}, {pattern_sql})"
-            else:
-                return f"notILike({materialized_column_sql}, {pattern_sql})"
-
-    def _get_optimized_materialized_column_like_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns an optimized printed expression for LIKE comparisons involving materialized columns.
-
-        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
-        we bail out and let the normal code path handle it with proper nullif wrapping.
-
-        For patterns that cannot match sentinels, we use the raw materialized column directly,
-        enabling skip index optimization. Unlike ILIKE, LIKE is case-sensitive which allows
-        ClickHouse to use ngrambf_v1 skip indexes.
-        """
-        if node.op not in (ast.CompareOperationOp.Like, ast.CompareOperationOp.NotLike):
-            return None
-
-        if not (
-            (property_source := self._get_materialized_string_property_source(node.left))
-            and (pattern_expr := self._get_string_pattern_constant(node.right))
-        ):
-            return None
-
-        materialized_column_sql = str(property_source)
-
-        if property_source.is_nullable:
-            pattern_sql = self.visit(pattern_expr)
-            if node.op == ast.CompareOperationOp.Like:
-                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
-                # and prefer this to wrapping in ifNull because it allows skip index usage.
-                return f"and(like({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
-            else:  # NotLike
-                # For NOT LIKE, we need ifNull wrapper because NULL NOT LIKE pattern should be TRUE
-                return f"ifNull(notLike({materialized_column_sql}, {pattern_sql}), 1)"
-        else:
-            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
-            # regular code path handle it, which handles this case
-            if any(like_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
-                return None
-            pattern_sql = self.visit(pattern_expr)
-
-            # For non-nullable columns with non-sentinel patterns, use raw column for performance
-            if node.op == ast.CompareOperationOp.Like:
-                return f"like({materialized_column_sql}, {pattern_sql})"
-            else:  # NotLike
-                return f"notLike({materialized_column_sql}, {pattern_sql})"
-
-    def _get_optimized_materialized_column_in_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns an optimized printed expression for IN comparisons involving materialized columns.
-
-        For non-nullable columns with values that could match sentinel values ('', 'null'),
-        we bail out and let the normal code path handle it with proper nullif wrapping.
-
-        For values that cannot match sentinels, we use the raw materialized column directly,
-        enabling skip index optimization (bloom filter).
-        """
-        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
-            return None
-
-        left_type = resolve_field_type(node.left)
-        if not isinstance(left_type, ast.PropertyType):
-            return None
-
-        if len(left_type.chain) != 1:
-            return None
-
-        property_source = self._get_materialized_property_source_for_property_type(left_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
-            return None
-
-        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
-            return None
-
-        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            values: list[ast.Constant] = [node.right]
-        elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
-            values = []
-            for value in node.right.exprs:
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    values.append(value)
-                else:
-                    return None
-        else:
-            return None
-
-        if len(values) == 0:
-            return None
-
-        materialized_column_sql = str(property_source)
-
-        if property_source.is_nullable:
-            values_sql = ", ".join(self.visit(v) for v in values)
-            if node.op == ast.CompareOperationOp.In:
-                # We use transform_null_in=1 which makes it hard to use a skip index with the in() function in ClickHouse.
-                # As a workaround, flip the args and use has() - this is safe because we already excluded NULL
-                return f"and(has([{values_sql}], {materialized_column_sql}), {materialized_column_sql} IS NOT NULL)"
-            else:
-                return f"ifNull(notIn({materialized_column_sql}, tuple({values_sql})), 1)"
-        else:
-            # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
-            for value in values:
-                if value.value in MAT_COL_NULL_SENTINELS:
-                    return None
-            values_sql = ", ".join(self.visit(v) for v in values)
-            if node.op == ast.CompareOperationOp.In:
-                return f"has([{values_sql}], {materialized_column_sql})"
-            else:
-                return f"notIn({materialized_column_sql}, tuple({values_sql}))"
-
-    def _get_optimized_materialized_column_lower_in_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Optimized printed expression for `lower(<property>) IN (...)`, matching the lower() expression the
-        bloom_filter_lower / ngram_lower indexes are built on so ClickHouse can pick whichever one exists.
-        """
-        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
-            return None
-
-        # HogQL `lower` is case-insensitive, so `LOWER(...)` keeps the user-typed casing on the Call
-        if not (isinstance(node.left, ast.Call) and node.left.name.lower() == "lower" and len(node.left.args) == 1):
-            return None
-
-        property_source = self._get_materialized_string_property_source(node.left.args[0])
-        if not isinstance(property_source, PrintableMaterializedColumn) or not (
-            property_source.has_bloom_filter_lower_index or property_source.has_ngram_lower_index
-        ):
-            return None
-
-        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
-            return None
-
-        # IN values: a string constant, a tuple/array of constants, or a constant list (from a {placeholder})
-        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            string_values: list[str] = [node.right.value]
-        elif isinstance(node.right, ast.Constant) and isinstance(node.right.value, (list, tuple)):
-            if not all(isinstance(value, str) for value in node.right.value):
-                return None
-            string_values = list(node.right.value)
-        elif isinstance(node.right, (ast.Tuple, ast.Array)):
-            string_values = []
-            for value in node.right.exprs:
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    string_values.append(value.value)
-                else:
-                    return None
-        else:
-            return None
-
-        if len(string_values) == 0:
-            return None
-
-        # Bail if an IN value could collide with a stored NULL sentinel: nullable columns alias NULL to ''
-        # (via coalesce); non-nullable columns store NULL as '' or 'null'. 'null' is a real value when nullable.
-        null_sentinels = [""] if property_source.is_nullable else MAT_COL_NULL_SENTINELS
-        if any(value in null_sentinels for value in string_values):
-            return None
-
-        materialized_column_sql = str(property_source)
-        values_sql = ", ".join(self.context.add_value(value) for value in string_values)
-
-        # Match the index expression; coalesce() removes NULL so no ifNull / IS NOT NULL guard is needed
-        if property_source.is_nullable:
-            indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
-        else:
-            indexed_expr = f"lower({materialized_column_sql})"
-
-        if node.op == ast.CompareOperationOp.In:
-            # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)
-            return f"has([{values_sql}], {indexed_expr})"
-        else:
-            return f"notIn({indexed_expr}, tuple({values_sql}))"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
@@ -1031,152 +580,6 @@ class ClickHousePrinter(BasePrinter):
             return result
         return []
 
-    def _optimize_in_with_string_values(
-        self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
-    ) -> str | None:
-        """
-        Optimizes an IN comparison against a list of values for property group bloom filter usage.
-        Returns the optimized expression string, or None if optimization is not possible.
-        """
-        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
-        for v in values:
-            if not isinstance(v, ast.Constant):
-                return None
-            if v.value == "" or v.value is None or not isinstance(v.value, str):
-                return None
-
-        # IN with an empty set of values is always false
-        if len(values) == 0:
-            return "0"
-
-        # A problem we run into here is that an expression like
-        # in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test'))
-        # does not hit the bloom filter on the key, so we need to modify the expression so that it does
-
-        # If only one value, switch to equality operator. Expressions like this will hit the bloom filter for both keys and values:
-        # events.properties_group_feature_flags['$feature/onboarding-use-case-selection'] = 'control'
-        if len(values) == 1:
-            return f"equals({property_source.value_expr}, {self.visit(values[0])})"
-
-        # With transform_null_in=1 in SETTINGS (which we have by default), if there are several values, we need to
-        # include a check for whether the key exists to hit the keys bloom filter.
-        # Unlike the version WITHOUT mapKeys above, the following expression WILL hit the bloom filter:
-        # and(has(mapKeys(properties_group_feature_flags), '$feature/onboarding-use-case-selection'),
-        #     in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test')))
-        # Note that we could add a mapValues to this to use the values bloom filter
-        # TODO to profile whether we should add mapValues. Probably no for flags, yes for properties.
-        values_tuple = ", ".join(self.visit(v) for v in values)
-        return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
-
-    def _get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
-        a property group value and: the comparison can be rewritten so that it can be eligible for use by one or more
-        the property group's bloom filter data skipping indices, or the expression can be optimized to avoid reading the
-        property group's map ``values`` subcolumn when doing comparisons to NULL values.
-        """
-        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
-            return None
-
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            # For commutative operations, we can rewrite the expression with parameters in either order without
-            # affecting the result.
-            # NOTE: For now, this only works with comparisons to constant values directly since we need to know whether
-            # or not the non-``PropertyType`` operand is ``NULL`` to be able to rewrite the expression to the correct
-            # optimized version. This could be extended to support *any* non-``Nullable`` expression as well, so that
-            # expressions which do not reference a field as part of the expression (and therefore can be resolved to a
-            # constant value during the initial stages of query execution, e.g. ``lower(concat('X', 'Y'))`` ) can also
-            # utilize the index. (The same applies to ``In`` comparisons below, too.)
-            property_type: ast.PropertyType | None = None
-            constant_expr: ast.Constant | None = None
-
-            # TODO: This doesn't resolve aliases for the constant operand, so this does not comprehensively cover all
-            # optimizable expressions, but that case seems uncommon enough to avoid for now.
-            if isinstance(node.right, ast.Constant):
-                left_type = resolve_field_type(node.left)
-                if isinstance(left_type, ast.PropertyType):
-                    property_type = left_type
-                    constant_expr = node.right
-            elif isinstance(node.left, ast.Constant):
-                right_type = resolve_field_type(node.right)
-                if isinstance(right_type, ast.PropertyType):
-                    property_type = right_type
-                    constant_expr = node.left
-
-            # TODO: Chained properties could likely be supported here to at least use the keys index.
-            if property_type is None or len(property_type.chain) > 1:
-                return None
-            else:
-                assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
-
-            property_source = self._get_materialized_property_source_for_property_type(property_type)
-            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                return None
-
-            if node.op == ast.CompareOperationOp.Eq:
-                if constant_expr.value is None:
-                    # "IS NULL" can be interpreted as "does not exist in the map" -- this avoids unnecessarily reading
-                    # the ``values`` subcolumn of the map.
-                    return f"not({property_source.has_expr})"
-
-                # Equality comparisons to boolean constants can skip NULL checks while maintaining our desired result
-                # (i.e. comparisons with NULL evaluate to false) since the value expression will return an empty string
-                # if the property doesn't exist in the map.
-                if constant_expr.value is True:
-                    return f"equals({property_source.value_expr}, 'true')"
-                elif constant_expr.value is False:
-                    return f"equals({property_source.value_expr}, 'false')"
-
-                if isinstance(constant_expr.type, ast.StringType):
-                    printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
-                    if constant_expr.value == "":
-                        # If we're comparing to an empty string literal, we need to disambiguate this from the default value
-                        # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
-                        # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
-                        # still use the data skipping index on keys, even though the values index cannot be used.
-                        printed_expr = f"and({property_source.has_expr}, {printed_expr})"
-
-                    return printed_expr
-
-            elif node.op == ast.CompareOperationOp.NotEq:
-                if constant_expr.value is None:
-                    # "IS NOT NULL" can be interpreted as "does exist in the map" -- this avoids unnecessarily reading
-                    # the ``values`` subcolumn of the map, and also allows us to use the data skipping index on keys.
-                    return property_source.has_expr
-
-        elif node.op in (ast.CompareOperationOp.In):
-            # ``IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
-            left_type = resolve_field_type(node.left)
-            if not isinstance(left_type, ast.PropertyType):
-                return None
-
-            # TODO: Chained properties could likely be supported here to at least use the keys index.
-            if left_type is None or len(left_type.chain) > 1:
-                return None
-
-            property_source = self._get_materialized_property_source_for_property_type(left_type)
-            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                return None
-
-            if isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
-                    return None
-                if node.right.value == "":
-                    # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
-                    return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
-                elif isinstance(node.right.type, ast.StringType):
-                    return f"equals({property_source.value_expr}, {self.visit(node.right)})"
-            elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
-                return self._optimize_in_with_string_values(node.right.exprs, property_source)
-            else:
-                # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
-                # are not optimized that possibly could be if we took that additional step to determine whether or not
-                # they are references to Constant types.
-                return None
-
-        return None  # nothing to optimize
-
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
 
@@ -1211,28 +614,11 @@ class ClickHousePrinter(BasePrinter):
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        # If either side of the operation is a property that is part of a property group, special optimizations may
-        # apply here to ensure that data skipping indexes can be used when possible.
+        # $session_id comparisons optimize a real column (not a property), so they stay on the printer. Every
+        # property-based skip-index rewrite (materialized column, property group) now runs in ClickHouse property
+        # resolution, which emits the optimized form as AST before printing (see clickhouse_property_resolution.py).
         if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
             return optimized_session_id
-
-        if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
-            return optimized_property_group_compare_operation
-
-        # When comparing an individually materialized column being compared to a string constant,
-        # we can skip the nullIf wrapping to allow skip index usage.
-        if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
-            return optimized_materialized_column_compare
-        if optimized_materialized_range := self._get_optimized_materialized_column_range_operation(node):
-            return optimized_materialized_range
-        if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
-            return optimized_materialized_ilike
-        if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
-            return optimized_materialized_like
-        if optimized_materialized_in := self._get_optimized_materialized_column_in_operation(node):
-            return optimized_materialized_in
-        if optimized_materialized_lower_in := self._get_optimized_materialized_column_lower_in_operation(node):
-            return optimized_materialized_lower_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         # indexHint() is purely an optimizer directive — its result is always true,
@@ -1395,10 +781,16 @@ class ClickHousePrinter(BasePrinter):
             raise ImpossibleASTError("Impossible")
 
     def visit_call(self, node: ast.Call):
-        # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
-        # skipping indexes can be used when possible.
-        if optimized_property_group_call := self._get_optimized_property_group_call(node):
-            return optimized_property_group_call
+        # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
+        # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.
+        # The type-name argument reaches ClickHouse's type parser verbatim, so bound it to
+        # type names we can classify — mirroring the whitelist CAST already enforces.
+        if node.name.lower() in ("accuratecast", "accuratecastornull"):
+            type_arg = node.args[1] if len(node.args) > 1 else None
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                raise QueryError(f"{node.name} requires a constant string type name as its second argument")
+            if parse_sql_runtime_type(type_arg.value).family == "unknown":
+                raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
         return super().visit_call(node)
 
@@ -1447,8 +839,56 @@ class ClickHousePrinter(BasePrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")
+        if not system_node or table_type.table.name not in system_node.children:
+            return None
+
+        if not table_type.table.primary_key:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        from posthog.hogql.database.schema.events import EventsTable
+
+        months = self.context.events_retention_months
+        if months is None or node_type is None or not isinstance(table_type, ast.TableType):
+            return None
+        if not isinstance(table_type.table, EventsTable):
+            return None
+        return retention_floor_for_table(node_type, months)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
+        table = table_type.table
+
+        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
+        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
+        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
+        # See ClickHouse issue 80443.
+        if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (
