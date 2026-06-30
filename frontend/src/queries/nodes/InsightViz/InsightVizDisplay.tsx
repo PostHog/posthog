@@ -197,15 +197,7 @@ export function InsightVizDisplay({
             }
         }
 
-        // A "funnels require at least two steps" error can linger from an earlier edit even after the series
-        // already has enough steps and the live query has rendered. The error code directly contradicts the
-        // current series, so treat it as stale rather than blocking a valid funnel.
-        const isStaleFunnelStepCountError =
-            activeView === InsightType.FUNNELS &&
-            validationErrorCode === 'funnels_require_at_least_two_steps' &&
-            isFunnelWithEnoughSteps
-
-        if (validationError && !isStaleFunnelStepCountError) {
+        if (validationError) {
             const isUnsupportedDataWarehouseSettings =
                 validationErrorCode === 'data_warehouse_series_unsupported_settings'
             const resetCta = isUnsupportedDataWarehouseSettings ? (
@@ -240,7 +232,7 @@ export function InsightVizDisplay({
         }
 
         // Insight agnostic empty states
-        if (erroredQueryId && !isStaleFunnelStepCountError) {
+        if (erroredQueryId) {
             return (
                 <InsightErrorState
                     query={query}
