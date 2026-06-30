@@ -52,9 +52,6 @@ export class InvocationResultsService {
             this.invocationResultsRowsService.flush(),
             this.warehouseWebhooksService.flush(),
             this.capturedEventsService.flush(),
-            // messageAssetsService.flush rethrows on failure — bubbles up via the
-            // Promise.all to abort the consumer's `runBackgroundTasks`, which
-            // stops the Postgres job-queue from committing offsets for the batch.
             this.messageAssetsService.flush(),
         ])
     }
