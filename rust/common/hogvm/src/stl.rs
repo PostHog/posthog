@@ -353,7 +353,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());
                 };
-                construct_free_standing(res, 0)
+                // `res` borrows into the local `json`; clone the extracted subtree for the owned
+                // value `construct_free_standing` needs.
+                construct_free_standing(res.clone(), 0)
             })),
         ),
         // Wrapped in `err_to_null` so an unparseable input becomes `Null`, letting a leaf's
