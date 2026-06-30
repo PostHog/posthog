@@ -16,6 +16,7 @@ import type {
     EmitFindingResponseApi,
     EmitReportRequestApi,
     EmitReportResponseApi,
+    FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -54,6 +55,7 @@ import type {
     SignalsReportsListParams,
     SignalsScoutMembersListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
@@ -802,6 +804,40 @@ export const signalsScoutRunsEmissionReportsBatch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsFindingsSummaryUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/findings/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/findings/summary/`
+}
+
+/**
+ * Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — the total count, the number of distinct scouts behind them, and the latest emission time. Backs the 'Scout findings' callout so it renders from one query instead of the client paging through the whole runs window. Counts only runs that emitted at least one finding (`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent 120 emitted runs so the count matches what the findings list renders. Strictly team-scoped.
+ * @summary Summarise recently emitted findings across the fleet
+ */
+export const signalsScoutRunsFindingsSummary = async (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams,
+    options?: RequestInit
+): Promise<FleetFindingsSummaryApi> => {
+    return apiMutator<FleetFindingsSummaryApi>(getSignalsScoutRunsFindingsSummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

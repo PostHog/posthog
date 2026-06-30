@@ -225,16 +225,17 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   user) rejects the _whole_ `emit-report`, not just the reviewer.** So don't reflexively hand a raw
   `created_by` you're unsure about — prefer a cached login or a `created_by` you've already routed; if
   you can't confidently resolve an owner, author the report **unrouted** and `edit-report` reviewers in
-  later once you resolve one, rather than risk failing the emit. The org-scoped resolver tools are
-  usually absent from a scout run, so don't depend on them — see
-  [`references/report.md`](references/report.md). Routing is how the report reaches a human; left empty
-  it's assigned to nobody and likely missed, so resolve one when you safely can. After authoring, write a
-  rate-scoped `report:product_analytics:flow:<short_id>:<rate>` scratchpad entry (the affected
-  step/cohort/state, not just the `short_id`) with the `report_id` so the next run edits _this rate's_
-  report instead of duplicating — and a distinct rate on the same insight gets its own pointer. The
-  full report channel — field schema, safety × actionability status mapping, reviewer routing,
-  dedupe (it is **not** idempotent), and the edit rules — lives in
-  [`references/report.md`](references/report.md).
+  later once you resolve one, rather than risk failing the emit. When the owner isn't already a
+  `created_by` in your evidence, `signals-scout-members-list` gives this project's members with their
+  resolved `github_login` (the org-scoped resolver tools aren't available in a scout run). Routing is
+  how the report reaches a human; left empty it's assigned to nobody and likely missed, so resolve one
+  when you safely can. After authoring, write a rate-scoped
+  `report:product_analytics:flow:<short_id>:<rate>` scratchpad entry (the affected step/cohort/state,
+  not just the `short_id`) with the `report_id` so the next run edits _this rate's_ report instead of
+  duplicating — and a distinct rate on the same insight gets its own pointer. The harness prompt
+  carries the full report-channel contract (field schema, safety × actionability status mapping,
+  reviewer routing, the non-idempotency caveat, and the edit rules) — this section only adds the
+  product-analytics-specific framing.
 - **Remember** if suggestive but below the bar (confidence < 0.65), or to refresh a baseline.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report,
   already covers it.
@@ -295,10 +296,10 @@ Direct (read-only):
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `org-members-list` / `org-member-get-github-login` — resolve a flow / product-area owner to a
-  GitHub login for `suggested_reviewers`. These need organization scope, which a headless scout run
-  usually lacks, so they're often **absent from this scout's toolset** — prefer routing by the flow's
-  `created_by` `user_uuid` (resolved server-side) rather than relying on them.
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, to
+  route `suggested_reviewers` to a flow / product-area owner. The in-run roster (the org-scoped
+  resolver tools aren't available in a scout run) — but prefer routing by the flow's `created_by`
+  `user_uuid` (resolved server-side) when your evidence already names it.
 
 Harness-level:
 
