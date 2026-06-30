@@ -4,6 +4,9 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     AccountsCreateBody,
+    AccountsCustomPropertyValuesCreateBody,
+    AccountsCustomPropertyValuesCreateParams,
+    AccountsCustomPropertyValuesListParams,
     AccountsDestroyParams,
     AccountsListQueryParams,
     AccountsNotebooksCreateBody,
@@ -67,6 +70,52 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
             body,
         })
         return result
+    },
+})
+
+const AccountsCustomPropertyValuesCreateSchema = AccountsCustomPropertyValuesCreateParams.omit({
+    project_id: true,
+}).extend(AccountsCustomPropertyValuesCreateBody.shape)
+
+const accountsCustomPropertyValuesCreate = (): ToolBase<
+    typeof AccountsCustomPropertyValuesCreateSchema,
+    Schemas.CustomPropertyValue
+> => ({
+    name: 'accounts-custom-property-values-create',
+    schema: AccountsCustomPropertyValuesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsCustomPropertyValuesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
+        const result = await context.api.request<Schemas.CustomPropertyValue>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsCustomPropertyValuesListSchema = AccountsCustomPropertyValuesListParams.omit({ project_id: true })
+
+const accountsCustomPropertyValuesList = (): ToolBase<
+    typeof AccountsCustomPropertyValuesListSchema,
+    WithPostHogUrl<Schemas.CustomPropertyValue[]>
+> => ({
+    name: 'accounts-custom-property-values-list',
+    schema: AccountsCustomPropertyValuesListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsCustomPropertyValuesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertyValue[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/`,
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
     },
 })
 
@@ -537,6 +586,8 @@ const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Sch
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-create': accountsCreate,
+    'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
+    'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,
     'accounts-notebooks-create': accountsNotebooksCreate,
