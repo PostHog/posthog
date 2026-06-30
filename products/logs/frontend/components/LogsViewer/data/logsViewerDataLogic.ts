@@ -180,6 +180,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             { persist: false },
             {
                 setLiveLogsCheckpoint: (_, { liveLogsCheckpoint }) => liveLogsCheckpoint,
+                // Drop the stale checkpoint when a new query starts so the still-loading region
+                // can't flash against the previous query's data before the fresh one lands.
+                clearLogs: () => null,
             },
         ],
         liveTailExpired: [
@@ -296,6 +299,12 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
+                    // The checkpoint (fixed per query, identical on every row) marks the latest
+                    // timestamp ingestion is known to have fully caught up to — used to flag the
+                    // still-loading tail of the sparkline.
+                    if (response.results.length > 0) {
+                        actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
+                    }
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -475,6 +484,51 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     }))
 
                 return { data, labels, dates }
+            },
+        ],
+        // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is
+        // incomplete when its end is past the ingestion checkpoint. The latest bucket is the in-progress
+        // bar so the checkpoint always trails "now" a little; we only flag anything once the checkpoint
+        // lags the latest bucket's *start* by at least a quarter of a bar, otherwise ingestion is
+        // effectively caught up. When the lag spans more than two buckets but they're all empty, we flag
+        // only the latest bar rather than hatching a wide empty stretch. Bucket times and the checkpoint
+        // are both UTC ISO strings, so the relative comparison is timezone-safe.
+        //
+        // Empty while the sparkline query is in flight or before a fresh checkpoint lands (it's cleared
+        // on each new query); otherwise the hatch flickers mid-load as new data and a new checkpoint race.
+        sparklineIncompleteBarIndices: [
+            (s) => [s.sparklineData, s.liveLogsCheckpoint, s.sparklineLoading],
+            (
+                sparklineData: { dates: string[]; data: { values: number[] }[] },
+                liveLogsCheckpoint: string | null,
+                sparklineLoading: boolean
+            ): number[] => {
+                const { dates, data } = sparklineData
+                if (sparklineLoading || !liveLogsCheckpoint || dates.length < 2) {
+                    return []
+                }
+                const firstBucketMs = dayjs(dates[0]).valueOf()
+                const lastBucketMs = dayjs(dates[dates.length - 1]).valueOf()
+                const intervalMs = dayjs(dates[1]).valueOf() - firstBucketMs
+                if (intervalMs <= 0) {
+                    return []
+                }
+                const checkpointMs = dayjs(liveLogsCheckpoint).valueOf()
+                if (!Number.isFinite(checkpointMs) || lastBucketMs - checkpointMs < intervalMs * 0.25) {
+                    return []
+                }
+                const incomplete = dates.reduce<number[]>((indices, date, index) => {
+                    if (dayjs(date).valueOf() + intervalMs > checkpointMs) {
+                        indices.push(index)
+                    }
+                    return indices
+                }, [])
+                const bucketTotal = (index: number): number =>
+                    data.reduce((sum, series) => sum + (series.values[index] ?? 0), 0)
+                if (incomplete.length > 2 && incomplete.every((index) => bucketTotal(index) === 0)) {
+                    return [dates.length - 1]
+                }
+                return incomplete
             },
         ],
         totalLogsMatchingFilters: [
