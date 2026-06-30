@@ -35,53 +35,56 @@ export function TaskComposer(): JSX.Element {
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
                 <Welcome headline={headline} />
 
-                <div className="w-full">
-                    <RepositorySelector
-                        value={taskCreateForm.repositoryConfig}
-                        onChange={(config) => setTaskCreateFormValues({ repositoryConfig: config })}
-                    />
-                </div>
-
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
                     onActiveGroupChange={setActiveSuggestionGroup}
                     onSelectSuggestion={handleSelectSuggestion}
                     onNavigate={(url) => router.actions.push(url)}
                 >
-                    <Composer.Root
-                        value={taskCreateForm.description}
-                        onChange={(value) => setTaskCreateFormValues({ description: value })}
-                        onSubmit={submitTaskCreateForm}
-                        loading={isTaskCreateFormSubmitting}
-                        disabledReason={sendDisabledReason}
-                        textAreaRef={textAreaRef}
-                    >
-                        <Composer.Frame>
-                            <Composer.Field>
-                                <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                <Composer.Textarea
-                                    submitShortcut="cmd-enter"
-                                    autoFocus
-                                    data-attr="task-composer-input"
-                                />
-                            </Composer.Field>
-                            <Composer.Footer>
-                                <ComposerModelEffortPickers
-                                    selectedModel={taskCreateForm.model}
-                                    selectedEffort={taskCreateForm.reasoningEffort}
-                                    onModelChange={(model) =>
-                                        setTaskCreateFormValues({
-                                            model,
-                                            reasoningEffort: resolveEffortForModel(taskCreateForm.reasoningEffort, model),
-                                        })
-                                    }
-                                    onEffortChange={(reasoningEffort) => setTaskCreateFormValues({ reasoningEffort })}
-                                />
-                            </Composer.Footer>
-                        </Composer.Frame>
-                        <Suggestions.Dropdown />
-                        <Composer.Submit data-attr="task-composer-send" />
-                    </Composer.Root>
+                    {/* Repo/branch picker sits 8px above the input it configures. */}
+                    <div className="w-full flex flex-col gap-2">
+                        <RepositorySelector
+                            value={taskCreateForm.repositoryConfig}
+                            onChange={(config) => setTaskCreateFormValues({ repositoryConfig: config })}
+                        />
+                        <Composer.Root
+                            value={taskCreateForm.description}
+                            onChange={(value) => setTaskCreateFormValues({ description: value })}
+                            onSubmit={submitTaskCreateForm}
+                            loading={isTaskCreateFormSubmitting}
+                            disabledReason={sendDisabledReason}
+                            textAreaRef={textAreaRef}
+                        >
+                            <Composer.Frame>
+                                <Composer.Field>
+                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                    <Composer.Textarea
+                                        submitShortcut="cmd-enter"
+                                        autoFocus
+                                        data-attr="task-composer-input"
+                                    />
+                                </Composer.Field>
+                                <Composer.Footer>
+                                    <ComposerModelEffortPickers
+                                        selectedModel={taskCreateForm.model}
+                                        selectedEffort={taskCreateForm.reasoningEffort}
+                                        onModelChange={(model) =>
+                                            setTaskCreateFormValues({
+                                                model,
+                                                reasoningEffort: resolveEffortForModel(
+                                                    taskCreateForm.reasoningEffort,
+                                                    model
+                                                ),
+                                            })
+                                        }
+                                        onEffortChange={(reasoningEffort) => setTaskCreateFormValues({ reasoningEffort })}
+                                    />
+                                </Composer.Footer>
+                            </Composer.Frame>
+                            <Suggestions.Dropdown />
+                            <Composer.Submit data-attr="task-composer-send" />
+                        </Composer.Root>
+                    </div>
 
                     <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
                 </Suggestions.Root>
