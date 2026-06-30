@@ -15,6 +15,7 @@ import time
 import uuid
 import typing
 import datetime as dt
+import functools
 import dataclasses
 from collections.abc import Callable
 
@@ -1172,7 +1173,7 @@ class CDCExtractActivity:
                 # This runs from the failure handler, so a pooler timeout here would otherwise leave the
                 # job stuck RUNNING and mask the original error — retry the write so FAILED is recorded.
                 retry_on_db_pool_timeout(
-                    lambda job=job: job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"]),
+                    functools.partial(job.save, update_fields=["status", "latest_error", "finished_at", "updated_at"]),
                     self.log,
                 )
 
