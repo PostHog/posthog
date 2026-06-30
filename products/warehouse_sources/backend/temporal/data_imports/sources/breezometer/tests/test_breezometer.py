@@ -8,10 +8,8 @@ import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.breezometer import (
-    AIR_QUALITY_BASE_URL,
     MAX_LOCATIONS,
     MAX_PAGES_PER_LOCATION,
-    POLLEN_BASE_URL,
     BreezometerRetryableError,
     Location,
     _build_request,
@@ -28,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.breezomete
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.settings import BREEZOMETER_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.breezometer"
+
+# Source the base URLs from the endpoint configs (the single source of truth) rather than duplicating
+# the literals here, so a base-URL change in settings can't leave these assertions checking a stale value.
+AIR_QUALITY_BASE_URL = BREEZOMETER_ENDPOINTS["air_quality_current"].base_url
+POLLEN_BASE_URL = BREEZOMETER_ENDPOINTS["pollen_forecast"].base_url
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -212,13 +215,23 @@ class TestNormalizeRows:
         assert len(rows) == 1
         assert rows[0]["dt_iso"] == "2024-06-23T00:00:00+00:00"
 
-    def test_rows_without_parseable_timestamp_are_skipped(self):
-        # dt_iso is part of the primary/partition key; a row without it must not flow a null key into the merge.
-        response = {"hourlyForecasts": [{"indexes": [{"aqi": 1}]}, {"dateTime": "2023-08-11T08:00:00Z"}]}
+    def test_rows_with_unparseable_timestamp_are_skipped(self):
+        # dt_iso is part of the primary/partition key; a row whose timestamp is present but unparseable
+        # must not flow a null key into the merge.
+        response = {
+            "hourlyForecasts": [{"dateTime": "", "indexes": [{"aqi": 1}]}, {"dateTime": "2023-08-11T08:00:00Z"}]
+        }
         rows = _normalize_rows(BREEZOMETER_ENDPOINTS["air_quality_forecast"], response, Location(51.5, -0.12))
 
         assert len(rows) == 1
         assert rows[0]["dt_iso"] == "2023-08-11T08:00:00+00:00"
+
+    def test_missing_timestamp_field_raises(self):
+        # A missing timestamp field signals a structural API change (e.g. a renamed field) and must fail
+        # loudly rather than silently dropping every row and reporting a successful zero-row sync.
+        response = {"hourlyForecasts": [{"indexes": [{"aqi": 1}]}]}
+        with pytest.raises(KeyError):
+            _normalize_rows(BREEZOMETER_ENDPOINTS["air_quality_forecast"], response, Location(51.5, -0.12))
 
 
 # tenacity exposes the undecorated function via `__wrapped__`, so status classification can be

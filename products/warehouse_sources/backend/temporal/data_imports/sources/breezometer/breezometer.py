@@ -19,9 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 # BreezoMeter's standalone API (api.breezometer.com) was sunset after Google acquired BreezoMeter and
 # folded the product into Google Maps Platform. This connector targets the living successor APIs:
 # the Air Quality API and the Pollen API. Both are REST/JSON, authenticated with an API key passed as
-# the `key` query parameter.
-AIR_QUALITY_BASE_URL = "https://airquality.googleapis.com"
-POLLEN_BASE_URL = "https://pollen.googleapis.com"
+# the `key` query parameter. The per-endpoint base URLs live in `settings.py` (`config.base_url`).
 
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_RETRY_ATTEMPTS = 5
@@ -221,9 +219,13 @@ def _datetime_str_to_iso(value: Any) -> str | None:
 
 
 def _extract_dt_iso(config: BreezometerEndpointConfig, item: dict[str, Any]) -> str | None:
+    # `dt_iso` derives from this field and is part of the primary key, so index directly: a missing
+    # field is a structural API change (e.g. a renamed `dateTime`/`date`) that should fail loudly with
+    # a `KeyError` rather than silently dropping every row. A present-but-malformed value still parses
+    # to `None` and is skipped per-row by the caller.
     if config.timestamp_kind == "date_obj":
-        return _date_obj_to_iso(item.get(config.timestamp_field))
-    return _datetime_str_to_iso(item.get(config.timestamp_field))
+        return _date_obj_to_iso(item[config.timestamp_field])
+    return _datetime_str_to_iso(item[config.timestamp_field])
 
 
 def _normalize_rows(
@@ -248,8 +250,9 @@ def _normalize_rows(
         item["location_label"] = location.label
         dt_iso = _extract_dt_iso(config, item)
         if dt_iso is None:
-            # `dt_iso` is part of the primary key and the partition key; a row without a parseable
-            # timestamp is degenerate, so skip it rather than flow a null key into the merge.
+            # `dt_iso` is part of the primary key and the partition key; a row whose timestamp is
+            # present but unparseable is degenerate, so skip it rather than flow a null key into the
+            # merge. (A *missing* timestamp field raises in `_extract_dt_iso` — see its note.)
             continue
         item["dt_iso"] = dt_iso
         rows.append(item)
