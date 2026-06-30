@@ -383,14 +383,22 @@ def ensure_web_stats_paths_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    # Cap to the displayable top-K for descending sorts; store the full set otherwise.
-    # The metric goes into the INSERT AST, so the sort dimension joins the job hash.
-    ranking_expr = _top_k_ranking_expr(runner)
-    if ranking_expr is not None:
-        insert_query = INSERT_QUERY_TEMPLATE_CAPPED
-        placeholders["top_k_metric"] = ranking_expr
-    else:
-        insert_query = INSERT_QUERY_TEMPLATE
+    # Capped insert temporarily disabled — always use the uncapped template.
+    #
+    # `INSERT_QUERY_TEMPLATE_CAPPED` references the `per_window` CTE twice (the output
+    # plus the top-K `breakdown_value IN (...)` selector). ClickHouse's analyzer inlines
+    # that CTE per reference and prunes the inner events subquery's projection to only the
+    # columns the enclosing scope selects — but the test-account filter inside it still
+    # references event properties used *nowhere else* (e.g. a `$raw_user_agent` bot filter),
+    # so those `mat_*` columns get pruned out from under the filter → `Code 47
+    # UNKNOWN_IDENTIFIER` on every insert. It hits only teams whose test-account filters
+    # reference a filter-only property, and is invisible to a result-row check because it's
+    # raised as an `ExceptionBeforeStart` before any rows are produced. The
+    # uncapped template (one events scan, no CTE re-reference) is the pre-#65664 behaviour
+    # and prints/executes cleanly. Re-enable once the cap is a single-pass rewrite that
+    # references `per_window` once (window-function ranking) and is verified against the
+    # prod materialized-column schema.
+    insert_query = INSERT_QUERY_TEMPLATE
 
     return web_ensure_precomputed(
         team=runner.team,
