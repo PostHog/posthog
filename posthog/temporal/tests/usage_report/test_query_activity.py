@@ -12,6 +12,9 @@ from datetime import datetime
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import ApplicationError
+
+from posthog.errors import ExposedCHQueryError
 from posthog.storage import object_storage
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import run_query_to_s3
@@ -123,3 +126,31 @@ async def test_run_query_to_s3_propagates_query_failure(
             )
 
     mock_write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_query_to_s3_fails_fast_on_deterministic_query_error(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
+    # Regression guard: a deterministic query error (ExposedCHQueryError — e.g. an
+    # unknown column/table after schema drift) must surface as a NON-retryable
+    # ApplicationError, so the workflow fails fast instead of burning the full
+    # capacity-retry budget on a query that can never succeed. Transient capacity
+    # errors are a different class and stay retryable.
+    def boom(begin: datetime, end: datetime) -> None:
+        raise ExposedCHQueryError("Unknown identifier 'foo'", code=47, code_name="unknown_identifier")
+
+    fake_spec = QuerySpec(name="test_deterministic_fail", fn=boom)
+
+    with patch.dict(
+        "posthog.temporal.usage_report.activities.QUERY_INDEX",
+        {"test_deterministic_fail": fake_spec},
+        clear=False,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await activity_environment.run(
+                run_query_to_s3,
+                RunQueryToS3Inputs(ctx=minio_workflow_ctx, query_name="test_deterministic_fail"),
+            )
+
+    assert exc_info.value.non_retryable is True

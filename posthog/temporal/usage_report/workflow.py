@@ -173,6 +173,10 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             run_query_to_s3,
             RunQueryToS3Inputs(ctx=ctx, query_name=spec.name),
             start_to_close_timeout=timedelta(minutes=spec.timeout_minutes),
+            # Bound total time across all retries (≈ the backoff window plus
+            # headroom for a couple of full-length attempts) so one wedged query
+            # can't hold a fan-out slot through the entire 10-attempt budget.
+            schedule_to_close_timeout=timedelta(minutes=spec.timeout_minutes * 2 + 15),
             retry_policy=GATHER_QUERY_RETRY_POLICY,
             heartbeat_timeout=timedelta(minutes=2),
             summary=spec.name,

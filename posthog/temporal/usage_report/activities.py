@@ -16,7 +16,9 @@ from django.conf import settings
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
+from posthog.errors import ExposedCHQueryError
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -88,7 +90,14 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
             return spec.fn(inputs.ctx.period_start, inputs.ctx.period_end)  # type: ignore[call-arg]
 
         started = time.monotonic()
-        result = await run()
+        try:
+            result = await run()
+        except ExposedCHQueryError as e:
+            # Deterministic query errors (e.g. a column/table missing after a
+            # schema change) won't pass on retry — fail fast instead of spending
+            # the whole backoff budget, and a fan-out slot, on them. Transient
+            # capacity errors stay retryable under GATHER_QUERY_RETRY_POLICY.
+            raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
         duration_ms = int((time.monotonic() - started) * 1000)
 
         key = queries_key(inputs.ctx, inputs.query_name)
