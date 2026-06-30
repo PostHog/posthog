@@ -855,15 +855,36 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         mock_capture.assert_called_once()
 
-    def test_account_not_found_http_error_returns_friendly_message_without_capture(self, source):
-        # HttpError is a sibling of DatabaseError/ProgrammingError, so a 404 on the login-request
-        # endpoint (a wrong/incomplete account id) must still be recognised as a user config error.
-        http_error = HttpError(
-            msg="404 Not Found: post acme.snowflakecomputing.com:443/session/v1/login-request",
-            errno=290404,
-            sqlstate="08001",
-            send_telemetry=False,
-        )
+    @pytest.mark.parametrize(
+        "http_error, expect_capture, message_fragment",
+        [
+            # HttpError is a sibling of DatabaseError/ProgrammingError, so a 404 on the login-request
+            # endpoint (a wrong/incomplete account id) must be recognised as a user config error and
+            # surface a friendly message without capture.
+            (
+                HttpError(
+                    msg="404 Not Found: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290404,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                False,
+                "account ID",
+            ),
+            # An unknown HttpError falls through the known-error matching and must still be captured.
+            (
+                HttpError(
+                    msg="503 Service Unavailable: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290503,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                True,
+                None,
+            ),
+        ],
+    )
+    def test_http_error_routing(self, source, http_error, expect_capture, message_fragment):
         with (
             patch.object(source, "get_schemas", side_effect=http_error),
             patch(
@@ -873,5 +894,8 @@ class TestSnowflakeValidateCredentials:
             ok, message = source.validate_credentials(_make_config("password"), team_id=1)
 
         assert ok is False
-        assert message is not None and "account ID" in message
-        mock_capture.assert_not_called()
+        if expect_capture:
+            mock_capture.assert_called_once()
+        else:
+            assert message is not None and message_fragment in message
+            mock_capture.assert_not_called()
