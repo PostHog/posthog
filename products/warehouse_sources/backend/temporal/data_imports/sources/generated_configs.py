@@ -266,7 +266,8 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class ApifyDatasetSourceConfig(config.Config):
-    pass
+    api_token: str
+    dataset_id: str
 
 
 @config.config
@@ -436,7 +437,8 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BloggerSourceConfig(config.Config):
-    pass
+    api_key: str
+    blog_id: str
 
 
 @config.config

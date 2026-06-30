@@ -50,6 +50,7 @@ the row lists both.
 | algolia             | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads          | HTTP                        | requests                                                        | ✅                          |
 | amplitude           | HTTP                        | requests                                                        | ✅                          |
+| apify_dataset       | HTTP                        | requests                                                        | ✅                          |
 | apollo              | HTTP                        | requests                                                        | ✅                          |
 | appsflyer           | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana               | HTTP                        | requests                                                        | ✅                          |
@@ -62,6 +63,7 @@ the row lists both.
 | bigmailer           | HTTP                        | requests                                                        | ✅                          |
 | bigquery            | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads            | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
@@ -303,7 +305,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- apify_dataset
 - appcues
 - appfigures
 - appfollow
@@ -321,7 +322,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- blogger
 - bluetally
 - boldsign
 - box
