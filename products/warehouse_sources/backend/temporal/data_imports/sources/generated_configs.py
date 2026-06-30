@@ -1005,7 +1005,8 @@ class DynamoDBSourceConfig(config.Config):
 
 @config.config
 class EConomicSourceConfig(config.Config):
-    pass
+    app_secret_token: str
+    agreement_grant_token: str
 
 
 @config.config

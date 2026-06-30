@@ -105,6 +105,7 @@ the row lists both.
 | docuseal            | HTTP                        | requests                                                        | ✅                          |
 | doit                | HTTP                        | requests                                                        | ✅                          |
 | drip                | HTTP                        | requests                                                        | ✅                          |
+| e_conomic           | HTTP                        | requests                                                        | ✅                          |
 | easypost            | HTTP                        | requests                                                        | ✅                          |
 | easypromos          | HTTP                        | requests                                                        | ✅                          |
 | freshdesk           | HTTP                        | requests                                                        | ✅                          |
@@ -379,7 +380,6 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - dynamics365
 - dynamodb
-- e_conomic
 - ebay
 - eloqua
 - employment_hero
