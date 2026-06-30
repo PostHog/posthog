@@ -13,7 +13,7 @@ class ConversationAdmin(admin.ModelAdmin):
     list_select_related = ("team", "user")
     list_filter = ("status", "type")
     search_fields = ("id", "team__name", "user__email")
-    autocomplete_fields = ("team", "user")
+    autocomplete_fields = ("team", "user", "task")
     ordering = ("-updated_at",)
     actions = ["compact_checkpoints"]
 
