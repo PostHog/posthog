@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -19,10 +20,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.se
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, json_data: dict | None = None) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        json_data: dict | None = None,
+        *,
+        url: str = "https://www.googleapis.com/blogger/v3",
+        reason: str = "OK",
+        text: str = "",
+    ) -> None:
         self.status_code = status_code
         self._json = json_data or {}
-        self.text = ""
+        self.text = text
+        self.url = url
+        self.reason = reason
         self.ok = 200 <= status_code < 300
 
     def json(self) -> dict:
@@ -30,7 +41,9 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} error for url: https://www.googleapis.com/blogger/v3")
+            raise requests.HTTPError(
+                f"{self.status_code} error for url: {self.url}", response=cast(requests.Response, self)
+            )
 
 
 class _FakeSession:
@@ -228,12 +241,44 @@ class TestGetRows:
         assert [r["id"] for r in rows] == ["p9"]
         assert "pageToken=RESUME" in fetch.urls[0]
 
-    def test_empty_items_terminates_without_saving(self) -> None:
-        fetch = _SequentialFetch([{"items": [], "nextPageToken": None}])
+    @parameterized.expand(
+        [
+            # Stop-immediately: a single empty page with no continuation token.
+            ("single_empty_page", [{"items": [], "nextPageToken": None}], 1),
+            # Walk-through: an empty page that still hands back a token loops to the next page,
+            # which is also empty. No state is ever saved for empty pages.
+            (
+                "empty_pages_with_continuation",
+                [{"items": [], "nextPageToken": "T2"}, {"items": [], "nextPageToken": None}],
+                2,
+            ),
+        ]
+    )
+    def test_empty_items_never_save_state(self, _name: str, responses: list[dict], expected_requests: int) -> None:
+        fetch = _SequentialFetch(responses)
         manager = _FakeResumableManager()
         rows = _collect("posts", manager, fetch)
         assert rows == []
+        # Empty pages never persist a resume token: a crash mid-sequence re-walks the empty pages
+        # rather than skipping past them, so no unseen data is missed on resume.
         assert manager.saved == []
+        assert len(fetch.urls) == expected_requests
+        if expected_requests > 1:
+            # The continuation token from the empty page still drives the follow-up request.
+            assert "pageToken=T2" in fetch.urls[1]
+
+
+class TestFetchPageErrorSanitization:
+    def test_client_error_strips_api_key_but_keeps_matchable_prefix(self) -> None:
+        # The real URL carries the key in the query string; the raised error must not leak it.
+        leaky_url = "https://www.googleapis.com/blogger/v3/blogs/BID/posts?key=SECRETKEY&maxResults=100"
+        session = _FakeSession(_FakeResponse(400, url=leaky_url, reason="Bad Request"))
+        with pytest.raises(requests.HTTPError) as exc_info:
+            blogger._fetch_page(session, leaky_url, {}, MagicMock())  # type: ignore[arg-type]
+        message = str(exc_info.value)
+        assert "SECRETKEY" not in message
+        # The non-retryable matcher keys are prefixes of this message, so error classification still works.
+        assert "400 Client Error: Bad Request for url: https://www.googleapis.com/blogger/v3" in message
 
 
 class TestBloggerSourceResponse:

@@ -1,8 +1,8 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
-from urllib.parse import urlencode
+from typing import Any
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -47,6 +47,19 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
+def _raise_sanitized_for_status(response: requests.Response) -> None:
+    """Mirror `requests.Response.raise_for_status()` but strip the URL's query string before it lands
+    in an exception message. Blogger carries the API key in `?key=...`, and these import errors are
+    logged and captured by the shared non-retryable error handler — so the raw `raise_for_status()`
+    message would leak the key. The sanitized URL keeps the stable `.../blogger/v3` prefix that
+    `BloggerSource.get_non_retryable_errors()` matches on, so error classification is unaffected."""
+    if response.ok:
+        return
+    kind = "Client Error" if response.status_code < 500 else "Server Error"
+    safe_url = urlsplit(response.url)._replace(query="").geturl()
+    raise requests.HTTPError(f"{response.status_code} {kind}: {response.reason} for url: {safe_url}", response=response)
+
+
 def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{BLOGGER_BASE_URL}{path}?{urlencode(params)}"
 
@@ -88,7 +101,7 @@ def _fetch_page(
 
     if not response.ok:
         logger.error(f"Blogger API error: status={response.status_code}, body={response.text}")
-        response.raise_for_status()
+        _raise_sanitized_for_status(response)
 
     return response.json()
 
@@ -168,7 +181,7 @@ def blogger_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BloggerResumeConfig],
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = BLOGGER_ENDPOINTS[endpoint]

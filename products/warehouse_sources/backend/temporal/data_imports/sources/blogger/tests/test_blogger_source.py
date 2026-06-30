@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +9,7 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
+    SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 
@@ -51,7 +52,7 @@ class TestBloggerSourceConfig:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/blogger"
 
     def test_source_config_fields(self) -> None:
-        fields = {f.name: f for f in BloggerSource().get_source_config.fields}
+        fields = {f.name: cast(SourceFieldInputConfig, f) for f in BloggerSource().get_source_config.fields}
         assert set(fields) == {"api_key", "blog_id"}
 
         assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
