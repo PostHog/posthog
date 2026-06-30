@@ -191,19 +191,87 @@ tools:
         enabled: false
     custom-property-definitions-create:
         operation: custom_property_definitions_create
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create custom property definition
+        description: >
+            Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide
+            `name` (required, unique within the team), optional `description`, `display_type` (one of text, number,
+            currency, percent, date, datetime, boolean; defaults to text), and optional `is_big_number` to abbreviate
+            large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped
+            and shared across all accounts; set the value a specific account holds via the account custom property value
+            tools.
+        feature_flag: customer-analytics-csp
     custom-property-definitions-destroy:
         operation: custom_property_definitions_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete custom property definition
+        description: >
+            Permanently delete a Customer Analytics custom property definition by id. Because values reference the
+            definition, deleting it also removes the value every account holds for that property. The definition is
+            team-scoped, so this affects all accounts.
+        feature_flag: customer-analytics-csp
     custom-property-definitions-list:
         operation: custom_property_definitions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List custom property definitions
+        description: >
+            List Customer Analytics custom property definitions for the project. A definition is the shape of a custom
+            account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency,
+            percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across
+            all accounts; the value a specific account holds for a definition is managed separately via the account
+            custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.
+        feature_flag: customer-analytics-csp
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update custom property definition
+        description: >
+            Update fields on an existing Customer Analytics custom property definition. Accepts a subset of fields;
+            unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team),
+            `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and
+            `is_big_number` (only valid for numeric display types).
+        feature_flag: customer-analytics-csp
     custom-property-definitions-retrieve:
         operation: custom_property_definitions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get custom property definition
+        description: >
+            Fetch a single Customer Analytics custom property definition by id. Returns its `name`, optional
+            `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and
+            `is_big_number` flag. A definition is the shape of a custom account attribute; the value a specific account
+            holds for it is managed separately via the account custom property value tools.
+        feature_flag: customer-analytics-csp
     custom-property-definitions-update:
         operation: custom_property_definitions_update
         enabled: false

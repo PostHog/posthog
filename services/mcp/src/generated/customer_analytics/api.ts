@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -237,6 +237,110 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+
+export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+    )
+
+export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
+
+export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean'
+            )
+            .optional()
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .optional()
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+    )
+
+export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

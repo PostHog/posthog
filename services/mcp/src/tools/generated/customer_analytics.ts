@@ -15,6 +15,12 @@ import {
     AccountsPartialUpdateBody,
     AccountsPartialUpdateParams,
     AccountsRetrieveParams,
+    CustomPropertyDefinitionsCreateBody,
+    CustomPropertyDefinitionsDestroyParams,
+    CustomPropertyDefinitionsListQueryParams,
+    CustomPropertyDefinitionsPartialUpdateBody,
+    CustomPropertyDefinitionsPartialUpdateParams,
+    CustomPropertyDefinitionsRetrieveParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -246,6 +252,127 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
     },
 })
 
+const CustomPropertyDefinitionsCreateSchema = CustomPropertyDefinitionsCreateBody
+
+const customPropertyDefinitionsCreate = (): ToolBase<
+    typeof CustomPropertyDefinitionsCreateSchema,
+    Schemas.CustomPropertyDefinition
+> => ({
+    name: 'custom-property-definitions-create',
+    schema: CustomPropertyDefinitionsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.display_type !== undefined) {
+            body['display_type'] = params.display_type
+        }
+        if (params.is_big_number !== undefined) {
+            body['is_big_number'] = params.is_big_number
+        }
+        const result = await context.api.request<Schemas.CustomPropertyDefinition>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertyDefinitionsDestroySchema = CustomPropertyDefinitionsDestroyParams.omit({ project_id: true })
+
+const customPropertyDefinitionsDestroy = (): ToolBase<typeof CustomPropertyDefinitionsDestroySchema, unknown> => ({
+    name: 'custom-property-definitions-destroy',
+    schema: CustomPropertyDefinitionsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertyDefinitionsListSchema = CustomPropertyDefinitionsListQueryParams
+
+const customPropertyDefinitionsList = (): ToolBase<
+    typeof CustomPropertyDefinitionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomPropertyDefinitionList>
+> => ({
+    name: 'custom-property-definitions-list',
+    schema: CustomPropertyDefinitionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertyDefinitionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertyDefinitionsPartialUpdateSchema = CustomPropertyDefinitionsPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CustomPropertyDefinitionsPartialUpdateBody.shape)
+
+const customPropertyDefinitionsPartialUpdate = (): ToolBase<
+    typeof CustomPropertyDefinitionsPartialUpdateSchema,
+    Schemas.CustomPropertyDefinition
+> => ({
+    name: 'custom-property-definitions-partial-update',
+    schema: CustomPropertyDefinitionsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.display_type !== undefined) {
+            body['display_type'] = params.display_type
+        }
+        if (params.is_big_number !== undefined) {
+            body['is_big_number'] = params.is_big_number
+        }
+        const result = await context.api.request<Schemas.CustomPropertyDefinition>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertyDefinitionsRetrieveSchema = CustomPropertyDefinitionsRetrieveParams.omit({ project_id: true })
+
+const customPropertyDefinitionsRetrieve = (): ToolBase<
+    typeof CustomPropertyDefinitionsRetrieveSchema,
+    Schemas.CustomPropertyDefinition
+> => ({
+    name: 'custom-property-definitions-retrieve',
+    schema: CustomPropertyDefinitionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertyDefinition>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
     .extend(GroupsTypesMetricsCreateBody.shape)
     .extend({
@@ -418,6 +545,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-retrieve': accountsRetrieve,
+    'custom-property-definitions-create': customPropertyDefinitionsCreate,
+    'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
+    'custom-property-definitions-list': customPropertyDefinitionsList,
+    'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
+    'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

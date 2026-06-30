@@ -1715,6 +1715,81 @@
             "readOnlyHint": false
         }
     },
+    "custom-property-definitions-create": {
+        "description": "Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean; defaults to text), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and shared across all accounts; set the value a specific account holds via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create custom property definition",
+        "title": "Create custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-destroy": {
+        "description": "Permanently delete a Customer Analytics custom property definition by id. Because values reference the definition, deleting it also removes the value every account holds for that property. The definition is team-scoped, so this affects all accounts.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete custom property definition",
+        "title": "Delete custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-list": {
+        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List custom property definitions",
+        "title": "List custom property definitions",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-partial-update": {
+        "description": "Update fields on an existing Customer Analytics custom property definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` (only valid for numeric display types).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update custom property definition",
+        "title": "Update custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-retrieve": {
+        "description": "Fetch a single Customer Analytics custom property definition by id. Returns its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. A definition is the shape of a custom account attribute; the value a specific account holds for it is managed separately via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get custom property definition",
+        "title": "Get custom property definition",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "dashboard-create": {
         "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
