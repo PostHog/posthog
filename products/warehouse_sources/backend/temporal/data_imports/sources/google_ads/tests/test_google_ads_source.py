@@ -661,15 +661,23 @@ class TestTransientClientInitErrorDetection:
 class _StatusCodeRpcError(grpc.RpcError):
     """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
 
-    def __init__(self, status_code: grpc.StatusCode):
+    def __init__(self, status_code: grpc.StatusCode, message: str = ""):
         self._status_code = status_code
+        self._message = message
 
     def code(self) -> grpc.StatusCode:
         return self._status_code
 
+    def __str__(self) -> str:
+        return self._message
+
 
 def _grpc_unavailable_error() -> grpc.RpcError:
     return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
+
+
+def _grpc_resource_exhausted_error(message: str = "") -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.RESOURCE_EXHAUSTED, message)
 
 
 def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
@@ -696,6 +704,32 @@ class TestTransientGrpcErrorDetection:
             # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
             (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
             (_grpc_internal_error(), True),
+            # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+            # quota).") is Google-flagged retryable — both the gapic wrapper (whose ``code`` is an
+            # HTTP int, not a callable ``StatusCode``) and the raw _InactiveRpcError must be ridden out.
+            (google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."), True),
+            (_grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."), True),
+            # The SDK can also wrap a RESOURCE_EXHAUSTED transport status in a GoogleAdsException — the
+            # unwrapped raw _InactiveRpcError then takes the ``code()`` path with the signature guard.
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+                ),
+                True,
+            ),
+            # A client-side "Received message larger than max" abort is RESOURCE_EXHAUSTED too, but is
+            # deterministic — it must not be retried in-process regardless of which shape it arrives as.
+            (
+                google_api_exceptions.ResourceExhausted("Received message larger than max (90000000 vs. 67108864)"),
+                False,
+            ),
+            (_grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)"), False),
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)")
+                ),
+                False,
+            ),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -733,6 +767,11 @@ class TestSearchTransientRetry:
             _google_ads_exception_wrapping(_grpc_unavailable_error()),
             google_api_exceptions.InternalServerError("500 Internal error encountered."),
             _grpc_internal_error(),
+            google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."),
+            _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."),
+            _google_ads_exception_wrapping(
+                _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+            ),
         ],
     )
     def test_rides_out_transient_error(self, error):
