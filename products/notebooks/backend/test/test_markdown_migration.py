@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.models import Team
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 
@@ -161,3 +161,34 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert changes_by_field["version"]["before"] == 7
         assert changes_by_field["version"]["after"] == 8
         mock_publish.assert_called_once_with(self.team.id, notebook.short_id, 8, diff=None)
+
+    def test_apply_scopes_mention_label_lookup_to_notebook_organization(self) -> None:
+        same_org_user = self._create_user("same@example.com", first_name="Same")
+        outside_org = Organization.objects.create(name="Outside")
+        outside_user = User.objects.create_and_join(outside_org, "leaked@example.com", None, "Leaked")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Mentions",
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "ph-mention", "attrs": {"id": same_org_user.id}},
+                            {"type": "text", "text": " "},
+                            {"type": "ph-mention", "attrs": {"id": outside_user.id}},
+                        ],
+                    }
+                ],
+            },
+        )
+
+        migrate_notebooks_to_markdown(user=self.user, team_id=self.team.id, dry_run=False)
+
+        notebook.refresh_from_db()
+        assert notebook.text_content is not None
+        assert f'<mention id="{same_org_user.id}">@Same</mention>' in notebook.text_content
+        assert f'<mention id="{outside_user.id}">@member</mention>' in notebook.text_content
+        assert "Leaked" not in notebook.text_content
+        assert "leaked@example.com" not in notebook.text_content

@@ -59,7 +59,7 @@ def migrate_notebooks_to_markdown(
                 notebook.content,
                 NotebookMarkdownConversionOptions(
                     comment_replies_by_mark_id=_build_comment_replies_by_mark_id(notebook),
-                    get_mention_label=_build_mention_label_getter(notebook.content),
+                    get_mention_label=_build_mention_label_getter(notebook),
                 ),
             )
             next_content = build_markdown_notebook_content(markdown)
@@ -198,9 +198,15 @@ def _comment_to_reply(comment: Comment) -> dict[str, Any]:
     }
 
 
-def _build_mention_label_getter(content: Any) -> Callable[[int], str | None]:
-    user_ids = _collect_mention_user_ids(content)
-    users = User.objects.filter(id__in=user_ids).only("id", "first_name", "email")
+def _build_mention_label_getter(notebook: Notebook) -> Callable[[int], str | None]:
+    user_ids = _collect_mention_user_ids(notebook.content)
+    if not user_ids:
+        return lambda user_id: None
+
+    users = User.objects.filter(
+        id__in=user_ids,
+        organization_membership__organization_id=notebook.team.organization_id,
+    ).only("id", "first_name", "email")
     labels_by_user_id = {
         user.id: f"@{user.first_name or user.email}" for user in users if user.first_name or user.email
     }
