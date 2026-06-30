@@ -482,6 +482,8 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
             experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_scan_date_from=str(self.date_range.date_from),
+            experiment_scan_date_to=str(self.date_range.date_to),
         )
         experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
         self.hogql = experiment_query_debug[0]
