@@ -6714,6 +6714,48 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
+    def test_get_wizard_sources_filtered_by_source_type(self):
+        all_sources = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard").json()
+        assert len(all_sources) > 2  # sanity: unfiltered returns the full catalog
+
+        single = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=Stripe")
+        assert single.status_code == 200
+        assert set(single.json().keys()) == {"Stripe"}
+
+        multi = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=Stripe,Postgres"
+        )
+        assert multi.status_code == 200
+        assert set(multi.json().keys()) == {"Stripe", "Postgres"}
+
+    def test_get_wizard_sources_unknown_source_type_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
+        )
+        assert response.status_code == 400
+        assert "NotARealSource" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            # name, endpoint suffix, body
+            ("create", "", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            (
+                "database_schema",
+                "database_schema/",
+                {"source_type": "Postgres", "password": {"secretRef": "ref-123"}, "host": "db.example.com"},
+            ),
+        ]
+    )
+    def test_unresolved_secret_ref_rejected(self, _name, suffix, body):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{suffix}",
+            data=body,
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "secretRef" in response.json()["message"]
+
     @parameterized.expand(
         [
             # name, seed sources soft-deleted?, seed for a different team?, expect the limit error
