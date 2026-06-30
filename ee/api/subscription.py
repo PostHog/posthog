@@ -379,6 +379,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "integration_id" in attrs
             else (self.instance.integration_id if self.instance else None)
         )
+        # Validate the EFFECTIVE delivery_config (submitted value, else the persisted value on a PATCH
+        # that omits it) so a PATCH that moves to a non-files:write integration — or flips target_type
+        # to email — without resubmitting delivery_config is still validated against the persisted
+        # post_all_insights_in_main_message. The UI coerces the flag off, but direct API/MCP callers wouldn't.
+        effective_delivery_config = (
+            attrs["delivery_config"]
+            if "delivery_config" in attrs
+            else (self.instance.delivery_config if self.instance else None)
+        ) or {}
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -435,15 +444,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
-            # Validate the EFFECTIVE delivery_config, not just the submitted value: a PATCH that moves
-            # to an integration without files:write while omitting delivery_config must still be
-            # rejected, else the persisted post_all_insights_in_main_message=true would silently fail
-            # at delivery (the UI coerces this off, but direct API/MCP callers wouldn't).
-            effective_delivery_config = (
-                attrs["delivery_config"]
-                if "delivery_config" in attrs
-                else (self.instance.delivery_config if self.instance else None)
-            ) or {}
             if effective_delivery_config.get("post_all_insights_in_main_message"):
                 if SlackIntegration(integration).missing_scopes({"files:write"}):
                     raise serializers.ValidationError(
@@ -454,11 +454,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     )
 
         # post_all_insights_in_main_message only applies to Slack delivery; reject it on non-Slack subs
-        # so the API contract doesn't silently accept a value that never takes effect (mirrors integration_id).
-        delivery_config = attrs.get("delivery_config")
+        # (effective value) so the API contract can't silently persist a value that never takes effect —
+        # e.g. PATCHing target_type slack→email while the persisted flag stays true.
         if (
-            delivery_config
-            and delivery_config.get("post_all_insights_in_main_message")
+            effective_delivery_config.get("post_all_insights_in_main_message")
             and target_type != Subscription.SubscriptionTarget.SLACK
         ):
             raise ValidationError(
