@@ -107,6 +107,15 @@ BIGQUERY_DATASET_NOT_FOUND_ERROR = (
     "region in your source configuration if it isn't in the US."
 )
 
+# User-facing message for a syntactically invalid project/dataset ID (e.g. a value carrying
+# parentheses or other characters BigQuery forbids). Raised below and matched in
+# `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data (the offending id).
+BIGQUERY_INVALID_IDENTIFIER_ERROR = (
+    "Your BigQuery Project ID or Dataset ID contains characters BigQuery doesn't allow — they may "
+    "only contain letters, numbers, dashes and underscores. Please check the Dataset ID in your "
+    "source configuration."
+)
+
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
 # `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
 # error during execution. Retrying the job may solve the problem.". The client's default job-retry
@@ -133,6 +142,17 @@ class BigQueryDatasetNotFoundError(Exception):
     "404 Not found: Dataset ... was not found in location US ... Job ID: ..." — BigQuery job
     internals the user can't act on, which would otherwise leak straight to the create/validate
     response. We re-raise it with the same actionable wording we map this condition to during syncs.
+    """
+
+
+class BigQueryInvalidIdentifierError(Exception):
+    """Raised when schema discovery is given a syntactically invalid project/dataset ID.
+
+    `client.query()` raises a `google.api_core.exceptions.BadRequest` whose `str()` is a raw
+    `400 Invalid dataset ID "..."` / `Invalid project ID "..."` carrying the offending value plus
+    job internals (location, job id) — none of which the user can act on. A value like `(default)`
+    fails because parentheses aren't allowed. We re-raise it with actionable wording instead of
+    leaking the raw 400 to the create/validate response. Deterministic config error — non-retryable.
     """
 
 
@@ -805,6 +825,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 "BigQuery dataset '%s' not found during schema discovery: %s", config.dataset_id, e
             )
             raise BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR) from e
+        except BadRequest as e:
+            # A bad project/dataset ID surfaces as "400 Invalid project ID ..." / "Invalid dataset ID
+            # ...". Convert it to an actionable message; anything else is a genuine BadRequest we leave
+            # to propagate (including the transient job-internal-error the query retry predicate covers).
+            if "Invalid dataset ID" not in str(e) and "Invalid project ID" not in str(e):
+                raise
+            structlog.get_logger().warning(
+                "BigQuery rejected an invalid project/dataset ID during schema discovery: %s", e
+            )
+            raise BigQueryInvalidIdentifierError(BIGQUERY_INVALID_IDENTIFIER_ERROR) from e
         except TypeError as e:
             # See `BigQueryTokenRefreshError`: google-auth raises an opaque
             # `TypeError: string indices must be integers` when the OAuth token endpoint
