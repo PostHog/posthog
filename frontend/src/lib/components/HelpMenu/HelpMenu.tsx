@@ -364,7 +364,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 )}
 
                                 <Label intent="menu" className="px-2 mt-2">
-                                    More
+                                    Display
                                 </Label>
                                 <Menu.Item
                                     onClick={() => setShortcutMenuOpen(true)}
@@ -385,7 +385,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </ButtonPrimitive>
                                     }
                                 />
-                                <ThemeMenu />
                                 <Menu.Item
                                     onClick={toggleZenMode}
                                     render={
@@ -398,6 +397,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </ButtonPrimitive>
                                     }
                                 />
+                                <ThemeMenu />
 
                                 {billing?.account_owner?.email && billing?.account_owner?.name && (
                                     <>
