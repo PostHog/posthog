@@ -477,13 +477,12 @@ class TestDatabricksIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    @patch("posthog.models.integration.socket.socket")
+    @patch("posthog.models.integration.is_url_allowed", return_value=(True, None))
     def test_integration_from_config_with_valid_config(
         self,
-        mock_socket,
+        mock_is_url_allowed,
         client: HttpClient,
     ):
-        mock_socket.return_value.connect.return_value = None
         client.force_login(self.user)
 
         response = client.post(
@@ -539,15 +538,12 @@ class TestDatabricksIntegration:
             ),
         ],
     )
-    @patch("posthog.models.integration.socket.socket")
     def test_integration_from_config_with_invalid_config(
         self,
-        mock_socket,
         invalid_config,
         expected_error_message,
         client: HttpClient,
     ):
-        mock_socket.return_value.connect.return_value = None
         client.force_login(self.user)
 
         response = client.post(
@@ -561,6 +557,43 @@ class TestDatabricksIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "169.254.169.254",
+            "127.0.0.1",
+            "10.0.0.1",
+            "192.168.1.1",
+        ],
+    )
+    # Force production SSRF behavior: is_url_allowed bypasses validation in dev mode (DEBUG).
+    @patch("posthog.security.url_validation.is_dev_mode", return_value=False)
+    def test_integration_from_config_rejects_internal_host(
+        self,
+        mock_is_dev_mode,
+        host,
+        client: HttpClient,
+    ):
+        """Member-supplied Databricks hosts that resolve to internal IPs must be rejected (SSRF guard)."""
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "databricks",
+                "config": {
+                    "server_hostname": host,
+                    "client_id": "client_id",
+                    "client_secret": "client_secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert host in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
 class TestAwsS3Integration:
