@@ -209,10 +209,14 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   with no `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
   (autostart needs `immediately_actionable`). Reach for them (P2 broad regression on a human-saved
   flow, P3 single-segment / `inferred`) only on the rare regression you'd actually want a draft PR
-  for. **Always set `suggested_reviewers`** regardless — resolve the owning person's GitHub
-  login with `org-member-get-github-login` (cache it under a `reviewer:product_analytics:<area>`
-  key). It's how the report reaches a human; left empty, the report is assigned to nobody and
-  is likely missed. After authoring, write a `report:product_analytics:flow:<short_id>`
+  for. **Always set `suggested_reviewers`** regardless — each entry is `{github_login?, user_uuid?}`,
+  and the reliable route here is to pass the flow's owning person as a `user_uuid` (a saved insight's
+  `created_by`; the server resolves it to their GitHub login), or reuse a cached
+  `reviewer:product_analytics:<area>` login. The org-scoped resolver tools are usually absent from a
+  scout run, so don't depend on them — see [`references/report.md`](references/report.md). It's how the
+  report reaches a human; left empty, the report is assigned to nobody and is likely missed (you can
+  `edit-report` reviewers in later once you resolve one). After authoring, write a
+  `report:product_analytics:flow:<short_id>`
   scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The
   full report channel — field schema, safety × actionability status mapping, reviewer routing,
   dedupe (it is **not** idempotent), and the edit rules — lives in
@@ -277,8 +281,10 @@ Direct (read-only):
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `org-members-list` / `org-member-get-github-login` — resolve a flow / product-area owner to
-  a bare GitHub login for `suggested_reviewers` (returns null when unlinked → try the next owner).
+- `org-members-list` / `org-member-get-github-login` — resolve a flow / product-area owner to a
+  GitHub login for `suggested_reviewers`. These need organization scope, which a headless scout run
+  usually lacks, so they're often **absent from this scout's toolset** — prefer routing by the flow's
+  `created_by` `user_uuid` (resolved server-side) rather than relying on them.
 
 Harness-level:
 

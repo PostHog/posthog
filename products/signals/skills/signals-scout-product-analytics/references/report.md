@@ -43,7 +43,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                 |
-| `suggested_reviewers`       | list of strings         | Bare, lowercase GitHub logins. The **single most important routing field** — set on every report (PR or not). See the _`suggested_reviewers`_ section below for resolution steps.                                                                  |
+| `suggested_reviewers`       | list of objects         | Each `{github_login?, user_uuid?}` (at least one per entry). The **single most important routing field** — set on every report (PR or not). See the _`suggested_reviewers`_ section below for resolution steps.                                    |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -123,10 +123,22 @@ is assigned to nobody — it lands in the shared inbox and is very likely to be 
 set at least one reviewer on every report you author, including informational `requires_human_input`
 ones.
 
-Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`, not
-`@OctoCat`). Assignment matches the login against each user's linked GitHub login by exact, lowercased
-comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or an email won't
-assign to anyone. You rarely know the login outright, so resolve it — cheapest first:
+Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or both:
+
+- **`github_login`** — a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`,
+  not `@OctoCat`). Assignment matches it against each user's linked GitHub login by exact, lowercased
+  comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or an email won't
+  assign to anyone.
+- **`user_uuid`** — a **PostHog user UUID**. The server resolves it to that org member's linked GitHub
+  login for you (and it wins if you also pass a `github_login`). A `user_uuid` that isn't an org member
+  of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never
+  silently drops. Use it whenever your evidence already names a PostHog user — the flow's `created_by`,
+  the insight owner, an account's CSM — so you route to them without ever looking up their handle.
+
+So you have two routes. Product-analytics evidence almost always hands you the owning **person**
+already — saved funnels/retention insights carry a `created_by` user UUID — so the most reliable path
+here is usually to pass that **`user_uuid`** straight through. Otherwise resolve a `github_login`,
+cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For product-analytics, key by the owning flow / product area (`reviewer:product_analytics:<area>`).
@@ -135,30 +147,34 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
    signals) for a comparable report on the same flow/surface, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
-3. **`org-member-get-github-login`** — the **canonical resolver, available on every run**. Identify the
-   owning **person** (by name/email via `org-members-list`, or `@me`), then pass their PostHog user
-   UUID to `org-member-get-github-login` to get their linked GitHub login. It returns null when the
-   person hasn't linked a GitHub account — then try the next plausible owner.
+3. **`org-members-list` / `org-member-get-github-login`** — only where the run has organization scope
+   (`organization_member:read`). A headless scout run is scoped to a single team and **typically does
+   not** carry that scope, so these tools are usually **absent from this scout's toolset** — don't
+   build the reviewer recipe around them. Where they _are_ available, `org-members-list` gives a
+   member's `user_uuid` (pass it straight through as `user_uuid` — simplest), and
+   `org-member-get-github-login` resolves a `user_uuid` to a GitHub login if you'd rather hand a
+   `github_login`. In practice the flow's `created_by` UUID is the route that always works.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
-If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces) but
-treat that as the exception, not the norm. Once you've tied a flow/area to an owner, write a
-`reviewer:product_analytics:<area>` scratchpad entry with the bare lowercase login so the next run
-routes instantly.
+If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces, just
+unrouted) and `edit-report` reviewers in later once you resolve one (see below). Once you've tied a
+flow/area to an owner, write a `reviewer:product_analytics:<area>` scratchpad entry with the bare
+lowercase login so the next run routes instantly.
 
-**On `edit-report`:** reviewers are set at author time and `edit-report` can't change them — so the
-one chance to route a report is when you `emit-report` it. If you're editing a report that landed with
-no reviewer, `append_note` naming the owner you'd route it to so a human can pick it up; the durable
-fix is to get `suggested_reviewers` right at emit.
+**On `edit-report`:** `edit-report` now accepts `suggested_reviewers` too — setting them replaces the
+report's reviewer list and re-runs autostart, so a report that surfaced routed to no one can be rescued
+the moment you resolve an owner (and a now-actionable report with a repo + priority can open a draft
+PR). An empty list is a no-op — it never clears the existing reviewers.
 
 ## `edit-report` — update an existing report
 
-Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass `run_id` and
-`report_id`, plus at least one of `title`, `summary`, `append_note`.
+Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already
+exists. Pass `run_id` and `report_id`, plus at least one of `title`, `summary`, `append_note`,
+`suggested_reviewers`.
 
 `edit-report` can target **any** of the team's inbox reports — not just ones a scout authored. That
 makes it the right tool when a later run learns something about a report the pipeline (or another
-scout) created. Two rules of good behavior:
+scout) created. Rules of good behavior:
 
 - **Prefer `append_note` over rewriting** `title`/`summary` on a report you didn't author. A note is
   additive and audit-friendly (it carries your scout as author); a rewrite silently overwrites a
@@ -166,11 +182,16 @@ scout) created. Two rules of good behavior:
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have
   its fields overwritten under you. If a report is actively being worked, append a note rather than
   rewriting.
-- **Only edit a report that's still live in the inbox.** `edit-report` rewrites `title`/`summary` or
-  appends a note — it **cannot change status**, so it can't reopen a `resolved` / `suppressed` /
-  `failed` report. Appending a relapse to a closed report buries a real, actionable regression under
-  an item that no longer surfaces. Check the matched report's `status` first: if it isn't live,
-  author a fresh report and repoint `report:product_analytics:flow:<short_id>` at the new id.
+- **Rescue an unrouted report with `suggested_reviewers`.** Setting reviewers (same
+  `{github_login?, user_uuid?}` shape as `emit-report`) replaces the report's reviewer list and re-runs
+  autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later
+  (e.g. once you read the flow's `created_by`). An empty list is a no-op; it never clears existing
+  reviewers.
+- **Only edit a report that's still live in the inbox.** `edit-report` rewrites `title`/`summary`,
+  appends a note, or sets reviewers — it **cannot change status**, so it can't reopen a `resolved` /
+  `suppressed` / `failed` report. Appending a relapse to a closed report buries a real, actionable
+  regression under an item that no longer surfaces. Check the matched report's `status` first: if it
+  isn't live, author a fresh report and repoint `report:product_analytics:flow:<short_id>` at the new id.
 
 For this scout the common edit is a flow that's _still moving_: a funnel that kept sliding, a
 retention cliff that deepened, or a flow that recovered then relapsed. When the report you authored
