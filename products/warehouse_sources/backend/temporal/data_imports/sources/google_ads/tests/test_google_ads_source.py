@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     clean_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    _GET_INTEGRATION_RETRY_BACKOFF_SECONDS,
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
@@ -779,22 +780,41 @@ _CLOSE_CONNECTIONS_PATH = (
 
 
 class TestGetIntegrationDbResilience:
-    def test_retries_once_on_dropped_connection_then_succeeds(self):
+    @pytest.mark.parametrize(
+        "first_error",
+        [
+            # Idle pooled connection dropped server-side.
+            OperationalError("server closed the connection unexpectedly"),
+            # PgBouncer pool-wait timeout — the pool was saturated when the acquire was attempted.
+            OperationalError("query_wait_timeout"),
+        ],
+    )
+    def test_retries_once_on_transient_error_then_succeeds(self, first_error):
         integration = object()
-        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+        get = mock.Mock(side_effect=[first_error, integration])
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
         assert get.call_count == 2
         # Evicted up front, then again after the failed query marked the connection unusable.
         assert close.call_count == 2
+        # Backoff before the retry so a pool-wait timeout doesn't instantly re-hit the full pool.
+        assert sleep.call_args_list == [mock.call(_GET_INTEGRATION_RETRY_BACKOFF_SECONDS)]
 
     def test_reraises_when_retry_also_fails(self):
-        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH),
+        ):
             with pytest.raises(OperationalError):
                 _get_integration(integration_id=1, team_id=2)
 
@@ -804,23 +824,33 @@ class TestGetIntegrationDbResilience:
     def test_missing_integration_is_not_retried(self):
         get = mock.Mock(side_effect=Integration.DoesNotExist())
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(Integration.DoesNotExist):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
         assert get.call_count == 1
+        assert sleep.call_count == 0
 
     def test_no_retry_on_success(self):
         integration = object()
         get = mock.Mock(return_value=integration)
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
         assert get.call_count == 1
         assert close.call_count == 1
+        assert sleep.call_count == 0
 
 
 class TestOverviewStatsSchemas:

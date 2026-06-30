@@ -125,22 +125,35 @@ def _load_client_with_transient_retry(
             time.sleep(min(2 * attempt, 30))
 
 
-def _get_integration(integration_id: int, team_id: int) -> Integration:
-    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+# A pooled Postgres connection through PgBouncer can fail the read transiently in two ways, both
+# surfacing as ``OperationalError``: a connection closed server-side while idle ("server closed the
+# connection unexpectedly"), or PgBouncer rejecting the acquire after ``query_wait_timeout`` because
+# the pool is saturated (psycopg raises ``ProtocolViolation``, which Django wraps). A dropped
+# connection clears on an immediate retry once evicted, but a pool-wait timeout does not — retrying
+# instantly just re-hits the still-full pool and times out again. A short backoff before the single
+# retry gives the pool a moment to free a connection, and is harmless on the dropped-connection path.
+_GET_INTEGRATION_RETRY_BACKOFF_SECONDS = 1.0
 
-    Temporal activities run in a long-lived worker that never goes through Django's request
-    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
-    ``close_old_connections()`` evicts connections already known to be stale, but one can still
-    die in the window before the query runs and surface as a transient ``OperationalError``
-    ("server closed the connection unexpectedly"). The failed query marks the connection
-    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
-    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying once on a transient DB ``OperationalError``.
+
+    Temporal activities run in a long-lived worker that never goes through Django's request cycle,
+    so the read can fail transiently for two reasons (see ``_GET_INTEGRATION_RETRY_BACKOFF_SECONDS``):
+    an idle pooled connection dropped server-side, or a PgBouncer ``query_wait_timeout`` while the
+    pool is saturated. ``close_old_connections()`` evicts a connection already known to be stale;
+    the failed query then marks the in-use one unusable, so a second eviction drops it and the retry
+    runs on a fresh connection. The retry waits a short backoff first so a pool-wait timeout does not
+    immediately re-hit the full pool. This read is idempotent, so it is safe to repeat. A second
+    failure propagates so Temporal still retries the activity. ``Integration.DoesNotExist`` is left
+    to propagate without a retry.
     """
     close_old_connections()
     try:
         return Integration.objects.get(id=integration_id, team_id=team_id)
     except OperationalError:
         close_old_connections()
+        time.sleep(_GET_INTEGRATION_RETRY_BACKOFF_SECONDS)
         return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
