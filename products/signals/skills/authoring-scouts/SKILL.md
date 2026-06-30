@@ -213,3 +213,7 @@ surfaces change.
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
 - A lean body (push depth into `references/`) — every line is a recurring token cost on
   every run.
+- A **tight frontmatter `description`** — a sentence or two naming the surface and the
+  shapes it watches. Every scout's description loads into the caller's AI plugin together,
+  so wordy descriptions waste token budget and get truncated; skip the fleet-wide
+  boilerplate (confidence bar, durable memory, self-contained peer).

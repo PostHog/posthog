@@ -72,7 +72,22 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   starvation, and active flows failing for the people they trigger on. Its
   discriminator is configured-to-deliver vs actually-delivering — drafts, paused
   exports, and deliberately disabled functions are operator choices, not signal;
-  data warehouse / external-data syncs are the health-checks scout's territory.
+  data warehouse / external-data syncs (data coming _in_) are the
+  data-warehouse scout's territory.
+- `signals-scout-data-warehouse/` — import-integrity watcher for the data
+  warehouse: external data sources, their per-table sync schemas, webhook push
+  channels, and materialized views. Watches for source connections in Error
+  (cascading to every armed table under them), schemas Failed or stuck Running,
+  schemas that read Completed but have fallen behind their own sync cadence (a
+  silent, growing data gap), webhook push channels broken behind a green status,
+  row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
+  configured-to-sync (`should_sync: true`) vs actually-syncing and
+  promised-freshness vs actual-freshness — paused schemas, billing limits, and
+  draft sources are operator choices, not signal. The mirror image of
+  data-pipelines (which watches data leaving PostHog); active `external_data_failure`
+  health issues overlap the health-checks scout, so it dedupes against the inbox and
+  owns the silent gaps the active-failure summary misses (staleness behind a green
+  status, broken webhooks, row cliffs).
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-session-replay/` — capture-integrity + friction watcher for session
@@ -121,6 +136,19 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-observability-gaps/` — the odd one out. Watches for _structural
   gaps_ between events being captured and existing insight / dashboard / alert
   coverage, and emits P3 _recommendations_ rather than P0–P2 _anomalies_.
+- `signals-scout-insight-alerts/` — digest + triage layer over the team's own
+  configured insight alerts (threshold / detector alerts on insights). Doesn't
+  re-detect anomalies — the user already set the thresholds — it reads each alert's
+  recent firing history (`alerts-list` to triage all alerts cheaply, `alert-get` to
+  deep-read the firing checks of the few candidates) and surfaces the recent firings a
+  human most likely missed. Its discriminator is missed-ness × materiality ×
+  persistence, weighting hardest toward firings the standard notification path stayed
+  silent on (no subscribers, suppressed by the investigation agent, or an alert
+  silently Errored and no longer evaluating); skips snoozed / disabled / flapping /
+  already-notified-and-resolved. Complements `observability-gaps` (which recommends
+  _creating_ alerts) and `anomaly-detection` (which scores insights the team _views_,
+  whether or not they're alerted) — this one owns the firings of alerts that already
+  exist.
 - `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
   violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
   post-deploy page-scoped regressions, suspicious third-party domains).
