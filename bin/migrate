@@ -228,13 +228,13 @@ fi
 
 # Temporal worker schedules. Skipped on hobby deploys (no Temporal cluster) and
 # on local dev (DEBUG=1, matching the persons-migration gate above).
+# Non-fatal: scheduling is reconciled idempotently on every deploy, so a
+# transient Temporal outage should not block the migrate job.
 if run_scope "temporal-schedules"; then
     if [ "${DEPLOYMENT:-}" != "hobby" ] && [ "${DEBUG:-0}" != "1" ]; then
         echo "Scheduling Temporal worker workflows..."
-        python manage.py schedule_temporal_workflows
-        if [ $? -ne 0 ]; then
-            echo "Error in schedule_temporal_workflows, exiting."
-            exit 1
+        if ! python manage.py schedule_temporal_workflows; then
+            echo "Warning: schedule_temporal_workflows failed, continuing."
         fi
     fi
 fi
