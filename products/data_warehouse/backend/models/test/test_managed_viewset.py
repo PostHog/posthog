@@ -1,7 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
@@ -445,6 +446,31 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
                 f"This regression indicates schedule_materialization is being called from inside "
                 f"the sync_views transaction.",
             )
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_uses_single_session_advisory_lock(self, _):
+        """A single sync_views run must never hold two same-key advisory locks of different
+        scopes. The DB-write transaction and the DAG sync are serialized under ONE session-level
+        pg_advisory_lock (acquired once, released once). The transaction-scoped
+        pg_advisory_xact_lock is gone — holding both same-key locks on the pooled connection this
+        sync runs on let their scopes interleave across shared connections and caused multi-process
+        lock-ordering deadlocks in production.
+        """
+        schemas = self._create_schemas_without_tables()
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.managed_viewset.sync_views()
+
+        sql = [q["sql"] for q in ctx.captured_queries]
+        acquires = [s for s in sql if "pg_advisory_lock" in s]
+        unlocks = [s for s in sql if "pg_advisory_unlock" in s]
+        xact_locks = [s for s in sql if "pg_advisory_xact_lock" in s]
+
+        self.assertEqual(len(xact_locks), 0, "transaction-scoped advisory lock must not be used")
+        self.assertEqual(len(acquires), 1, "session advisory lock must be acquired exactly once")
+        self.assertEqual(len(unlocks), 1, "session advisory lock must be released exactly once")
 
     def test_sync_views_persists_db_changes_when_schedule_materialization_fails(self):
         """Phase 2 failures (schedule_materialization raising) must not roll back the
