@@ -13,7 +13,7 @@ use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
 use crate::store::StoreConfig;
-use crate::workers::{CascadeConfig, PersonMemoConfig, TransferRetryPolicy};
+use crate::workers::{CascadeConfig, EventNameGating, PersonMemoConfig, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -66,6 +66,10 @@ pub struct Config {
     /// Per-worker LRU capacity (entries) for the person-property result memo.
     #[envconfig(from = "COHORT_PERSON_MEMO_CAPACITY", default = "20000")]
     pub cohort_person_memo_capacity: usize,
+
+    /// Evaluate only the behavioral conditions whose event name matches the incoming event. Default on.
+    #[envconfig(from = "COHORT_EVENT_NAME_GATING_ENABLED", default = "true")]
+    pub cohort_event_name_gating_enabled: bool,
 
     /// Bounded buffer (in sub-batches) per per-partition worker channel.
     /// Routing to a partition this far behind blocks rather than growing memory unbounded.
@@ -445,6 +449,10 @@ impl Config {
         }
     }
 
+    pub fn event_name_gating(&self) -> EventNameGating {
+        EventNameGating::from_enabled(self.cohort_event_name_gating_enabled)
+    }
+
     pub fn merge_gc_interval(&self) -> Duration {
         Duration::from_millis(self.merge_gc_interval_ms)
     }
@@ -676,6 +684,7 @@ mod tests {
             team_allowlist: TeamAllowlist::All,
             cohort_person_memo_enabled: true,
             cohort_person_memo_capacity: 20000,
+            cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
@@ -1261,6 +1270,25 @@ mod tests {
             "the kill-switch disables the memo",
         );
         assert_eq!(config.cohort_person_memo_capacity, 5000);
+    }
+
+    #[test]
+    fn event_name_gating_defaults_on_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            defaults.cohort_event_name_gating_enabled,
+            "the event-name gate defaults on",
+        );
+        assert_eq!(defaults.event_name_gating(), EventNameGating::Enabled);
+
+        let env: std::collections::HashMap<String, String> =
+            [("COHORT_EVENT_NAME_GATING_ENABLED", "false")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(!config.cohort_event_name_gating_enabled);
+        assert_eq!(config.event_name_gating(), EventNameGating::Disabled);
     }
 
     #[test]
