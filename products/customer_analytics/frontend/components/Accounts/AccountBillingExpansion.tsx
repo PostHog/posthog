@@ -70,6 +70,9 @@ export function AccountBillingExpansion({
                                 variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
                                 readOnly
                                 embedded
+                                // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
+                                // root) so the loaded results survive tab switches instead of refetching on return.
+                                attachTo={logic}
                             />
                         </div>
                     </div>

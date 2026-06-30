@@ -2,8 +2,7 @@
  * Unit tests for the pure-logic branches inside `approval.ts`. The PG-backed
  * end-to-end behaviour (intercept → upsert → wake → dispatch) is covered by
  * `agent-tests/src/cases/approval-gated.test.ts`; this file pins the model-
- * facing envelope shape that varies on per-caller hints — currently the
- * posthog-code `client_kind` suppressing the URL + admin hint.
+ * facing envelope shape.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -12,8 +11,8 @@ import {
     AgentSession,
     ApprovalRequest,
     ApprovalStore,
-    CLIENT_KIND_POSTHOG_CODE,
     EMPTY_USAGE_TOTAL,
+    type TriggerMetadata,
     UpsertApprovalRequestInput,
     UpsertApprovalRequestResult,
 } from '@posthog/agent-shared'
@@ -40,7 +39,6 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-06-16',
         updated_at: '2026-06-16',
@@ -139,35 +137,24 @@ describe('queueApprovalResult: model-facing envelope', () => {
         })
     })
 
-    it('omits approver_hint + approval_url when the session was opened by posthog-code', async () => {
+    // The approval envelope used to suppress approver_hint + approval_url for
+    // posthog-code (`client_kind`-gated). That gating is gone — the envelope
+    // is now uniform across every trigger kind. Pin that contract by
+    // exercising each TriggerMetadata variant + null.
+    it.each<[string, TriggerMetadata | null]>([
+        ['null trigger_metadata', null],
+        ['chat with no declared client tools', { kind: 'chat' }],
+        ['chat with declared client tools', { kind: 'chat', supported_client_tools: ['connect_mcp'] }],
+        ['slack', { kind: 'slack', workspace_id: 'W', channel: 'C', ts: 't', thread_ts: 't' }],
+        ['webhook', { kind: 'webhook' }],
+        ['mcp', { kind: 'mcp' }],
+        ['cron', { kind: 'cron', cron_name: 'daily', schedule: '0 9 * * *', fired_at: '2026-06-25T09:00:00Z' }],
+    ])('includes approver_hint + approval_url for %s', async (_label, trigger_metadata) => {
         const store = makeStubStore()
         const out = await queueApprovalResult({
             approvals: store,
             buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
-            session: makeSession({ trigger_metadata: { kind: 'chat', client_kind: CLIENT_KIND_POSTHOG_CODE } }),
-            revisionId: TEST_REV_ID,
-            turn: 1,
-            toolName: '@posthog/memory-write',
-            toolCallId: 'tc-1',
-            args: { note: 'apples' },
-            policy: POLICY,
-        })
-        const envelope = parseEnvelope((out.content[0] as { text: string }).text)
-        // Posthog-code's chat preview renders an in-line approval card — the
-        // model has nothing to repeat about how the user should approve, so
-        // the URL + admin hint must not appear in the envelope it sees.
-        expect(envelope.approval.approver_hint).toBeUndefined()
-        expect(envelope.approval.approval_url).toBeUndefined()
-        // Still has the bits the model uses to know it's gated.
-        expect(envelope.approval).toMatchObject({ state: 'queued', request_id: expect.any(String) })
-    })
-
-    it('treats an unrecognised client_kind as the default (URL + hint preserved)', async () => {
-        const store = makeStubStore()
-        const out = await queueApprovalResult({
-            approvals: store,
-            buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
-            session: makeSession({ trigger_metadata: { kind: 'chat', client_kind: 'some-future-client' } }),
+            session: makeSession({ trigger_metadata }),
             revisionId: TEST_REV_ID,
             turn: 1,
             toolName: '@posthog/memory-write',

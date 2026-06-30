@@ -60,6 +60,17 @@ describe('activityEventsWidgetConfigValidation', () => {
             expect(next.dateRange).toEqual({ date_from: '-7d' })
             expect(next.limit).toBe(15)
         })
+
+        it('sets and clears the event name without touching the date range', () => {
+            const config = activityEventsWidgetConfigSchema.parse({ limit: 15, dateRange: { date_from: '-7d' } })
+
+            const withEvent = patchActivityEventsWidgetFilterFields(config, { eventName: '$pageview' })
+            expect(withEvent.eventName).toBe('$pageview')
+            expect(withEvent.dateRange).toEqual({ date_from: '-7d' })
+
+            const cleared = patchActivityEventsWidgetFilterFields(withEvent, { eventName: null })
+            expect(cleared.eventName).toBeNull()
+        })
     })
 
     describe('parseActivityEventsWidgetConfigApiError', () => {

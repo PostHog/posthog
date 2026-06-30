@@ -1897,6 +1897,11 @@
             },
             "required": ["type", "values"],
             "type": "object"
+        },
+        "order_key": {
+            "default": 0,
+            "description": "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order.",
+            "type": "number"
         }
     },
     "required": ["filters", "assignee"],

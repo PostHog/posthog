@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '../../src/config/config'
+import { defaultConfig } from '~/common/config/config'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
+
 import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
-import { UUIDT } from '../../src/utils/utils'
 import { assertRouterTargetsTestDatabase } from './database-guard'
 
 export const commonUserId = 1001

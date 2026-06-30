@@ -129,7 +129,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="taxonomy_email",
+            property_type=PropertyType.String,
         )
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
@@ -140,19 +143,19 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             with freeze_time(f"2024-01-01T00:{i}:00Z"):
                 _create_person(
                     distinct_ids=[id],
-                    properties={"email": f"{id}@example.com", "id": i},
+                    properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
             _create_person(
                 distinct_ids=["person25"],
-                properties={"email": "person25@example.com", "id": 25},
+                properties={"taxonomy_email": "person25@example.com", "id": 25},
                 team=self.team,
             )
 
         self.assertIn(
             '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "email"),
+            toolkit.retrieve_entity_property_values("person", "taxonomy_email"),
         )
         self.assertIn(
             "1 more distinct value",
@@ -221,7 +224,22 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
         )
 
-    def test_retrieve_entity_property_values_virtual_property_without_examples(self):
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_property_without_examples(self, mock_runner_class):
+        # The real runner reads ClickHouse actor data, which sibling tests on the same
+        # shard can pollute (file-level sharding runs the whole file together and
+        # ClickHouse writes are not rolled back per test), making $virt_mrr resolve to a
+        # stray value instead of nothing. Mock an empty result so this asserts the
+        # no-values fallback deterministically.
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )

@@ -61,11 +61,12 @@
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
     (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
-    ;; turbo (Vercel) global config — turbo reads auth.json on every run to check
-    ;; remote-cache login. A sandbox *deny* surfaces as EPERM, which turbo treats
-    ;; as a fatal "I/O error" (unlike a missing file, which it tolerates), killing
-    ;; the frontend pane. Read-only; the remote-cache token here is low-value.
+    ;; turbo global config — turbo reads auth.json on every run to check remote-cache
+    ;; login. A sandbox *deny* surfaces as EPERM, which turbo treats as a fatal "I/O
+    ;; error" (unlike a missing file, which it tolerates), killing the frontend pane /
+    ;; autorestart-looping the stack. Read-only; the remote-cache token is low-value.
     (subpath (string-append (param "HOME") "/Library/Application Support/com.vercel.cli"))
+    (subpath (string-append (param "HOME") "/Library/Application Support/turborepo"))
     (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.

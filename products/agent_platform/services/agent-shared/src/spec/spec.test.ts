@@ -3,23 +3,24 @@ import {
     AgentSpecSchema,
     AuthConfigSchema,
     getSecretAllowedHosts,
+    MODEL_POLICY_LEVELS,
+    modelPolicyToList,
     principalsMatch,
     secretHostMatches,
 } from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
-        const parsed = AgentSpecSchema.parse({ model: 'claude-opus-4-7' })
-        expect(parsed.model).toBe('claude-opus-4-7')
+        const parsed = AgentSpecSchema.parse({})
+        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium', optimize_for: 'cost' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
-        expect(parsed.entrypoint).toBe('agent.md')
         expect(parsed.limits.max_turns).toBe(50)
     })
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'claude-opus-4-7',
+            models: { mode: 'auto', level: 'high' },
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -32,7 +33,6 @@ describe('AgentSpecSchema', () => {
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
-            entrypoint: 'agent.md',
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)
@@ -41,7 +41,7 @@ describe('AgentSpecSchema', () => {
 
     describe('limits.max_output_tokens', () => {
         it('defaults to undefined (runner picks a reasoning-aware default)', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            const parsed = AgentSpecSchema.parse({})
             expect(parsed.limits.max_output_tokens).toBeUndefined()
         })
 
@@ -68,6 +68,44 @@ describe('AgentSpecSchema', () => {
 
     it('rejects unknown tool kind', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
+    })
+
+    describe('models.manual model id format', () => {
+        // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
+        // freeze fine and then 400 on the very first session.
+        it('rejects a bare model id (no provider prefix)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects an uppercase provider', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'Anthropic/claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects a missing model id (trailing slash)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'anthropic/' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('accepts a canonical `<provider>/<model-id>`', () => {
+            const parsed = AgentSpecSchema.parse({
+                models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
+            })
+            expect(parsed.models).toMatchObject({
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-haiku-4-5' }],
+            })
+        })
     })
 
     describe('cron trigger config', () => {
@@ -772,5 +810,85 @@ describe('AgentSpecSchema', () => {
                 })
             ).toThrow()
         })
+    })
+})
+
+describe('modelPolicyToList', () => {
+    it('expands an auto level to its priority list, order preserved, no reasoning by default', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'low' } })
+        expect(modelPolicyToList(spec)).toEqual(
+            MODEL_POLICY_LEVELS.low.map((model) => ({ model, reasoning: undefined }))
+        )
+    })
+
+    it('defaults to the auto/medium list when models is omitted', () => {
+        const spec = AgentSpecSchema.parse({})
+        expect(modelPolicyToList(spec).map((e) => e.model)).toEqual([...MODEL_POLICY_LEVELS.medium])
+    })
+
+    it('auto: policy.reasoning applies to every resolved entry', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', reasoning: 'high' } })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'high')).toBe(true)
+    })
+
+    it('auto: falls back to spec.reasoning when the policy declares none', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' }, reasoning: 'low' })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'low')).toBe(true)
+    })
+
+    it('auto: policy.reasoning wins over spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'auto', level: 'medium', reasoning: 'xhigh' },
+            reasoning: 'low',
+        })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'xhigh')).toBe(true)
+    })
+
+    it('manual: passes the explicit list through in order, per-entry reasoning preserved', () => {
+        const spec = AgentSpecSchema.parse({
+            models: {
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-opus-4-7', reasoning: 'high' }, { model: 'openai/gpt-5' }],
+            },
+        })
+        expect(modelPolicyToList(spec)).toEqual([
+            { model: 'anthropic/claude-opus-4-7', reasoning: 'high' },
+            { model: 'openai/gpt-5', reasoning: undefined },
+        ])
+    })
+
+    it('manual: an entry without its own reasoning inherits spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] },
+            reasoning: 'medium',
+        })
+        expect(modelPolicyToList(spec)).toEqual([{ model: 'openai/gpt-5', reasoning: 'medium' }])
+    })
+})
+
+describe('models.optimize_for', () => {
+    it('defaults to cost on an auto policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost on a manual policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost when models is omitted entirely', () => {
+        expect(AgentSpecSchema.parse({}).models.optimize_for).toBe('cost')
+    })
+
+    it.each(['cost', 'availability'] as const)('accepts optimize_for: %s', (mode) => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: mode } })
+        expect(spec.models.optimize_for).toBe(mode)
+    })
+
+    it('rejects an unknown optimize_for', () => {
+        expect(() =>
+            AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
+        ).toThrow()
     })
 })

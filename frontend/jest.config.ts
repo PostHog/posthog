@@ -9,6 +9,9 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    // @shadcn/react ships ESM-only; @posthog/quill-primitives chat components re-export its
+    // message-scroller, pulling it into frontend test module graphs via the quill barrel.
+    '@shadcn/react',
     '@react-hook',
     '@medv',
     'monaco-editor',
@@ -181,6 +184,7 @@ const config: Config = {
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
         '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^remark-breaks$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',

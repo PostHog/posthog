@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { TaskRunStatus } from 'products/tasks/frontend/types'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus`. */
 export const TERMINAL_STATUSES: TaskRunStatus[] = [

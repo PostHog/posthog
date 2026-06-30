@@ -155,6 +155,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
             models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
+            models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
         ]
 
     def __str__(self):
@@ -252,11 +254,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        # Use .all() which respects prefetch_related cache, then sort in Python
-        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
-        runs = list(self.runs.all())
+        runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
-            return max(runs, key=lambda r: r.created_at)
+            return max(runs, key=lambda r: (r.created_at, r.id))
         return None
 
     def _assign_task_number(self) -> None:
@@ -336,7 +336,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime_adapter: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -354,7 +356,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
+            RuntimeAdapter,
             get_pr_authorship_mode,
+            get_provider_for_runtime_adapter,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -444,6 +448,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if model:
             extra_state["model"] = model
+
+        # The model's runtime adapter and the provider derived from it. The agent server can't route
+        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
+        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
+        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
+        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        if runtime_adapter:
+            extra_state["runtime_adapter"] = runtime_adapter
+            provider = get_provider_for_runtime_adapter(runtime_adapter)
+            if provider is not None:
+                extra_state["provider"] = provider.value
+            if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
+                initial_permission_mode = "auto"
+
+        if reasoning_effort:
+            extra_state["reasoning_effort"] = reasoning_effort
 
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
@@ -539,7 +559,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime_adapter: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -563,7 +585,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             internal=internal,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
             model=model,
+            reasoning_effort=reasoning_effort,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
@@ -574,14 +598,24 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                create_pr=create_pr,
-                slack_thread_context=slack_thread_context,
-                posthog_mcp_scopes=posthog_mcp_scopes,
+            # Defer the fire-and-forget workflow start until the creating transaction commits.
+            # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
+            # workflow's first activity can read the TaskRun before its row is visible and fail.
+            # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
+            # are unaffected.
+            run_id = str(task_run.id)
+            team_id = task.team.id
+            task_id = str(task.id)
+            transaction.on_commit(
+                lambda: execute_task_processing_workflow(
+                    task_id=task_id,
+                    run_id=run_id,
+                    team_id=team_id,
+                    user_id=user_id,
+                    create_pr=create_pr,
+                    slack_thread_context=slack_thread_context,
+                    posthog_mcp_scopes=posthog_mcp_scopes,
+                )
             )
 
         return task
@@ -780,6 +814,12 @@ class TaskRun(models.Model):
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
+            models.Index(
+                fields=["team", "stage", "task"],
+                name="task_run_team_stage_task_idx",
+                condition=models.Q(stage__isnull=False),
+            ),
         ]
 
     def __str__(self):

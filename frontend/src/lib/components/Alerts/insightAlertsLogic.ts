@@ -8,7 +8,13 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, hasBreakdownFilter, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -27,7 +33,7 @@ export interface InsightAlertsLogicProps {
 
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean } = {}
+    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
 ): boolean => {
     if (!query) {
         return false
@@ -35,8 +41,22 @@ export const areAlertsSupportedForInsight = (
     if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
         return true
     }
+    if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        return true
+    }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
+
+// List only the insight types this account can actually alert on — naming a flag-gated type the
+// user doesn't have would disclose an unreleased feature.
+const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
+    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+
+export const alertsUnsupportedReason = (options: {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+}): string =>
+    `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
 
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
 export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
@@ -220,7 +240,11 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
             const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })) {
+            const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
+            if (
+                values.alerts.length === 0 ||
+                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+            ) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

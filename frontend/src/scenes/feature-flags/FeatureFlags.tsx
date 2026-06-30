@@ -728,6 +728,7 @@ function FeatureFlagNotificationsTab(): JSX.Element {
             subTemplateId="feature-flag-change"
             description="Get notified when feature flags are created, updated, or deleted."
             dialogTitle="New feature flag notification"
+            returnTo={urls.featureFlags(FeatureFlagsTab.NOTIFICATIONS)}
         />
     )
 }

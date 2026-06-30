@@ -306,6 +306,9 @@ def _execute_canary_run(
         query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
         team=experiment.team,
         user_facing=False,
+        # Userless background recompute. Warehouse access is enforced when the metric is authored, so
+        # resolve warehouse tables here instead of failing closed.
+        bypass_warehouse_access_control=True,
     )
     with tags_context(client_query_id=query_id, trigger="experiment_precompute_canary"):
         response = runner.calculate()

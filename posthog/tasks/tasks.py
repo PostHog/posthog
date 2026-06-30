@@ -64,6 +64,19 @@ STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
 )
 
+# Separate from the stale-queued counters above so the 24h sweep and the prewarmed fast-reap
+# stay distinguishable in Prometheus (dashboards/alerts on the 24h sweep shouldn't absorb the
+# prewarmed reap rate).
+PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_swept_total",
+    "Orphaned prewarmed TaskRuns marked FAILED by the prewarmed-queued cleanup sweep",
+)
+
+PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_errors_total",
+    "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -135,41 +148,66 @@ def kill_stale_queued_task_runs() -> None:
     refetch with status=QUEUED handles the race where a worker picks up the run
     between selection and update.
 
-    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
-    been QUEUED for the full STALE_AFTER window.
+    been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
+    run whose `updated_at` keeps being bumped while it stays QUEUED.
     """
     from products.tasks.backend.facade import api as tasks_facade
 
     BATCH_SIZE = 500
     STALE_AFTER = datetime.timedelta(hours=24)
+    CREATED_HARD_CAP = datetime.timedelta(hours=48)
+    # A live warm run self-terminates via the in-workflow WARM_IDLE_TIMEOUT (10m); one still QUEUED
+    # past this window has no workflow behind it (dispatch lost) so there is nothing else to finalize
+    # it. Kept comfortably above WARM_IDLE_TIMEOUT so a still-idling warm run is never killed early.
+    PREWARMED_STALE_AFTER = datetime.timedelta(minutes=30)
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
+    PREWARMED_REASON = "Prewarmed run never started its workflow and was orphaned in QUEUED; reaped by the cleanup job."
+
+    def _fail_each(run_ids: list, reason: str, swept_counter: Counter, errors_counter: Counter) -> tuple[int, int]:
+        swept = errors = 0
+        for run_id in run_ids:
+            try:
+                # fail_task_run refetches with status=QUEUED, handling the race where a worker
+                # picked up the run between selection and update (returns False -> skip).
+                if tasks_facade.fail_task_run(run_id, reason):
+                    swept += 1
+                    swept_counter.inc()
+            except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+                errors += 1
+                errors_counter.inc()
+                capture_exception(exc)
+        return swept, errors
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE)
-    swept = 0
-    errors = 0
-    for run_id in stale_ids:
-        try:
-            # fail_task_run refetches with status=QUEUED, handling the race where a worker
-            # picked up the run between selection and update (returns False -> skip).
-            if tasks_facade.fail_task_run(run_id, REASON):
-                swept += 1
-                STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
-        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
-            errors += 1
-            STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
-            capture_exception(exc)
-    saturated = len(stale_ids) >= BATCH_SIZE
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
+    swept, errors = _fail_each(
+        stale_ids, REASON, STALE_QUEUED_TASK_RUN_SWEPT_COUNTER, STALE_QUEUED_TASK_RUN_ERRORS_COUNTER
+    )
+
+    # Fast-reap orphaned prewarmed runs so they don't ride QUEUED to the 24h sweep above.
+    prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
+    prewarmed_swept, prewarmed_errors = _fail_each(
+        prewarmed_ids,
+        PREWARMED_REASON,
+        PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
+
+    saturated = len(stale_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
+        prewarmed_candidates=len(prewarmed_ids),
+        prewarmed_swept=prewarmed_swept,
+        prewarmed_errors=prewarmed_errors,
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )

@@ -41,8 +41,7 @@ from posthog.models.property import PropertyGroup
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -1841,6 +1840,30 @@ class TestProperty(BaseTest):
         prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
         result = property_to_expr([prop], self.team)
         self.assertEqual(result, ast.Constant(value=1))
+
+    # Flag dependency conditions also arrive as plain dicts (e.g. via the user blast radius API),
+    # taking the legacy Property path instead of FlagPropertyFilter
+    @parameterized.expand([("enabled", True), ("disabled", False), ("variant", "control")])
+    def test_flag_dependency_dict_produces_neutral_expr(self, _name: str, value: Any):
+        result = self._property_to_expr({"type": "flag", "key": "123", "value": value, "operator": "flag_evaluates_to"})
+        self.assertEqual(result, ast.Constant(value=1))
+
+    def test_flag_dependency_combined_with_person_property(self):
+        flag_prop: dict[str, Any] = {"type": "flag", "key": "123", "value": False, "operator": "flag_evaluates_to"}
+        result = self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    Property(**flag_prop),
+                    Property(type="person", key="email", value="hog@posthog.com", operator="exact"),
+                ],
+            ),
+            scope="person",
+        )
+        self.assertIsInstance(result, ast.And)
+        self.assertEqual(cast(ast.And, result).exprs[0], ast.Constant(value=1))
+        # The person filter must survive as a real comparison, not collapse to neutral too
+        self.assertIsInstance(cast(ast.And, result).exprs[1], ast.CompareOperation)
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):

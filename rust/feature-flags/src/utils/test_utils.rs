@@ -631,6 +631,7 @@ pub async fn insert_flag_for_team_in_pg(
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         },
     };
 
@@ -688,6 +689,30 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
         .execute(&mut *conn)
         .await?;
     }
+
+    Ok(())
+}
+
+pub async fn insert_experiment_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    deleted: bool,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_experiment
+        (name, filters, feature_flag_id, team_id, deleted, archived,
+         only_count_matured_users, created_at, updated_at)
+        VALUES ('test experiment', '{}'::jsonb, $1, $2, $3, false, false, NOW(), NOW())
+        "#,
+    )
+    .bind(flag_id)
+    .bind(team_id)
+    .bind(deleted)
+    .execute(&mut *conn)
+    .await?;
 
     Ok(())
 }
@@ -1163,6 +1188,16 @@ impl TestContext {
         flag: Option<FeatureFlagRow>,
     ) -> Result<FeatureFlagRow, Error> {
         insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
+    }
+
+    pub async fn insert_experiment(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        deleted: bool,
+    ) -> Result<(), Error> {
+        insert_experiment_for_flag_in_pg(self.non_persons_writer.clone(), flag_id, team_id, deleted)
+            .await
     }
 
     pub async fn insert_person(

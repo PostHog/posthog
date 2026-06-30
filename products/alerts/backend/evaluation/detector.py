@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import IntervalType, TrendsAlertConfig, TrendsQuery
+from posthog.schema import TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -30,6 +30,7 @@ from products.alerts.backend.evaluation.contract import (
     ExtractionResult,
     SeriesPoint,
     SimulationContext,
+    execution_mode_for_alert,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -40,6 +41,7 @@ def extract_detector_series(
     team: Any,
     query: TrendsQuery,
     detector_config: dict[str, Any],
+    execution_mode: ExecutionMode,
     *,
     series_index: int = 0,
     date_from: str | None = None,
@@ -68,10 +70,6 @@ def extract_detector_series(
         filters_override = min_date_from if (min_dt and min_dt < user_dt) else {"date_from": date_from}
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
-
-    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    if query.interval == IntervalType.HOUR:
-        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
     calculation_result = calculate_for_query_based_insight(
         insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
@@ -190,23 +188,34 @@ class TrendsDetectorExtractor:
     fetching the detector's wider lookback window (the whole series is scored, not a single anchor).
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("TrendsDetectorExtractor requires detector_config — dispatcher invariant violated")
         trends_query = TrendsQuery.model_validate(query)
         series_index = (alert.config or {}).get("series_index", 0)
         return extract_detector_series(
-            insight, alert.team, trends_query, detector_config, series_index=series_index, user=alert.created_by
+            insight,
+            alert.team,
+            trends_query,
+            detector_config,
+            execution_mode,
+            series_index=series_index,
+            user=alert.created_by,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
+        # Simulation isn't cadence-bound, so high_frequency=False; the interval still forces fresh on HOUR.
+        execution_mode = execution_mode_for_alert(trends_query.interval, high_frequency=False)
         result = extract_detector_series(
             insight,
             ctx.team,
             trends_query,
             ctx.detector_config,
+            execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
             user=ctx.user,

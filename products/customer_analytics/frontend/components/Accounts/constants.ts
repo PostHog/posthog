@@ -1,5 +1,8 @@
 import type { AccountsOverviewTile } from './accountsOverviewTilesLogic'
 
+// PostHog's Salesforce instance origin; append a record id to deep-link to that record (account or opportunity).
+export const SALESFORCE_ORIGIN = 'https://posthog.my.salesforce.com'
+
 export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
 export type AccountsOverviewThresholdOperator = (typeof ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS)[number]
 
@@ -44,4 +47,5 @@ export const AccountsEvents = {
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
     RelatedUserClicked: 'customer analytics account related user clicked',
+    OpportunityClicked: 'customer analytics account opportunity clicked',
 } as const

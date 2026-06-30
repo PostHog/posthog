@@ -131,7 +131,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_existing_alert_hidden_when_insight_viewer_access_is_lost(self) -> None:
         # An existing alert must not outlive viewer access to its linked insight: otherwise its
         # check history (breaching rows / values) leaks on read, and a PATCH that omits `insight`
-        # bypasses the create-time check. The queryset gate hides it from list, retrieve, and update.
+        # bypasses the create-time check. The queryset gate hides it from list, retrieve, update, and delete.
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -151,10 +151,46 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
             listed = self.client.get(f"/api/projects/{self.team.id}/alerts")
             update = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "renamed"})
+            delete = self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
 
         assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve.content
         assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
+        assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
+
+    def test_create_alert_on_funnel_insight_is_flag_gated(self) -> None:
+        funnel_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                }
+            },
+        ).json()
+        creation_request = {
+            "insight": funnel_insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+            "name": "funnel alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+            "calculation_interval": "daily",
+        }
+
+        # Flag off: the insight gate rejects funnel alerts.
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Funnel insight alerts are not enabled" in str(response.content)
+
+        # Flag on: the same request is accepted.
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
 
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
@@ -474,7 +510,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "FunnelsQuery", "series": []}
+        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -519,7 +555,51 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "FunnelsQuery", "series": []}},
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        funnel_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$autocapture"},
+                ],
+            },
+        }
+        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": funnel_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                    "name": "funnel alert",
+                },
+            ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
+        updated = deepcopy(funnel_insight_data)
+        updated["query"]["series"][1]["event"] = "$pageleave"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -597,6 +677,48 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 },
             )
         assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
+
+    def test_funnel_flag_enforced_on_config_only_patch(self) -> None:
+        # Object-level enforcement for the funnel flag, mirroring the SQL gate: a config-only PATCH
+        # (no `insight`) skips the field-level validate_insight, so validate() must re-check the flag.
+        funnel_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                }
+            },
+        ).json()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": funnel_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                    "name": "funnel alert",
+                },
+            )
+            assert alert.status_code == status.HTTP_201_CREATED, alert.content
+            alert_id = alert.json()["id"]
+
+        config_patch = {
+            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}
+        }
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
+        assert "Funnel insight alerts are not enabled" in str(blocked.content)
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(

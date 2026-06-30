@@ -13,6 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -47,6 +48,28 @@ class TestErrorTracking(APIBaseTest):
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
+
+    def test_external_reference_create_returns_provider_config_validation_error(self):
+        issue = self.create_issue()
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.JIRA.value,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/external_references/",
+            data={
+                "issue": str(issue.id),
+                "integration_id": integration.id,
+                "config": {"title": "Checkout TypeError", "description": ""},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Missing required config fields for jira: project_key."
 
     def teardown_method(self, method) -> None:
         s3 = resource(

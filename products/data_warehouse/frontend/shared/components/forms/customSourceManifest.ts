@@ -3,6 +3,24 @@
 // `CustomSourceManifestBuilder` renders it. Keeping these functions pure makes the
 // build ⇄ parse round-trip directly unit-testable.
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import type { OrganizationType } from '~/types'
+
+// The AI manifest builder needs both the feature flag and the org's AI-data-processing
+// consent: the backend (`draft_custom_manifest`) rejects drafting without consent, so the
+// frontend must gate on the same pair to avoid offering an intro that can't succeed.
+export function isCustomSourceAiBuilderEnabled(
+    featureFlags: FeatureFlagsSet,
+    currentOrganization: OrganizationType | null
+): boolean {
+    return (
+        !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
+        !!currentOrganization?.is_ai_data_processing_approved
+    )
+}
+
 // Each enum-like value set is declared once as an `as const` tuple; the union type
 // and the runtime guard (via `isMember`) are derived from it, so the allowed values
 // can't drift between the type, the parser, and the component's select options.
