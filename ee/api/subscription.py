@@ -435,7 +435,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
-            if attrs.get("delivery_config", {}).get("post_all_insights_in_main_message"):
+            # Validate the EFFECTIVE delivery_config, not just the submitted value: a PATCH that moves
+            # to an integration without files:write while omitting delivery_config must still be
+            # rejected, else the persisted post_all_insights_in_main_message=true would silently fail
+            # at delivery (the UI coerces this off, but direct API/MCP callers wouldn't).
+            effective_delivery_config = (
+                attrs["delivery_config"]
+                if "delivery_config" in attrs
+                else (self.instance.delivery_config if self.instance else None)
+            ) or {}
+            if effective_delivery_config.get("post_all_insights_in_main_message"):
                 if SlackIntegration(integration).missing_scopes({"files:write"}):
                     raise serializers.ValidationError(
                         {

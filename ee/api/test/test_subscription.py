@@ -538,6 +538,28 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert "files:write" in str(res.json())
 
+    def test_patch_to_integration_without_files_write_rejects_persisted_gallery_flag(self):
+        # Effective-config validation: moving an existing post_all_insights_in_main_message sub to an
+        # integration lacking files:write must be rejected even when the PATCH omits delivery_config.
+        with_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        without_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=with_scope.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"integration_id": without_scope.id},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
     def test_post_all_in_main_allowed_with_files_write(self):
         integration = Integration.objects.create(
             team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
