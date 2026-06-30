@@ -56,6 +56,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
+# discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
+# objects can grow past the size that reliably transfers intact, and the response then arrives
+# truncated mid-stream — the SDK only discovers the bad body while JSON-decoding it, after its retry
+# loop, and re-fetching the identical oversized page just truncates again. A smaller page keeps each
+# response well within transferable size; _is_truncated_stripe_list_response stays as a backstop for
+# genuinely transient cuts.
+SUBSCRIPTION_PAGE_LIMIT = 20
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -292,6 +300,9 @@ def _build_resources(
             method=client.subscriptions.list,
             params={
                 "status": "all",
+                # Smaller page than DEFAULT_LIMIT because the expansions below bloat each object; see
+                # SUBSCRIPTION_PAGE_LIMIT. Overrides the default `limit` in the merged params.
+                "limit": SUBSCRIPTION_PAGE_LIMIT,
                 # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
                 # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
                 # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as

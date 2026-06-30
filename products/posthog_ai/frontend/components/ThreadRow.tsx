@@ -8,6 +8,7 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { AssistantFailureMessage } from '../messages/AssistantFailureMessage'
+import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
@@ -159,6 +160,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'progress') {
         return <ProgressItem item={item} />
+    }
+    if (item.type === 'debug') {
+        return <DebugMessage text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
     }
     return null
 })
