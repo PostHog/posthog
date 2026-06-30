@@ -114,6 +114,7 @@ the row lists both.
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
+| dropbox_sign            | HTTP                        | requests                                                        | ✅                          |
 | drip                    | HTTP                        | requests                                                        | ✅                          |
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
@@ -377,7 +378,6 @@ doesn't conflict with concurrent PRs.
 - dolibarr
 - dremio
 - dropbox
-- dropbox_sign
 - dwolla
 - dynamics365
 - dynamodb

@@ -989,7 +989,7 @@ class DripSourceConfig(config.Config):
 
 @config.config
 class DropboxSignSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
