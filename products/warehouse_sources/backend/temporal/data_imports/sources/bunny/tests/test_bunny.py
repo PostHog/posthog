@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunn
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import BUNNY_ENDPOINTS, ENDPOINTS
 
+# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
+_fetch_page_unwrapped = bunny._fetch_page.__wrapped__  # type: ignore[attr-defined]
+
 
 class _FakeResumableManager:
     def __init__(self, state: BunnyResumeConfig | None = None) -> None:
@@ -42,10 +45,7 @@ class TestGetRows:
         manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, dict], endpoint: str = "pull_zones"
     ) -> list[dict]:
         def fake_fetch(session: Any, path: str, page: int, per_page: int, logger: Any) -> dict:
-            result = pages[page]
-            if isinstance(result, Exception):
-                raise result
-            return result
+            return pages[page]
 
         monkeypatch.setattr(bunny, "_fetch_page", fake_fetch)
         monkeypatch.setattr(bunny, "make_tracked_session", lambda **kwargs: MagicMock())
@@ -111,7 +111,7 @@ class TestFetchPage:
         response.json.return_value = body or {}
         response.text = ""
         response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error") if status_code >= 400 else None
+            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
         )
         session = MagicMock()
         session.get.return_value = response
@@ -121,23 +121,23 @@ class TestFetchPage:
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
         with pytest.raises(BunnyRetryableError):
-            bunny._fetch_page.__wrapped__(session, "/pullzone", 1, 1000, MagicMock())
+            _fetch_page_unwrapped(session, "/pullzone", 1, 1000, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
         with pytest.raises(requests.HTTPError):
-            bunny._fetch_page.__wrapped__(session, "/pullzone", 1, 1000, MagicMock())
+            _fetch_page_unwrapped(session, "/pullzone", 1, 1000, MagicMock())
 
     def test_success_returns_json_body(self) -> None:
         body = _page([{"Id": 1}], has_more=False)
         session = self._session_returning(200, body)
-        result = bunny._fetch_page.__wrapped__(session, "/pullzone", 1, 1000, MagicMock())
+        result = _fetch_page_unwrapped(session, "/pullzone", 1, 1000, MagicMock())
         assert result == body
 
     def test_request_uses_page_and_per_page_params(self) -> None:
         session = self._session_returning(200, _page([], has_more=False))
-        bunny._fetch_page.__wrapped__(session, "/dnszone", 3, 1000, MagicMock())
+        _fetch_page_unwrapped(session, "/dnszone", 3, 1000, MagicMock())
         _, kwargs = session.get.call_args
         assert kwargs["params"] == {"page": 3, "perPage": 1000}
 
@@ -156,8 +156,8 @@ class TestCheckAccess:
         "status, ok, expected_status, expected_message",
         [
             (200, True, 200, None),
-            (401, True, 401, None),
-            (403, True, 403, None),
+            (401, False, 401, None),
+            (403, False, 403, None),
             (500, False, 500, "bunny.net returned HTTP 500"),
         ],
     )

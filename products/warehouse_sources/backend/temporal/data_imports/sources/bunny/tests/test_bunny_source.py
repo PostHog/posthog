@@ -39,6 +39,12 @@ class TestBunnySource:
         assert field.secret is True
         assert field.required is True
 
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret `access_key` itself; the base URL is hardcoded and the account
+        # is implicit in the key. There is no non-secret field that retargets where the key is sent,
+        # so an editor cannot reuse a preserved key against a different account without re-entering it.
+        assert self.source.connection_host_fields == []
+
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True

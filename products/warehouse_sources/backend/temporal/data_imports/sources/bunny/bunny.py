@@ -78,14 +78,16 @@ def get_rows(
     session = make_tracked_session(headers=_headers(access_key), redact_values=(access_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume and resume.next_page else 1
-    if resume and resume.next_page and resume.next_page > 1:
+    page = resume.next_page if resume else 1
+    if resume and resume.next_page > 1:
         logger.debug(f"bunny.net: resuming {endpoint} from page {page}")
 
     while True:
         data = _fetch_page(session, config.path, page, PER_PAGE, logger)
 
-        items = data.get("Items") or []
+        # `Items` is always present in the paginated envelope; missing it means a malformed
+        # response, so fail loudly rather than silently advancing the cursor past lost rows.
+        items = data["Items"]
         if items:
             yield items
 
