@@ -37,6 +37,13 @@ const HISTORY_LIMIT = 100
 // Attachment side-bar colors (Slack's red / green).
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
+// A failure streak must be contiguous in *real* (non-cancelled) runs. Cancelled/skipped runs
+// are dropped before counting, so two failures can sit far apart in wall-clock when everything
+// between them was cancelled (e.g. a quiet weekend whose only non-cancelled runs were old
+// failures). A gap wider than this between adjacent kept failures means we have no evidence
+// master stayed red across it, so the streak stops there — otherwise the incident `since` anchors
+// to a stale, days-old failure and the duration reads as wildly inflated (e.g. "red 61h").
+const STREAK_MAX_GAP_MINUTES = 180
 
 // ---------------------------------------------------------------------------
 // GitHub data
@@ -66,14 +73,19 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
         }))
 }
 
-function countConsecutiveFailures(runs) {
+// Length of the leading run-after-run failure streak (runs are newest-first). A wall-clock gap
+// wider than STREAK_MAX_GAP_MINUTES between two adjacent kept failures breaks the streak — see the
+// constant's note. This keeps `since` anchored to the current contiguous breakage, not a stale run.
+function leadingFailureStreak(runs) {
     let count = 0
-    for (const run of runs) {
-        if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
-            count++
-        } else {
-            break
+    for (let i = 0; i < runs.length; i++) {
+        const run = runs[i]
+        if (run.conclusion !== 'failure' && run.conclusion !== 'timed_out') break
+        if (i > 0) {
+            const gapMins = (new Date(runs[i - 1].updated_at).getTime() - new Date(run.updated_at).getTime()) / 60000
+            if (gapMins > STREAK_MAX_GAP_MINUTES) break
         }
+        count++
     }
     return count
 }
@@ -83,7 +95,7 @@ function buildFailingMap(allWorkflowRuns) {
     const failing = {}
     for (const runs of allWorkflowRuns) {
         if (runs.length === 0) continue
-        const count = countConsecutiveFailures(runs)
+        const count = leadingFailureStreak(runs)
         if (count > 0) {
             const latest = runs[0]
             const oldest = runs[count - 1]

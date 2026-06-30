@@ -13,6 +13,24 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
+    # Reconcile within ~a minute of a gating workflow finishing on master, instead of waiting on
+    # the schedule below — GitHub heavily throttles cron under repo load (observed ~hourly, not
+    # every 5m), so the cron alone leaves master breakage undetected for far too long. Keep the
+    # cron as a backstop for resolves and quiet periods. The job is gated to master-push runs.
+    workflow_run:
+        workflows:
+            - 'Python CI'
+            - 'Backend CI'
+            - 'Node.js CI'
+            - 'Frontend CI'
+            - 'Storybook'
+            - 'Security'
+            - 'Dagster CI'
+            - 'E2E CI Playwright'
+            - 'Rust CI'
+            - 'MCP CI'
+            - 'LLM Services CI'
+        types: [completed]
     schedule:
         - cron: '*/5 * * * *'
     workflow_dispatch: # manual trigger for testing
@@ -44,6 +62,11 @@ env:
 
 jobs:
     check-master:
+        # workflow_run fires for every branch/event of the listed workflows; only reconcile for
+        # master-push completions so PR CI doesn't spin up a runner. schedule/dispatch always run.
+        if: >-
+            github.event_name != 'workflow_run' ||
+            (github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.event == 'push')
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:

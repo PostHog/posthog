@@ -307,6 +307,26 @@ describe('ci-alerts-devex', () => {
         assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
     })
 
+    it('does not bridge a stale failure across a long gap when counting the streak (regression)', async () => {
+        // A recent failure (red 30m) and a days-old failure with only cancelled/no real runs
+        // between them — the gap a quiet weekend leaves. The streak must stop at the recent
+        // cluster, so `since` stays recent ("red for 30m") instead of anchoring to the stale
+        // run ("red for 50h") and reporting a wildly inflated duration.
+        const staleGapRuns = [
+            { name: 'Backend CI', conclusion: 'failure', head_sha: 'recent', html_url: 'https://github.com/runs/backend/recent', updated_at: minutes(-30).toISOString() },
+            { name: 'Backend CI', conclusion: 'failure', head_sha: 'stale', html_url: 'https://github.com/runs/backend/stale', updated_at: minutes(-3000).toISOString() },
+        ]
+        const github = createGithubMock(
+            { 'ci-backend.yml': staleGapRuns, 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: commitsAt(3) }
+        )
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for 30m/) // anchored to the recent failure, not the 50h-old one
+        assert.doesNotMatch(body, /50h/)
+    })
+
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {
         const github = createGithubMock(
             { 'ci-backend.yml': failingFor(2400), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
