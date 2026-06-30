@@ -3035,9 +3035,13 @@ async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor()
 
 const GW_SECRET: &str = "test-signing-secret";
 
-// Like setup_ai_test_router_with_llm_quota_limited, but with the gateway signing
-// secret set so a verified event can bypass the limiter.
-fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingSink) {
+// Shared router builder for the provenance tests: sink, timesource, health
+// handles, and the long router() call with the signing secret set. Callers
+// supply only what differs — the redis client and quota limiter.
+fn ai_router(
+    redis: Arc<MockRedisClient>,
+    quota_limiter: CaptureQuotaLimiter,
+) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -3046,17 +3050,6 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
             .unwrap()
             .with_timezone(&Utc),
     };
-    let llm_key = format!(
-        "{}{}",
-        QUOTA_LIMITER_CACHE_KEY,
-        QuotaResource::LLMEvents.as_str()
-    );
-    let redis =
-        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
-    let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
     let router = router(
         timesource,
         readiness,
@@ -3091,54 +3084,32 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
     (router, sink_clone)
 }
 
-// Capturing router with the signing secret and no quota limit, so the published
-// event is observable (used to assert a forged marker is stripped).
+// LLM-quota-limited (the token reads as over quota) with the signing secret set,
+// so a verified event can prove it bypasses the limiter.
+fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingSink) {
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    ai_router(redis, quota_limiter)
+}
+
+// Signing secret set, no quota limit, so the published event is observable
+// (used to assert a forged marker is stripped).
 fn setup_ai_router_with_secret() -> (Router, CapturingSink) {
-    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
-    let sink = CapturingSink::new();
-    let sink_clone = sink.clone();
-    let timesource = FixedTime {
-        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
-            .unwrap()
-            .with_timezone(&Utc),
-    };
     let redis = Arc::new(MockRedisClient::new());
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
-    let router = router(
-        timesource,
-        readiness,
-        liveness,
-        Arc::new(sink),
-        redis,
-        None,
-        quota_limiter,
-        TokenDropper::default(),
-        None,
-        false,
-        CaptureMode::Events,
-        String::from("capture-ai"),
-        None,
-        25 * 1024 * 1024,
-        false,
-        1_i64,
-        false,
-        0.0_f32,
-        26_214_400,
-        Some(create_mock_blob_storage()),
-        None,
-        256,
-        10 * 1024 * 1024,
-        50 * 1024 * 1024,
-        None,
-        None,
-        None,
-        8,
-        Some(GW_SECRET.to_string()),
-    );
-    (router, sink_clone)
+    ai_router(redis, quota_limiter)
 }
 
 // Sends an AI multipart request with the gateway provenance headers attached.

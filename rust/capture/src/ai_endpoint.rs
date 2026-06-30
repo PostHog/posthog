@@ -34,6 +34,7 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v1::gateway_provenance as gp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {
@@ -140,8 +141,6 @@ async fn ai_handler_inner(
     body: Body,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
     debug!("Received request to /i/v0/ai endpoint");
-
-    use crate::v1::gateway_provenance as gp;
 
     // Extract body with timed streaming (same pattern as analytics/recordings handlers)
     // Use 110% of ai_max_sum_of_parts_bytes to account for multipart overhead (matches DefaultBodyLimit layer)
