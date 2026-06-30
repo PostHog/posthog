@@ -487,7 +487,7 @@ class DeltaTableHelper:
         elif write_type == "append":
             normalized_primary_keys = self._normalize_primary_keys(data, primary_keys) if primary_keys else []
 
-            if delta_table is not None and not self._is_first_sync and normalized_primary_keys:
+            if delta_table is not None and not self._is_first_sync and primary_keys and normalized_primary_keys:
                 # Append sources (e.g. Stripe) fetch only rows past a watermark, but boundary
                 # overlaps, earliest-backfill re-fetches, re-syncs after a non-reset delete, and
                 # one-off bulk re-appends all re-deliver rows we already hold. A blind append
