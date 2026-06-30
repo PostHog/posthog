@@ -105,7 +105,7 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
             <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
                 {statusTag}
                 {!hasPrior ? (
-                    <>Needs at least two periods to evaluate the change — extend the date range.</>
+                    <>Needs an earlier completed period to compare against — extend the date range.</>
                 ) : preview.isBreakdown ? (
                     <>
                         Across {preview.values.length} breakdown values, comparing each period against the one before it
