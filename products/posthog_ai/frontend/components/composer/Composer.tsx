@@ -4,6 +4,7 @@ import {
     type HTMLAttributes,
     type ReactNode,
     type RefObject,
+    useCallback,
     useContext,
     useId,
     useMemo,
@@ -70,7 +71,7 @@ export interface ComposerRootProps {
     children: ReactNode
 }
 
-const ComposerRoot = forwardRef<HTMLDivElement, ComposerRootProps>(function ComposerRoot(
+const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function ComposerRoot(
     {
         value,
         onChange,
@@ -95,6 +96,16 @@ const ComposerRoot = forwardRef<HTMLDivElement, ComposerRootProps>(function Comp
 
     const sendDisabledReason = !value.trim() ? 'Type a message first' : loading ? 'Sending…' : disabledReason
 
+    // Focuses the textarea when blocked, otherwise submits — shared by the native form submit and the
+    // textarea keyboard shortcuts.
+    const submit = useCallback(() => {
+        if (sendDisabledReason) {
+            textAreaRef.current?.focus()
+            return
+        }
+        onSubmit()
+    }, [sendDisabledReason, textAreaRef, onSubmit])
+
     const ctx = useMemo<ComposerContextValue>(
         () => ({
             value,
@@ -102,30 +113,30 @@ const ComposerRoot = forwardRef<HTMLDivElement, ComposerRootProps>(function Comp
             loading,
             disabled,
             sendDisabledReason,
-            submit: () => {
-                if (sendDisabledReason) {
-                    textAreaRef.current?.focus()
-                    return
-                }
-                onSubmit()
-            },
+            submit,
             textAreaRef,
             id,
             isThreadVisible,
         }),
-        [value, onChange, loading, disabled, sendDisabledReason, onSubmit, textAreaRef, id, isThreadVisible]
+        [value, onChange, loading, disabled, sendDisabledReason, submit, textAreaRef, id, isThreadVisible]
     )
 
-    // The relative wrapper is the positioning context for the absolutely-placed Submit + Placeholder.
+    // The relative wrapper is the positioning context for the absolutely-placed Submit + Placeholder. It's a
+    // real <form> so the send button is a native submit and Enter/Cmd+Enter route through `onSubmit`. The
+    // forwarded ref always points to this form, regardless of chrome mode.
     const hasChrome = isSticky || isThreadVisible || !!containerClassName
     const positioned = (
-        <div
+        <form
             data-slot="composer-root"
             className={cn('relative w-full flex flex-col', hasChrome ? 'z-1' : className)}
-            ref={hasChrome ? undefined : ref}
+            ref={ref}
+            onSubmit={(e) => {
+                e.preventDefault()
+                submit()
+            }}
         >
             {children}
-        </div>
+        </form>
     )
 
     return (
@@ -137,7 +148,6 @@ const ComposerRoot = forwardRef<HTMLDivElement, ComposerRootProps>(function Comp
                         (isSticky || isThreadVisible) && 'sticky bottom-0 z-10 max-w-180 self-center',
                         containerClassName
                     )}
-                    ref={ref}
                 >
                     <div
                         className={cn(
@@ -298,7 +308,7 @@ export interface ComposerSubmitProps {
 
 /** The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. */
 function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitProps): JSX.Element {
-    const { sendDisabledReason, loading, submit, isThreadVisible } = useComposerContext()
+    const { sendDisabledReason, loading, isThreadVisible } = useComposerContext()
     return (
         <div
             data-slot="composer-submit"
@@ -311,8 +321,8 @@ function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitPro
             <LemonButton
                 type="primary"
                 size="small"
+                htmlType="submit"
                 icon={icon ?? <IconArrowRight />}
-                onClick={() => submit()}
                 loading={loading}
                 disabledReason={sendDisabledReason}
                 tooltip={sendDisabledReason ? undefined : (tooltip ?? "Let's go!")}

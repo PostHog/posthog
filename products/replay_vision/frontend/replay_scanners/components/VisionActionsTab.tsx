@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -9,6 +9,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -90,7 +91,15 @@ function VisionActionsTable(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, action) => <span className="font-semibold">{action.name}</span>,
+            render: (_, action) => (
+                <Link
+                    className="font-semibold"
+                    to={urls.replayVisionAction(action.id)}
+                    data-attr="vision-action-view-runs"
+                >
+                    {action.name}
+                </Link>
+            ),
         },
         {
             title: 'Schedule',

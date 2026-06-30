@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CICardSummaryApi,
+    CIFailureLogsApi,
     EngineeringAnalyticsCiCardsParams,
+    EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
@@ -59,6 +61,39 @@ export const engineeringAnalyticsCiCards = async (
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
     return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiFailureLogsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsCiFailureLogsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_failure_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_failure_logs/`
+}
+
+/**
+ * The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to its workflow runs via the pull_requests association (all of the PR's pushes, not just the latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association. Each line carries its original 1-based line number in the full pre-thinning log; lines are the failure region (errors plus surrounding context, with omission markers), capped per job and overall.
+ */
+export const engineeringAnalyticsCiFailureLogs = async (
+    projectId: string,
+    params: EngineeringAnalyticsCiFailureLogsParams,
+    options?: RequestInit
+): Promise<CIFailureLogsApi> => {
+    return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
