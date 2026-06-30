@@ -1,7 +1,8 @@
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
-import { logger } from '../../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 const janitorDeletedCounter = new Counter({

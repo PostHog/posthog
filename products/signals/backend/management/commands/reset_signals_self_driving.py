@@ -21,7 +21,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
 
-# Seed tag stamped on canonical scouts + the `authoring-signals-scouts` companion; this DEBUG
+# Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
 # name ships on disk), but wizard customs (`llma-skill-create`) carry no tag, so tag-only suffices.
 SEEDED_BY_HARNESS = "signals_scout_harness"
@@ -185,12 +185,12 @@ class Command(BaseCommand):
         sync schedules so they stop firing. Scoped to `created_via=MCP` so a user's own
         hand-connected warehouse source of the same type is never touched.
         """
-        from products.data_warehouse.backend.data_load.service import (
+        from products.data_warehouse.backend.facade.api import (
             delete_discover_schemas_schedule,
             delete_external_data_schedule,
         )
         from products.signals.backend.serializers import _DATA_IMPORT_SOURCE_MAP
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+        from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
         dwh_source_types = {ext_source_type for (ext_source_type, _schema_name) in _DATA_IMPORT_SOURCE_MAP.values()}
         sources = list(

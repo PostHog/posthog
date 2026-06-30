@@ -2209,26 +2209,45 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
-        title: str = json.dumps(config.pop("title"))
-        description: str = json.dumps(config.pop("description"))
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+        title: str = config.pop("title")
+        description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
 
-        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
-        body = self.query(issue_create_query)
+        issue_create_query = """
+        mutation IssueCreate($title: String!, $description: String!, $teamId: String!) {
+            issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+                success
+                issue { identifier }
+            }
+        }
+        """
+        body = self.query(
+            issue_create_query,
+            variables={"title": title, "description": description, "teamId": linear_team_id},
+        )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
         attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
-        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
-        self.query(link_attachment_query)
+        link_attachment_query = """
+        mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
+            attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
+                success
+            }
+        }
+        """
+        self.query(
+            link_attachment_query,
+            variables={"issueId": linear_issue_id, "title": "PostHog issue", "url": attachment_url},
+        )
 
         return {"id": linear_issue_id}
 
-    def query(self, query):
+    def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
-            json={"query": query},
+            json={"query": query, "variables": variables or {}},
         )
         return response.json()
 
@@ -3569,7 +3588,7 @@ class AwsS3Integration:
     aws_secret_access_key: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
@@ -3632,7 +3651,7 @@ class AwsS3Integration:
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3.value,
+            kind=Integration.IntegrationKind.AWS_S3,
             name=name,
             config={"name": name, "aws_account_id": account_id},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
@@ -3661,7 +3680,7 @@ class S3CompatibleIntegration:
     endpoint_url: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
@@ -3694,7 +3713,7 @@ class S3CompatibleIntegration:
 
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE,
             name=name,
             config={"name": name, "endpoint_url": endpoint_url},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),

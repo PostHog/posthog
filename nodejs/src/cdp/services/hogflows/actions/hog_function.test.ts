@@ -7,9 +7,9 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'

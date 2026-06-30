@@ -58,6 +58,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the sequence.",
             "name": "Name of the sequence.",
             "created_at": "Date and time the sequence was created.",
+            "updated_at": "Date and time the sequence was last updated.",
+            "subscriber_count": "Number of subscribers currently in the sequence.",
         },
     },
     "tags": {

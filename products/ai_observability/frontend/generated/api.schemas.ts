@@ -330,6 +330,12 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_allowed` - Model not available on the trial plan
  * * `provider_key_deleted` - Provider API key was deleted
  * * `no_default_model` - No default model available for the selected provider
+ * * `provider_key_invalid` - Provider API key is invalid
+ * * `provider_key_permission_denied` - Provider API key lacks model access
+ * * `provider_key_quota_exceeded` - Provider API key quota exceeded
+ * * `provider_key_rate_limited` - Provider API key is rate limited
+ * * `model_not_found` - Model not found
+ * * `hog_error` - Hog evaluation code failed
  */
 export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
 
@@ -338,6 +344,12 @@ export const StatusReasonEnumApi = {
     ModelNotAllowed: 'model_not_allowed',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
+    ProviderKeyInvalid: 'provider_key_invalid',
+    ProviderKeyPermissionDenied: 'provider_key_permission_denied',
+    ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
+    ProviderKeyRateLimited: 'provider_key_rate_limited',
+    ModelNotFound: 'model_not_found',
+    HogError: 'hog_error',
 } as const
 
 /**
@@ -393,6 +405,7 @@ export interface EvaluationConditionApi {
  * * `fireworks` - Fireworks
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -404,6 +417,7 @@ export const LLMProviderEnumApi = {
     Fireworks: 'fireworks',
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
+    Minimax: 'minimax',
 } as const
 
 /**
@@ -413,7 +427,10 @@ export interface ModelConfigurationApi {
     provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
-    /** @nullable */
+    /**
+     * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+     * @nullable
+     */
     provider_key_id?: string | null
     /** @nullable */
     readonly provider_key_name: string | null
@@ -463,6 +480,11 @@ export interface EvaluationApi {
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | null
+    /**
+     * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+     * @nullable
+     */
+    readonly status_reason_detail: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
      * * `llm_judge` - LLM as a judge
@@ -541,6 +563,11 @@ export interface PatchedEvaluationApi {
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | null
+    /**
+     * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+     * @nullable
+     */
+    readonly status_reason_detail?: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
      * * `llm_judge` - LLM as a judge
@@ -621,15 +648,30 @@ export interface TestHogResponseApi {
     message?: string
 }
 
+export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
+
+export interface ClusteringConfigApi {
+    /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+    event_filters: ClusteringConfigApiEventFiltersItem[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
+
+export interface ClusteringConfigSetEventFiltersApi {
+    /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+    event_filters: ClusteringConfigSetEventFiltersApiEventFiltersItem[]
+}
+
 /**
  * * `trace` - trace
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type ClusteringJobAnalysisLevelEnumApi =
-    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
 
-export const ClusteringJobAnalysisLevelEnumApi = {
+export const AnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -639,7 +681,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: ClusteringJobAnalysisLevelEnumApi
+    analysis_level: AnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -659,7 +701,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: ClusteringJobAnalysisLevelEnumApi
+    analysis_level?: AnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -850,13 +892,13 @@ export interface LLMProviderKeyApi {
 }
 
 export interface EvaluationConfigApi {
-    /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+    /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
     readonly trial_eval_limit: number
-    /** Number of llm_judge runs already consumed against the trial credit pool. */
+    /** Trial runs consumed (getting-started affordance only). */
     readonly trial_evals_used: number
-    /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+    /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
     readonly trial_evals_remaining: number
-    /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+    /** Provider key used to run llm_judge evals; null if none configured yet. */
     readonly active_provider_key: LLMProviderKeyApi | null
     /** Timestamp when the evaluation config row was created. */
     readonly created_at: string
@@ -1128,7 +1170,7 @@ export interface EvaluationSummaryResponseApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
-    /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+    /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
     posthog_available: boolean
 }
 
@@ -1493,85 +1535,6 @@ export interface ScoreDefinitionNewVersionApi {
      * @minimum 1
      */
     base_version?: number
-}
-
-/**
- * * `trace` - trace
- * * `generation` - generation
- */
-export type SentimentRequestAnalysisLevelEnumApi =
-    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
-
-export const SentimentRequestAnalysisLevelEnumApi = {
-    Trace: 'trace',
-    Generation: 'generation',
-} as const
-
-export interface SentimentRequestApi {
-    /**
-     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-     * @minItems 1
-     * @maxItems 5
-     */
-    ids: string[]
-    /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-     *
-     * * `trace` - trace
-     * * `generation` - generation */
-    analysis_level?: SentimentRequestAnalysisLevelEnumApi
-    /** If true, bypass cache and reclassify. */
-    force_refresh?: boolean
-    /**
-     * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-     * @nullable
-     */
-    date_from?: string | null
-    /**
-     * End of date range for the lookup. Defaults to now.
-     * @nullable
-     */
-    date_to?: string | null
-}
-
-export type MessageSentimentApiScores = { [key: string]: number }
-
-export interface MessageSentimentApi {
-    label: string
-    score: number
-    scores: MessageSentimentApiScores
-}
-
-export type SentimentResultApiScores = { [key: string]: number }
-
-export type SentimentResultApiMessages = { [key: string]: MessageSentimentApi }
-
-export interface SentimentResultApi {
-    label: string
-    score: number
-    scores: SentimentResultApiScores
-    messages: SentimentResultApiMessages
-    message_count: number
-}
-
-export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultApi }
-
-export interface SentimentBatchResponseApi {
-    results: SentimentBatchResponseApiResults
-}
-
-/**
- * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
- *
- * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
- * path used (dateRange, filterTestAccounts, properties), so the migration is
- * behaviour-preserving for callers that pass a request unchanged.
- */
-export interface SentimentGenerationsRequestApi {
-    filters?: unknown
-}
-
-export interface SentimentGenerationsResponseApi {
-    results: unknown[][]
 }
 
 /**
@@ -2112,7 +2075,8 @@ export interface TaggerModelConfigurationApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2164,7 +2128,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2360,6 +2325,14 @@ export type EvaluationsListParams = {
      */
     enabled?: boolean
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EvaluationsListEvaluationType
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[]
@@ -2388,9 +2361,14 @@ export type EvaluationsListParams = {
     search?: string
 }
 
-export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
+export type EvaluationsListEvaluationType =
+    (typeof EvaluationsListEvaluationType)[keyof typeof EvaluationsListEvaluationType]
 
-export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown }
+export const EvaluationsListEvaluationType = {
+    Hog: 'hog',
+    LlmJudge: 'llm_judge',
+    Sentiment: 'sentiment',
+} as const
 
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
@@ -2452,6 +2430,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     AzureOpenai: 'azure_openai',
     Fireworks: 'fireworks',
     Gemini: 'gemini',
+    Minimax: 'minimax',
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
@@ -2562,14 +2541,6 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     search?: string
 }
-
-export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

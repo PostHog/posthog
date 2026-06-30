@@ -24,7 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
@@ -408,7 +408,7 @@ def stripe_customer():
                     "id": "cus_NffrFeUfNV2Hib",
                     "object": "customer",
                     "address": null,
-                    "balance": 0,
+                    "balance": -1000,
                     "created": 1680893993,
                     "currency": null,
                     "default_source": null,

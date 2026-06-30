@@ -70,6 +70,7 @@ const mockEvaluation: EvaluationConfig = {
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Is this response helpful?' },
     output_type: 'boolean',

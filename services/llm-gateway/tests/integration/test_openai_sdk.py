@@ -15,7 +15,7 @@ from openai import BadRequestError, OpenAI
 from openai.types import Model
 from openai.types.chat import ChatCompletionToolChoiceOptionParam, ChatCompletionToolParam
 
-from .conftest import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY
+from .conftest import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, CLOUDFLARE_SMOKE_MODELS
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 CLOUDFLARE_CONFIGURED = bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID)
@@ -155,6 +155,20 @@ class TestChatCompletions:
 
         assert response is not None
         assert response.choices[0].message.content is not None
+
+    @pytest.mark.skipif(not CLOUDFLARE_CONFIGURED, reason="CLOUDFLARE_API_KEY/ACCOUNT_ID not set")
+    @pytest.mark.parametrize("model", CLOUDFLARE_SMOKE_MODELS)
+    def test_each_cloudflare_model_routes_and_bills(self, cloudflare_openai_client: OpenAI, model: str):
+        response = cloudflare_openai_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            max_tokens=300,
+        )
+
+        assert response.choices[0].message.content is not None
+        assert response.usage is not None
+        assert response.usage.prompt_tokens > 0
+        assert response.usage.completion_tokens > 0
 
 
 class TestMultipleModels:

@@ -1,4 +1,7 @@
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
@@ -18,10 +21,7 @@ import {
 } from '~/session-replay/recording-api/types'
 
 import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { KafkaBrokerConfig } from '../ingestion/config'
-import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
-import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type RecordingApiServerConfig = BaseServerConfig &

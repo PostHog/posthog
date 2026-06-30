@@ -17,10 +17,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 
 def _field(name: str) -> ast.Field:
@@ -131,7 +131,7 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
@@ -139,7 +139,7 @@ class TestWarehouseMetadata(APIBaseTest):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _descriptions, _row_counts, view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
@@ -148,7 +148,7 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
 
     def test_descriptions_are_keyed_by_table_id_not_name(self):
@@ -170,7 +170,7 @@ class TestWarehouseMetadata(APIBaseTest):
                 description="Unique order identifier.",
                 description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             )
-        descriptions, _row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        descriptions, _row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert descriptions[(str(table.id), "")] == "All orders placed by customers."
         assert descriptions[(str(table.id), "id")] == "Unique order identifier."
         assert ("orders", "") not in descriptions
@@ -356,6 +356,50 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    def test_warehouse_column_statistics_are_merged(self):
+        # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,
+        # keyed by table id + column (like descriptions). A warehouse column without stats stays NULL.
+        credentials = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            row_count=42,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+            },
+        )
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnStatistics.objects.create(
+                team=self.team,
+                table=table,
+                column_name="id",
+                null_fraction=0.25,
+                min_value="ch_001",
+                max_value="ch_999",
+                has_min_max=True,
+            )
+
+        rows = (
+            execute_hogql_query(
+                """
+                SELECT column_name, null_fraction, min_value, max_value
+                FROM system.information_schema.columns
+                WHERE table_name = 'stripe_charges'
+                ORDER BY column_name
+                """,
+                team=self.team,
+            ).results
+            or []
+        )
+        by_column = {row[0]: list(row[1:]) for row in rows}
+        assert by_column["id"] == [0.25, "ch_001", "ch_999"]
+        # Profiled stats absent for this column → all NULL.
+        assert by_column["amount"] == [None, None, None]
 
     def test_ordinal_positions_are_unique_within_a_table(self):
         # `events` exposes nested virtual-table columns (e.g. `group_0.*`); their ordinals must

@@ -129,6 +129,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
+            featured=True,
             keywords=["facebook ads", "instagram ads"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",

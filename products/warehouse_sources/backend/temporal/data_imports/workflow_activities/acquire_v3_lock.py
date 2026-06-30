@@ -16,7 +16,7 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES

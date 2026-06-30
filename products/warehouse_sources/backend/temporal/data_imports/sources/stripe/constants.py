@@ -51,7 +51,12 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     REFUND_RESOURCE_NAME: "refund",
     SUBSCRIPTION_RESOURCE_NAME: "customer.subscription",
     CREDIT_NOTE_RESOURCE_NAME: "credit_note",
-    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: "billing",
+    # CustomerBalanceTransaction (the legacy customer credit-balance ledger returned by
+    # `customers.balance_transactions.list`) has no Stripe webhook event — no event ever carries a
+    # `customer_balance_transaction` object. The previous "billing" prefix only subscribed the source
+    # webhook to unrelated `billing.*` events (credit grants, meters, alerts, and the distinct
+    # `billing.credit_balance_transaction` object), none of which can populate this table. So it's
+    # intentionally absent here and stays API-sweep-only.
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
     COUPON_RESOURCE_NAME: "coupon",
     DISCOUNT_RESOURCE_NAME: "customer.discount",

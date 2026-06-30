@@ -24,13 +24,13 @@ import {
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
-import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/config/kafka-topics'
-import { createKafkaConsumer } from '~/kafka/consumer'
+import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/common/config/kafka-topics'
+import { createKafkaConsumer } from '~/common/kafka/consumer'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
 import { PluginServerService, RawKafkaEvent } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { PubSub } from '~/utils/pubsub'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
     Pick<AIObservabilityConfig, 'LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING'>

@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 import orjson
 import stripe as stripe_lib
 import pyarrow as pa
+import requests
 from asgiref.sync import async_to_sync
 from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
@@ -55,6 +56,65 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
+# discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
+# objects can grow past the size that reliably transfers intact, and the response then arrives
+# truncated mid-stream — the SDK only discovers the bad body while JSON-decoding it, after its retry
+# loop, and re-fetching the identical oversized page just truncates again. A smaller page keeps each
+# response well within transferable size; _is_truncated_stripe_list_response stays as a backstop for
+# genuinely transient cuts.
+SUBSCRIPTION_PAGE_LIMIT = 20
+
+_JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
+_OPEN_BRACE = ord("{")
+_CLOSE_BRACE = ord("}")
+
+
+def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool:
+    """A connection reset *mid-response* surfaces from ``requests`` as a ``ChunkedEncodingError``
+    (the body stream broke after the headers arrived). Stripe's ``_handle_request_error`` only
+    flags ``Timeout`` and ``ConnectionError`` as retryable, so it wraps this in an
+    ``APIConnectionError`` with ``should_retry=False`` and the SDK gives up — the error then
+    propagates straight out of ``auto_paging_iter`` and fails the whole import. The reset is
+    transient and our reads are idempotent list/GET calls, so it is safe to retry within the SDK's
+    bounded backoff. Matching ``ChunkedEncodingError`` (not ``SSLError`` or other
+    ``RequestException``\\ s the SDK also declines) keeps this scoped to the mid-stream drop."""
+    return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
+
+
+def _is_truncated_stripe_list_response(body: Any) -> bool:
+    """True when ``body`` is a Stripe ``list`` response cut off before its closing brace.
+
+    A complete Stripe JSON response always ends in ``}``. A list body that opens but never closes
+    is a mid-stream truncation — a proxy or connection drop that still returned a 2xx with a
+    short body. Stripe only notices while decoding it (in ``_interpret_response``, after the SDK's
+    network-retry loop), where it raises ``APIError: Invalid response body from API`` straight out
+    of ``get_rows``/``auto_paging_iter`` and fails the whole import.
+
+    Scoped to list responses — every bulk read we make is an idempotent ``.list()`` call — so the
+    retry never re-issues a non-idempotent webhook write, whose responses are single objects.
+    """
+    if isinstance(body, str):
+        raw: bytes = body.encode("utf-8", "ignore")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        return False
+    # `_should_retry` runs on every successful list page during a sync, so we scan for the first
+    # and last non-whitespace bytes in place rather than `raw.strip()`-ing a full-body copy.
+    start = 0
+    end = len(raw) - 1
+    while start <= end and raw[start] in _JSON_WHITESPACE:
+        start += 1
+    while end >= start and raw[end] in _JSON_WHITESPACE:
+        end -= 1
+    if start > end or raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
+        return False
+    head = raw[start : start + 64]
+    # Match the specific `"object": "list"` field, not just the tokens "object" and "list"
+    # appearing anywhere in the head — otherwise a truncated single-object response with "list"
+    # in a URL or type (e.g. `"type": "list.updated"`) would be retried as if it were a list read.
+    return b'"object": "list"' in head or b'"object":"list"' in head
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):
@@ -65,7 +125,11 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
-    run. Our Stripe reads are list/GET calls, so retrying them is idempotent."""
+    run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
+    see ``_is_retryable_connection_reset``) and a 2xx whose list body was truncated mid-stream —
+    Stripe surfaces the latter as a JSON decode failure (``Invalid response body from API``) only
+    after the SDK's retry loop, too late for it to recover on its own. Our Stripe reads are
+    list/GET calls, so retrying them is idempotent."""
 
     def _should_retry(
         self,
@@ -76,18 +140,26 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     ) -> bool:
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
-        # The base logic already enforced the retry budget and declined; the only retryable case
-        # it leaves on the table is a 429, which the SDK omits but which is safe to retry here.
+        # The base logic already enforced the retry budget and declined; the cases it leaves on the
+        # table are a 429 (the SDK omits it), a 2xx with a truncated list body (the SDK only fails
+        # on it later, while parsing), and a connection reset that drops the response mid-body —
+        # all safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
-        return response is not None and response[1] == 429
+        if response is None:
+            return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
+        body, status_code, _ = response
+        if status_code == 429:
+            return True
+        return 200 <= status_code < 300 and _is_truncated_stripe_list_response(body)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
-    Uses a subclass that additionally retries 429 rate limits via the SDK's built-in backoff."""
+    Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
+    SDK's built-in backoff."""
     return _RateLimitRetryingRequestsClient(session=make_tracked_session())
 
 
@@ -127,6 +199,24 @@ def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     return getattr(error, "code", None) == "resource_missing"
 
 
+def _coerce_incremental_cursor(value: Any) -> Optional[int]:
+    """Coerce a stored incremental watermark to the Unix-timestamp int that Stripe object
+    `created`/`date` fields are. The persisted watermark can come back as a numeric string, so
+    comparing it directly against the int field raises `'<=' not supported between instances of
+    'int' and 'str'`. Returns None when the value can't be read as an int, so the caller skips
+    the cursor comparison rather than crashing."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
@@ -148,6 +238,27 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional predicate over a parent object. When set and it returns False, we skip the nested
+    # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
+    # the default behaviour fans out one call per parent — most of which return nothing. A cheap
+    # signal already present on the parent object lets us avoid the calls that can't yield data.
+    parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+
+
+def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
+    """Skip the per-customer balance-transactions call when the customer's credit balance is exactly 0.
+
+    A customer balance transaction is a credit/debit against the customer's stored balance, so any
+    customer that has ever had one and not netted it back to zero carries a non-zero ``balance``. The
+    vast majority of customers never touch their balance, so this turns the full per-customer sweep
+    (one call each, almost all empty) into a handful of calls.
+
+    Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
+    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
+    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
+    "might have" so we never silently drop data."""
+    balance = customer.get("balance")
+    return balance is None or balance != 0
 
 
 @dataclasses.dataclass
@@ -189,6 +300,9 @@ def _build_resources(
             method=client.subscriptions.list,
             params={
                 "status": "all",
+                # Smaller page than DEFAULT_LIMIT because the expansions below bloat each object; see
+                # SUBSCRIPTION_PAGE_LIMIT. Overrides the default `limit` in the merged params.
+                "limit": SUBSCRIPTION_PAGE_LIMIT,
                 # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
                 # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
                 # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as
@@ -205,6 +319,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+            parent_has_nested=_customer_might_have_balance_transactions,
         ),
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
@@ -276,8 +391,14 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
+                # Skip parents that a cheap signal on the parent object rules out — avoids one empty
+                # nested call per parent (the bulk of Stripe API volume for these resources).
+                if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
+                    skipped_parents += 1
+                    continue
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
@@ -292,7 +413,10 @@ def get_rows(
                             }
                         )
 
-                        if batcher.should_yield():
+                        # A single batch can split into several ready chunks, so drain them all
+                        # before batching the next item — otherwise the next batch() trips the
+                        # "table already ready" guard.
+                        while batcher.should_yield():
                             py_table = batcher.get_table()
                             yield py_table
 
@@ -305,6 +429,10 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+            if skipped_parents:
+                logger.debug(
+                    f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
+                )
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}
@@ -312,14 +440,14 @@ def get_rows(
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
-                if batcher.should_yield():
+                while batcher.should_yield():
                     py_table = batcher.get_table()
                     yield py_table
 
                     last_cur = py_table.column("id")[-1].as_py()
                     resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
 
-        if batcher.should_yield(include_incomplete_chunk=True):
+        while batcher.should_yield(include_incomplete_chunk=True):
             py_table = batcher.get_table()
             yield py_table
 
@@ -360,8 +488,9 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
+        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
         for obj in stripe_objects.auto_paging_iter():
-            if obj[incremental_field_name] <= db_incremental_field_last_value:
+            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
                 break
 
             yield obj

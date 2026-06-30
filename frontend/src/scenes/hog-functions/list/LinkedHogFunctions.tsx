@@ -81,6 +81,7 @@ export function LinkedHogFunctions({
             key={logicKey}
             forceFilterGroups={hogFunctionFilterList}
             type={type}
+            returnTo={queryParams?.returnTo}
             hideFeedback={hideFeedback}
             emptyText={emptyText}
             extraControls={

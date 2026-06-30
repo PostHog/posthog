@@ -9240,73 +9240,6 @@ export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.ob
     ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
 })
 
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderCreateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderCreateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderCreateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderUpdateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderPartialUpdateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .optional()
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderPartialUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -9580,58 +9513,6 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
-})
-
-export const persistedFolderCreateBodyProtocolMax = 64
-
-export const PersistedFolderCreateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderCreateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-export const persistedFolderUpdateBodyProtocolMax = 64
-
-export const PersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-export const persistedFolderPartialUpdateBodyProtocolMax = 64
-
-export const PersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .optional()
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderPartialUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
 })
 
 export const projectSecretApiKeysCreateBodyLabelMax = 40

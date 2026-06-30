@@ -10,8 +10,8 @@ from posthog.hogql.direct_sql import (
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestDirectSQLRegistry(SimpleTestCase):

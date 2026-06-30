@@ -10,6 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
@@ -137,7 +138,9 @@ function Login(): JSX.Element {
                                     type="email"
                                     autoFocus
                                     placeholder="you@yourcompany.com"
-                                    autoComplete="email"
+                                    // The `webauthn` token enables passkey autofill (conditional UI),
+                                    // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
+                                    autoComplete={isWebKitBrowser() ? 'username webauthn' : 'email'}
                                     value={value ?? ''}
                                     onChange={onChange}
                                     onBlur={() => precheck({ email: login.email })}

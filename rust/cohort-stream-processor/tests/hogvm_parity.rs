@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use cohort_stream_processor::hogvm::{evaluate_detailed, EvalOutcome};
 use serde_json::Value;
 
+/// HogVM `RETURN`. Fixtures store compiled bytecode without it; append it so the parity oracle runs
+/// the same RETURN-terminated shape the hot path does.
+const OP_RETURN: i64 = 38;
+
 /// A missing directory yields no fixtures (optional corpus); any other read/parse failure panics.
 fn fixtures_in(dir: &Path) -> Vec<(PathBuf, Value)> {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -64,11 +68,13 @@ fn rust_executor_matches_python_oracle() {
         let bytecode = fixture["bytecode"]
             .as_array()
             .unwrap_or_else(|| panic!("fixture {path:?} `bytecode` must be an array"));
+        let mut bytecode = bytecode.clone();
+        bytecode.push(Value::from(OP_RETURN));
         let globals = fixture["globals"].clone();
         // `unwrap_or(false)` mirrors the Node `?? false` coercion.
         let expected = fixture["expected_result"].as_bool().unwrap_or(false);
 
-        let actual = match evaluate_detailed(bytecode, globals) {
+        let actual = match evaluate_detailed(&bytecode, globals) {
             EvalOutcome::Matched(matched) => matched,
             other => panic!("fixture `{name}` ({path:?}) did not evaluate cleanly: {other:?}"),
         };

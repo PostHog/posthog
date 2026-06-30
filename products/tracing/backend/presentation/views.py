@@ -185,9 +185,8 @@ class _TracingQueryRequestSerializer(serializers.Serializer):
 
 
 class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
-    # The sparkline and duration-histogram actions read only these filter fields. They deliberately do
-    # NOT subclass the span-query body: that body's result-shaping fields (orderBy, limit, pagination,
-    # rootSpans, flatSpans, …) are silently ignored here, so advertising them would mislead callers.
+    # Shared filter fields for the timeseries actions; deliberately not a subclass of the span-query
+    # body, whose result-shaping fields (orderBy, limit, pagination, flatSpans, …) don't apply here.
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last hour.",
@@ -212,6 +211,21 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
 
 class _TracingTimeseriesRequestSerializer(serializers.Serializer):
     query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
+
+
+class _TracingSparklineQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, count only root spans (one per trace) so the bars reflect the Traces view. "
+            "When false (default), count every matching span — the Spans view's volume."
+        ),
+    )
+
+
+class _TracingSparklineRequestSerializer(serializers.Serializer):
+    query = _TracingSparklineQueryBodySerializer(help_text="The sparkline query to execute.")
 
 
 class _TracingTraceRequestSerializer(serializers.Serializer):
@@ -446,6 +460,9 @@ class _TracingCountRequestSerializer(serializers.Serializer):
 
 class _TracingCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of spans matching the filters.")
+    traceCount = serializers.IntegerField(
+        help_text="Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view."
+    )
 
 
 # Upper bound on symbols per request; each becomes a multiIf branch in the generated query.
@@ -827,7 +844,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTimeseriesRequestSerializer)
+    @extend_schema(request=_TracingSparklineRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -848,6 +865,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
+            rootSpans=query_data.get("rootSpans", False),
         )
 
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)

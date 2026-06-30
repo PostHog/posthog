@@ -72,8 +72,19 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 
+/** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */
+export const INBOX_PRIORITY_OPTIONS: SignalReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
+
 export function inboxSortOptionKey(field: InboxSortField, direction: InboxSortDirection): string {
     return `${field}:${direction}`
+}
+
+export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): string {
+    if (selected.length === 0) {
+        return 'All priorities'
+    }
+    // Codes are short (P0–P4), so list them in rank order rather than collapsing to a count.
+    return [...selected].sort().join(', ')
 }
 
 export function inboxSourceFilterLabel(selected: string[]): string {

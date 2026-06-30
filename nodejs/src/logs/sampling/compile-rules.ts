@@ -1,4 +1,4 @@
-import { createTrackedRE2 } from '~/utils/tracked-re2'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './evaluate'
 import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH } from './filter-group-match'

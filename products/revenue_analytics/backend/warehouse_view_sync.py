@@ -13,13 +13,12 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.revenue_analytics.backend.views.orchestrator import SUPPORTED_SOURCES
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

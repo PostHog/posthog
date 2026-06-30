@@ -20,7 +20,7 @@ from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.sync import database_sync_to_async_pool
 
 from products.cdp.backend.models.hog_functions import HogFunction
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow

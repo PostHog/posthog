@@ -7,6 +7,10 @@ import temporalio
 from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_errors import (
+    require_user_error_spec,
+    status_reason_detail_for_terminal_user_error,
+)
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 
@@ -50,11 +54,11 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
-            timeout=timedelta(seconds=5),
+            timeout=timedelta(seconds=10),
             team=None,
         )
     except HogVMRuntimeExceededException:
-        return {"verdict": None, "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+        return {"verdict": None, "reasoning": "", "error": "Execution timed out (10s limit exceeded)"}
     except HogVMMemoryExceededException:
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
@@ -122,13 +126,17 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
         # non-boolean result). That's an expected outcome of running customer-authored code,
         # not a system fault — record it as a skipped evaluation the user can see, rather than
         # raising (which would flood error tracking with one event per matching generation).
+        spec = require_user_error_spec("hog_error")
+        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
         errored_result: EvaluationActivityResult = {
             "result_type": "boolean",
             "verdict": None if allows_na else False,
-            "reasoning": result["error"],
+            "reasoning": error_detail,
             "allows_na": allows_na,
             "skipped": True,
             "skip_reason": "hog_error",
+            "terminal_user_error": True,
+            "status_reason": spec.status_reason,
         }
         if allows_na:
             errored_result["applicable"] = False

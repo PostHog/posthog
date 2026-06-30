@@ -17,11 +17,12 @@ CACHE_TTL_SECONDS = 300
 # Models on non-canonical litellm providers (e.g. Cloudflare via openai/ prefix) don't match their
 # cost map entry. Map the key we pass to litellm → the canonical cost-map key.
 #
-# CF entries: litellm publishes per-model CF prices only for a few legacy Llama-2/Mistral variants,
-# so we alias to the vendor's direct rate (e.g. moonshot/kimi-k2.6) as a proxy — not CF's actual
-# resold rate, and may drift if CF adds markup or flat-rate billing.
+# CF entries: alias to litellm's native `cloudflare/@cf/...` price where it carries one (CF's actual
+# resold rate). For models litellm only prices under the vendor's own key, alias to that direct rate
+# as a proxy — not CF's resold rate, and may drift if CF adds markup or flat-rate billing.
 COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
+    "openai/@cf/zai-org/glm-5.2": "cloudflare/@cf/zai-org/glm-5.2",
 }
 
 # For aliased models, litellm's reported (provider, model) labels don't match what the user asked
@@ -29,6 +30,7 @@ COST_ALIASES: dict[str, str] = {
 # Separate from COST_ALIASES: cost lookups key on litellm.model_cost, metric labels on user intent.
 ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/moonshotai/kimi-k2.6": ("cloudflare", "@cf/moonshotai/kimi-k2.6"),
+    "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
 }
 
 

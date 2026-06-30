@@ -59,6 +59,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ref": "VCS reference (e.g. commit) the release points to.",
             "url": "URL associated with the release.",
             "projects": "Projects the release is associated with.",
+            "adoption_stages": "Per-project adoption stage of the release (e.g. low_adoption, adopted, replaced).",
         },
     },
     "environments": {

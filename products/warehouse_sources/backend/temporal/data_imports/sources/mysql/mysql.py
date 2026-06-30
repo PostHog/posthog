@@ -378,6 +378,26 @@ def _is_transient_connect_timeout(e: BaseException) -> bool:
     return "timed out" in " ".join(str(arg) for arg in e.args)
 
 
+# pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
+# sequence number doesn't match the expected one (it `_force_close()`s the socket first).
+_PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
+
+
+def _is_transient_packet_sequence_error(e: BaseException) -> bool:
+    """Return True if the handshake stream desynced mid-exchange — a transient blip.
+
+    A packet-sequence mismatch during connect means the server's handshake reply
+    arrived out of order or truncated (an overloaded server, a proxy/load balancer
+    interfering, a momentary network blip) and pymysql force-closed the dead socket.
+    It's the same transient class as the 2013 drop above and a fresh attempt recovers,
+    but it surfaces as `InternalError`, not `OperationalError`, so it needs its own
+    predicate. Match the stable phrase, not the volatile got/expected packet numbers.
+    """
+    if not isinstance(e, pymysql.err.InternalError):
+        return False
+    return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -390,14 +410,16 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     while True:
         try:
             return pymysql.connect(**kwargs)
-        except pymysql.err.OperationalError as e:
+        except pymysql.err.DatabaseError as e:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
-                _is_transient_connect_drop(e) or _is_transient_connect_timeout(e)
+                _is_transient_connect_drop(e)
+                or _is_transient_connect_timeout(e)
+                or _is_transient_packet_sequence_error(e)
             ):
                 raise
             structlog.get_logger().warning(
-                "Transient MySQL connect error (drop or timeout); retrying",
+                "Transient MySQL connection error during connect; retrying",
                 attempt=attempt,
                 max_attempts=_MAX_CONNECT_ATTEMPTS,
                 exc_info=e,
