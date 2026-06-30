@@ -96,3 +96,11 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         </div>
     )
 }
+
+export function PatternsResultCount({ id }: { id: string }): JSX.Element | null {
+    const { patterns, patternsResponseLoading } = useValues(logsPatternsLogic({ id }))
+    if (patternsResponseLoading || !patterns.length) {
+        return null
+    }
+    return <span className="text-muted text-xs">{humanFriendlyNumber(patterns.length)} patterns</span>
+}

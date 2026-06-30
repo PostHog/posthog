@@ -3,11 +3,9 @@ import './LogsFilterBar.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { IconExpand45, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -18,8 +16,6 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
-import { Scene } from 'scenes/sceneTypes'
 
 import {
     AnyPropertyFilter,
@@ -46,7 +42,13 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
+export const LogsFilterBar = ({
+    showSavedViewsButton = false,
+    onOpenFullScreen,
+}: {
+    showSavedViewsButton?: boolean
+    onOpenFullScreen?: () => void
+}): JSX.Element => {
     // When the facet rail is on, Level + Service live in the rail instead of this bar.
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
@@ -74,7 +76,10 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <LogsQueryControls />
+                    <div className="flex gap-1.5">
+                        <LogsQueryControls />
+                        <LogsFullScreenButton onOpenFullScreen={onOpenFullScreen} />
+                    </div>
                 </div>
                 <LogsAppliedFilters />
             </div>
@@ -82,11 +87,11 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
     )
 }
 
-/** Time range, zoom, refresh and live tail — the "execute the query" controls shared by both bars. */
+/** Time range, zoom and refresh — the "execute the query" controls shared by both bars. */
 export const LogsQueryControls = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
-    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
+    const { logsLoading, liveTailRunning } = useValues(logsViewerDataLogic)
+    const { runQuery } = useActions(logsViewerDataLogic)
     const { zoomDateRange, setDateRange } = useActions(logsViewerFiltersLogic)
     const { filters } = useValues(logsViewerFiltersLogic)
     const { dateRange } = filters
@@ -122,25 +127,16 @@ export const LogsQueryControls = (): JSX.Element => {
                 loading={logsLoading || liveTailRunning}
                 disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
             />
-            <Shortcut
-                name="LogsLiveTail"
-                keybind={[keyBinds.edit]}
-                intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
-                interaction="click"
-                scope={Scene.Logs}
-            >
-                <LemonButton
-                    size="small"
-                    type={liveTailRunning ? 'primary' : 'secondary'}
-                    icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
-                    onClick={() => setLiveTailRunning(!liveTailRunning)}
-                    disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
-                >
-                    Live tail
-                </LemonButton>
-            </Shortcut>
         </div>
     )
+}
+
+/** Fullscreen is viewer chrome (applies to both views); renders nothing when the viewer can't expand. */
+export const LogsFullScreenButton = ({ onOpenFullScreen }: { onOpenFullScreen?: () => void }): JSX.Element | null => {
+    if (!onOpenFullScreen) {
+        return null
+    }
+    return <LemonButton size="small" icon={<IconExpand45 />} onClick={onOpenFullScreen} tooltip="Full screen" />
 }
 
 export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {

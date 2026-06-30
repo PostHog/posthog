@@ -4,16 +4,29 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
-import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControls } from './LogsFilterBar'
+import {
+    LogsAppliedFilters,
+    LogsFilterGroup,
+    LogsFilterSearch,
+    LogsFullScreenButton,
+    LogsQueryControls,
+} from './LogsFilterBar'
 
 /**
  * Top toolbar for the facet-rail layout — the "ask a question" controls: search, time range, refresh,
- * live tail, saved views and filter history. Sits above the sparkline (its inputs produce the sparkline
- * + table). View controls (sort, wrap, export, …) live in LogsDisplayBar below the sparkline.
+ * saved views, filter history and fullscreen. Sits above the sparkline (its inputs produce the sparkline
+ * + table). View-specific controls (Live tail, sort, wrap, export, …) live in the results header below
+ * the sparkline.
  *
  * Level + Service aren't here — they're facets in the rail. The active-filter chips render under the bar.
  */
-export const LogsQueryBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
+export const LogsQueryBar = ({
+    showSavedViewsButton = false,
+    onOpenFullScreen,
+}: {
+    showSavedViewsButton?: boolean
+    onOpenFullScreen?: () => void
+}): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)
 
     return (
@@ -27,7 +40,10 @@ export const LogsQueryBar = ({ showSavedViewsButton = false }: { showSavedViewsB
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <LogsQueryControls />
+                    <div className="flex gap-1.5">
+                        <LogsQueryControls />
+                        <LogsFullScreenButton onOpenFullScreen={onOpenFullScreen} />
+                    </div>
                 </div>
                 <LogsAppliedFilters />
             </div>

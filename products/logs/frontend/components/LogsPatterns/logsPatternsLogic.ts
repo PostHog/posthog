@@ -60,7 +60,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             {
                 loadPatterns: async (debounceMs: number = 0, breakpoint) => {
                     await breakpoint(debounceMs)
-                    return await logsPatternsCreate(String(values.currentTeamId), {
+                    const response = await logsPatternsCreate(String(values.currentTeamId), {
                         query: {
                             dateRange: values.utcDateRange,
                             severityLevels: values.filters.severityLevels,
@@ -72,6 +72,9 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                             filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
                         },
                     })
+                    // Discard a superseded in-flight response so a slow earlier request can't overwrite a newer one.
+                    breakpoint()
+                    return response
                 },
             },
         ],
