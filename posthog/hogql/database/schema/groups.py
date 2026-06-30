@@ -87,9 +87,7 @@ def _is_nonneg_int_constant(expr) -> bool:
 
 
 class _WindowFunctionFinder(TraversingVisitor):
-    # A window function's own ORDER BY lives in its `over_expr`, not the query's `order_by`, and pure window
-    # functions (rank, row_number, lagInFrame) aren't aggregations -- so neither the order_by nor the
-    # has_aggregation guard catches them. A window must see every group, so it can't ride the key limit.
+    # Window functions evade the order_by and has_aggregation guards but must see every group, so bail on them too.
     found: bool = False
 
     def visit(self, node):
