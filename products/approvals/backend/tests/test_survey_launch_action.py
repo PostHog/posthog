@@ -28,7 +28,9 @@ class TestLaunchSurveyActionDetect(APIBaseTest):
 
     def _viewset_view(self, survey: Survey) -> MagicMock:
         view = MagicMock()
-        view.context = None  # not a serializer
+        # A real DRF viewset has no `context` instance attribute, so `_get_instance`
+        # falls through to `get_object()`. Delete it so `hasattr` is False as in production.
+        del view.context
         view.get_object.return_value = survey
         view.team = self.team
         return view

@@ -173,7 +173,7 @@ class LaunchSurveyAction(BaseAction):
             ):
                 if managed_flag is not None and managed_flag.active != should_be_active:
                     managed_flag.active = should_be_active
-                    managed_flag.save()
+                    managed_flag.save(update_fields=["active"])
 
             log_activity(
                 organization_id=survey.team.organization_id,
