@@ -10,6 +10,8 @@ description: >
   each insight's own seasonality-matched baseline; it emits a finding only when a move
   clears the confidence bar, otherwise it updates the baseline memory and closes out
   empty. Self-contained peer in the signals-scout-* fleet.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
+
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
   plus signal_scout_internal:write (scratchpad + emit) and notebook:write (the notebook

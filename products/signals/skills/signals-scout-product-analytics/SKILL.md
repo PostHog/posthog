@@ -13,6 +13,8 @@ description: >
   re-scoring known flows (exploit) against discovering new ones (explore) across runs. Emits
   findings only when they clear the confidence bar; otherwise writes durable memory and closes
   out empty. Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
+
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes the

@@ -7,6 +7,8 @@ description: >
   cross-product correlations and explores the surfaces no specialist covers. Each
   scout runs on its own schedule (default every 24 hours), so general fires independently
   of the specialists over time.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
+
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
   scratchpad-remember/forget and emit-signal), llm_skill:read, plus standard analytics reads. Uses the
