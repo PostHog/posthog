@@ -129,7 +129,7 @@ export function ProjectMove(): JSX.Element {
                         moveProjectDisabledReason ??
                         (targetOrganization === null
                             ? 'Please select the target organization'
-                            : targetOrgRestrictionReason ?? undefined)
+                            : (targetOrgRestrictionReason ?? undefined))
                     }
                 >
                     Move {currentProject?.name || 'the current project'}
