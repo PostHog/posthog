@@ -57,6 +57,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     parse_created_by_ids,
@@ -764,6 +765,15 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
+        enforce_warehouse_metric_access(
+            [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -1080,6 +1090,20 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
+        """Query definitions of the attached saved metrics, so their tables get the same warehouse
+        access check as inline metrics."""
+        if not saved_metrics_ids:
+            return []
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return []
+        return [
+            sm.query
+            for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
+            if sm.query
+        ]
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -2029,6 +2053,16 @@ class ExperimentService:
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+
+        enforce_warehouse_metric_access(
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
+            team=self.team,
+            user=self.user,
+        )
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag

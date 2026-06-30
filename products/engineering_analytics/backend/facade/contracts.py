@@ -332,6 +332,61 @@ class PRLifecycle:
 
 
 @dataclass(frozen=True)
+class CIFailureLogLine:
+    """One line of a job's failure log. ``original_line`` is the line's 1-based position in the full
+    pre-thinning log, or None for a ``... N lines omitted ...`` marker between kept blocks — the gap
+    between consecutive ``original_line`` values is how many lines were elided. The number is the only
+    durable anchor back to the original, which isn't stored and which GitHub expires.
+    """
+
+    original_line: int | None
+    text: str
+
+
+@dataclass(frozen=True)
+class CIJobFailureLog:
+    """One failed CI job's thinned failure log, as ordered lines. The worker fetches logs for failed
+    jobs only, so every job here is a failure. ``lines`` is the thinned failure region (errors plus
+    surrounding context, with omission markers) in order; capped per job, with ``truncated`` set when
+    the job had more.
+    """
+
+    job_id: int
+    run_id: int
+    # Raw job conclusion passthrough ('failure' / 'timed_out' / ...).
+    conclusion: str
+    # Git branch the run was triggered on, or '' when unknown.
+    branch: str
+    # Total lines in the full job log before thinning — the denominator for each line's original_line;
+    # 0 when unknown (a record emitted before orig_total stamping).
+    original_total_lines: int
+    line_count: int
+    lines: list[CIFailureLogLine]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class CIFailureLogs:
+    """Thinned CI failure logs for one pull request, grouped by failed job.
+
+    Attribution follows the locked rule (SPEC §7): the PR is resolved to its workflow runs via the
+    ``pull_requests`` association (all pushes, never a head-SHA join that would drop earlier ones),
+    then logs are joined by ``run_id``. ``runs_attributed`` is how many runs the PR resolved to;
+    ``logs_available`` is False when no failure-log records were found for those runs — CI hasn't
+    failed, the logs aged out of the short Logs retention, or (fork PRs) the runs carry no PR
+    association to resolve.
+    """
+
+    pr_number: int
+    repo: RepoRef
+    runs_attributed: int
+    logs_available: bool
+    jobs: list[CIJobFailureLog]
+    # True when the overall line cap across all jobs was hit.
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
