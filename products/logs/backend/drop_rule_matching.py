@@ -6,16 +6,18 @@ import re2
 
 from products.logs.backend.models import LogsExclusionRule
 
-# Three-valued logic for evaluating a drop rule against a *partial* log record at query time.
-# When faceting we know exactly one field of the record (the facet's column or resource attribute);
-# every other predicate (severity, arbitrary attributes, request path) varies per log line and is
-# INDETERMINATE. A leaf or group resolves to:
-#   _TRUE          — provably matches some log with this facet value
-#   _FALSE         — provably cannot match any log with this facet value
-#   _INDETERMINATE — depends on fields we don't know yet
-# The Node ingestion worker (nodejs/src/logs/sampling/) is the source of truth for per-record drop
-# decisions; this only decides whether a rule *could* drop logs carrying a given facet value, mirroring
-# the established Services-tab logic (rule_could_apply_to_service) generalized to every facet dimension.
+# Three-valued logic for evaluating a drop rule against a *partial* log record at query time. When
+# faceting we know exactly one field of the record (the facet's column or resource attribute); every
+# other predicate (body, arbitrary attributes, request path) varies per line. A leaf/group resolves to
+# _TRUE (provably matches some log with this value), _FALSE (provably cannot), or _INDETERMINATE.
+#
+# Two evaluations sit on top of this, with different thresholds:
+#   - rule_could_apply_to_service / filter_group_result (Services tab): "could this rule match any log
+#     from this service?" — true unless provably FALSE; an unscoped rule applies to everything.
+#   - matching_drop_rule_names (facet rail): "does this rule *explicitly target* this facet value?" —
+#     true only when a predicate on this facet's own dimension matches. A rule scoped solely on another
+#     dimension (e.g. a body match) is deliberately NOT surfaced, so it doesn't light up every facet.
+# The Node ingestion worker (nodejs/src/logs/sampling/) remains the source of truth for actual drops.
 _FALSE, _INDETERMINATE, _TRUE = -1, 0, 1
 
 # Keys the ingestion worker treats as the service name / severity (see lookupRecordValue in
@@ -92,24 +94,25 @@ def rule_could_apply_to_service(filter_group: Any, service_name: str) -> bool:
 
 
 def _rule_applies_to_value(rule: LogsExclusionRule, dimension: FacetDimension, value: str) -> bool:
-    # Legacy scope_service column: an exact service-name match in the worker (matchesScope).
-    if rule.scope_service and dimension.field == "service_name" and rule.scope_service != value:
-        return False
-
+    """True only when the rule *explicitly targets* this facet value — i.e. it carries a predicate on
+    this facet's own dimension that the value satisfies. A rule scoped purely on another dimension (a
+    body/message match, a path pattern, a different attribute) is NOT surfaced here, even though it
+    could drop some of these logs: it doesn't single this value out, so flagging it on every facet is
+    noise. Predicates on other dimensions are ignored (treated as the group's identity), so a compound
+    rule like `service=envoy AND status=422` still surfaces on the `envoy` service value."""
     config = rule.config or {}
 
     if rule.rule_type == LogsExclusionRule.RuleType.SEVERITY_SAMPLING:
-        # The worker evaluates severity_sampling purely on scope + per-severity action — filter_group
-        # is not consulted. On the severity facet we know the exact level, so we can be precise; on any
-        # other facet the rule could drop whichever lines fall into a dropped/sampled severity bucket.
-        if dimension.field == "severity_text":
-            return _severity_drops_value(config, value)
-        return _has_any_drop_or_sample(config)
+        # The worker evaluates severity_sampling purely on per-severity action; only the severity facet
+        # is explicitly targeted, and only on the levels the rule actually drops or samples.
+        return dimension.field == "severity_text" and _severity_drops_value(config, value)
 
-    # path_drop / rate_limit are scoped via config.filter_group; a provably-FALSE group means no log
-    # carrying this facet value can match. Legacy path_drop `patterns` match the request path, which is
-    # INDETERMINATE for every facet dimension, so they neither confirm nor exclude on their own.
-    return filter_group_result(config.get("filter_group"), dimension, value) != _FALSE
+    # path_drop / rate_limit. The legacy scope_service column is an exact service-name predicate.
+    if dimension.field == "service_name" and rule.scope_service:
+        return rule.scope_service == value
+
+    # Otherwise the rule must name this dimension in its filter_group and the value must match it.
+    return _evaluate_dimension(config.get("filter_group"), dimension, value) == _TRUE
 
 
 def _severity_drops_value(config: dict, value: str) -> bool:
@@ -123,11 +126,36 @@ def _severity_drops_value(config: dict, value: str) -> bool:
     return isinstance(action, dict) and action.get("type") in ("drop", "sample")
 
 
-def _has_any_drop_or_sample(config: dict) -> bool:
-    actions = config.get("actions")
-    if not isinstance(actions, dict):
-        return False
-    return any(isinstance(a, dict) and a.get("type") in ("drop", "sample") for a in actions.values())
+def _evaluate_dimension(node: Any, dimension: FacetDimension, value: str) -> int | None:
+    """Three-valued evaluation restricted to leaves that target `dimension`. Returns None when the
+    subtree carries no predicate on this dimension at all (so it neither confirms nor blocks a match).
+    Children that return None are dropped from their parent group, which makes a non-dimension predicate
+    act as the group's identity — AND ignores it, OR ignores it — leaving only this dimension's verdict."""
+    if node is None or not isinstance(node, dict):
+        return None
+    if _is_group(node):
+        results = [
+            r
+            for r in (_evaluate_dimension(child, dimension, value) for child in node.get("values") or [])
+            if r is not None
+        ]
+        if not results:
+            return None
+        if str(node.get("type", "")).upper() == "OR":
+            if _TRUE in results:
+                return _TRUE
+            if _INDETERMINATE in results:
+                return _INDETERMINATE
+            return _FALSE
+        # AND (default for any unrecognised operator).
+        if _FALSE in results:
+            return _FALSE
+        if _INDETERMINATE in results:
+            return _INDETERMINATE
+        return _TRUE
+    if not dimension.leaf_targets_dimension(node):
+        return None
+    return _evaluate_leaf(node, value)
 
 
 def _evaluate_node(node: Any, dimension: FacetDimension, value: str) -> int:

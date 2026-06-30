@@ -63,12 +63,12 @@ class TestSeveritySamplingMatching:
         assert _applies(rule, SEV, "debug") is False
         assert _applies(rule, SVC, "api") is False
 
-    def test_applies_to_every_service_when_any_severity_dropped(self) -> None:
-        # On non-severity facets we can't know each line's severity, so a rule that drops *some*
-        # severity could drop logs from any service — it surfaces everywhere (matches Services tab).
+    def test_severity_rule_does_not_target_other_facets(self) -> None:
+        # A severity rule explicitly targets only severity levels — it must not light up every
+        # service / namespace value just because those logs might include a dropped severity.
         rule = _rule(LogsExclusionRule.RuleType.SEVERITY_SAMPLING, config={"actions": {"DEBUG": {"type": "drop"}}})
-        assert _applies(rule, SVC, "api") is True
-        assert _applies(rule, NS, "prod") is True
+        assert _applies(rule, SVC, "api") is False
+        assert _applies(rule, NS, "prod") is False
 
 
 class TestScopeAndFilterGroupMatching:
@@ -77,11 +77,11 @@ class TestScopeAndFilterGroupMatching:
         assert _applies(rule, SVC, "api") is True
         assert _applies(rule, SVC, "other") is False
 
-    def test_legacy_scope_service_does_not_exclude_other_dimensions(self) -> None:
-        # A service-scoped rule still drops some namespace=prod lines (those from `api`), so on the
-        # namespace facet it stays visible rather than being provably excluded.
+    def test_legacy_scope_service_does_not_target_other_dimensions(self) -> None:
+        # A rule scoped only to a service does not explicitly target any namespace, so it must not
+        # surface on the namespace facet.
         rule = _rule(LogsExclusionRule.RuleType.PATH_DROP, scope_service="api")
-        assert _applies(rule, NS, "prod") is True
+        assert _applies(rule, NS, "prod") is False
 
     @parameterized.expand([("service_name",), ("service.name",)])
     def test_filter_group_service_leaf(self, key: str) -> None:
@@ -109,8 +109,8 @@ class TestScopeAndFilterGroupMatching:
         assert _applies(rule, NS, "prod") is True
         assert _applies(rule, NS, "dev") is False
 
-    def test_unrelated_leaf_is_indeterminate_and_surfaces(self) -> None:
-        # A namespace-scoped rule could still drop logs from any service, so it shows on every service.
+    def test_other_dimension_leaf_does_not_surface_on_this_facet(self) -> None:
+        # A namespace-scoped rule names no service, so it must not appear on the service facet.
         rule = _rule(
             LogsExclusionRule.RuleType.PATH_DROP,
             config={
@@ -124,16 +124,54 @@ class TestScopeAndFilterGroupMatching:
                 )
             },
         )
-        assert _applies(rule, SVC, "anything") is True
+        assert _applies(rule, SVC, "anything") is False
+
+    @parameterized.expand([(SVC, "api"), (SEV, "error"), (NS, "prod")])
+    def test_message_only_rule_targets_no_facet(self, dimension: FacetDimension, value: str) -> None:
+        # The reported bug: a rule that filters only on the log message must not light up every facet.
+        rule = _rule(
+            LogsExclusionRule.RuleType.PATH_DROP,
+            config={"filter_group": _wrap({"key": "message", "type": "log", "operator": "icontains", "value": "boom"})},
+        )
+        assert _applies(rule, dimension, value) is False
+
+    def test_compound_rule_surfaces_on_the_dimension_it_names(self) -> None:
+        # `service=envoy AND status=422`: the status leaf is on a non-facet dimension and is ignored,
+        # so the rule still surfaces on the `envoy` service value (and only that one).
+        rule = _rule(
+            LogsExclusionRule.RuleType.PATH_DROP,
+            config={
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "service_name", "operator": "exact", "value": "envoy"},
+                                {
+                                    "key": "http.status_code",
+                                    "type": "log_attribute",
+                                    "operator": "exact",
+                                    "value": "422",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        assert _applies(rule, SVC, "envoy") is True
+        assert _applies(rule, SVC, "api") is False
 
     @parameterized.expand(
         [
-            ("none_applies_everywhere", None, "api", True),
+            ("unscoped_targets_nothing", None, "api", False),
             ("service_scoped_match", "api", "api", True),
             ("service_scoped_miss", "api", "other", False),
         ]
     )
     def test_rate_limit_filter_group_scoping(self, _name: str, leaf_value: Any, value: str, expected: bool) -> None:
+        # An unscoped rate limit names no dimension, so it surfaces on no facet value.
         config: dict = {"kb_per_second": 100}
         if leaf_value is not None:
             config["filter_group"] = _wrap({"key": "service_name", "operator": "exact", "value": leaf_value})
@@ -144,7 +182,7 @@ class TestScopeAndFilterGroupMatching:
 class TestMatchingDropRuleNames:
     def test_returns_names_in_order_and_caps(self) -> None:
         rules = [
-            _rule(LogsExclusionRule.RuleType.RATE_LIMIT, name=f"rule-{i}", config={"kb_per_second": 1})
+            _rule(LogsExclusionRule.RuleType.PATH_DROP, name=f"rule-{i}", scope_service="api")
             for i in range(MAX_DROP_RULE_NAMES + 5)
         ]
         names = matching_drop_rule_names(rules, SVC, "api")
