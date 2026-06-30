@@ -130,6 +130,10 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -1628,7 +1632,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filtered.append(entry)
 
         matching_count = len(filtered)
-        page = filtered[offset : offset + limit]
+
+        page: list = []
+        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
+        for entry in filtered[offset : offset + limit]:
+            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
+            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
+                break
+            page.append(entry)
+            page_bytes += entry_bytes
+
         has_more = offset + len(page) < matching_count
 
         response = JsonResponse(page, safe=False)
