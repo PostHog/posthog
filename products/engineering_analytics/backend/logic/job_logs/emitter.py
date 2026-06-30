@@ -20,6 +20,7 @@ from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.sdk._logs import LoggerProvider, LogRecord
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogExporter
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.trace import TraceFlags
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +53,21 @@ def _severity(body: str) -> tuple[str, SeverityNumber]:
     return "INFO", SeverityNumber.INFO
 
 
+def _otel_id(value: str | int | None, n_bytes: int) -> int:
+    """A GitHub run/job id packed as an OTLP trace/span id — an int the encoder serializes into
+    ``n_bytes``. GitHub ids arrive as int or numeric string (warehouse columns are nullable strings),
+    so coerce; return 0 (OTLP "unset") when missing, non-numeric, or out of range. Never None — the
+    SDK default — and never a str: either would crash serialization of the whole batch.
+    """
+    if value is None:
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if 0 < parsed < (1 << (n_bytes * 8)) else 0
+
+
 class JobLogsEmitter:
     """One record per line into Logs. Use as a context manager so the batch flushes on exit. Pass
     ``endpoint`` + ``token`` for production, ``exporter`` in tests; with neither it's a safe no-op
@@ -71,11 +87,25 @@ class JobLogsEmitter:
             logger.warning("github_ci_logs_emit_disabled", detail="no endpoint/token configured; skipping export")
         self._logger = self._provider.get_logger(_SERVICE_NAME)
 
-    def emit_log_archive(self, archive_text: str, *, attributes: Mapping[str, object]) -> int:
-        """Emit one Logs record per non-empty line. Returns the number of records emitted."""
+    def emit_log_archive(
+        self,
+        archive_text: str,
+        *,
+        attributes: Mapping[str, object],
+        trace_id: str | int | None = 0,
+        span_id: str | int | None = 0,
+    ) -> int:
+        """Emit one Logs record per non-empty line. Returns the number of records emitted.
+
+        ``trace_id``/``span_id`` map the GitHub run/job onto OTLP trace/span so the Logs UI can group
+        a whole workflow run (trace) and isolate one job (span); unmappable ids fall back to 0
+        (unset). They MUST be set: the encoder treats 0 as unset and calls ``int(trace_flags)``, so
+        the SDK's None default would crash serialization of the whole batch and nothing would land.
+        """
         if not self._enabled:
             return 0
         attrs = {key: value for key, value in attributes.items() if isinstance(value, _SCALAR)}
+        trace, span = _otel_id(trace_id, 16), _otel_id(span_id, 8)
         emitted = 0
         for raw in archive_text.splitlines():
             match = _LINE.match(raw)
@@ -87,6 +117,9 @@ class JobLogsEmitter:
                 LogRecord(
                     timestamp=timestamp,
                     observed_timestamp=timestamp,
+                    trace_id=trace,
+                    span_id=span,
+                    trace_flags=TraceFlags(TraceFlags.DEFAULT),
                     severity_text=severity_text,
                     severity_number=severity_number,
                     body=body,

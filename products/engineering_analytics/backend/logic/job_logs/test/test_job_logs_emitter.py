@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
+from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import encode_logs
 from opentelemetry.sdk._logs.export import InMemoryLogExporter
+from parameterized import parameterized
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 
@@ -12,6 +14,43 @@ def _emit(archive: str, attributes=_ATTRS):
     with JobLogsEmitter(exporter=exporter) as emitter:
         emitted = emitter.emit_log_archive(archive, attributes=attributes)
     return emitted, [d.log_record for d in exporter.get_finished_logs()]
+
+
+def _encode_one(*, trace_id, span_id):
+    exporter = InMemoryLogExporter()
+    with JobLogsEmitter(exporter=exporter) as emitter:
+        emitter.emit_log_archive(
+            "2026-06-25T09:14:02.000000Z ##[error]boom", attributes=_ATTRS, trace_id=trace_id, span_id=span_id
+        )
+    encoded = encode_logs(exporter.get_finished_logs())  # must not raise
+    return encoded.resource_logs[0].scope_logs[0].log_records[0]
+
+
+def test_run_and_job_ids_encode_as_trace_and_span():
+    # Production ships via the real OTLP HTTP exporter, which protobuf-encodes each batch — the step
+    # InMemoryLogExporter skips. The encoder treats trace/span == 0 as "unset" and calls
+    # int(trace_flags); leaving them None (the SDK default) or passing a str (run_id is a nullable
+    # warehouse column, often numeric string) raises in encode_logs and silently drops the whole
+    # batch. This asserts a string run/job id coerces and round-trips into the right-width bytes.
+    record = _encode_one(trace_id="7", span_id="42")
+    assert record.body.string_value == "##[error]boom"
+    assert record.trace_id == (7).to_bytes(16, "big")
+    assert record.span_id == (42).to_bytes(8, "big")
+
+
+@parameterized.expand(
+    [
+        ("missing", None, None),
+        ("non_numeric", "abc", "xyz"),
+        ("out_of_range", 1 << 128, 1 << 64),  # too wide for trace (16B) / span (8B)
+    ]
+)
+def test_unmappable_ids_fall_back_to_unset(_name, trace_id, span_id):
+    # Bad/oversized ids must encode as unset (empty bytes), never crash the batch — int.to_bytes on
+    # an over-width id raises OverflowError, and a non-numeric str has no to_bytes at all.
+    record = _encode_one(trace_id=trace_id, span_id=span_id)
+    assert record.trace_id == b""
+    assert record.span_id == b""
 
 
 def test_emits_per_line_with_parsed_timestamp_severity_and_attributes():

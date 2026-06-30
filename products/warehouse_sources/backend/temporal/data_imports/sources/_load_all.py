@@ -445,6 +445,7 @@ from .plain.source import PlainSource
 from .planetscale.source import PlanetScaleSource
 from .planhat.source import PlanhatSource
 from .plausible.source import PlausibleSource
+from .plunk.source import PlunkSource
 from .pocket.source import PocketSource
 from .polar.source import PolarSource
 from .polygon.source import PolygonSource
