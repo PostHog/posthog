@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import requests
+import tenacity
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
@@ -100,6 +101,26 @@ class TestFetch:
         with pytest.raises(requests.HTTPError):
             _fetch_once(session, "https://example.com", {}, structlog.get_logger())
 
+    def test_retries_transient_status_then_succeeds(self):
+        # Drive the real tenacity decorator (not `__wrapped__`) with no backoff to confirm a transient
+        # error is retried rather than re-raised on the first attempt.
+        fast_fetch = tenacity.retry(
+            retry=tenacity.retry_if_exception_type(
+                (BuzzsproutRetryableError, requests.ReadTimeout, requests.ConnectionError)
+            ),
+            stop=tenacity.stop_after_attempt(5),
+            wait=tenacity.wait_none(),
+            reraise=True,
+        )(_fetch_once)
+
+        session = mock.MagicMock()
+        session.get.side_effect = [_response(500), _response(200, [{"id": 1}])]
+
+        result = fast_fetch(session, "https://example.com", {}, structlog.get_logger())
+
+        assert result == [{"id": 1}]
+        assert session.get.call_count == 2
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -148,6 +169,27 @@ class TestValidateCredentials:
         assert call.args[0] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
         assert call.kwargs["headers"]["Authorization"] == "Token token=test-token"
 
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_transient_status_is_distinguished_from_invalid_credentials(self, status):
+        # A 429/5xx (after the session's own retries) is a temporary outage, not a credential problem,
+        # so the message must steer the user to retry rather than recreate their token.
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(status)
+
+            is_valid, message = validate_credentials("test-token", "123456")
+
+        assert is_valid is False
+        assert message is not None
+        assert "temporarily unavailable" in message
+
+    def test_token_is_redacted_in_tracked_session(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("secret-token", "123456")
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
 
 class TestGetRows:
     def test_yields_single_batch_with_full_array(self):
@@ -179,6 +221,14 @@ class TestGetRows:
             called_url = mock_session.return_value.get.call_args.args[0]
 
         assert called_url == f"{BUZZSPROUT_BASE_URL}/podcasts.json"
+
+    def test_token_is_redacted_in_tracked_session(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, [{"id": 1}])
+
+            list(get_rows("secret-token", "123456", "episodes", structlog.get_logger()))
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
 
 
 class TestBuzzsproutSource:

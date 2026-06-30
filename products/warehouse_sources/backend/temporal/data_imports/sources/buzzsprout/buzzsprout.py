@@ -56,7 +56,9 @@ def _fetch(
         raise BuzzsproutRetryableError(f"Buzzsprout API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Buzzsprout API error: status={response.status_code}, body={response.text}, url={url}")
+        # Only the status and URL are logged — the upstream response body can carry account-specific
+        # data (private episode metadata, emails) that must not be copied into PostHog logs.
+        logger.error(f"Buzzsprout API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     data = response.json()
@@ -72,7 +74,9 @@ def validate_credentials(api_token: str, podcast_id: str) -> tuple[bool, str | N
     # in a single cheap probe.
     url = f"{BUZZSPROUT_BASE_URL}/{podcast_id}/episodes.json"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=REQUEST_TIMEOUT_SECONDS
+        )
     except Exception:
         return False, "Could not reach the Buzzsprout API. Please try again."
 
@@ -82,6 +86,10 @@ def validate_credentials(api_token: str, podcast_id: str) -> tuple[bool, str | N
         return False, "Invalid Buzzsprout API token. Create a new token in your Buzzsprout account settings."
     if response.status_code == 404:
         return False, "Buzzsprout podcast not found. Check the podcast ID."
+    # A transient 429/5xx (after the session's own retries are exhausted) is not a credential problem,
+    # so surface it as a retryable condition rather than rejecting otherwise-valid credentials.
+    if response.status_code == 429 or response.status_code >= 500:
+        return False, "Buzzsprout API is temporarily unavailable. Please try again in a moment."
 
     return False, f"Buzzsprout API returned an unexpected status code: {response.status_code}"
 
@@ -90,7 +98,7 @@ def get_rows(
     api_token: str, podcast_id: str, endpoint: str, logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
     config = BUZZSPROUT_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_token,))
     url = _build_url(podcast_id, config)
 
     # Buzzsprout has no pagination: each endpoint returns its full array in one response, so a single
