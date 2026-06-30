@@ -102,7 +102,7 @@ class TestGithubObservability(SimpleTestCase):
         )
         self.assertEqual((after or 0) - (before or 0), 1)
         self.assertEqual(
-            REGISTRY.get_sample_value(_REMAINING, {"integration_id": "42", "resource": "core", "source": "unit-known"}),
+            REGISTRY.get_sample_value(_REMAINING, {"integration_id": "42", "resource": "core"}),
             4321,
         )
 
@@ -113,9 +113,7 @@ class TestGithubObservability(SimpleTestCase):
             _response(headers={"X-RateLimit-Remaining": "10", "X-RateLimit-Resource": "core"}),
             source="unit-blind",
         )
-        self.assertIsNone(
-            REGISTRY.get_sample_value(_REMAINING, {"integration_id": "", "resource": "core", "source": "unit-blind"})
-        )
+        self.assertIsNone(REGISTRY.get_sample_value(_REMAINING, {"integration_id": "", "resource": "core"}))
         self.assertEqual(
             REGISTRY.get_sample_value(
                 _COUNTER,

@@ -1157,21 +1157,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_remaining",
-                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
             == expected_remaining
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_limit",
-                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
             == expected_limit
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_reset_timestamp_seconds",
-                {"integration_id": str(integration.id), "resource": expected_resource, "source": "integration"},
+                {"integration_id": str(integration.id), "resource": expected_resource},
             )
             == expected_reset
         )

@@ -38,9 +38,13 @@ ResponseParser = Callable[[requests.Response], RateLimitSnapshot]
 class EgressMetrics:
     """The Prometheus instruments one domain records on. The recorder fills labels positionally,
     so a domain's metrics must declare them in this order: the counter as
-    ``(<identity>, method, endpoint, status_code, source)`` and each gauge as
-    ``(<identity>, resource, source)``. ``<identity>`` is whatever the domain calls the budget
-    owner (GitHub names it ``integration_id``); the recorder fills it from the ``scope`` argument."""
+    ``(<identity>, method, endpoint, status_code, source)`` and each gauge as ``(<identity>, resource)``.
+    ``<identity>`` is whatever the domain calls the budget owner (GitHub names it ``integration_id``);
+    the recorder fills it from the ``scope`` argument.
+
+    The gauges deliberately carry no ``source``: the budget is shared per identity, so all sources must
+    update one series per (identity, resource). Labeling gauges by source would strand a stale
+    last-observed value per source after that source goes quiet, misreporting remaining budget."""
 
     request_counter: Counter
     remaining_gauge: Gauge
@@ -101,13 +105,15 @@ class EgressObservability:
         if scope is None:
             return
 
+        # Gauges are keyed by (scope, resource) only — no source. The budget is shared per identity,
+        # so every source updates one series; a per-source gauge would leave stale values behind.
         snapshot = self._parser(response)
         if snapshot.remaining is not None:
-            self._metrics.remaining_gauge.labels(scope, snapshot.resource, source).set(snapshot.remaining)
+            self._metrics.remaining_gauge.labels(scope, snapshot.resource).set(snapshot.remaining)
         if snapshot.limit is not None:
-            self._metrics.limit_gauge.labels(scope, snapshot.resource, source).set(snapshot.limit)
+            self._metrics.limit_gauge.labels(scope, snapshot.resource).set(snapshot.limit)
         if snapshot.reset_at is not None:
-            self._metrics.reset_gauge.labels(scope, snapshot.resource, source).set(snapshot.reset_at)
+            self._metrics.reset_gauge.labels(scope, snapshot.resource).set(snapshot.reset_at)
 
     def record_exception(self, *, source: str, method: str, endpoint: str, scope: str | None = None) -> None:
         """Record a request that raised before a response (timeout, connection error)."""

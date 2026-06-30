@@ -32,20 +32,22 @@ _metrics = EgressMetrics(
         "Number of GitHub API requests made through a GitHub client.",
         labelnames=["integration_id", "method", "endpoint", "status_code", "source"],
     ),
+    # Gauges carry no source label: GitHub's budget is shared per installation, so all sources update
+    # one series per (integration_id, resource). (This also matches the pre-unification gauge labels.)
     remaining_gauge=Gauge(
         "github_integration_api_rate_limit_remaining",
         "Most recently observed GitHub API rate limit remaining count by integration and resource.",
-        labelnames=["integration_id", "resource", "source"],
+        labelnames=["integration_id", "resource"],
     ),
     limit_gauge=Gauge(
         "github_integration_api_rate_limit_limit",
         "Most recently observed GitHub API rate limit limit by integration and resource.",
-        labelnames=["integration_id", "resource", "source"],
+        labelnames=["integration_id", "resource"],
     ),
     reset_gauge=Gauge(
         "github_integration_api_rate_limit_reset_timestamp_seconds",
         "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
-        labelnames=["integration_id", "resource", "source"],
+        labelnames=["integration_id", "resource"],
     ),
 )
 
