@@ -218,23 +218,23 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
   LIMIT 50
 
 First-EVER occurrence of an event per user, landing in the window (e.g. "users whose first ever
-'Trade Created' is today", broken down by a property of that first event). "First ever" needs each
+'Dashboard created' is today", broken down by a property of that first event). "First ever" needs each
 user's earliest event across ALL history, so compute it in a FROM-subquery, then filter to the
 window — never approximate it with a flat `countIf`, and never use a JOIN or window function:
   SELECT
-    first_market AS asset_market,
+    first_template AS template,
     count() AS first_time_users
   FROM (
     SELECT
       distinct_id,
       min(timestamp) AS first_seen,
-      argMin(properties.asset_market, timestamp) AS first_market
+      argMin(properties.template, timestamp) AS first_template
     FROM events
-    WHERE event = 'Trade Created'
+    WHERE event = 'Dashboard created'
     GROUP BY distinct_id
   )
   WHERE first_seen >= toStartOfDay(now()) AND first_seen < toStartOfDay(now() + INTERVAL 1 DAY)
-  GROUP BY asset_market
+  GROUP BY template
   ORDER BY first_time_users DESC
   LIMIT 50
 
