@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
@@ -28,7 +28,6 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
 import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
-import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
 import { ServiceFilter } from '../ServiceFilter'
@@ -93,36 +92,15 @@ export const LogsFilterBar = ({
  * rather than collapsing in this top bar and shifting its layout.
  */
 export const LogsQueryControls = (): JSX.Element => {
-    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
     const { logsLoading, liveTailRunning } = useValues(logsViewerDataLogic)
     const { runQuery } = useActions(logsViewerDataLogic)
-    const { zoomDateRange, setDateRange } = useActions(logsViewerFiltersLogic)
+    const { setDateRange } = useActions(logsViewerFiltersLogic)
     const { filters } = useValues(logsViewerFiltersLogic)
     const { dateRange } = filters
 
     return (
         <div className="flex shrink-0 gap-1.5">
-            {newLogsDateRangePicker ? (
-                <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
-            ) : (
-                <div className="flex">
-                    <LemonButton
-                        size="small"
-                        icon={<IconMinusSquare />}
-                        type="secondary"
-                        tooltip="Zoom out"
-                        onClick={() => zoomDateRange(2)}
-                    />
-                    <DateRangeFilter />
-                    <LemonButton
-                        size="small"
-                        icon={<IconPlusSquare />}
-                        type="secondary"
-                        tooltip="Zoom in"
-                        onClick={() => zoomDateRange(0.5)}
-                    />
-                </div>
-            )}
+            <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
 
             <LemonButton
                 size="small"
