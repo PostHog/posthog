@@ -42,11 +42,10 @@ from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASO
 
 LOGGER = get_logger(__name__)
 
-# `SubscriptionDelivery.content_snapshot` key the AI report markdown is written under by
-# `generate_ai_subscription_report` and read back by `_deliver_ai_subscription`. The markdown
-# can exceed Temporal's ~2 MiB payload cap, so it travels through Postgres by reference rather
-# than on the wire — the same pattern insight snapshots use.
-AI_REPORT_SNAPSHOT_KEY = "ai_report"
+# content_snapshot key the AI report markdown is written under by `generate_ai_subscription_report`
+# and read back by `_deliver_ai_subscription`. Defined on the model (its content_snapshot owns the
+# schema); aliased here for the existing call sites.
+AI_REPORT_SNAPSHOT_KEY = SubscriptionDelivery.AI_REPORT_SNAPSHOT_KEY
 # Companion key holding per-step query diagnostics (the generated HogQL + failure type) so a degraded
 # report is debuggable after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"

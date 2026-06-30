@@ -57,6 +57,7 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         label: 'Health alerts',
         url: urls.healthAlerts(),
     },
+    'subscription-delivered': { label: 'Subscription delivered' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

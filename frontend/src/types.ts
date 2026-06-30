@@ -7008,6 +7008,7 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'subscription-delivered'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7026,6 +7027,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'subscription-delivered'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

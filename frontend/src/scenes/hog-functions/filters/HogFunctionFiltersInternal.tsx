@@ -78,6 +78,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$health_check_issue_resolved',
                 },
             ]
+        case 'subscription-delivered':
+            return [
+                {
+                    label: 'Subscription delivered',
+                    value: '$subscription_delivered',
+                },
+            ]
         default:
             return [
                 {
@@ -168,6 +175,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         } else if (contextId === 'logs-alerting') {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
+            return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'subscription-delivered') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []

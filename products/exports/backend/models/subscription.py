@@ -479,6 +479,9 @@ class SubscriptionDelivery(UUIDModel):
         FAILED = "failed"
         SKIPPED = "skipped"
 
+    # content_snapshot key the AI report markdown is stored under.
+    AI_REPORT_SNAPSHOT_KEY = "ai_report"
+
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
@@ -516,6 +519,17 @@ class SubscriptionDelivery(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated_at = models.DateTimeField(auto_now=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+
+    def get_event_summary(self, resource_type: str) -> str | None:
+        """Summary text representing this delivery for the $subscription_delivered event: the
+        generated report markdown for AI-prompt subs, otherwise the AI change summary. Resolving
+        it here keeps the emit activity free of per-resource-type branching, so a new resource
+        type only extends this method."""
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            snapshot = self.content_snapshot if isinstance(self.content_snapshot, dict) else {}
+            report = snapshot.get(self.AI_REPORT_SNAPSHOT_KEY)
+            return report if isinstance(report, str) and report else None
+        return self.change_summary or None
 
     class Meta:
         db_table = "posthog_subscription_delivery"

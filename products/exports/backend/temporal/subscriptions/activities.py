@@ -11,6 +11,8 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -32,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    EmitSubscriptionDeliveredInputs,
     FetchDueSubscriptionsActivityInputs,
     RecipientResult,
     SubscriptionAbortInfo,
@@ -54,6 +57,10 @@ LOGGER = get_logger(__name__)
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+
+# Cap the summary copied onto the $subscription_delivered event so the Kafka message stays small —
+# the full report still lives on the delivery row and in the delivered email/Slack message.
+_MAX_EVENT_SUMMARY_CHARS = 10_000
 
 
 async def _persist_content_snapshot(
@@ -482,6 +489,86 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+
+@temporalio.activity.defn
+async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInputs) -> None:
+    """Emit a `$subscription_delivered` internal event on successful delivery so users can
+    hook subscriptions into CDP destinations (the same internal-event pattern alerts use).
+
+    Best-effort: the recipient was already notified, so a failure here is logged and
+    swallowed — it never affects the delivery outcome.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _emit() -> None:
+        subscription = Subscription.objects.select_related("insight", "dashboard").get(
+            pk=inputs.subscription_id, team_id=inputs.team_id
+        )
+        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id, team_id=inputs.team_id)
+
+        resource_type = subscription.resource_type
+        summary = delivery.get_event_summary(resource_type)
+        if summary and len(summary) > _MAX_EVENT_SUMMARY_CHARS:
+            summary = summary[:_MAX_EVENT_SUMMARY_CHARS]
+
+        # Reuse the screenshots the email/Slack delivery sent — same signed exporter URLs.
+        # Preserve the caller's asset order (a `pk__in` queryset doesn't guarantee it).
+        asset_urls: list[str] = []
+        if inputs.successful_asset_ids:
+            assets_by_id = {
+                a.id: a
+                for a in ExportedAsset.objects.filter(pk__in=inputs.successful_asset_ids, team_id=inputs.team_id)
+            }
+            asset_urls = [
+                assets_by_id[asset_id].get_subscription_delivery_content_url()
+                for asset_id in inputs.successful_asset_ids
+                if asset_id in assets_by_id
+            ]
+
+        properties = {
+            "subscription_id": subscription.id,
+            "delivery_id": str(inputs.delivery_id),
+            "resource_type": resource_type,
+            "target_type": subscription.target_type,
+            "trigger_type": inputs.trigger_type,
+            "subscription_name": subscription.display_name,
+            "subscription_url": subscription.url,
+            "insight_short_id": subscription.insight.short_id if subscription.insight else None,
+            "dashboard_id": subscription.dashboard_id,
+            "recipient_count": inputs.recipient_count,
+            "summary_enabled": subscription.summary_enabled,
+            "summary": summary,
+            "asset_urls": asset_urls,
+        }
+
+        produce_internal_event(
+            team_id=inputs.team_id,
+            event=InternalEventEvent(
+                event="$subscription_delivered",
+                distinct_id=f"team_{inputs.team_id}",
+                properties=properties,
+                # Reuse the delivery's UUID as the event uuid — a valid, stable id that lets
+                # ingestion dedup if this best-effort activity is retried (one event per delivery).
+                uuid=str(inputs.delivery_id),
+                timestamp=tz.now().isoformat(),
+            ),
+        )
+
+    try:
+        await _emit()
+        await LOGGER.ainfo(
+            "emit_subscription_delivered_event.emitted",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
+    except Exception as e:
+        capture_exception(e)
+        await LOGGER.awarning(
+            "emit_subscription_delivered_event.failed",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
 
 
 @temporalio.activity.defn
