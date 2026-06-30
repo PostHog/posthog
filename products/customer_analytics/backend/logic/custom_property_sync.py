@@ -16,6 +16,7 @@ from django.utils import timezone
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -118,7 +119,8 @@ def _read_view(team: Team, view_name: str, columns: list[str]) -> list:
         select=[ast.Field(chain=[column]) for column in columns],
         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
     )
-    return execute_hogql_query(query, team=team).results or []
+    with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
+        return execute_hogql_query(query, team=team).results or []
 
 
 def record_sync_outcome(
