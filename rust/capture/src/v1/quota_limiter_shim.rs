@@ -113,7 +113,7 @@ mod tests {
     use crate::config::EnvelopeCompression;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
-    use crate::v1::analytics::types::{Event, Options};
+    use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
         Config {
@@ -300,15 +300,19 @@ mod tests {
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: product_tour_id.map(String::from),
-                    process_person_profile: None,
+                options: match product_tour_id {
+                    Some(id) => RawOptions(serde_json::json!({"product_tour_id": id})),
+                    None => RawOptions::default(),
                 },
                 properties: RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: product_tour_id.map(String::from),
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(
                 DateTime::parse_from_rfc3339("2026-03-26T12:00:00Z")
                     .unwrap()
