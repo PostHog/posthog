@@ -1219,15 +1219,17 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-scout config: list, register, and tune each scout's schedule, enablement, and
-    emit posture.
+    """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
+    and emit posture.
 
     `list` is read (`signal_scout:read`) and side-effect free — the MCP tool is annotated
-    `readOnly`, so it must never write. `create` and `partial_update` are user-grantable
-    writes (`signal_scout:write`) — config changes drive spend, so enablement is
+    `readOnly`, so it must never write. `create`, `partial_update`, and `destroy` are
+    user-grantable writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
     authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row.
+    coordinator tick to auto-register a row. `destroy` removes a row outright — the cleanup path
+    for an orphaned config whose skill was archived/deleted, which `partial_update` can only make
+    inert (`enabled=false`), not remove.
     """
 
     serializer_class = SignalScoutConfigSerializer
@@ -1382,6 +1384,35 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Config deleted."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Delete a scout config",
+        description=(
+            "Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row "
+            "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
+            "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
+            "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
+            "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "
+            "re-creates a default-schedule config on its next tick — to retire a live scout, archive "
+            "its skill (or set `enabled=false` to make it inert) rather than deleting the config."
+        ),
+        operation_id="signals_scout_config_destroy",
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
+        # config changes drive spend and are activity-logged, removals included.
+        config.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,
