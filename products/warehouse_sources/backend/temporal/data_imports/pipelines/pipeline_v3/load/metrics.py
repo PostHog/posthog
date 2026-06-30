@@ -32,6 +32,9 @@ POST_LOAD_DURATION_SECONDS = Histogram(
     buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
 )
 
+# TODO: the `team_id`/`schema_id` labels below are high cardinality — keep only for the gated rollout
+# so we can debug per-team behaviour, then drop them before fully rolling out (per-team diagnosability
+# is also covered by the `warehouse_repartition_*` capture events).
 DELTA_REPARTITION_DURATION_SECONDS = Histogram(
     "warehouse_load_delta_repartition_duration_seconds",
     "Duration of an in-place Delta table repartition",
