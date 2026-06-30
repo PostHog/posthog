@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconPullRequest, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconPullRequest, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -32,9 +32,13 @@ function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
 export function InstallationProgressContent({
     progress,
     onDismiss,
+    onRetryLocally,
 }: {
     progress: InstallationProgress
     onDismiss?: () => void
+    /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
+     * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
+    onRetryLocally?: () => void
 }): JSX.Element {
     const { phase, steps, error, prUrl } = progress
 
@@ -114,6 +118,25 @@ export function InstallationProgressContent({
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
             )}
 
+            {phase === 'error' && (
+                // The cloud run failed — offer self-serve recovery so the user isn't stuck: run the wizard
+                // themselves (switches the install step to the local command) or follow the manual docs.
+                <div className="flex flex-wrap gap-2">
+                    {onRetryLocally && (
+                        <LemonButton type="primary" onClick={onRetryLocally} icon={<IconTerminal />}>
+                            Run it yourself
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type={onRetryLocally ? 'secondary' : 'primary'}
+                        to="https://posthog.com/docs/getting-started/install"
+                        targetBlank
+                    >
+                        Read the docs
+                    </LemonButton>
+                </div>
+            )}
+
             {prUrl && (
                 <LemonButton type="primary" to={prUrl} targetBlank icon={<IconPullRequest />} center>
                     Review pull request
@@ -132,12 +155,15 @@ export function InstallationProgressView({
     taskId,
     floating = false,
     onDismiss,
+    onRetryLocally,
 }: {
     runId: string
     taskId: string
     /** Rendered in the floating FAB rather than inline on the install step. */
     floating?: boolean
     onDismiss?: () => void
+    /** Forwarded to the failed-run fallback (see InstallationProgressContent). */
+    onRetryLocally?: () => void
 }): JSX.Element {
     const { installationProgress } = useValues(installationProgressLogic({ mode: 'cloud', runId, taskId }))
     const { setPanelMounted } = useActions(activeCloudRunLogic)
@@ -151,5 +177,11 @@ export function InstallationProgressView({
         return () => setPanelMounted(false)
     }, [floating, setPanelMounted])
 
-    return <InstallationProgressContent progress={installationProgress} onDismiss={onDismiss} />
+    return (
+        <InstallationProgressContent
+            progress={installationProgress}
+            onDismiss={onDismiss}
+            onRetryLocally={onRetryLocally}
+        />
+    )
 }

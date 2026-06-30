@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCheckCircle, IconChevronDown, IconGithub, IconPullRequest } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 
+import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { InstallationProgressView } from './InstallationProgressView'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 import { WizardModeShell } from './WizardModeShell'
@@ -25,21 +26,31 @@ import { WizardModeShell } from './WizardModeShell'
 export function WizardCloudRunBlock({
     onQueued,
     hideHog = false,
+    onRetryLocally,
 }: {
     onQueued?: () => void
     hideHog?: boolean
+    /** Forwarded to the install progress view so a failed run can offer "Run it yourself". */
+    onRetryLocally?: () => void
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl, cloudRunRunId, cloudRunTaskId } =
-        useValues(wizardCloudRunLogic)
+    const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
 
-    // Let the install step unblock Continue / hide Skip the moment the run is handed
-    // off — the user shouldn't wait on a PR that lands after they've moved on.
+    // Fire onQueued once per kickoff, the moment the run is handed off. It advances the install step
+    // (GROW-96), so it must not repeat while the status stays 'queued' (the callback identity changes
+    // each render). Reset when the run leaves 'queued' so a later run can advance the flow again.
+    const queuedAdvancedRef = useRef(false)
     useEffect(() => {
         if (cloudRunStatus === 'queued') {
-            onQueued?.()
+            if (!queuedAdvancedRef.current) {
+                queuedAdvancedRef.current = true
+                onQueued?.()
+            }
+        } else {
+            queuedAdvancedRef.current = false
         }
     }, [cloudRunStatus, onQueued])
 
@@ -49,17 +60,23 @@ export function WizardCloudRunBlock({
         return <></>
     }
 
+    // A spawned run (persisted handle) shows live progress and survives revisits, where the local
+    // cloudRunStatus resets. While a run is active the parent blocks the local command (GROW-95), so
+    // this is the only thing the cloud tab shows.
+    if (activeCloudRun) {
+        return (
+            <InstallationProgressView
+                runId={activeCloudRun.runId}
+                taskId={activeCloudRun.taskId}
+                onRetryLocally={onRetryLocally}
+            />
+        )
+    }
+
     if (cloudRunStatus === 'queued') {
-        // Once the kickoff returns a run handle, the Installation layer streams the real pipeline
-        // (provision → clone → wizard → agent → PR) merged with the wizard session detail.
-        if (cloudRunRunId && cloudRunTaskId) {
-            return <InstallationProgressView runId={cloudRunRunId} taskId={cloudRunTaskId} />
-        }
         const repoLabel = selectedRepository ? <span className="font-mono">{selectedRepository}</span> : 'your repo'
-        // A queued run isn't a finished one. With sync on, the install step swaps this block for the
-        // live WizardProgressTracker the moment the run's session appears (and the FAB carries it once
-        // the user moves on), so we only bridge the brief gap here. Without sync we can't observe the
-        // run, so set honest expectations rather than implying the PR is already on its way.
+        // The brief window after kickoff before the run handle settles. With sync on the Installation
+        // layer takes over above; without sync we cannot observe the run, so set honest expectations.
         return (
             <LemonBanner type="info">
                 <div className="space-y-1" data-attr="wizard-cloud-run-queued">

@@ -11,6 +11,9 @@ import { InstallationProgressContent } from './InstallationProgressView'
 const meta: Meta<typeof InstallationProgressContent> = {
     title: 'Scenes-Other/Onboarding/Installation Progress',
     component: InstallationProgressContent,
+    // Provide the local-fallback callback to every story so the failed-run states show the full
+    // "Run it yourself" + "Read the docs" recovery (no-op on non-error phases).
+    argTypes: { onRetryLocally: { action: 'retry-locally' } },
     // Width-bound to the onboarding card so the stepper wraps as it does in product.
     decorators: [
         (Story) => (
@@ -92,7 +95,7 @@ export const FailedProvisioning: Story = {
         progress: progress({
             phase: 'error',
             steps: steps(['failed', 'pending', 'pending', 'pending']),
-            error: { title: 'Installation failed', detail: 'Could not provision a sandbox — capacity limit reached.' },
+            error: { title: 'Installation failed', detail: 'Could not provision a sandbox, capacity limit reached.' },
         }),
     },
 }
@@ -127,7 +130,7 @@ export const FailedNoDetail: Story = {
     },
 }
 
-// The floating FAB variant — terminal, so the dismiss affordance shows.
+// The floating FAB variant, terminal, so the dismiss affordance shows.
 export const FloatingDismissible: Story = {
     args: {
         progress: progress({
@@ -144,4 +147,62 @@ export const FloatingDismissible: Story = {
             </div>
         ),
     ],
+}
+
+// Every state in one canvas for review (GROW-98). Reuses the individual stories' fixtures so each one
+// keeps a single source of truth.
+export const AllStates: Story = {
+    parameters: { controls: { disable: true } },
+    render: () => {
+        const states: { label: string; args: Story['args'] }[] = [
+            { label: 'Connecting', args: Connecting.args },
+            { label: 'Running: provisioning', args: RunningProvisioning.args },
+            { label: 'Running: wizard', args: RunningWizard.args },
+            { label: 'Pull request ready', args: PullRequestReady.args },
+            { label: 'Completed', args: Completed.args },
+            { label: 'Failed: provisioning', args: FailedProvisioning.args },
+            { label: 'Failed: wizard', args: FailedWizard.args },
+            { label: 'Failed: no detail', args: FailedNoDetail.args },
+        ]
+        return (
+            <div className="flex flex-col gap-5">
+                {states.map(({ label, args }) => (
+                    <div key={label} className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-muted">{label}</span>
+                        <InstallationProgressContent progress={args!.progress!} onRetryLocally={() => {}} />
+                    </div>
+                ))}
+            </div>
+        )
+    },
+}
+
+// Configure the progress view live from the controls panel (GROW-98).
+interface PlaygroundArgs {
+    phase: InstallationProgress['phase']
+    completedSteps: number
+    currentTask: string
+    prReady: boolean
+}
+
+export const Playground: StoryObj<PlaygroundArgs> = {
+    argTypes: {
+        phase: { control: 'select', options: ['connecting', 'running', 'completed', 'error'] },
+        completedSteps: { control: { type: 'range', min: 0, max: 4 } },
+        currentTask: { control: 'text' },
+        prReady: { control: 'boolean' },
+    },
+    args: { phase: 'running', completedSteps: 2, currentTask: 'Detecting Next.js', prReady: false },
+    render: (args) => {
+        const statuses: InstallationStepStatus[] = [0, 1, 2, 3].map((i) =>
+            i < args.completedSteps ? 'completed' : i === args.completedSteps ? 'in_progress' : 'pending'
+        )
+        const built = progress({
+            phase: args.phase,
+            steps: steps(statuses, args.currentTask ? { at: args.completedSteps, text: args.currentTask } : undefined),
+            prUrl: args.prReady || args.phase === 'completed' ? 'https://github.com/acme-co/web/pull/42' : null,
+            error: args.phase === 'error' ? { title: 'Installation failed', detail: 'Something stopped the run.' } : null,
+        })
+        return <InstallationProgressContent progress={built} onRetryLocally={() => {}} />
+    },
 }

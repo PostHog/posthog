@@ -10,8 +10,9 @@ import { installationProgressLogic } from './installationProgressLogic'
  * Floating progress widget for a cloud installation run, mounted app-wide (AuthenticatedShell) so the
  * run stays visible after the user advances past the install step. Renders the Installation layer's
  * progress; hides while the inline view on the install step is mounted (panelMounted) so the same run
- * isn't shown in two places. Separate from WizardProgressFab (which carries local wizard sessions) —
- * the two never collide because a cloud run doesn't produce a wizard session.
+ * isn't shown in two places. The legacy WizardProgressFab (local wizard sessions) suppresses itself
+ * while a cloud run is active, so only one floating widget shows even though the cloud wizard posts to
+ * the same wizard session.
  */
 export function CloudRunProgressFab(): JSX.Element | null {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')

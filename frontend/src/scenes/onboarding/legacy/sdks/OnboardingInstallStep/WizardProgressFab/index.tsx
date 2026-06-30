@@ -8,6 +8,7 @@ import { IconChevronDown, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { activeCloudRunLogic } from '../activeCloudRunLogic'
 import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 import { ExpandedDetails } from './ExpandedDetails'
@@ -16,7 +17,10 @@ import { ProgressRing } from './ProgressRing'
 
 export function WizardProgressFab(): JSX.Element | null {
     const isSyncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    if (!isSyncEnabled) {
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    // A cloud run owns the floating slot (CloudRunProgressFab), and the cloud wizard now posts to the
+    // same wizard session this FAB tracks — so suppress the legacy FAB during a cloud run to avoid two.
+    if (!isSyncEnabled || activeCloudRun) {
         return null
     }
     return <WizardProgressFabGate />

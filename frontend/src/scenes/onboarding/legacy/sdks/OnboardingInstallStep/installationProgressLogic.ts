@@ -71,18 +71,23 @@ export function cloudProgress(
         latestSession?.tasks?.find((t) => t.status === 'in_progress')?.title ??
         (latestSession?.run_phase === 'error' ? 'Wizard hit an error' : null)
 
-    const steps: InstallationStep[] = progressSteps.map((p) => ({
-        id: `${p.group}:${p.step}`,
-        label: p.label,
-        status: stepStatus(p.status),
-        // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
-        detail:
-            p.step === 'pr'
-                ? null
-                : p.step === 'wizard' && p.status === 'in_progress'
-                  ? (wizardDetail ?? p.detail)
-                  : p.detail,
-    }))
+    const steps: InstallationStep[] = progressSteps.map((p) => {
+        const status = stepStatus(p.status)
+        return {
+            id: `${p.group}:${p.step}`,
+            label: p.label,
+            // A completed run has nothing in flight: clamp a lingering in-progress step (e.g. "Keeping
+            // CI green", emitted in-progress when the PR opened) to completed so the timeline matches.
+            status: phase === 'completed' && status === 'in_progress' ? 'completed' : status,
+            // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
+            detail:
+                p.step === 'pr'
+                    ? null
+                    : p.step === 'wizard' && p.status === 'in_progress'
+                      ? (wizardDetail ?? p.detail)
+                      : p.detail,
+        }
+    })
 
     const error =
         phase === 'error'

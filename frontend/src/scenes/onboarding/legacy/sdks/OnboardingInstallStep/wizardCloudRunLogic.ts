@@ -142,7 +142,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                     }
                 )
                 actions.setCloudRunHandle(task_id, run_id)
-                actions.setActiveCloudRun(task_id, run_id)
+                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString())
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null

@@ -5,6 +5,9 @@ import type { activeCloudRunLogicType } from './activeCloudRunLogicType'
 export interface CloudRunHandle {
     taskId: string
     runId: string
+    /** ISO timestamp stamped at kickoff so the sync widget can show elapsed time (the cloud stream
+     * carries no start field). Optional: runs persisted before this field existed will not have it. */
+    startedAt?: string
 }
 
 /**
@@ -15,7 +18,7 @@ export interface CloudRunHandle {
 export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
     path(['scenes', 'onboarding', 'activeCloudRunLogic']),
     actions({
-        setActiveCloudRun: (taskId: string, runId: string) => ({ taskId, runId }),
+        setActiveCloudRun: (taskId: string, runId: string, startedAt: string) => ({ taskId, runId, startedAt }),
         clearActiveCloudRun: true,
         // Set by the inline install-step progress view while it's mounted, so the floating FAB hides
         // and the two never render the same run at once (mirrors wizardProgressTrackerLogic.panelMounted).
@@ -26,7 +29,7 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             null as CloudRunHandle | null,
             { persist: true },
             {
-                setActiveCloudRun: (_, { taskId, runId }) => ({ taskId, runId }),
+                setActiveCloudRun: (_, { taskId, runId, startedAt }) => ({ taskId, runId, startedAt }),
                 clearActiveCloudRun: () => null,
             },
         ],

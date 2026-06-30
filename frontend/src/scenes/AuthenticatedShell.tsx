@@ -8,8 +8,7 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CloudRunProgressFab } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/CloudRunProgressFab'
-import { WizardProgressFab } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/WizardProgressFab'
+import { WizardSyncFab } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/WizardSync/WizardSyncFab'
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
@@ -41,8 +40,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Command />
                 <ImpersonationNotice />
                 <SelfReadOnlyNotice />
-                <WizardProgressFab />
-                <CloudRunProgressFab />
+                <WizardSyncFab />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}
