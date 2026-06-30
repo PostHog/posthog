@@ -19970,6 +19970,11 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /**
+         * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
     }
 
     /**
@@ -19982,6 +19987,8 @@ export namespace Schemas {
       window_days: number;
       /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
+      /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+      other_enabled_scanners_monthly: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
