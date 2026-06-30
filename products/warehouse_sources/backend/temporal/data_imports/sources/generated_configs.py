@@ -348,7 +348,7 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AviationstackSourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config
