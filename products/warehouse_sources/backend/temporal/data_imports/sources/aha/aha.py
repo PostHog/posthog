@@ -23,7 +23,7 @@ AHA_API_PATH = "/api/v1"
 
 # A single DNS label: letters, digits, hyphens. Rejects anything that could retarget the host
 # (slashes, `@`, dots) so the stored API key is only ever sent to `<subdomain>.aha.io`.
-_SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+_SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
 class AhaRetryableError(Exception):

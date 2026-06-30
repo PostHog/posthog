@@ -41,6 +41,7 @@ class TestNormalizeSubdomain:
             ("userinfo_injection", "acme@evil.com"),
             ("empty", ""),
             ("space_inside", "ac me"),
+            ("trailing_hyphen", "acme-"),
         ]
     )
     def test_invalid_subdomains_raise(self, _name: str, value: str) -> None:
