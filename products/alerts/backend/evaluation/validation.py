@@ -145,11 +145,8 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
 
 def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
-    # A funnel snapshot has no prior window, so only absolute conditions apply across every viz type.
     if ctx.query_kind != NodeKind.FUNNELS_QUERY:
         raise ValueError(f"Funnel alert config requires a FunnelsQuery insight, got '{ctx.query_kind}'")
-    if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE:
-        raise ValueError("Funnel alerts only support absolute value conditions")
     try:
         parsed = FunnelsAlertConfig.model_validate(ctx.config)
     except Exception:
@@ -158,10 +155,14 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         funnels_query = FunnelsQuery.model_validate(ctx.query)
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
-    # Delegate viz-specific rules (e.g. the steps funnel_step range check) to the same strategy the
-    # extractor uses at eval time, so config-time and eval-time views can't drift.
+    # Resolve the strategy first (rejects unsupported viz types), then delegate viz-specific rules to
+    # the same strategy the extractor uses at eval time, so config-time and eval-time views can't drift.
     viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
-    strategy_for_viz(viz).validate_config(funnels_query, parsed)
+    strategy = strategy_for_viz(viz)
+    # Relative conditions need a prior value, which only a time-series viz (historical trends) has.
+    if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
+        raise ValueError("This funnel only supports absolute value conditions")
+    strategy.validate_config(funnels_query, parsed)
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     if ctx.require_threshold_bounds and ctx.detector_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)

@@ -1,6 +1,13 @@
 from typing import Any, cast
 
-from posthog.schema import FunnelConversionMetric, FunnelsAlertConfig, FunnelsQuery, FunnelVizType
+from posthog.schema import (
+    AlertCondition,
+    AlertConditionType,
+    FunnelConversionMetric,
+    FunnelsAlertConfig,
+    FunnelsQuery,
+    FunnelVizType,
+)
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ComparableSeries, SeriesPoint
 
@@ -20,13 +27,16 @@ class FunnelVizStrategy:
 
     subject: str
     unit: str
+    # Whether relative (increase/decrease) conditions make sense: only for viz types that produce a
+    # time series with a prior value to compare against. A single snapshot (steps) has none.
+    supports_relative_conditions: bool = False
 
     def validate_config(self, funnels_query: FunnelsQuery, config: FunnelsAlertConfig) -> None:
         """Reject configs this viz type can't evaluate, at alert save time (raises ``ValueError``).
         Default: nothing to reject — only the steps funnel has a per-step config to range-check."""
         return None
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
         """Normalize the funnel query result into one ``ComparableSeries`` per breakdown value."""
         raise NotImplementedError
 
@@ -51,7 +61,8 @@ class StepsFunnelStrategy(FunnelVizStrategy):
                 "conversion_from_previous is undefined at the first step; use conversion_from_start instead"
             )
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
+        # A steps funnel is a single snapshot, so the condition is always absolute (enforced upstream).
         breakdowns = _steps_per_breakdown(_current_period_only(result))
         return [
             ComparableSeries(
@@ -64,15 +75,20 @@ class StepsFunnelStrategy(FunnelVizStrategy):
 
 
 class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
-    """Historical-trend funnel: a time series of overall conversion rates. The alert evaluates the
-    latest period. ``funnel_step``/``metric`` don't apply (the trend is the whole-funnel rate set by
-    funnelsFilter), so the default no-op ``validate_config`` is inherited."""
+    """Historical-trend funnel: a time series of overall conversion rates. ``funnel_step``/``metric``
+    don't apply (the trend is the whole-funnel rate set by funnelsFilter), so the default no-op
+    ``validate_config`` is inherited. Being a time series, it supports relative conditions too."""
 
     subject = _CONVERSION_RATE_SUBJECT
     unit = _CONVERSION_RATE_UNIT
+    supports_relative_conditions = True
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig, condition: AlertCondition) -> list[ComparableSeries]:
         series_dicts = _require_series_list(_current_period_only(result), "trends")
+        # Absolute alerts read the latest period. Relative alerts compare the last *complete* period
+        # against the one before it — anchoring on the latest (possibly partial) period would diff a
+        # partial rate against a complete one. This mirrors the trends-insight default.
+        anchor_latest = condition.type == AlertConditionType.ABSOLUTE_VALUE
         series: list[ComparableSeries] = []
         for entry in series_dicts:
             if not isinstance(entry, dict):
@@ -85,8 +101,9 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
             if not points:
                 # No periods in range — represent as a single missing point so the comparator skips it.
                 points = [SeriesPoint(date=None, value=None)]
+            current_index = max(len(points) - 1 if anchor_latest else len(points) - 2, 0)
             label = _label_for_breakdown(entry.get("breakdown_value"))
-            series.append(ComparableSeries(label=label, points=points, current_index=len(points) - 1))
+            series.append(ComparableSeries(label=label, points=points, current_index=current_index))
         return series
 
 

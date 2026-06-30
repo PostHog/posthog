@@ -1,4 +1,4 @@
-import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
 import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
 import { AlertConfig, isFunnelsAlertConfig } from './types'
@@ -13,7 +13,9 @@ export interface FunnelAlertPreviewValue {
  * (products/alerts/backend/evaluation/funnel_strategies.py) — keep in sync if you change the backend math. */
 export type FunnelAlertPreview =
     | { status: 'no-data' }
-    | { status: 'ok'; values: FunnelAlertPreviewValue[]; isBreakdown: boolean; hasBounds: boolean }
+    // `relative`: the alert fires on the period-over-period change, so the breach verdict can't be
+    // previewed from a single rate — the banner shows the latest rate without an absolute ok/breach tag.
+    | { status: 'ok'; values: FunnelAlertPreviewValue[]; isBreakdown: boolean; hasBounds: boolean; relative?: boolean }
 
 interface FunnelStep {
     count: number
@@ -30,14 +32,27 @@ interface FunnelTrendsSeries {
 
 function _deriveTrendsPreview(
     series: FunnelTrendsSeries[],
-    bounds: InsightsThresholdBounds | null | undefined
+    bounds: InsightsThresholdBounds | null | undefined,
+    relative: boolean
 ): FunnelAlertPreview {
     const values: FunnelAlertPreviewValue[] = series.map((s) => {
         const last = s.data?.[s.data.length - 1]
         const rate = typeof last === 'number' ? last : 0
-        return { label: _breakdownLabel(s.breakdown_value), rate, breaching: valueBreachesBounds(rate, bounds) }
+        // A relative alert fires on the change vs the prior period, not the absolute rate — don't
+        // claim an absolute breach the alert wouldn't actually evaluate.
+        return {
+            label: _breakdownLabel(s.breakdown_value),
+            rate,
+            breaching: relative ? false : valueBreachesBounds(rate, bounds),
+        }
     })
-    return { status: 'ok', values, isBreakdown: series.length > 1, hasBounds: hasThresholdBounds(bounds) }
+    return {
+        status: 'ok',
+        values,
+        isBreakdown: series.length > 1,
+        hasBounds: hasThresholdBounds(bounds),
+        ...(relative ? { relative: true } : {}),
+    }
 }
 
 const _conversionRate = (steps: FunnelStep[], stepIndex: number, fromPrevious: boolean): number | null => {
@@ -82,8 +97,11 @@ export function deriveFunnelAlertPreview(
     insightData: Record<string, any> | null,
     config: AlertConfig | null | undefined,
     bounds: InsightsThresholdBounds | null | undefined,
-    isTrendsFunnel: boolean
+    isTrendsFunnel: boolean,
+    conditionType?: AlertConditionType
 ): FunnelAlertPreview | null {
+    const isRelative =
+        conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
     if (!isFunnelsAlertConfig(config)) {
         return null
     }
@@ -101,7 +119,7 @@ export function deriveFunnelAlertPreview(
     }
     // A trends funnel returns conversion-rate time series rather than step lists; read the latest period.
     if (isTrendsFunnel) {
-        return _deriveTrendsPreview(result, bounds)
+        return _deriveTrendsPreview(result, bounds, isRelative)
     }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])

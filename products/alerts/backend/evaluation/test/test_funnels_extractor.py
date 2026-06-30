@@ -141,6 +141,17 @@ def test_trends_funnel_empty_result_raises_extraction_error():
         _extract([], viz="trends")
 
 
+def test_trends_funnel_relative_anchors_on_last_complete_period():
+    # Relative conditions compare the last *complete* period (not the latest, possibly-partial one)
+    # against the period before it, so the anchor is the second-to-last point.
+    result = _extract(
+        [_trends_series([10.0, 20.0, 40.0])], viz="trends", condition_type=AlertConditionType.RELATIVE_INCREASE
+    )
+    series = result.series[0]
+    assert series.current_index == 1
+    assert series.points[series.current_index].value == 20.0
+
+
 def test_unsupported_viz_raises():
     # Time-to-convert and flow funnels have no conversion-rate metric, so they aren't supported.
     with pytest.raises(ValueError, match="aren't supported for the"):

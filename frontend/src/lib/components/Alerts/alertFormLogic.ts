@@ -425,14 +425,22 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 s.insightData,
                 (state, logicProps) => s.alertForm(state, logicProps)?.config,
                 (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+                (state, logicProps) => s.alertForm(state, logicProps)?.condition?.type,
             ],
             (
                 insightData: Record<string, any> | null,
                 config: AlertConfig | null | undefined,
-                bounds: InsightsThresholdBounds | null | undefined
+                bounds: InsightsThresholdBounds | null | undefined,
+                conditionType: AlertConditionType | undefined
             ): FunnelAlertPreview | null =>
                 props.insightAlertKind === 'funnels'
-                    ? deriveFunnelAlertPreview(insightData, config, bounds, !!props.insightIsTrendsFunnel)
+                    ? deriveFunnelAlertPreview(
+                          insightData,
+                          config,
+                          bounds,
+                          !!props.insightIsTrendsFunnel,
+                          conditionType
+                      )
                     : null,
         ],
         /** Result column names of the SQL insight, for the column pickers. */

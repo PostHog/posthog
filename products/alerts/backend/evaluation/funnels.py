@@ -33,8 +33,10 @@ class FunnelsExtractor:
         config = FunnelsAlertConfig.model_validate(alert.config)
 
         condition = AlertCondition.model_validate(alert.condition)
-        if condition.type != AlertConditionType.ABSOLUTE_VALUE:
-            raise AlertExtractionError("Funnel alerts only support absolute value conditions.")
+        # Relative conditions need a prior value to compare against, which only a time-series viz
+        # (historical trends) has — a steps snapshot is absolute-only.
+        if condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
+            raise AlertExtractionError("This funnel only supports absolute value conditions.")
 
         calculation_result = calculate_for_query_based_insight(
             insight,
@@ -50,11 +52,11 @@ class FunnelsExtractor:
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
-        series = strategy.to_series(calculation_result.result, config)
+        series = strategy.to_series(calculation_result.result, config, condition)
         return ExtractionResult(
             series=series,
             is_breakdown=len(series) > 1,
             subject=strategy.subject,
             framed=False,
-            unit=strategy.unit,  # absolute 0–100 % (steps/trends) or seconds (time-to-convert)
+            unit=strategy.unit,  # conversion rates are absolute 0–100 percentages
         )

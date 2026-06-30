@@ -87,6 +87,20 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         )
     }
     const format = (rate: number): string => `${rate.toFixed(1)}%`
+    if (preview.relative) {
+        // The alert fires on the period-over-period change; we can't predict that from the latest rate
+        // alone, so show the rate as context without an absolute breach/ok verdict.
+        const rates = preview.values.map((value) => value.rate)
+        const headline = preview.isBreakdown
+            ? `${format(Math.min(...rates))}–${format(Math.max(...rates))}`
+            : format(preview.values[0].rate)
+        return (
+            <LemonBanner type="info" className="w-full">
+                Latest period at <strong>{headline}</strong> — this alert fires on the change versus the prior period,
+                which isn't previewed here.
+            </LemonBanner>
+        )
+    }
     const breaching = preview.values.filter((value) => value.breaching)
     const wouldFire = breaching.length > 0
     // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.

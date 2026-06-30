@@ -837,5 +837,22 @@ describe('alertFormLogic', () => {
                 )
             ).toEqual(expected)
         })
+
+        it('trends funnel: a relative condition shows the rate but no absolute breach verdict', () => {
+            const preview = deriveFunnelAlertPreview(
+                { result: [trend([10, 25, 40])] },
+                FROM_START,
+                { lower: 50 },
+                true,
+                AlertConditionType.RELATIVE_DECREASE
+            )
+            expect(preview).toEqual({
+                status: 'ok',
+                values: [value(null, 40, false)],
+                isBreakdown: false,
+                hasBounds: true,
+                relative: true,
+            })
+        })
     })
 })

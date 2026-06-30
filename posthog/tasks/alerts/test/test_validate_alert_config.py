@@ -381,6 +381,24 @@ class TestValidateAlertConfig:
                 "daily",
                 "aren't supported for the",
             ),
+            (
+                "funnels_trends_relative_condition_accepted",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_steps_relative_condition_rejected",
+                _funnels_query(),  # defaults to a steps funnel
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "only supports absolute value conditions",
+            ),
         ]
     )
     def test_validate_alert_config(

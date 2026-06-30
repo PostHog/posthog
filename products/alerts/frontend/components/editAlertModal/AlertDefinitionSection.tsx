@@ -106,10 +106,10 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
-    // Funnel alerts evaluate a single conversion-rate snapshot (always a 0–100%), so relative
-    // conditions have no prior value to compare against — they're omitted entirely below.
+    // A steps funnel evaluates a single conversion-rate snapshot, so relative conditions have no prior
+    // value to compare against. A historical-trend funnel is a time series, so it does support them.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
-    const supportsRelativeConditions = !isFunnelAlert
+    const supportsRelativeConditions = !isFunnelAlert || funnel.isTrendsFunnel
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
