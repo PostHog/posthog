@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -176,9 +177,15 @@ def manual_run_workflow_id(team_id: int, skill_name: str) -> str:
     Distinct namespace from the coordinator's per-tick child ids (`signals-scout-run-…`)
     so a manual run can't collide with a scheduled one. Stable per `(team, skill)` so the
     id-conflict policy in `start_manual_signals_scout_run` can single-flight against it.
+
+    The readable skill fragment is truncated for legibility, but a digest of the *full*
+    skill name is appended so two custom scouts sharing the first 60 chars still map to
+    distinct ids — otherwise `WorkflowIDConflictPolicy.FAIL` would 409 one scout while the
+    other (truncation-twin) is running, even though it has no in-flight run of its own.
     """
     safe_skill = skill_name.replace(" ", "_")[:60]
-    return f"signals-scout-manual-run-{team_id}-{safe_skill}"
+    digest = hashlib.sha256(skill_name.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    return f"signals-scout-manual-run-{team_id}-{safe_skill}-{digest}"
 
 
 @async_to_sync

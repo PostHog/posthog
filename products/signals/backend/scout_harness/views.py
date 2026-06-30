@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
+
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -63,7 +66,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     sync_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -174,19 +177,28 @@ class Conflict(exceptions.APIException):
 
 
 def _scout_run_in_flight(team_id: int, skill_name: str) -> bool:
-    """Whether a run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
+    """Whether a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
 
     Mirrors the runner's authoritative single-flight (`scout_harness/runner._has_running_run`)
     so the manual-trigger endpoint can fail fast with a 409 instead of dispatching a workflow
     that the runner would only skip. Status flows from the linked `TaskRun`; covers a run
     started by either the coordinator or a prior manual trigger.
+
+    A run older than `STALE_RUN_CUTOFF_S` is an orphan left by a crashed worker (Temporal kills
+    the activity at the hard ceiling, so it cannot still be executing) — it is deliberately NOT
+    counted as in-flight here. Otherwise this fail-fast 409 would short-circuit before the
+    workflow's runner reaches its `_self_heal_stale_runs` reap, wedging the lane until a
+    scheduled tick happens to reap it — which never comes for a disabled scout, whose only run
+    path is this endpoint. Treating the orphan as free lets the dispatched run reap it and proceed.
     """
+    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     return (
         SignalScoutRun.objects.unscoped()
         .filter(
             team_id=team_id,
             skill_name=skill_name,
             task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+            task_run__created_at__gte=live_cutoff,
         )
         .exists()
     )
@@ -1367,6 +1379,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
         # against the canonical team, matching `list`/`sync`.
         if skill_name in withheld_skills_for_team(team_id):
+            raise exceptions.NotFound()
+
+        # A config can outlive its skill (the list serializer tolerates a missing skill). Dispatching
+        # for one would 202 + hand back a workflow id, but the runner's `load_skill_for_run` raises
+        # `SkillNotFoundError` before any run row exists — so polling never shows a result. Reject up
+        # front, mirroring `create`'s latest-non-deleted-skill check. The config is effectively dead
+        # without its skill, so this is a 404 alongside the withheld branch above.
+        if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
             raise exceptions.NotFound()
 
         # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
