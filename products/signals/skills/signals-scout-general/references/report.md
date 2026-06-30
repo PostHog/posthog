@@ -111,10 +111,18 @@ is assigned to nobody — it lands in the shared inbox and is very likely to be 
 set at least one reviewer on every report you author, including informational `requires_human_input`
 ones.
 
-Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`, not
-`@OctoCat`). Assignment matches the login against each user's linked GitHub login by exact, lowercased
-comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or an email won't
-assign to anyone. You rarely know the login outright, so resolve it — cheapest first:
+Each entry is an **object**, not a bare string — `{"github_login": "..."}` and/or `{"user_uuid": "..."}`
+(at least one of the two per entry; a list of plain strings like `["octocat"]` **fails validation**):
+
+- **`github_login`** — a bare, lowercase GitHub login, no `@`, no display name (e.g.
+  `{"github_login": "octocat"}`). Assignment matches it against each user's linked GitHub login by
+  exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or
+  an email won't assign to anyone.
+- **`user_uuid`** — a PostHog user UUID (e.g. `{"user_uuid": "..."}`); the server resolves it to that
+  member's linked GitHub login. A `user_uuid` that isn't an org member with a linked GitHub identity
+  is rejected (never silently dropped).
+
+You rarely know either outright, so resolve it — cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
 2. **Inbox precedent.** `inbox-reports-list` (filter by `source_product` + a free-text `search`) for a
@@ -122,8 +130,9 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
 3. **`user_uuid` from the entity.** When your evidence already names a PostHog user — an entity's
-   `created_by`, an account owner — pass that user's `user_uuid` straight through and the server
-   resolves it to their linked GitHub login. No lookup call needed.
+   `created_by`, an account owner — pass that user's `user_uuid` straight through as a
+   `{"user_uuid": "..."}` entry and the server resolves it to their linked GitHub login. No lookup
+   call needed.
 4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where you have
    only a name or email. It returns this project's members, each with `email`, name, and a resolved
    `github_login` (pass `search=` to narrow a large project); match the owner and route to their

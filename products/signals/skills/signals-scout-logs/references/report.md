@@ -115,10 +115,18 @@ is assigned to nobody — it lands in the shared inbox and is very likely to be 
 set at least one reviewer on every report you author, including informational `requires_human_input`
 ones.
 
-Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`, not
-`@OctoCat`). Assignment matches the login against each user's linked GitHub login by exact, lowercased
-comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or an email won't
-assign to anyone. You rarely know the login outright, so resolve it — cheapest first:
+Each entry is an **object**, not a bare string — `{"github_login": "..."}` and/or `{"user_uuid": "..."}`
+(at least one of the two per entry; a list of plain strings like `["octocat"]` **fails validation**):
+
+- **`github_login`** — a bare, lowercase GitHub login, no `@`, no display name (e.g.
+  `{"github_login": "octocat"}`). Assignment matches it against each user's linked GitHub login by
+  exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or
+  an email won't assign to anyone.
+- **`user_uuid`** — a PostHog user UUID (e.g. `{"user_uuid": "..."}`); the server resolves it to that
+  member's linked GitHub login. A `user_uuid` that isn't an org member with a linked GitHub identity
+  is rejected (never silently dropped).
+
+You rarely know either outright, so resolve it — cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For logs, key by the owning service (`reviewer:logs:<service>`).
@@ -129,11 +137,12 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
 3. **`signals-scout-members-list`** — the in-run roster lookup, and for logs the main resolver: a logs
    finding is about a **service**, not a PostHog entity with a `created_by`, so you usually have only a
    name or team to match. It returns this project's members, each with `email`, name, and a resolved
-   `github_login` (pass `search=` to narrow); match the service's owner and route to their
-   `github_login`. A member whose `github_login` is null can't be routed to — try the next plausible
-   owner. The org-scoped `org-member-get-github-login` / `org-members-list` tools are **not available
-   in a scout run** (a scoped-team token can't reach the org-nested endpoint). When your evidence does
-   name a PostHog user directly, you can instead pass their `user_uuid` and let the server resolve it.
+   `github_login` (pass `search=` to narrow); match the service's owner and route to them as a
+   `{"github_login": "..."}` entry. A member whose `github_login` is null can't be routed to — try the
+   next plausible owner. The org-scoped `org-member-get-github-login` / `org-members-list` tools are
+   **not available in a scout run** (a scoped-team token can't reach the org-nested endpoint). When
+   your evidence names a PostHog user directly, you can instead pass a `{"user_uuid": "..."}` entry and
+   let the server resolve it.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces) but
