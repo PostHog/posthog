@@ -4,8 +4,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -72,10 +70,6 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
         submitTextTileSuccess: ({ textTile }: { textTile: TextTileForm }) => {
             actions.resetTextTile()
             props?.onClose?.()
-
-            if (props.textTileId === 'new') {
-                eventUsageLogic.actions.reportDashboardTileAdded('text_card')
-            }
 
             posthog.capture('dashboard text tile saved', {
                 dashboard_id: props.dashboard.id,

@@ -6,26 +6,19 @@ The classifier analyzes user messages from `$ai_generation` events using an ONNX
 
 ## How it works
 
-There are two call paths:
-
-1. Sentiment AI evaluations run through the evaluation workflow, classify the target generation's user messages, and emit stored `$ai_evaluation` events with `$ai_sentiment_*` properties.
-2. Trace clustering can still call the `llma-sentiment-classify` Temporal workflow for best-effort aggregate sentiment.
+Sentiment AI evaluations run through the evaluation workflow, classify the target generation's user messages, and emit stored `$ai_evaluation` events with `$ai_sentiment_*` properties.
 
 The AI observability UI reads stored sentiment evaluation events. It does not trigger on-read sentiment classification.
 
 ## Package structure
 
-| File            | Purpose                                                                           |
-| --------------- | --------------------------------------------------------------------------------- |
-| `schema.py`     | Dataclasses: `ClassifySentimentInput`, `SentimentResult`, `PendingClassification` |
-| `workflow.py`   | Temporal workflow definition                                                      |
-| `activities.py` | Temporal activity (orchestration)                                                 |
-| `data.py`       | HogQL query execution and row grouping                                            |
-| `model.py`      | ONNX model loading and `classify()`                                               |
-| `extraction.py` | User message extraction from `$ai_input`                                          |
-| `utils.py`      | Shared helpers: result building, date resolution, score averaging                 |
-| `constants.py`  | Config values, caps, and the HogQL query template                                 |
-| `metrics.py`    | Prometheus metrics and Temporal interceptor                                       |
+| File            | Purpose                                                 |
+| --------------- | ------------------------------------------------------- |
+| `schema.py`     | Dataclasses: `SentimentResult`, `PendingClassification` |
+| `model.py`      | ONNX model loading and `classify()`                     |
+| `extraction.py` | User message extraction from `$ai_input`                |
+| `utils.py`      | Shared helpers for result building and score averaging  |
+| `constants.py`  | Model config and extraction caps                        |
 
 ## Local development
 
@@ -64,8 +57,8 @@ This is a no-op if the model already exists.
 ### Runtime CPU controls
 
 The ONNX Runtime session defaults to one intra-op and one inter-op thread to
-avoid CPU oversubscription when Temporal runs multiple
-sentiment activities concurrently.
+avoid CPU oversubscription when Temporal runs multiple evaluation activities
+concurrently.
 Override these only for a dedicated worker with measured headroom:
 
 ```bash
@@ -79,8 +72,7 @@ POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS=1
 pytest posthog/temporal/ai_observability/sentiment/ -x -q
 ```
 
-Tests mock the model and HogQL layer so the sentiment dependency group
-is not required to run them.
+Tests mock the model so the sentiment dependency group is not required to run them.
 
 ## UI data flow
 

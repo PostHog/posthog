@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
@@ -166,13 +166,42 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     return None
 
 
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
+
+
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
+
+    Temporal activities run in a long-lived worker outside Django's request cycle, and this
+    read happens lazily inside `get_rows` after the connection has often sat idle for minutes.
+    A pooled Postgres connection can be closed server-side while idle, or the connection pooler
+    can reject the query with a wait timeout (`query_wait_timeout`) when the pool is saturated.
+    Both surface as a transient ``OperationalError`` that clears once a healthy connection is
+    used. ``close_old_connections()`` evicts connections already known to be stale (and, after a
+    failed query marks one unusable, drops it), so each attempt runs on a fresh connection; the
+    short backoff also gives a saturated pool time to drain rather than retrying straight back
+    into the same wait timeout. This read is idempotent, so repeating it is safe.
+    ``Integration.DoesNotExist`` is left to propagate.
+    """
+    attempt = 0
+    while True:
+        close_old_connections()
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
+
+
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
-    # Temporal activities run in a thread pool where Django DB connections can go
-    # stale between uses (Postgres closes the connection server-side). This is
-    # invoked lazily from inside `get_rows`, so the connection has often been idle
-    # for minutes by the time we reach it — drop any stale connection first.
-    close_old_connections()
-    integration = Integration.objects.get(id=integration_id, team_id=team_id)
+    integration = _get_integration(integration_id, team_id)
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
@@ -233,6 +262,16 @@ def _is_daily_quota_error(response: requests.Response) -> bool:
     return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
 
 
+def _is_server_error(response: requests.Response) -> bool:
+    """Whether a failed response is a transient Google-side 5xx worth retrying.
+
+    Search Analytics intermittently returns 500/503 for a property even on a well-formed
+    request. These clear on their own, so retry inline like a quota error rather than
+    failing the sync on the first blip.
+    """
+    return response.status_code >= 500
+
+
 def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
     """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
@@ -283,18 +322,30 @@ def _query_search_analytics(
                 f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
             )
 
-        if not _is_quota_error(response):
-            # Permission / other errors are fatal — let the HTTPError bubble up so
-            # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
+        # Quota (403 usageLimits / 429) and transient Google-side 5xx both clear on their own,
+        # so retry inline with backoff. Permission / other client errors are fatal — let the
+        # HTTPError bubble up so `get_non_retryable_errors` can match "403 Client Error" /
+        # "401 Client Error".
+        if not _is_quota_error(response) and not _is_server_error(response):
             response.raise_for_status()
 
         if attempt == QUOTA_MAX_RETRIES:
+            if _is_server_error(response):
+                # Still 5xx after the inline budget — surface the real HTTPError so Temporal
+                # retries the activity (resuming from the last saved date).
+                response.raise_for_status()
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
             )
 
         wait = _quota_backoff_seconds(response, attempt)
-        logger.warning("GSC quota exceeded, backing off", site_url=site_url, attempt=attempt, wait_seconds=wait)
+        logger.warning(
+            "GSC request failed, backing off",
+            site_url=site_url,
+            status_code=response.status_code,
+            attempt=attempt,
+            wait_seconds=wait,
+        )
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.

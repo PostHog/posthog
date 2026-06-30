@@ -54,11 +54,11 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
-            timeout=timedelta(seconds=5),
+            timeout=timedelta(seconds=10),
             team=None,
         )
     except HogVMRuntimeExceededException:
-        return {"verdict": None, "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+        return {"verdict": None, "reasoning": "", "error": "Execution timed out (10s limit exceeded)"}
     except HogVMMemoryExceededException:
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:

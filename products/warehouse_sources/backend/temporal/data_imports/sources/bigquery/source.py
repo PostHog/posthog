@@ -13,6 +13,7 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
@@ -106,6 +107,23 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # carrying this exact wording (so the create/validate path shows it instead of the raw
             # 404). Match it here too so the discovery activity treats it as non-retryable.
             BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # A syntactically invalid project/dataset ID (e.g. a value carrying parentheses like
+            # "(default)") is rejected as a 400 "Invalid dataset ID ..." / "Invalid project ID ...".
+            # Schema discovery re-raises it as `BigQueryInvalidIdentifierError` carrying the friendly
+            # wording, so match that here, plus the raw 400 phrasings for occurrences elsewhere in the
+            # sync. Deterministic config error — retrying never succeeds until the id is corrected.
+            BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
+            # client runs in — the custom region from the source form, or the dataset's own location
+            # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.
+            # "Location ua does not support this operation.". It's a deterministic config problem:
+            # retrying the same location always fails identically, so the user must set a valid
+            # BigQuery region. The "was not found in location" key only covers a dataset missing from
+            # a queried region, not an unsupported region, so this slips through and retries forever.
+            # Matched on the stable wording rather than the volatile location code.
+            "does not support this operation": "BigQuery rejected the dataset region this source runs in — it isn't a location BigQuery can run queries in. Please set a valid BigQuery region (for example US, EU, or us-east1) in your source configuration, then reconnect the source.",
             # Raised from `bq_client.get_table(...)` in `_build_source_response` when the table being
             # synced no longer exists at sync time — it was deleted or renamed in BigQuery (common with
             # dbt-managed datasets) after schema discovery selected it. The google exception stringifies

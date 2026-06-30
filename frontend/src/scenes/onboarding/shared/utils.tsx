@@ -313,4 +313,21 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Logs,
         setupEffort: 'low',
     },
+    [ProductKey.MCP_ANALYTICS]: {
+        name: 'MCP analytics',
+        description: 'See how AI agents use your MCP server — tool calls, intent, and failures',
+        userCentricDescription: 'Understand how agents actually use your MCP tools',
+        capabilities: ['Tool call tracking', 'Agent intent clustering', 'Error & latency monitoring'],
+        valueProps: [
+            { title: 'Every tool call', problem: 'See exactly what the agent sent, got back, and how long it took' },
+            { title: 'Agent intent', problem: 'Know what agents were trying to do, not just which tools they ran' },
+            { title: 'Failures & gaps', problem: 'Catch failing tools and capabilities agents wish you had' },
+        ],
+        hedgehog: RobotHog,
+        icon: 'IconLlmAnalytics',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.mcpAnalyticsDashboard(),
+        scene: Scene.MCPAnalytics,
+        setupEffort: 'low',
+    },
 }
