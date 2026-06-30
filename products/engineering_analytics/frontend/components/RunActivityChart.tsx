@@ -1,3 +1,5 @@
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -5,6 +7,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { TimeRange, clampFocus, defaultFocus, panFocus, pxToTime, resizeFocus, timeToFrac } from '../lib/brush'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { percentileSorted } from '../lib/runHealth'
 import { verdictTag } from '../lib/runStatus'
@@ -46,10 +49,16 @@ const LEGEND_ORDER = ['success', 'danger', 'muted', 'warning']
 
 const SCATTER_HEIGHT = 156
 const BAND_HEIGHT = 56
+const STRIP_HEIGHT = 26
 const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
+// The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
+// Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
+const LENS_MS = 24 * 60 * 60 * 1000
+// The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
+const MIN_LENS_MS = 15 * 60 * 1000
 // A run with no final duration is treated as in flight up to now — but only up to this cap. A run that
 // started longer ago than this and still hasn't settled almost certainly never will (its completion webhook
 // was missed); without the cap its interval would stretch to now and inflate the in-flight band — and the
@@ -94,6 +103,120 @@ interface Point {
     tooltip: JSX.Element
 }
 
+/** The focus lens: a thin strip spanning the whole loaded window with a draggable window selecting the
+ *  sub-range the scatter and band zoom into. Drag the body to pan back to older runs; drag an edge to widen
+ *  or narrow (zoom). The geometry (pan/resize/clamp) lives in lib/brush so it's unit-tested without a DOM. */
+function RunActivityBrush({
+    fullMin,
+    fullMax,
+    view,
+    onChange,
+    onReset,
+    isDefault,
+}: {
+    fullMin: number
+    fullMax: number
+    view: TimeRange
+    onChange: (range: TimeRange) => void
+    onReset: () => void
+    isDefault: boolean
+}): JSX.Element {
+    const stripRef = useRef<HTMLDivElement>(null)
+    const dragRef = useRef<{ x: number; view: TimeRange } | null>(null)
+    const [dragMode, setDragMode] = useState<null | 'pan' | 'start' | 'end'>(null)
+
+    // Track the pointer on the window (not just the lens) so a fast drag that outruns the cursor keeps
+    // panning; the listeners live only while dragging and are tied to the latest bounds via the deps.
+    useEffect(() => {
+        if (!dragMode) {
+            return
+        }
+        const onMove = (e: PointerEvent): void => {
+            const strip = stripRef.current
+            const start = dragRef.current
+            if (!strip || !start) {
+                return
+            }
+            const width = strip.clientWidth
+            if (dragMode === 'pan') {
+                const deltaMs = ((e.clientX - start.x) / Math.max(1, width)) * (fullMax - fullMin)
+                onChange(panFocus(start.view, deltaMs, fullMin, fullMax))
+            } else {
+                const t = pxToTime(e.clientX - strip.getBoundingClientRect().left, width, fullMin, fullMax)
+                onChange(resizeFocus(start.view, dragMode, t, fullMin, fullMax, MIN_LENS_MS))
+            }
+        }
+        const onUp = (): void => setDragMode(null)
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        return () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+        }
+    }, [dragMode, fullMin, fullMax, onChange])
+
+    const begin =
+        (mode: 'pan' | 'start' | 'end') =>
+        (e: ReactPointerEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragRef.current = { x: e.clientX, view }
+            setDragMode(mode)
+        }
+
+    const leftPct = timeToFrac(view.start, fullMin, fullMax) * 100
+    const widthPct = Math.max(
+        2,
+        (timeToFrac(view.end, fullMin, fullMax) - timeToFrac(view.start, fullMin, fullMax)) * 100
+    )
+
+    return (
+        <div className="mt-1 flex items-center gap-2">
+            <div
+                ref={stripRef}
+                className="relative flex-1 overflow-hidden rounded border border-border"
+                style={{ height: STRIP_HEIGHT }}
+            >
+                <div
+                    className="absolute inset-y-0 cursor-grab touch-none border active:cursor-grabbing"
+                    style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                        borderColor: 'var(--brand-blue)',
+                        background: 'color-mix(in srgb, var(--brand-blue) 18%, transparent)',
+                    }}
+                    onPointerDown={begin('pan')}
+                    role="slider"
+                    aria-label="Zoom window"
+                    aria-valuemin={fullMin}
+                    aria-valuemax={fullMax}
+                    aria-valuenow={view.start}
+                >
+                    <div
+                        className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize touch-none"
+                        style={{ background: 'var(--brand-blue)' }}
+                        onPointerDown={begin('start')}
+                    />
+                    <div
+                        className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize touch-none"
+                        style={{ background: 'var(--brand-blue)' }}
+                        onPointerDown={begin('end')}
+                    />
+                </div>
+            </div>
+            {!isDefault && (
+                <button
+                    type="button"
+                    className="text-xs whitespace-nowrap text-secondary hover:underline"
+                    onClick={onReset}
+                >
+                    Reset
+                </button>
+            )}
+        </div>
+    )
+}
+
 /**
  * Two views of one workflow's runs on a shared time axis: a scatter of each completed run by start time
  * (X) and wall-clock duration (Y), colored by verdict with a dashed median line; and below it an
@@ -107,6 +230,9 @@ export function RunActivityChart({
     truncated = false,
     className,
 }: RunActivityChartProps): JSX.Element | null {
+    // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
+    // the early return so the hook order is stable when there aren't enough points to draw.
+    const [focus, setFocus] = useState<TimeRange | null>(null)
     const now = dayjs().valueOf()
     // Every run with a start contributes an interval to the band; a still-running run extends to now, but
     // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
@@ -134,8 +260,15 @@ export function RunActivityChart({
         return null
     }
 
-    const tMin = Math.min(...intervals.map((iv) => iv.start))
-    const tMax = Math.max(...intervals.map((iv) => iv.end))
+    // Full extent of the loaded runs, then the focus lens the scatter/band actually render. tMin/tMax below
+    // are the lens bounds, so the existing x-axis/band code zooms to the focus without further changes; the
+    // y (duration) scale and median stay over the full set, so panning never jumps the vertical axis.
+    const fullMin = Math.min(...intervals.map((iv) => iv.start))
+    const fullMax = Math.max(...intervals.map((iv) => iv.end))
+    const brushable = fullMax - fullMin > LENS_MS
+    const view = clampFocus(focus ?? defaultFocus(fullMin, fullMax, LENS_MS), fullMin, fullMax, MIN_LENS_MS)
+    const tMin = view.start
+    const tMax = view.end
     const tSpan = Math.max(1, tMax - tMin)
     const xPct = (ms: number): number => ((ms - tMin) / tSpan) * 100
 
@@ -151,9 +284,16 @@ export function RunActivityChart({
     const sortedMin = [...durationsMin].sort((a, b) => a - b)
     const medianMin = percentileSorted(sortedMin, 0.5) ?? 0
 
+    // Only the runs inside the focus lens are plotted; the duration scale and median above stay over the
+    // full set so the y-axis holds still while you pan.
+    const visible = plottable.filter((run) => {
+        const t = dayjs(run.startedAt).valueOf()
+        return t >= tMin && t <= tMax
+    })
+
     // Collected here so the legend reuses the per-run verdict instead of re-deriving it for every type.
     const presentTypeSet = new Set<string>()
-    const points: Point[] = plottable.map((run, i) => {
+    const points: Point[] = visible.map((run, i) => {
         const tag = verdictTag(run.conclusion)
         presentTypeSet.add(tag.type)
         return {
@@ -187,10 +327,16 @@ export function RunActivityChart({
         label: dayjs(tMin + (tSpan * i) / (X_TICK_COUNT - 1)).format(xFormat),
     }))
 
+    // Clip each interval to the focus lens so the band shows concurrency within the zoomed window, sharing
+    // the scatter's x-axis. Intervals that don't overlap the focus drop out.
+    const focusIntervals = intervals
+        .map((iv) => ({ ...iv, start: Math.max(iv.start, tMin), end: Math.min(iv.end, tMax) }))
+        .filter((iv) => iv.end > iv.start)
+
     // In-flight band: exact concurrency via a sweep line over each run's start/end. Sampling fixed instants
     // misses any run that begins and ends between two samples (minute-long runs on a 30-day window) — those
     // would never be counted, so the band could read empty with the wrong peak even with runs on the scatter.
-    const bandEvents = intervals.flatMap((iv) => {
+    const bandEvents = focusIntervals.flatMap((iv) => {
         const failDelta = isDecisiveFailure(iv.conclusion) ? 1 : 0
         return [
             { t: iv.start, dTotal: 1, dFailing: failDelta },
@@ -249,7 +395,8 @@ export function RunActivityChart({
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
                         {truncated ? 'recent ' : ''}
-                        {plottable.length} runs · median {formatAxisMinutes(medianMin)} · peak {peak} in flight
+                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} runs · median{' '}
+                        {formatAxisMinutes(medianMin)} · peak {peak} in flight
                     </span>
                 </Tooltip>
             </div>
@@ -342,6 +489,17 @@ export function RunActivityChart({
                                 )
                             })}
                         </div>
+                        {/* Focus lens over the full window — drag to pan to older runs, drag an edge to zoom. */}
+                        {brushable && (
+                            <RunActivityBrush
+                                fullMin={fullMin}
+                                fullMax={fullMax}
+                                view={view}
+                                onChange={setFocus}
+                                onReset={() => setFocus(null)}
+                                isDefault={focus === null}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
