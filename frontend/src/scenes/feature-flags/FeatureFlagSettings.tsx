@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
@@ -93,7 +97,10 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
 
 export function FlagsSecureApiKeys(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { deleteSecretTokenBackup, rotateSecretToken } = useActions(teamLogic)
+
+    const projectSecretApiKeysEnabled = !!featureFlags[FEATURE_FLAGS.PROJECT_SECRET_API_KEYS]
 
     const openResetDialog = (): void => {
         const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
@@ -137,8 +144,22 @@ export function FlagsSecureApiKeys(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <h3 className="mt-0 mb-1 text-sm font-semibold text-muted">
-                Primary Key <span className="text-green-700 text-xs ml-2">(Active)</span>
+            {projectSecretApiKeysEnabled && (
+                <LemonBanner type="warning">
+                    <p className="mb-1">
+                        This feature flags secure API key is deprecated. Create a{' '}
+                        <strong>project secret API key</strong> with the <strong>feature_flag:read</strong> scope (the
+                        "Local feature flag evaluation" preset) instead. It's hashed at rest, scoped, and rotatable
+                        without affecting your primary key.
+                    </p>
+                    <Link to={urls.settings('environment-secret-api-keys', 'environment-secret-api-keys')}>
+                        Create a project secret API key
+                    </Link>
+                </LemonBanner>
+            )}
+            <h3 className="mt-4 mb-1 text-sm font-semibold text-muted flex items-center gap-2">
+                Primary Key <span className="text-green-700 text-xs">(Active)</span>
+                {projectSecretApiKeysEnabled && <LemonTag type="warning">Deprecated</LemonTag>}
             </h3>
             <CodeSnippet
                 actions={

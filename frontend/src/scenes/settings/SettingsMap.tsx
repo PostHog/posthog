@@ -678,7 +678,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
                 description:
-                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
+                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
                 keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
