@@ -326,6 +326,32 @@ def _parse_rich_text_inline_elements(elements: list[JSON], user_names: dict[str,
     return nodes
 
 
+def _preformatted_elements_to_text(elements: list[JSON], user_names: dict[str, str] | None = None) -> str:
+    """Flatten a Slack preformatted block's inline elements to literal text.
+
+    Code blocks hold plain text (no marks/links), so each element is reduced to its
+    textual value rather than dropped: link -> label or url, emoji -> char or :name:,
+    user -> resolved name or raw mention, channel -> #name.
+    """
+    parts: list[str] = []
+    for el in elements:
+        el_type = el.get("type")
+        if el_type == "link":
+            parts.append(el.get("text") or el.get("url", ""))
+        elif el_type == "emoji":
+            char = _slack_unicode_to_char(el.get("unicode", "")) or _slack_emoji_name_to_char(el.get("name", ""))
+            parts.append(char or f":{el.get('name', '')}:")
+        elif el_type == "user":
+            uid = el.get("user_id", "")
+            name = user_names.get(uid) if user_names else None
+            parts.append(f"@{name}" if name else f"<@{uid}>")
+        elif el_type == "channel":
+            parts.append(f"#{el.get('name') or el.get('channel_id', '')}")
+        else:
+            parts.append(el.get("text", ""))
+    return "".join(parts)
+
+
 def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str, str] | None = None) -> JSON | None:
     """Parse Slack rich_text blocks into PostHog SupportEditor-compatible JSON."""
     if not blocks:
@@ -360,7 +386,7 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
                 continue
 
             if element_type == "rich_text_preformatted":
-                code_text = "".join(el.get("text", "") for el in element.get("elements", []))
+                code_text = _preformatted_elements_to_text(element.get("elements", []), user_names)
                 doc_nodes.append(
                     {
                         "type": "codeBlock",
@@ -530,9 +556,10 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
 
         if node_type == "codeBlock":
             code_text = "".join(child.get("text", "") for child in node.get("content", []))
-            rich_text_elements.append(
-                {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
-            )
+            if code_text:
+                rich_text_elements.append(
+                    {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
+                )
             continue
 
         if node_type == "image" and include_images:
