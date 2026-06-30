@@ -73,6 +73,13 @@ def get_markdown_notebook_markdown(content: Any) -> str:
     return markdown if isinstance(markdown, str) else ""
 
 
+def notebook_content_has_comment_marks(content: Any) -> bool:
+    normalized_content = _normalize_notebook_content_for_markdown_conversion(content)
+    if isinstance(normalized_content, str):
+        return False
+    return any(_collect_comment_mark_ids(node) for node in _content_list(normalized_content))
+
+
 def build_markdown_notebook_content(markdown: str, node_id: str = MARKDOWN_NOTEBOOK_NODE_ID) -> JSONContent:
     return {
         "type": "doc",

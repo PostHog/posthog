@@ -125,6 +125,58 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert not ActivityLog.objects.filter(scope="Notebook", item_id=notebook.short_id).exists()
 
     @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
+    def test_batches_dry_run_and_apply_without_processing_every_pending_notebook(self, mock_publish) -> None:
+        notebooks = [
+            Notebook.objects.create(
+                team=self.team,
+                title=f"Batch {index}",
+                content={
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": f"body {index}"}]}],
+                },
+            )
+            for index in range(3)
+        ]
+
+        dry_run_result = migrate_notebooks_to_markdown(user=self.user, team_id=self.team.id, dry_run=True, batch_size=2)
+        for notebook in notebooks:
+            notebook.refresh_from_db()
+
+        assert dry_run_result.converted == 2
+        assert dry_run_result.batch_size == 2
+        assert dry_run_result.pending_before == 3
+        assert dry_run_result.pending_after == 3
+        assert len(dry_run_result.previews) == 2
+        assert all(notebook.content["content"][0]["type"] != "ph-markdown-notebook" for notebook in notebooks)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first_apply_result = migrate_notebooks_to_markdown(
+                user=self.user, team_id=self.team.id, dry_run=False, batch_size=2
+            )
+
+        for notebook in notebooks:
+            notebook.refresh_from_db()
+
+        assert first_apply_result.converted == 2
+        assert first_apply_result.pending_before == 3
+        assert first_apply_result.pending_after == 1
+        assert sum(notebook.content["content"][0]["type"] == "ph-markdown-notebook" for notebook in notebooks) == 2
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second_apply_result = migrate_notebooks_to_markdown(
+                user=self.user, team_id=self.team.id, dry_run=False, batch_size=2
+            )
+
+        for notebook in notebooks:
+            notebook.refresh_from_db()
+
+        assert second_apply_result.converted == 1
+        assert second_apply_result.pending_before == 1
+        assert second_apply_result.pending_after == 0
+        assert all(notebook.content["content"][0]["type"] == "ph-markdown-notebook" for notebook in notebooks)
+        assert mock_publish.call_count == 3
+
+    @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
     def test_apply_converts_team_notebooks_and_logs_before_after_history(self, mock_publish) -> None:
         rich_content = {
             "type": "doc",
