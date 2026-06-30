@@ -17,10 +17,14 @@ import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './
 const AI_OBSERVABILITY_SETTINGS_SECTION: SettingSectionId = 'project-ai-observability'
 const AI_OBSERVABILITY_BYOK_SETTING: SettingId = 'ai-observability-byok'
 const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
+const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
 
 const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+    // The dedicated Toolbar section was removed; its authorized-URL config now lives under Web analytics.
+    'environment-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    'project-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)

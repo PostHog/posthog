@@ -670,6 +670,7 @@ export const redirects: Record<
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
+    '/alerts': urls.alerts(),
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
