@@ -15,6 +15,7 @@ in `products/slack_app/backend/api.py` are the ones that actually call
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -1504,7 +1505,7 @@ def _resolve_tasks_state(
         if t is None:
             continue
         run = runs_by_task.get(str(t.id))
-        mapping = mapping_by_task.get(str(t.id), {})
+        mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
         all_items.append(
             TaskItem(
                 title=t.title,
