@@ -351,6 +351,7 @@ describe('validateRevisionBundle', () => {
                     secrets: ['GITHUB_TOKEN'],
                     mcps: [
                         {
+                            kind: 'agent',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -376,7 +377,9 @@ describe('validateRevisionBundle', () => {
             const report = await validateRevisionBundle(
                 mkRev({
                     secrets: ['TENANT'],
-                    mcps: [{ id: 'tenant', url: 'https://${TENANT}.example.com/mcp', secrets: ['TENANT'] }],
+                    mcps: [
+                        { kind: 'agent', id: 'tenant', url: 'https://${TENANT}.example.com/mcp', secrets: ['TENANT'] },
+                    ],
                 }),
                 bundles
             )
@@ -397,6 +400,7 @@ describe('validateRevisionBundle', () => {
                     secrets: [{ name: 'GITHUB_TOKEN', allowed_hosts: ['api.githubcopilot.com'] }],
                     mcps: [
                         {
+                            kind: 'agent',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -415,7 +419,14 @@ describe('validateRevisionBundle', () => {
             const report = await validateRevisionBundle(
                 mkRev({
                     secrets: ['GITHUB_TOKEN'],
-                    mcps: [{ id: 'github', url: 'https://api.githubcopilot.com/mcp', secrets: ['GITHUB_TOKEN'] }],
+                    mcps: [
+                        {
+                            kind: 'agent',
+                            id: 'github',
+                            url: 'https://api.githubcopilot.com/mcp',
+                            secrets: ['GITHUB_TOKEN'],
+                        },
+                    ],
                 }),
                 bundles
             )

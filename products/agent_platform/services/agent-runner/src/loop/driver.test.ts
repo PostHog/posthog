@@ -405,7 +405,7 @@ describe('driver runSession', () => {
             model: FAUX_MODEL_ID,
             mcps: [
                 {
-                    kind: 'external',
+                    kind: 'agent',
                     id: 'posthog',
                     url: 'https://app.posthog.com/api/mcp',
                     secrets: [],
@@ -535,7 +535,7 @@ describe('driver runSession', () => {
                 model: FAUX_MODEL_ID,
                 mcps: [
                     {
-                        kind: 'external',
+                        kind: 'agent',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         secrets: [],

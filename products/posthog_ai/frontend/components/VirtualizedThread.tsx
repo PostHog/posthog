@@ -72,6 +72,7 @@ export interface VirtualizedThreadRootProps<T> {
      * adds no chrome in this mode, so the parent supplies layout (gap, centering, container query).
      */
     virtualized?: boolean
+    listClassName?: string
     children: (item: T, index: number) => ReactNode
 }
 
@@ -92,6 +93,7 @@ function Root<T>({
     stickToBottom = true,
     maxWidthClassName = 'max-w-180',
     className,
+    listClassName,
     virtualized = true,
     children,
 }: VirtualizedThreadRootProps<T>): JSX.Element {
@@ -236,7 +238,7 @@ function Root<T>({
                         return (
                             <List<InternalRowProps>
                                 style={{ height, width, overflowX: 'hidden' }}
-                                className="overscroll-contain"
+                                className={cn('overscroll-contain', listClassName)}
                                 overscanCount={overscanCount}
                                 rowCount={rowCount}
                                 rowHeight={dynamicRowHeight}

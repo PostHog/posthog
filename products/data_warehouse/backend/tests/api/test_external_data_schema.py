@@ -24,22 +24,23 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
+from products.data_modeling.backend.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
     ExternalDataSchema,
+    ExternalDataSource,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 pytestmark = [
     pytest.mark.django_db,
@@ -2000,6 +2001,11 @@ class TestUpdateExternalDataSchema:
 
         yield team
 
+        # Creating a source syncs managed Revenue Analytics views into a DAG, leaving Node rows whose
+        # saved_query FK is PROTECT. Team cascades to DataWarehouseSavedQuery, so the nodes/edges must
+        # go first — same ordering production relies on in delete_bulky_postgres_data.
+        Edge.objects.filter(team=team).delete()
+        Node.objects.filter(team=team).delete()
         team.delete()
 
     @pytest.fixture
@@ -2702,7 +2708,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
         job = ExternalDataJob.objects.create(
             team=self.team,
@@ -3009,6 +3015,42 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
+
+    def test_available_columns_falls_back_to_synced_table_when_metadata_missing(self):
+        # `schema_metadata` is empty whenever it hasn't been reconciled (non-SQL sources, or SQL schemas
+        # discovered/added after the last reload). available_columns must then fall back to the synced
+        # table's columns — otherwise the Descriptions UI shows no columns (even when annotations exist)
+        # and users can't edit them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="billing_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "id": {"clickhouse": "String"},
+                "balance": {"clickhouse": "Nullable(Int64)"},
+                "_dlt_id": {"clickhouse": "String"},
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="billing_customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        # Sort by name: `columns` is JSONB, which doesn't preserve key insertion order.
+        assert sorted(response.json()["available_columns"], key=lambda column: column["name"]) == [
+            {"name": "balance", "data_type": "Int64", "is_nullable": True},
+            {"name": "id", "data_type": "String", "is_nullable": False},
+        ]
 
     @parameterized.expand(
         [

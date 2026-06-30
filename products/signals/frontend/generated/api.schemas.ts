@@ -1106,6 +1106,10 @@ export interface SignalScoutRunSummaryApi {
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
     emitted_finding_ids: string[]
+    /** The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring scout writes a full report here instead. Empty for runs that authored no report. */
+    emitted_report_ids: string[]
+    /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
+    edited_report_ids: string[]
 }
 
 /**
@@ -1162,6 +1166,10 @@ export interface SignalScoutRunDetailApi {
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
     emitted_finding_ids: string[]
+    /** The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring scout writes a full report here instead. Empty for runs that authored no report. */
+    emitted_report_ids: string[]
+    /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
+    edited_report_ids: string[]
 }
 
 /**
@@ -1480,6 +1488,19 @@ export interface EmitFindingResponseApi {
 }
 
 /**
+ * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+ * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+ * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
+ */
+export interface ScoutRunIdsBatchRequestApi {
+    /**
+     * UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.
+     * @maxItems 200
+     */
+    run_ids: string[]
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -1791,6 +1812,28 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutRunsRecentEmissionsParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission from the prior page).
+     */
+    date_to?: string
+    /**
+     * Max rows to return (default 50, hard cap 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutScratchpadSearchParams = {

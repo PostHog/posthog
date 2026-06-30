@@ -50,40 +50,43 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.direct_mysql import upsert_direct_mysql_table
-from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
-from products.data_warehouse.backend.logic.data_load.service import (
+from products.cdp.backend.facade.api import HogFunctionSerializer
+from products.cdp.backend.facade.models import HogFunction
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.facade.api import (
+    apply_on_refresh as apply_sql_warehouse_refresh_migration,
+    apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
     cancel_external_data_workflow,
+    create_and_register_webhook,
     delete_cdc_extraction_schedule,
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
+    delete_webhook_and_hog_function,
+    detect_schema_clear_transition as detect_sql_schema_clear_transition,
     ensure_cdc_slot_cleanup_schedule,
+    get_mysql_source_location,
+    get_or_create_webhook_hog_function,
+    get_postgres_source_location,
+    get_webhook_url,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
+    is_multi_schema_capable_sql_source,
     is_xmin_enabled_for_team,
+    reconcile_mysql_schemas,
+    reconcile_postgres_schemas,
+    reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
+    source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
+    upsert_direct_mysql_table,
+    upsert_direct_postgres_table,
 )
-from products.data_warehouse.backend.logic.external_data_source.webhooks import (
-    create_and_register_webhook,
-    delete_webhook_and_hog_function,
-    get_or_create_webhook_hog_function,
-    get_webhook_url,
-)
-from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reconcile_mysql_schemas
-from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
-from products.data_warehouse.backend.postgres_warehouse_migration import (
-    reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
-)
+from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaSerializer,
     RowFiltersField,
@@ -92,78 +95,58 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
-from products.data_warehouse.backend.sql_warehouse_migration import (
-    apply_on_refresh as apply_sql_warehouse_refresh_migration,
-    apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
-    detect_schema_clear_transition as detect_sql_schema_clear_transition,
-    is_multi_schema_capable_sql_source,
-    source_namespace_is_blank,
-)
-from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
-    ExternalDataSchema,
-    sync_old_schemas_with_new_schemas,
-)
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import (
+from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
+from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
     validate_source_prefix,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
-    CDCSourceAdapter,
-    get_cdc_adapter,
-    source_type_supports_cdc,
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    PendingSourceCredential,
+    sync_old_schemas_with_new_schemas,
+    update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    AnySource,
-    ExternalWebhookInfo,
-    FieldType,
-    WebhookSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_default_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns,
-    sql_schema_metadata,
-    validate_and_coerce_row_filters,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
-    DocsFetchError,
-    draft_manifest_sync,
-    fetch_docs_text,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
+from products.warehouse_sources.backend.facade.source_management import (
+    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+    DEFAULT_LAG_WARNING_THRESHOLD_MB,
     MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
+    AnySource,
+    CDCSourceAdapter,
+    ClickHouseSource,
+    Config,
     CustomSource,
-    manifest_request_hosts,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
-    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
-    DEFAULT_LAG_WARNING_THRESHOLD_MB,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    CustomSourceConfig,
+    DocsFetchError,
+    ExternalWebhookInfo,
+    FieldType,
+    MySQLSource,
+    PostgresSource,
+    RowFilterValidationError,
+    SourceRegistry,
+    SourceSchema,
+    SQLSource,
     SSLRequiredError,
+    WebhookSource,
+    build_default_schemas,
+    cdc_pg_connection,
+    draft_manifest_sync,
+    fetch_docs_text,
+    filter_dwh_columns_by_enabled_columns,
+    get_cdc_adapter,
     get_primary_key_columns,
+    manifest_request_hosts,
     source_requires_ssl,
+    source_type_supports_cdc,
+    sql_schema_metadata,
+    validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -1917,6 +1900,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
                 lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                # When the caller didn't set a lookback, fall back to the source-defined default
+                # (e.g. Google Ads stats tables, whose recent rows Google keeps revising for days).
+                # This loop is the single creation choke point, so the default reaches both the
+                # wizard and one-shot flows; it's then validated by the bounds check just below.
+                if lookback_seconds is None and source_schema is not None:
+                    lookback_seconds = source_schema.default_incremental_lookback_seconds
                 if lookback_seconds is not None:
                     # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
                     if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
@@ -2476,7 +2465,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
@@ -3301,6 +3292,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e, {"source_id": str(instance.id)})
 
         with transaction.atomic():
+            # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
+            # sync_type_config would make CDC look broken the moment it's re-enabled.
+            # Must be inside the atomic block so a failed schema-state reset rolls this back too.
+            for schema_id in cdc_schema_ids:
+                try:
+                    update_sync_type_config_keys(schema_id, instance.team_id, removes=["cdc_broken"])
+                except ExternalDataSchema.DoesNotExist:
+                    pass
+
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(
                 source=instance,

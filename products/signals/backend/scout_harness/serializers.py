@@ -109,6 +109,23 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "non-emitting runs."
         ),
     )
+    emitted_report_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit "
+            "order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring "
+            "scout writes a full report here instead. Empty for runs that authored no report."
+        ),
+    )
+    edited_report_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary "
+            "and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any "
+            "inbox report, so these are generally not reports the run authored. Empty for runs that "
+            "edited no report."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
@@ -200,6 +217,64 @@ class ScoutEmissionReportLinkSerializer(serializers.Serializer):
     report = LinkedSignalReportSerializer(
         allow_null=True,
         help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
+# Upper bound on run ids accepted by the batched emissions / emission-reports endpoints. The findings
+# UI caps its window at 120 emitted runs (`MAX_FLEET_EMITTED_RUNS`); this sits above that with headroom
+# and bounds a pathological request rather than coupling tightly to the client cap.
+SCOUT_RUNS_BATCH_LIMIT = 200
+
+
+class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
+    """Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+    resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+    reports lookup, one ClickHouse round-trip — per emitted run) into a single request."""
+
+    run_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=SCOUT_RUNS_BATCH_LIMIT,
+        help_text=(
+            "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
+            "team are silently ignored (they contribute no rows) rather than failing the whole request. "
+            f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
+        ),
+    )
+
+
+class RecentEmissionsQuerySerializer(serializers.Serializer):
+    """Query parameters for `recent-emissions` — recent findings across every run on the team.
+
+    The cross-run counterpart to the per-run `emissions` action: instead of resolving a list of
+    run ids first, ask for the team's recent emitted findings directly, newest-first, optionally
+    scoped to one scout or a time window. Pure Postgres — no ClickHouse round-trip.
+    """
+
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission "
+            "from the prior page)."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows "
+            "to findings one specialist surfaced; omit to span every scout on the team."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=200,
+        help_text="Max rows to return (default 50, hard cap 200).",
     )
 
 

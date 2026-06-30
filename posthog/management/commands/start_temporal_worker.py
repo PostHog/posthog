@@ -25,8 +25,6 @@ from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
     TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
     TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
@@ -145,6 +143,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -178,6 +177,7 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
+from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
@@ -215,6 +215,10 @@ from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
+from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
+    ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+)
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
@@ -244,6 +248,11 @@ _task_queue_specs = [
         DATA_SYNC_ACTIVITIES,
     ),
     (
+        settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    ),
+    (
         settings.DATA_MODELING_TASK_QUEUE,
         DATA_MODELING_WORKFLOWS,
         DATA_MODELING_ACTIVITIES,
@@ -263,7 +272,9 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_WORKFLOWS
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
+        + SYNC_EVENTS_RETENTION_WORKFLOWS
+        + JOB_LOGS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -278,7 +289,9 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
+        + SYNC_EVENTS_RETENTION_ACTIVITIES
+        + JOB_LOGS_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -373,11 +386,6 @@ _task_queue_specs = [
         settings.LLMA_EVALS_TASK_QUEUE,
         LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    ),
-    (
-        settings.LLMA_SENTIMENT_TASK_QUEUE,
-        LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-        LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,

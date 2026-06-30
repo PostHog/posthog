@@ -31,9 +31,11 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalPolicy,
     type ApprovalType,
     BundleStore,
     CredentialBroker,
+    DEFAULT_APPROVAL_POLICY,
     GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
@@ -47,6 +49,9 @@ import {
 import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { makeMcpProxyTools } from './mcp-proxy'
+import { decideMcpExposure } from './mcp-tool-budget'
+import { effectiveToolLevel } from './mcp-tool-lookup'
 import { buildToolNameMap } from './provider-safe-names'
 
 /**
@@ -189,11 +194,22 @@ export interface BuiltAgentTools {
      * sanitizes names on the wire and uses this map to translate the names a
      * strict provider echoes back to the original before the loop matches. */
     nameToId: Map<string, string>
+    /** `<prefix>__call_tool` name → its client, per proxied connection. The
+     *  driver re-keys the approval gate on the underlying tool from the args. */
+    mcpProxyCallTools: Map<string, OpenedMcp>
+    /** exposedName (`<prefix>__<remoteName>`) → approval policy, for
+     *  connection-backed tools the installation owner marked `needs_approval`.
+     *  The driver force-gates these even when the agent author's effective level
+     *  is `allow`, so the owner's required approval can't be widened away.
+     *  `deny`-marked tools aren't here — they're dropped from exposure entirely. */
+    mcpOwnerApprovals: Map<string, ApprovalPolicy>
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
+    const mcpProxyCallTools = new Map<string, OpenedMcp>()
+    const mcpOwnerApprovals = new Map<string, ApprovalPolicy>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -290,45 +306,76 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
         )
         for (const { client, tools: remoteTools } of listings) {
-            // PR 7: inclusion filter migrated from `allowlist[]` to `tools[]`,
-            // which carries both bare-string entries (passthrough — was
-            // allowlist) and object entries `{ name, requires_approval?, ... }`.
-            // We only need the entry NAMES here; the approval-wrap fallback
-            // lives in `driver.ts` and pulls the per-tool policy via
-            // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
-            // still means "expose every tool the server lists."
-            const includedNames =
-                client.ref.tools && client.ref.tools.length > 0
-                    ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
-                    : null
-            for (const remote of remoteTools) {
-                if (includedNames && !includedNames.has(remote.name)) {
-                    continue
+            const exposed = exposedRemoteTools(client, remoteTools, seen)
+            // Owner-required approvals (connection-backed): a `needs_approval`
+            // tool must always park for approval, even when the agent author's
+            // effective level is `allow`. Record exposedName → policy so the
+            // driver force-gates it on both the inline and proxy paths. (`deny`
+            // is already dropped from `exposed`.)
+            if (client.connectionToolApprovals) {
+                for (const remote of exposed) {
+                    if (client.connectionToolApprovals[remote.name] === 'approve') {
+                        mcpOwnerApprovals.set(
+                            `${client.prefix}__${remote.name}`,
+                            client.ref.approval_policy ?? DEFAULT_APPROVAL_POLICY
+                        )
+                    }
                 }
-                // `<prefix>__<remoteName>` is the model-visible identifier; the
-                // model sees the prefix so it can disambiguate (`linear__create_issue`
-                // vs `github__create_issue`). All chars are already
-                // provider-safe — `__` is in the safe set.
-                const exposedName = `${client.prefix}__${remote.name}`
-                if (seen.has(exposedName)) {
-                    // Collisions can happen when a remote tool name accidentally
-                    // matches a native/custom id, or two MCPs export the same
-                    // post-prefix string. Same silent-skip behaviour as
-                    // duplicate spec.tools entries — keeps the model surface
-                    // stable across deploys instead of failing loudly on a
-                    // remote-side rename.
-                    continue
-                }
-                seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote))
             }
+            // Inline below the budget; proxy a rich surface so it can't overflow the model.
+            const decision = decideMcpExposure(exposed)
+            if (decision.mode === 'inline') {
+                for (const remote of exposed) {
+                    tools.push(makeMcpTool(`${client.prefix}__${remote.name}`, client, remote))
+                }
+                continue
+            }
+            deps.log('info', 'mcp.exposure.proxy', {
+                prefix: client.prefix,
+                toolCount: decision.toolCount,
+                serializedChars: decision.serializedChars,
+                reasons: decision.reasons,
+            })
+            const proxy = makeMcpProxyTools(client, exposed)
+            tools.push(...proxy.tools)
+            mcpProxyCallTools.set(proxy.callToolName, client)
         }
     }
 
     // Tools are named with their original ids (the loop matches calls by name).
     // The map keys the provider-safe form back to the original so the driver's
     // streamFn can translate names a strict provider echoed back.
-    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)) }
+    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), mcpProxyCallTools, mcpOwnerApprovals }
+}
+
+/**
+ * The catalog a client should expose, shared by the inline and proxy emitters:
+ * drop tools whose effective level is `deny` (connection default ?? per-tool
+ * override) or whose owner mark is `do_not_use`, then `<prefix>__<name>`
+ * collision dedupe against `seen` (mutated).
+ */
+function exposedRemoteTools(client: OpenedMcp, remoteTools: RemoteMcpTool[], seen: Set<string>): RemoteMcpTool[] {
+    const exposed: RemoteMcpTool[] = []
+    for (const remote of remoteTools) {
+        // Owner's required per-tool approval (connection-backed MCPs only): a
+        // `do_not_use` tool is never exposable, regardless of the agent author's
+        // policy — the direct connection path doesn't route through the mcp_store
+        // proxy that would otherwise enforce this.
+        if (client.connectionToolApprovals?.[remote.name] === 'deny') {
+            continue
+        }
+        // Agent author's effective level: `deny` → not exposed to the model.
+        if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
+            continue
+        }
+        const exposedName = `${client.prefix}__${remote.name}`
+        if (seen.has(exposedName)) {
+            continue
+        }
+        seen.add(exposedName)
+        exposed.push(remote)
+    }
+    return exposed
 }
 
 function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> {

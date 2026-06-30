@@ -78,6 +78,13 @@ class TestPreamble:
         assert "session from Acme" in rendered
         assert "REC_T" in rendered
 
+    def test_preamble_explains_privacy_masking(self) -> None:
+        # The model must not flag masked content (striped boxes / asterisks) as a bug or missing content.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<masking>" in rendered
+        assert "asterisks" in rendered
+        assert "not a bug" in rendered.lower()
+
     def test_preamble_exposes_events_via_tool_not_inline(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
         rendered = scanner.preamble(team_name="Acme")
@@ -716,17 +723,40 @@ class TestSignalSideMission:
         scanner = scanner_from_db(_build_replay_scanner(emits_signals=emits_signals))
         assert (_signals_step(scanner) is not None) == expected
 
-    def test_signals_step_is_visual_driven_with_event_corroboration(self) -> None:
+    def test_signals_step_sets_a_high_visual_evidence_bar(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
         step = _signals_step(scanner)
         assert step is not None
         instruction = step.instruction
-        # The visual observation drives the finding; a finding with no on-screen basis is excluded.
-        assert "the visual observation drives it" in instruction
-        assert "If you can't point to something you saw, don't list it." in instruction
-        # Event corroboration RAISES confidence — it is not a basis for exclusion.
+        # Default-empty + a deliberately high bar with three gates: exact on-screen proof, material harm, certainty.
+        assert "The default is an empty list" in instruction
+        assert "The bar is deliberately high" in instruction
+        assert "materially hurt the user" in instruction
+        assert "unambiguously agree it is a defect" in instruction
+        # Low-severity noise is explicitly excluded.
+        assert "Ordinary slowness" in instruction
+        # The finding must stand on the visual; corroboration RAISES confidence but pure event-restatement is excluded.
         assert "Corroboration from the event log *raises* your confidence" in instruction
-        # Only pure event-restatement (no visual) is excluded.
         assert "an issue you only know about from the events" in instruction
+        # No timestamp references in the description text.
+        assert "no timestamp references" in instruction
         # Old event-steering must stay gone.
         assert "name the specific events and their sequence" not in instruction
+
+    @pytest.mark.parametrize(
+        "raw, clean",
+        [
+            ("The error toast fired (t 844) and blocked checkout", "The error toast fired and blocked checkout"),
+            ("Clicked ten times (t 39, t 57) before it responded", "Clicked ten times before it responded"),
+            (
+                "Comma-joined without the second t (t 39, 57) still strips",
+                "Comma-joined without the second t still strips",
+            ),
+            ("Failed twice (t 844) then again (t 862) on /cart", "Failed twice then again on /cart"),
+            ("No markers here at all", "No markers here at all"),
+        ],
+    )
+    def test_signal_description_strips_leaked_timestamp_markers(self, raw: str, clean: str) -> None:
+        # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
+        signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
+        assert signal.description == clean

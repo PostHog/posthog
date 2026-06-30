@@ -33,7 +33,14 @@
  * `pending_inputs` — handled in `getSteeringMessages`.
  */
 
-import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
+import type {
+    AgentContext,
+    AgentEvent,
+    AgentEventSink,
+    AgentMessage,
+    AgentToolResult,
+    StreamFn,
+} from '@earendil-works/pi-agent-core'
 import { runAgentLoop } from '@earendil-works/pi-agent-core'
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
@@ -89,7 +96,7 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
-import { lookupMcpToolApproval } from './mcp-tool-lookup'
+import { lookupMcpToolApproval, resolveApprovedExecutor } from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
 /** The model id that served the most recent assistant turn, if any. Seeds the
@@ -482,7 +489,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
             gatewayCatalog: deps.gatewayCatalog,
         }
-        const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, mcpProxyCallTools, mcpOwnerApprovals } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -539,8 +546,76 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
+            // Shared by the static wrap and the dynamic proxy wrap. Every gated
+            // call queues for a human decision — being the asker is not consent
+            // to the specific call (the model could have been steered by content
+            // it read). `toolName` is what the approval row records.
+            const queueGated = async (
+                toolName: string,
+                toolCallId: string,
+                args: Record<string, unknown>,
+                policy: ApprovalPolicy
+            ): Promise<AgentToolResult<ToolResultDetails>> => {
+                const queued = await queueApprovalResult({
+                    approvals,
+                    buildApprovalUrl: deps.buildApprovalUrl,
+                    session,
+                    revisionId: rev.id,
+                    turn,
+                    toolName,
+                    toolCallId,
+                    args,
+                    policy,
+                })
+                // `principal` + Slack: post Approve/Reject buttons in-thread
+                // (best-effort; skip a deduped re-queue).
+                const reqId = queued.details?.requestId
+                if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
+                    void postSlackApprovalButtons(deps.http, {
+                        token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                        channel: slackReply.channel,
+                        thread_ts: slackReply.thread_ts,
+                        sessionId: session.id,
+                        requestId: reqId,
+                        toolName,
+                        logger: {
+                            warn: (meta, msg) => log('warn', msg, meta),
+                            info: (meta, msg) => log('info', msg, meta),
+                        },
+                    }).catch(() => {})
+                }
+                return queued
+            }
+
             for (const tool of tools) {
                 const id = tool.name
+                // Proxy `call_tool` gates dynamically: the underlying tool is
+                // only known at call time (the `tool_name` arg), so re-key the
+                // gate on `<prefix>__<tool_name>` per call. `explore_tools` has
+                // no proxy entry → falls through, read-only, ungated.
+                const proxyClient = mcpProxyCallTools.get(id)
+                if (proxyClient) {
+                    const realProxyExecute = tool.execute as RealToolExecute
+                    tool.execute = async (toolCallId, args) => {
+                        const a = (args ?? {}) as Record<string, unknown>
+                        const remoteName = typeof a.tool_name === 'string' ? a.tool_name : ''
+                        const exposedName = `${proxyClient.prefix}__${remoteName}`
+                        const gate = lookupMcpToolApproval(exposedName, rev.spec)
+                        if (gate?.requires_approval) {
+                            return queueGated(exposedName, toolCallId, a, gate.approval_policy)
+                        }
+                        // Owner-required approval: a connection tool the
+                        // installation owner marked `needs_approval` parks even if
+                        // the agent author set it to `allow`.
+                        const ownerApproval = mcpOwnerApprovals.get(exposedName)
+                        if (ownerApproval) {
+                            return queueGated(exposedName, toolCallId, a, ownerApproval)
+                        }
+                        return realProxyExecute(toolCallId, a)
+                    }
+                    continue
+                }
+
                 // Native + custom tools carry their approval policy on
                 // `spec.tools[]`. MCP tools materialise at session start
                 // from `client.listTools()` so they can't appear there;
@@ -558,55 +633,18 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // collision-skip in `build-agent-tools.ts` handles the
                 // surface side; this just keeps the wrap path consistent.
                 const mcpGate = ref ? null : lookupMcpToolApproval(id, rev.spec)
+                // Owner-required approval for inline-exposed connection tools:
+                // force a gate on `needs_approval` tools the agent author left
+                // ungated.
+                const ownerApprovalPolicy = ref ? undefined : mcpOwnerApprovals.get(id)
                 const policy: ApprovalPolicy | null = nativeRef
                     ? (nativeRef.approval_policy as ApprovalPolicy)
                     : mcpGate?.requires_approval
                       ? mcpGate.approval_policy
-                      : null
+                      : (ownerApprovalPolicy ?? null)
                 if (policy) {
-                    tool.execute = async (toolCallId, args) => {
-                        // Every gated call queues — there is no auto-dispatch.
-                        // Being the asker is not consent to the specific call the
-                        // model emitted (a prompt injection in content the agent
-                        // read could have steered it), so a deterministic human
-                        // decision is always required: `principal` clears it via
-                        // the ingress decision API, `agent` via the console.
-                        const queued = await queueApprovalResult({
-                            approvals,
-                            buildApprovalUrl: deps.buildApprovalUrl,
-                            session,
-                            revisionId: rev.id,
-                            // `turn` is the live counter — at call time it's the
-                            // turn that proposed this gated call.
-                            turn,
-                            toolName: id,
-                            toolCallId,
-                            args: (args ?? {}) as Record<string, unknown>,
-                            policy,
-                        })
-                        // For a `principal` approval on a Slack session, post
-                        // Approve/Reject buttons into the thread so the session
-                        // owner can decide in-place (the ingress interactivity
-                        // handler enforces principal-match on the click). Skip on
-                        // a deduped re-queue so we don't spam the same buttons.
-                        // Best-effort — a Slack hiccup must not break the loop.
-                        const reqId = queued.details?.requestId
-                        if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
-                            void postSlackApprovalButtons(deps.http, {
-                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
-                                channel: slackReply.channel,
-                                thread_ts: slackReply.thread_ts,
-                                sessionId: session.id,
-                                requestId: reqId,
-                                toolName: id,
-                                logger: {
-                                    warn: (meta, msg) => log('warn', msg, meta),
-                                    info: (meta, msg) => log('info', msg, meta),
-                                },
-                            }).catch(() => {})
-                        }
-                        return queued
-                    }
+                    tool.execute = async (toolCallId, args) =>
+                        queueGated(id, toolCallId, (args ?? {}) as Record<string, unknown>, policy)
                 }
             }
         }
@@ -1125,7 +1163,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 // dispatch (tracked follow-up).
                                 const d = await dispatchApprovedResult({
                                     approvals: deps.approvals,
-                                    realExecute: realExecute.get(row.tool_name),
+                                    // A proxy-routed row is keyed `<prefix>__<remoteName>` (the gate
+                                    // re-keyed onto the underlying tool) but its executor is the
+                                    // connection's `call_tool`, whose args are the row's stored args.
+                                    // resolveApprovedExecutor falls back to it so the approved call
+                                    // actually replays instead of erroring "unknown tool".
+                                    realExecute: resolveApprovedExecutor(row.tool_name, realExecute, mcpProxyCallTools),
                                     row,
                                 })
                                 // Secure the wake before observability so a failing

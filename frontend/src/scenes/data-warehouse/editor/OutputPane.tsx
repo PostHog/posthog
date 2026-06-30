@@ -1021,19 +1021,21 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
-            <InsightErrorState
-                query={sourceQuery}
-                excludeDetail
-                title={
-                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                        {error}
-                    </pre>
-                }
-                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                fixWithAIComponent={
-                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                }
-            />
+            <div className="flex min-h-full flex-col justify-center">
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                            {error}
+                        </pre>
+                    }
+                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
+                    fixWithAIComponent={
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    }
+                />
+            </div>
         </div>
     )
 }

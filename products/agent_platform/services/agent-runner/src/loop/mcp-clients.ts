@@ -45,7 +45,15 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
-import { HttpFetcher, type IdentityResolution, isDev, McpRef, secretHostMatches } from '@posthog/agent-shared'
+import {
+    HttpFetcher,
+    type IdentityResolution,
+    isDev,
+    type McpConnectionResolution,
+    McpRef,
+    secretHostMatches,
+    type ToolApprovalLevel,
+} from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
 export interface RemoteMcpTool {
@@ -70,6 +78,12 @@ export interface OpenedMcp {
     /** The original spec ref this client was opened for. Handy for logging
      *  and for the caller to inspect `tools[]` per tool. */
     ref: McpRef
+    /** Connection-backed (`ref.connection`) only: the installation owner's
+     *  required per-tool approvals (raw remote name → level). `buildAgentTools`
+     *  drops `deny` tools and force-gates `approve` ones, so the agent author's
+     *  policy can only tighten the owner's marks, never widen them. Absent for
+     *  non-connection MCPs (auth.provider / secrets). */
+    connectionToolApprovals?: Record<string, ToolApprovalLevel>
     listTools(): Promise<RemoteMcpTool[]>
     callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>
     close(): Promise<void>
@@ -129,6 +143,10 @@ export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     if (
         msg.includes('mcp_secret_') ||
         msg.includes('mcp_identity_') ||
+        // Shared-credential problems (owner must reconnect) → auth.
+        msg.includes('mcp_connection_needs_reauth') ||
+        msg.includes('mcp_connection_disabled') ||
+        msg.includes('mcp_connection_refresh_failed') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
         msg.includes(' 401') ||
@@ -143,7 +161,12 @@ export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     ) {
         return 'auth'
     }
-    if (msg.includes(' 404') || msg.includes('not found') || msg.includes('gone')) {
+    if (
+        msg.includes(' 404') ||
+        msg.includes('not found') ||
+        msg.includes('gone') ||
+        msg.includes('mcp_connection_not_found')
+    ) {
         return 'not_found'
     }
     if (
@@ -204,6 +227,15 @@ export interface OpenMcpClientsDeps {
          *  resolved bearer is rejected at open (e.g. missing scope). See
          *  `openMcpClients`'s failure handling. */
         relink?(provider: string): Promise<string | null>
+    }
+    /**
+     * Agent-level shared-credential resolver (`ref.connection` → a native
+     * `mcp_store` installation), team-bound by the worker. Returns the upstream
+     * URL + bearer; absent → a `connection` ref is refused. Wins over
+     * `auth.provider` / `secrets` / `headers`.
+     */
+    connections?: {
+        resolve(connectionId: string): Promise<McpConnectionResolution>
     }
     /**
      * Dev-only bearer attached to MCP requests when the ref has no
@@ -322,6 +354,7 @@ async function openOne(ref: McpRef, deps: OpenOneDeps): Promise<OpenedMcp> {
     return {
         prefix,
         ref,
+        connectionToolApprovals: target.connectionToolApprovals,
         listTools: async () => {
             const res = await client.listTools()
             return res.tools.map((t) => ({
@@ -348,7 +381,42 @@ function isLoopbackHost(hostname: string): boolean {
 async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+    url: string
+    headers: Record<string, string>
+    connectionToolApprovals?: Record<string, ToolApprovalLevel>
+}> {
+    // Shared-credential path (`ref.connection`): bearer + URL come from the
+    // referenced installation, ignoring auth/secrets/headers. No author secrets
+    // substituted → no cross-host exfiltration; just refuse non-https (loopback
+    // dev-only). Smokescreen handles SSRF.
+    if (ref.connection) {
+        if (!deps.connections) {
+            throw new Error(`mcp_connection_not_wired: ${ref.connection}`)
+        }
+        const res = await deps.connections.resolve(ref.connection)
+        if (res.kind === 'not_found') {
+            throw new Error(`mcp_connection_not_found: ${ref.connection}`)
+        }
+        if (res.kind === 'disabled') {
+            throw new Error(`mcp_connection_disabled: ${ref.connection}`)
+        }
+        if (res.kind === 'needs_reauth') {
+            // Owner must reconnect; asker can't fix a shared credential. → `auth`.
+            throw new Error(`mcp_connection_needs_reauth: ${ref.connection}`)
+        }
+        const parsed = new URL(res.url)
+        const loopback = isLoopbackHost(parsed.hostname) && isDev()
+        if (!loopback && parsed.protocol !== 'https:') {
+            throw new Error(`mcp_connection_unsafe_scheme: ${ref.connection} → ${parsed.protocol}`)
+        }
+        return {
+            url: res.url,
+            headers: { Authorization: `Bearer ${res.bearer}` },
+            connectionToolApprovals: res.ownerToolApprovals,
+        }
+    }
+
     // SSRF protection is handled at the infra layer by smokescreen (see
     // charts/shared/agent-platform/common.yaml `httpProxy.enabled: true`).
     // Author chose the URL; smokescreen denies RFC1918 / loopback /
