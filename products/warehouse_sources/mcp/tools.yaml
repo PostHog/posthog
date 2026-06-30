@@ -272,10 +272,11 @@ tools:
             Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
             most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
             sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool),
-            sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
-            primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard'
-            (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM
+            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
+            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
+            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
+            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
+            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
             (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
@@ -511,7 +512,10 @@ tools:
             or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
             warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported
             source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
-            you know what a connection needs. To actually connect a source, prefer 'data-warehouse-source-setup'.
+            you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need
+            (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large
+            (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To
+            actually connect a source, prefer 'data-warehouse-source-setup'.
         response:
             include:
                 - '*.name'
