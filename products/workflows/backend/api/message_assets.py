@@ -1,10 +1,31 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
+import posthoganalytics
 from rest_framework import serializers
 
 from posthog.clickhouse.client.execute import sync_execute
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
+
+
+WORKFLOW_EMAIL_ASSETS_UI_FLAG = "workflow-email-assets-ui"
+
+
+def workflow_email_assets_ui_enabled(team: "Team", user: "User") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            WORKFLOW_EMAIL_ASSETS_UI_FLAG,
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
 
 # `latest_` prefix on the argMax aliases prevents collision with the raw column
 # names in any outer WHERE — ClickHouse resolves the bare name to the aggregate

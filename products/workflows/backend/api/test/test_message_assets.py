@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -59,6 +60,12 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Test Flow")
+        ff_patcher = patch(
+            "products.workflows.backend.api.message_assets.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.feature_enabled_mock = ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     def _base(self) -> str:
         return f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}"
@@ -207,3 +214,15 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         res = self.client.get(f"{self._base()}/{path}", headers={"authorization": f"Bearer {key}"})
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
+
+    @parameterized.expand(
+        [
+            "assets/",
+            "assets/content/?invocation_id=inv-1&action_id=step-a",
+        ]
+    )
+    def test_404_when_ui_flag_disabled(self, path: str):
+        self._seed("inv-1", action_id="step-a")
+        self.feature_enabled_mock.return_value = False
+        res = self.client.get(f"{self._base()}/{path}")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
