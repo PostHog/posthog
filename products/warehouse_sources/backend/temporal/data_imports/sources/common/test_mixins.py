@@ -1,16 +1,22 @@
 from dataclasses import dataclass
 
+import pytest
+from unittest import mock
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    OAuthMixin,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
     _is_host_safe,
 )
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 class TestIsHostSafe(SimpleTestCase):
@@ -226,3 +232,67 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host=host))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
+
+
+class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("pool_wait_timeout", "query_wait_timeout"),
+            ("dropped_connection", "server closed the connection unexpectedly"),
+        ]
+    )
+    def test_retries_transient_db_error_then_succeeds(self, _name: str, message: str):
+        integration = object()
+        filter_qs = mock.Mock()
+        filter_qs.exists.side_effect = [OperationalError(message), OperationalError(message), True]
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.filter", return_value=filter_qs),
+            patch(f"{_MIXINS_MODULE}.Integration.objects.get", return_value=integration) as get,
+            patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
+            patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
+        ):
+            result = OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert filter_qs.exists.call_count == 3
+        assert get.call_count == 1
+        # A fresh connection is acquired before each attempt.
+        assert close.call_count == 3
+        # Backoff grows per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        filter_qs = mock.Mock()
+        filter_qs.exists.side_effect = OperationalError("query_wait_timeout")
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.filter", return_value=filter_qs),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
+        ):
+            with pytest.raises(OperationalError):
+                OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+        assert filter_qs.exists.call_count == 4
+        # Backed off between attempts (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_missing_integration_is_not_retried(self):
+        filter_qs = mock.Mock()
+        filter_qs.exists.return_value = False
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.filter", return_value=filter_qs),
+            patch(f"{_MIXINS_MODULE}.Integration.objects.get") as get,
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
+        ):
+            # A deleted integration row is non-retryable — raised as the stable "Integration not found"
+            # message the sources classify as non-retryable, not masked as a transient drop.
+            with pytest.raises(ValueError, match="Integration not found"):
+                OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+        get.assert_not_called()
+        sleep.assert_not_called()
