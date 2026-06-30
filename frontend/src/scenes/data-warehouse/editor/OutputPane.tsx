@@ -989,7 +989,7 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
         return null
     }
     return (
-        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
+        <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
             <div className="font-semibold mb-1">
                 Some warehouse sources used by this query are out of date — results may not reflect current data
             </div>
@@ -1126,7 +1126,7 @@ const Content = ({
         }
 
         return (
-            <div className="absolute inset-0 flex flex-col border-t">
+            <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <SyncWarningsBanner warnings={response?.warnings} />
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
@@ -1188,7 +1188,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Results) {
         return (
-            <div className="flex flex-col flex-1 min-h-0 w-full">
+            <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <SyncWarningsBanner warnings={response?.warnings} />
                 <TabScroller data-attr="sql-editor-output-pane-results">
                     <DataGrid
