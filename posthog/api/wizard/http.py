@@ -26,7 +26,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -421,6 +421,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         methods=["POST"],
         detail=False,
         url_path="cloud_run",
+        authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated],
         throttle_classes=[SetupWizardCloudRunBurstRateThrottle, SetupWizardCloudRunSustainedRateThrottle],
     )

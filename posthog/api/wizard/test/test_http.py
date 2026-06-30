@@ -11,7 +11,8 @@ from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
-from posthog.models import Organization, User
+from posthog.models import Organization, PersonalAPIKey, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class SetupWizardTests(APIBaseTest):
@@ -490,6 +491,29 @@ class SetupWizardCloudRunTests(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_rejects_personal_api_key_auth(self, mock_create):
+        # Cloud run is a UI/session-only action — an API token must not be able to start a run,
+        # even with a broad scope, since the project visibility check below wouldn't honor token scopes.
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test API Key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+            headers={"authorization": f"Bearer {api_key_value}"},
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_create.assert_not_called()
 
     def test_rejects_project_without_access(self):
