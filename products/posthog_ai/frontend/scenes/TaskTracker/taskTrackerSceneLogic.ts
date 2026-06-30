@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -9,13 +9,15 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ClaudeRuntimeAdapterEnumApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
+import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
-export type TaskCreateForm = {
+export interface TaskCreateForm {
     description: string
     repositoryConfig: RepositoryConfig
     model: string
@@ -24,7 +26,7 @@ export type TaskCreateForm = {
 
 // The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
 // want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
-type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
+export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
@@ -54,6 +56,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     actions({
         maybeRestoreRepositoryConfig: true,
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+        setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
+        applySuggestion: (item: SuggestionItem) => ({ item }),
+        setHeadline: (headline: string) => ({ headline }),
     }),
 
     reducers({
@@ -63,6 +68,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             { persist: true, storageKey: LAST_REPOSITORY_CONFIG_STORAGE_KEY },
             {
                 setPersistedRepositoryConfig: (_, { config }) => config,
+            },
+        ],
+        activeSuggestionGroup: [
+            null as SuggestionGroup | null,
+            {
+                setActiveSuggestionGroup: (_, { group }) => group,
+                // Clearing the description (e.g. after submit/reset) collapses any open dropdown.
+                setTaskCreateFormValues: (state, { values: formValues }) =>
+                    formValues.description !== undefined && !formValues.description ? null : state,
+                resetTaskCreateForm: () => null,
+            },
+        ],
+        headline: [
+            DEFAULT_HEADLINES[0],
+            {
+                setHeadline: (_, { headline }) => headline,
             },
         ],
     }),
@@ -109,6 +130,14 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
+    selectors({
+        sendDisabledReason: [
+            (s) => [s.taskCreateForm],
+            (taskCreateForm): string | undefined =>
+                !taskCreateForm.description.trim() ? 'Describe the task first' : undefined,
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
         // Remember the repo/integration whenever the picker changes it, so the next visit restores it.
         setTaskCreateFormValues: ({ values: formValues }) => {
@@ -144,12 +173,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         loadIntegrationsSuccess: () => {
             actions.maybeRestoreRepositoryConfig()
         },
+        // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
+        // typing (the component focuses the textarea in that case).
+        applySuggestion: ({ item }) => {
+            actions.setTaskCreateFormValues({ description: item.content })
+            if (!item.requiresUserInput) {
+                actions.submitTaskCreateForm()
+            }
+        },
     })),
 
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadTasks()
             actions.loadRepositories()
+            // Roll a headline once per mount (pickHeadline forces index 0 under Storybook for stable snapshots).
+            actions.setHeadline(pickHeadline())
             // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
             // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
             // integrations already cached by an earlier mount.
