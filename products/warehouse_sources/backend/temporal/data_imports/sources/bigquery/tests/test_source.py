@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_SCOPES,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
+    BigQueryInvalidIdentifierError,
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_primary_keys_for_table,
@@ -162,6 +164,36 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     # The raw 404 (job id, location internals) must not survive into the message.
     assert "Job ID" not in str(exc_info.value)
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
+    """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
+    `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
+    the offending value and BigQuery job internals, and that wording must stay non-retryable."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = BadRequest(
+        f"400 {phrase}. Dataset IDs must be alphanumeric. Location: US Job ID: f2bf3ba8-4c4b"
+    )
+
+    with pytest.raises(BigQueryInvalidIdentifierError) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert str(exc_info.value) == BIGQUERY_INVALID_IDENTIFIER_ERROR
+    # The raw 400 (offending id, job id) must not survive into the message.
+    assert "Job ID" not in str(exc_info.value)
+    assert "(default)" not in str(exc_info.value)
+    assert BIGQUERY_INVALID_IDENTIFIER_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+def test_bigquery_get_columns_propagates_unrelated_bad_request():
+    """A BadRequest that isn't an invalid-identifier error (e.g. a malformed query) must propagate
+    unchanged rather than being mislabeled as an invalid project/dataset ID."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = BadRequest("400 Syntax error: Unexpected keyword SELECT")
+
+    with pytest.raises(BadRequest):
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
 
 
 @pytest.mark.parametrize(

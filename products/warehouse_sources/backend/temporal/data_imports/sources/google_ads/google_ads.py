@@ -75,6 +75,11 @@ def _ensure_grpc_receive_limit() -> None:
     options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
 
 
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
 # endpoint over the network. Two failure shapes on that hop are transient and usually clear on a
 # short backoff: a connection-level hiccup (e.g. a proxy timeout) surfaces as
@@ -126,26 +131,35 @@ def _load_client_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
 def _get_integration(integration_id: int, team_id: int) -> Integration:
-    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker that never goes through Django's request
-    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
-    ``close_old_connections()`` evicts connections already known to be stale, but one can still
-    die in the window before the query runs and surface as a transient ``OperationalError``
-    ("server closed the connection unexpectedly"). The failed query marks the connection
-    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
-    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle, or the
+    connection pooler can reject the query with a wait timeout when the pool is saturated. Both
+    surface as a transient ``OperationalError`` and both clear once a healthy connection is used.
+    ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
+    query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
+    backoff also gives a saturated pool time to drain rather than retrying straight back into the
+    same wait timeout. This read is idempotent, so it is safe to repeat. Mirrors the backoff shape
+    of the client-init and search retries. ``Integration.DoesNotExist`` is left to propagate.
     """
-    close_old_connections()
-    try:
-        return Integration.objects.get(id=integration_id, team_id=team_id)
-    except OperationalError:
+    attempt = 0
+    while True:
         close_old_connections()
-        return Integration.objects.get(id=integration_id, team_id=team_id)
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -568,7 +582,7 @@ def _call_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_grpc_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
 
 
 def _search_with_transient_retry(

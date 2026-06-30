@@ -57,6 +57,7 @@ the row lists both.
 | ashby               | HTTP                        | requests                                                        | ✅                          |
 | attentive           | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| aviationstack       | HTTP                        | requests                                                        | ✅                          |
 | azure_devops        | HTTP                        | requests                                                        | ✅                          |
 | bamboohr            | HTTP                        | requests                                                        | ✅                          |
 | beamer              | HTTP                        | requests                                                        | ✅                          |
@@ -66,6 +67,7 @@ the row lists both.
 | blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
+| breezometer         | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
 | brex                | HTTP                        | requests                                                        | ✅                          |
 | bugsnag             | HTTP                        | requests                                                        | ✅                          |
@@ -313,7 +315,6 @@ doesn't conflict with concurrent PRs.
 - apptivo
 - assemblyai
 - auth0
-- aviationstack
 - awin
 - aws_cloudtrail
 - azure_blob
@@ -327,7 +328,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintrust
 - branch
-- breezometer
 - breezy_hr
 - bunny
 - buzzsprout

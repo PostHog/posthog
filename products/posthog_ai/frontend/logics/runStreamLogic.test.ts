@@ -286,6 +286,48 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('showThinkingIndicator', () => {
+        const runStartedFrame = notification('_posthog/run_started', {})
+        const messageChunk = sessionUpdate({
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'm1',
+            content: { text: 'Hi' },
+        })
+        const messageFinal = sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi' } })
+        const toolStart = sessionUpdate({
+            sessionUpdate: 'tool_call',
+            toolCallId: 't1',
+            serverName: 'posthog',
+            toolName: 'exec',
+            status: 'in_progress',
+        })
+        const toolDone = sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
+        const progressActive = notification('_posthog/progress', {
+            group: 'g',
+            step: 's',
+            label: 'Working',
+            status: 'in_progress',
+        })
+        const turnComplete = notification('_posthog/turn_complete', {})
+
+        it.each<[string, StoredLogEntry[], boolean]>([
+            ['idle gap after run start shows the loader', [runStartedFrame], true],
+            ['a streaming answer hides the loader', [runStartedFrame, messageChunk], false],
+            ['a finalized answer mid-turn shows the loader', [runStartedFrame, messageChunk, messageFinal], true],
+            ['a running tool hides the loader', [runStartedFrame, toolStart], false],
+            ['a completed tool shows the loader', [runStartedFrame, toolStart, toolDone], true],
+            ['a running progress step hides the loader', [runStartedFrame, progressActive], false],
+            ['no run in flight hides the loader', [], false],
+            ['a completed turn hides the loader', [runStartedFrame, messageFinal, turnComplete], false],
+        ])('%s', async (_name, frames, expected) => {
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.showThinkingIndicator).toEqual(expected)
+        })
+    })
+
     describe('assistant message buffering without messageId', () => {
         it('keeps two consecutive turns without a messageId in separate thread items', async () => {
             const frames: StoredLogEntry[] = [

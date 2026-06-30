@@ -55,16 +55,13 @@ export function ThreadView({
         threadItems,
         toolInvocations,
         isThinking,
-        streamPhase,
+        showThinkingIndicator,
         runArtifacts,
         turnComplete,
         currentRunStatus,
         contextUsage,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
-    const hasActiveProgressItem = threadItems.some(
-        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
-    )
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
@@ -80,7 +77,6 @@ export function ThreadView({
         [branch, baseBranch, repo]
     )
 
-    const showThinking = streamPhase === 'thinking' && !hasActiveProgressItem
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
@@ -88,17 +84,17 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter ? (
+            showThinkingIndicator || pullRequestUrl || showContextUsageFooter ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
-                        showThinking={showThinking}
+                        showThinking={showThinkingIndicator}
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [showThinking, pullRequestUrl, branch, showContextUsageFooter]
+        [showThinkingIndicator, pullRequestUrl, branch, showContextUsageFooter]
     )
 
     const renderItem = useCallback(

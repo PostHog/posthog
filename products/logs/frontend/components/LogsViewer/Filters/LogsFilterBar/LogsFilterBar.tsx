@@ -1,5 +1,3 @@
-import './LogsFilterBar.scss'
-
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
