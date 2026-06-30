@@ -63,6 +63,10 @@
             "id": "@posthog/memory-write"
         },
         {
+            "kind": "native",
+            "id": "@posthog/web-search"
+        },
+        {
             "kind": "client",
             "id": "focus_tab",
             "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",
@@ -232,7 +236,7 @@
                 "agent-applications-revisions-clone-from-create",
                 "agent-applications-revisions-partial-update",
                 "agent-applications-revisions-agent-md-update",
-                "agent-applications-revisions-skill-refs-set",
+                "agent-applications-revisions-skill-refs-update",
                 "llm-skills-search",
                 "llm-skills-create",
                 "agent-applications-revisions-tools-update",
@@ -252,6 +256,7 @@
                 "agent-native-tools-list",
                 "agent-resolve-resource",
                 "agent-applications-models",
+                "agent-applications-spec-schema",
                 "execute-sql",
                 "insight-query",
                 "get-llm-total-costs-for-project",

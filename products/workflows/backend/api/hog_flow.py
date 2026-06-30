@@ -26,6 +26,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
     HogInvocationResultSerializer,
@@ -49,7 +50,11 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
 from posthog.models.filters import Filter
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.plugins.plugin_server_api import (
+    create_hog_flow_invocation_test,
+    create_hog_flow_scheduled_invocation,
+    rerun_hog_invocations,
+)
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -469,7 +474,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={"function_type": template.type},
+                    context={
+                        "function_type": template.type,
+                        "is_dwh_source": self.context.get("is_dwh_source", False),
+                    },
                 )
 
                 if not strict:
@@ -846,6 +854,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = self.instance.status
         if status != "active":
             self.context["is_draft"] = True
+
+        # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
+        # synced row. Flag it before child action validation so function-input compilation rewrites it.
+        actions = data.get("actions")
+        if actions is None and self.instance:
+            actions = self.instance.actions
+        self.context["is_dwh_source"] = any(
+            isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            for action in (actions or [])
+        )
         return super().to_internal_value(data)
 
     class Meta:
@@ -1169,6 +1189,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "invocations",
         "schedule_detail",
         "bulk_delete",
+        "rerun",
         "graph",
     ]
     queryset = HogFlow.objects.all()
@@ -1203,6 +1224,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # running tests while editing is unaffected.
         if self.action == "invocations":
             return ["hog_flow:write", "group:read"]
+        # Rerun re-executes stored invocations — it replays up to 30 days of
+        # persisted event/person/group data through the current (possibly
+        # reconfigured) workflow. A `hog_flow:write`-only token could use that to
+        # route historical data it can't otherwise read to a destination it
+        # controls, so gate rerun on person:read + group:read on top of write —
+        # the same data-read scopes invocation inspection requires. (`hog_flow:read`
+        # would be a no-op since :write already satisfies it.)
+        if self.action == "rerun":
+            return ["hog_flow:write", "person:read", "group:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
@@ -1239,6 +1269,48 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
+
+    @extend_schema(
+        request=HogInvocationRerunRequestSerializer,
+        responses={200: HogInvocationRerunResponseSerializer, 400: HogInvocationRerunResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"])
+    def rerun(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Rerun past invocations of this hog flow from their stored payloads.
+
+        Same shape and semantics as the hog function rerun endpoint —
+        proxies through to the CDP worker, which reads matching rows from
+        ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+        onto cyclotron with `is_retry=1`.
+
+        Because rerun replays historical event/person/group data, it requires
+        `person:read` and `group:read` on top of `hog_flow:write`.
+        """
+        hog_flow = self.get_object()
+
+        serializer = HogInvocationRerunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # `serializer.data` runs `to_representation`, which converts the
+        # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
+        # ISO-8601 strings — `requests.post(json=...)` can't serialize raw
+        # `datetime` objects, so passing `validated_data` would 500 every
+        # filter-mode rerun before the request even left Django.
+        res = rerun_hog_invocations(
+            team_id=self.team_id,
+            function_kind="hog_flow",
+            function_id=str(hog_flow.id),
+            payload=serializer.data,
+        )
+
+        if res.status_code != 200:
+            return Response(
+                {"queued_count": 0, "skipped_count": 0, "detail": res.text},
+                status=res.status_code,
+            )
+
+        return Response(res.json())
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of

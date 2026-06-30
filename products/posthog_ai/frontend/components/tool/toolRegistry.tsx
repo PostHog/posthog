@@ -2,8 +2,11 @@ import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
 
 import {
     IconAI,
+    IconCommit,
     IconDocument,
     IconEye,
+    IconGitBranch,
+    IconGithub,
     IconGlobe,
     IconListCheck,
     IconMagicWand,
@@ -77,6 +80,9 @@ const BuiltinToolRenderer = lazy(() =>
 )
 const EditToolRenderer = lazy(() => import('./EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer })))
 const QuestionRenderer = lazy(() => import('../QuestionRenderer').then((m) => ({ default: m.QuestionRenderer })))
+const PostHogCodeToolRenderer = lazy(() =>
+    import('./posthogCodeToolRenderers').then((m) => ({ default: m.PostHogCodeToolRenderer }))
+)
 
 /**
  * Single module-level registry of tool-name → renderer entry. All entries are registered at module
@@ -147,6 +153,26 @@ const POSTHOG_EXEC_VERBS: { key: string; displayName: string; icon: JSX.Element 
 ]
 for (const { key, displayName, icon } of POSTHOG_EXEC_VERBS) {
     toolRegistry.register({ key, displayName, icon, Renderer: BuiltinToolRenderer })
+}
+
+// posthog-code-tools — the coding agent's git/repo MCP tools. Registered under both the bare name and
+// the `mcp__<server>__` qualified name because `resolveToolKey` yields the qualified form on the
+// Claude-SDK wire path (the name lives in `_meta.claudeCode.toolName`) and the bare form on a native
+// MCP path. Renderers live in their own lazy chunk.
+// Inlined rather than imported from the renderer module so registration stays a string-only side
+// effect — importing it would statically pull the lazy renderer chunk into this one.
+const POSTHOG_CODE_TOOLS_SERVER = 'posthog-code-tools'
+const POSTHOG_CODE_TOOLS: { name: string; displayName: string; icon: JSX.Element }[] = [
+    { name: 'git_signed_commit', displayName: 'Signed commits', icon: <IconCommit /> },
+    { name: 'git_signed_merge', displayName: 'Signed merge', icon: <IconGitBranch /> },
+    { name: 'git_signed_rewrite', displayName: 'Signed force-update', icon: <IconGitBranch /> },
+    { name: 'clone_repo', displayName: 'Clone repository', icon: <IconGithub /> },
+    { name: 'list_repos', displayName: 'List repositories', icon: <IconGithub /> },
+]
+for (const { name, displayName, icon } of POSTHOG_CODE_TOOLS) {
+    for (const key of [name, `mcp__${POSTHOG_CODE_TOOLS_SERVER}__${name}`]) {
+        toolRegistry.register({ key, displayName, icon, Renderer: PostHogCodeToolRenderer })
+    }
 }
 
 // AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that

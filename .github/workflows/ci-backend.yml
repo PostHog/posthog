@@ -308,7 +308,7 @@ jobs:
               run: |
                   prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common google_search_console mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce snowflake stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
