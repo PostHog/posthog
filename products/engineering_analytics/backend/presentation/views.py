@@ -18,17 +18,25 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSourceNotConnectedError,
+    QuarantineRequest,
+    QuarantineWriteError,
+)
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
+    CIFailureLogsSerializer,
     GitHubSourceSerializer,
     PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     QuarantineFileSerializer,
+    QuarantineRequestResultSerializer,
+    QuarantineRequestSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobSerializer,
     WorkflowRunDetailSerializer,
@@ -121,17 +129,22 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pr_lifecycle",
         "quarantine",
         "pr_runs",
+        "ci_failure_logs",
         "pr_cost",
         "workflow_run",
         "workflow_runs",
         "workflow_runner_costs",
         "workflow_jobs",
     ]
-    scope_object_write_actions: list[str] = []
+    scope_object_write_actions: list[str] = ["quarantine_request"]
 
     def handle_exception(self, exc: Exception) -> Response:
-        # No GitHub warehouse source connected — every action degrades the same way.
+        # No GitHub warehouse source connected — every read action degrades the same way.
         if isinstance(exc, GitHubSourceNotConnectedError):
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        # A quarantine write that can't proceed (App not installed, malformed file, GitHub
+        # failure) — the message is user-safe and explains what to fix.
+        if isinstance(exc, QuarantineWriteError):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return super().handle_exception(exc)
 
@@ -340,6 +353,57 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_ci_failure_logs",
+        parameters=[
+            OpenApiParameter(
+                name="pr_number",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Pull request number whose CI failure logs to fetch.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the pull request belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: CIFailureLogsSerializer,
+            400: OpenApiResponse(description="Missing pr_number/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to "
+            "its workflow runs via the pull_requests association (all of the PR's pushes, not just the "
+            "latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the "
+            "worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs "
+            "aged out of the short Logs retention, or a fork PR has no run association. Each line carries "
+            "its original 1-based line number in the full pre-thinning log; lines are the failure region "
+            "(errors plus surrounding context, with omission markers), capped per job and overall."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def ci_failure_logs(self, request: Request, **kwargs) -> Response:
+        repo = request.query_params.get("repo")
+        try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
+            result = api.get_ci_failure_logs(
+                team=self.team,
+                pr_number=pr_number,
+                repo=repo,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(CIFailureLogsSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_cost",
@@ -609,3 +673,32 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(QuarantineFileSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=QuarantineRequestSerializer,
+        operation_id="engineering_analytics_quarantine_request",
+        responses={
+            201: OpenApiResponse(
+                response=QuarantineRequestResultSerializer,
+                description="The opened pull request, plus the tracking issue for a new quarantine.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid input, or the write could not be completed (no GitHub App installed on the "
+                "repo's org, a malformed quarantine file, or a GitHub failure). The detail message is safe to show."
+            ),
+        },
+        summary="Quarantine, extend, or unquarantine a flaky test",
+        description=(
+            "Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new "
+            "quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that "
+            "CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="quarantine/request", pagination_class=None)
+    def quarantine_request(self, request: TypedRequest[QuarantineRequest], **kwargs) -> Response:
+        result = api.request_quarantine(
+            team=self.team,
+            request=request.validated_data,
+            user_access_control=self.user_access_control,
+        )
+        return Response(QuarantineRequestResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)

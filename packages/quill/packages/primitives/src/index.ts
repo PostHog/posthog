@@ -33,6 +33,27 @@ export {
 export { Avatar, AvatarImage, AvatarFallback, AvatarGroup } from './avatar'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
+export { ChatBubbleGroup, ChatBubble, ChatBubbleContent, ChatBubbleReactions, bubbleVariants } from './chat/chat-bubble'
+export { ChatMarker, ChatMarkerIcon, ChatMarkerContent, markerVariants } from './chat/chat-marker'
+export {
+    ChatMessageGroup,
+    ChatMessage,
+    ChatMessageAvatar,
+    ChatMessageContent,
+    ChatMessageFooter,
+    ChatMessageHeader,
+} from './chat/chat-message'
+export {
+    ChatMessageScrollerProvider,
+    ChatMessageScroller,
+    ChatMessageScrollerViewport,
+    ChatMessageScrollerContent,
+    ChatMessageScrollerItem,
+    ChatMessageScrollerButton,
+    useChatMessageScroller,
+    useChatMessageScrollerScrollable,
+    useChatMessageScrollerVisibility,
+} from './chat/chat-message-scroller'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'

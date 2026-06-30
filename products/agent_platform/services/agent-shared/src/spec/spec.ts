@@ -15,14 +15,17 @@ import type { TriggerMetadata } from '../runtime/trigger-metadata'
  * Reject bare ids at authoring time so we don't freeze a revision the gateway
  * can't serve. `resolveModel` / `acceptedModelIds` operate on the prefixed
  * form; a bare `haiku-4-5` would pass `.min(1)` here, freeze, then fail the
- * very first session with a 400 from the gateway. Mirror of
- * `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
- * `backend/logic/spec_schema.py` — keep the two in sync.
+ * very first session with a 400 from the gateway. This regex is the single
+ * source of truth for the id format; `gateway-catalog.ts` mirrors it for the
+ * runtime servability check.
  */
 export const ModelIdSchema = z
     .string()
     .min(1)
     .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'model id must be "<provider>/<model-id>"')
+    .describe(
+        'Canonical model id in "<provider>/<model-id>" form, e.g. anthropic/claude-sonnet-4-6. Call the agent-applications-models tool for the list of gateway-served ids; an unserved id freezes but fails the first session.'
+    )
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
@@ -417,9 +420,8 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         requires_identity: z.string().optional(),
     }),
     // NOTE: the registry-pin shape `{ kind: 'custom_template', from_template,
-    // alias, version }` is a *draft-only* authoring shape, validated by the
-    // Django spec schema (`spec_schema.py`). It is deliberately NOT in this
-    // runtime union: freeze reshapes it into the `custom` variant above
+    // alias, version }` is a *draft-only* authoring shape. It is deliberately
+    // NOT in this runtime union: freeze reshapes it into the `custom` variant above
     // before the runner ever parses the spec, and the dispatcher assumes
     // every non-`client` tool carries `requires_approval`.
     /**
@@ -685,16 +687,26 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>
  * important so existing agents don't get reasoning charges they didn't
  * opt into.
  */
-export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+export const ReasoningEffortSchema = z
+    .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+    .describe(
+        'Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest); low/medium/high add deliberation tokens and per-turn cost; xhigh = maximal (research-grade, roughly 5-10x the per-turn cost). Omit for the provider default.'
+    )
 
 /** One model in a manual priority list; per-entry `reasoning` overrides the spec default. */
 export const ModelEntrySchema = z.object({
     model: ModelIdSchema,
-    reasoning: ReasoningEffortSchema.optional(),
+    reasoning: ReasoningEffortSchema.optional().describe(
+        'Per-model reasoning effort override (else the spec default).'
+    ),
 })
 
 /** Quality/cost level for `auto` policy; mapped to a maintained model list (below). */
-export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
+export const ModelLevelSchema = z
+    .enum(['low', 'medium', 'high'])
+    .describe(
+        'Quality/cost tier for auto. low = cheapest (short, formulaic, no-reasoning jobs); medium = balanced default (multi-step but bounded); high = top-tier (long, branching, reasoning-heavy). Resolved to a priority-ordered cross-provider model list at session start.'
+    )
 
 /**
  * How the runner treats the priority list across a session's turns.
@@ -710,24 +722,37 @@ export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
  *    it doesn't thrash) but DOES fail over to the next model on failure, trading
  *    that cold-cache re-read for keeping the session alive.
  */
-export const ModelOptimizeForSchema = z.enum(['cost', 'availability'])
+export const ModelOptimizeForSchema = z
+    .enum(['cost', 'availability'])
+    .describe(
+        'Session model stability vs. resilience. cost (default): the first turn pins a working model for the whole session, keeping the provider prompt cache warm (cache reads roughly 0.1-0.5x of full input) and never failing over mid-session; if the pinned model goes down the turn fails rather than cold-re-reading context on another provider. availability: fail over to the next model on failure, surviving an outage at the cost of a one-time cold re-read. Prefer cost for long/expensive sessions, availability where uptime matters more than spend.'
+    )
 
 /** `auto`: platform resolves `level` to a priority-ordered list at runtime.
  *  `manual`: author's explicit priority list.
  *  `optimize_for` (both): session model stability vs. resilience — see above. */
-export const ModelPolicySchema = z.discriminatedUnion('mode', [
-    z.object({
-        mode: z.literal('auto'),
-        level: ModelLevelSchema.default('medium'),
-        reasoning: ReasoningEffortSchema.optional(),
-        optimize_for: ModelOptimizeForSchema.default('cost'),
-    }),
-    z.object({
-        mode: z.literal('manual'),
-        models: z.array(ModelEntrySchema).min(1),
-        optimize_for: ModelOptimizeForSchema.default('cost'),
-    }),
-])
+export const ModelPolicySchema = z
+    .discriminatedUnion('mode', [
+        z.object({
+            mode: z.literal('auto'),
+            level: ModelLevelSchema.default('medium'),
+            reasoning: ReasoningEffortSchema.optional(),
+            optimize_for: ModelOptimizeForSchema.default('cost'),
+        }),
+        z.object({
+            mode: z.literal('manual'),
+            models: z
+                .array(ModelEntrySchema)
+                .min(1)
+                .describe(
+                    'Explicit priority-ordered fallback list — the runner tries entries in order, primary first. Order it provider-diverse so one provider outage degrades to the next vendor instead of failing.'
+                ),
+            optimize_for: ModelOptimizeForSchema.default('cost'),
+        }),
+    ])
+    .describe(
+        'How this agent selects its model. auto (default): pick a quality/cost level and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime — rides model upgrades and cross-provider fallback for free. manual: give an explicit priority-ordered models list (primary first); opts out of platform upgrades, so use only when a specific model is required.'
+    )
 
 /** `auto` level → priority-ordered, cross-provider list (also the fallback chain).
  *  The curated grouping layer over the gateway catalog: ids here MUST be
@@ -844,13 +869,42 @@ export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema
 export const AgentSpecSchema = z.object({
     /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
     models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
-    triggers: z.array(TriggerSchema).default([]),
-    tools: z.array(ToolRefSchema).default([]),
-    mcps: z.array(McpRefSchema).default([]),
-    skills: z.array(SkillRefSchema).default([]),
-    /** Identity providers users can link against (the credential axis). */
-    identity_providers: z.array(IdentityProviderConfigSchema).default([]),
-    secrets: z.array(SecretRefSchema).default([]),
+    triggers: z
+        .array(TriggerSchema)
+        .describe(
+            'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
+        )
+        .default([]),
+    tools: z
+        .array(ToolRefSchema)
+        .describe(
+            'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
+        )
+        .default([]),
+    mcps: z
+        .array(McpRefSchema)
+        .describe(
+            'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
+        )
+        .default([]),
+    skills: z
+        .array(SkillRefSchema)
+        .describe(
+            'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
+        )
+        .default([]),
+    identity_providers: z
+        .array(IdentityProviderConfigSchema)
+        .describe(
+            'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
+        )
+        .default([]),
+    secrets: z
+        .array(SecretRefSchema)
+        .describe(
+            'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
+        )
+        .default([]),
     limits: SpecLimitsSchema.default({
         max_turns: 50,
         max_tool_calls: 200,
@@ -858,9 +912,15 @@ export const AgentSpecSchema = z.object({
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
     }),
-    reasoning: ReasoningEffortSchema.optional(),
-    framework_prompt: FrameworkPromptConfigSchema.optional(),
-    resume: ResumeConfigSchema.optional(),
+    reasoning: ReasoningEffortSchema.describe(
+        'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'
+    ).optional(),
+    framework_prompt: FrameworkPromptConfigSchema.describe(
+        'Advanced: tune or pin the framework-injected system-prompt preamble. Rarely needed.'
+    ).optional(),
+    resume: ResumeConfigSchema.describe(
+        'Per-agent resumability — keep completed sessions reachable longer than the platform default (e.g. a Slack thread watched across a whole sprint).'
+    ).optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>

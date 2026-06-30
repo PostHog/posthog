@@ -132,7 +132,7 @@ agent-applications-revisions-create application_id=<id>
 #   agent-applications-revisions-agent-md-update / -tools-update
 # kernel skills are injected from backend code at freeze (no author step);
 # store skills come from the store: llm-skills-create / -search, then
-#   agent-applications-revisions-skill-refs-set
+#   agent-applications-revisions-skill-refs-update
 agent-applications-revisions-partial-update revision_id=<rid> spec=<contents of spec.json>
 agent-applications-revisions-validate-create revision_id=<rid>
 agent-applications-revisions-freeze-create revision_id=<rid>
