@@ -66,8 +66,6 @@ impl NotificationsConfig {
         // Commit only after notification handling succeeds. Failed handling should crash
         // before the offset is committed so Kafka redelivers the message on restart.
         ConsumerConfig::set_defaults(DEFAULT_CONSUMER_GROUP, DEFAULT_CONSUMER_TOPIC, false);
-        let mut config = Self::init_from_env()?;
-        config.consumer.kafka_consumer_auto_commit = false;
-        Ok(config)
+        Self::init_from_env()
     }
 }
