@@ -96,7 +96,13 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
-import { lookupMcpToolApproval, resolveApprovedExecutor } from './mcp-tool-lookup'
+import {
+    isProxyReadOnlyHelper,
+    lookupMcpToolApproval,
+    PREFIX_SEPARATOR,
+    proxiedPrefixesFromCallTools,
+    resolveApprovedExecutor,
+} from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
 /** The model id that served the most recent assistant turn, if any. Seeds the
@@ -587,19 +593,30 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 return queued
             }
 
+            // Prefixes whose connection is proxied (`<prefix>__call_tool` exists),
+            // so the synthetic read-only helpers below can be recognised as ours.
+            const proxiedPrefixes = proxiedPrefixesFromCallTools(mcpProxyCallTools.keys())
+
             for (const tool of tools) {
                 const id = tool.name
                 // Proxy `call_tool` gates dynamically: the underlying tool is
                 // only known at call time (the `tool_name` arg), so re-key the
-                // gate on `<prefix>__<tool_name>` per call. `explore_tools` has
-                // no proxy entry → falls through, read-only, ungated.
+                // gate on `<prefix>__<tool_name>` per call.
                 const proxyClient = mcpProxyCallTools.get(id)
                 if (proxyClient) {
                     const realProxyExecute = tool.execute as RealToolExecute
                     tool.execute = async (toolCallId, args) => {
                         const a = (args ?? {}) as Record<string, unknown>
-                        const remoteName = typeof a.tool_name === 'string' ? a.tool_name : ''
-                        const exposedName = `${proxyClient.prefix}__${remoteName}`
+                        const raw = typeof a.tool_name === 'string' ? a.tool_name : ''
+                        // The model usually passes the prefixed name it SEES
+                        // (`<prefix>__<tool>`); the proxy strips that prefix before
+                        // dispatch (`resolveRemoteName`), so the gate must strip it
+                        // too. Otherwise the lookup keys on a doubled prefix
+                        // (`big__big__promote`), misses the per-tool/owner gate, and
+                        // an `approve`/`needs_approval` tool runs unapproved.
+                        const marker = `${proxyClient.prefix}${PREFIX_SEPARATOR}`
+                        const remoteName = raw.startsWith(marker) ? raw.slice(marker.length) : raw
+                        const exposedName = `${proxyClient.prefix}${PREFIX_SEPARATOR}${remoteName}`
                         const gate = lookupMcpToolApproval(exposedName, rev.spec)
                         if (gate?.requires_approval) {
                             return queueGated(exposedName, toolCallId, a, gate.approval_policy)
@@ -613,6 +630,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         }
                         return realProxyExecute(toolCallId, a)
                     }
+                    continue
+                }
+                // Synthetic proxy read-only helpers (`explore_tools` /
+                // `get_tool_schema`) for a PROXIED connection are ungated catalog/
+                // schema browsing — gating them would block enumeration on a human
+                // and defeat the proxy. The blanket exemption was removed from
+                // `lookupMcpToolApproval` (which can't tell a synthetic helper from
+                // a real same-named tool); the proxy-aware check lives here.
+                if (isProxyReadOnlyHelper(id, proxiedPrefixes)) {
                     continue
                 }
 

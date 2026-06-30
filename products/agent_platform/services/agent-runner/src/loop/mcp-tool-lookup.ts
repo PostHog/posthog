@@ -14,7 +14,7 @@
 
 import { AgentSpec, ApprovalPolicy, DEFAULT_APPROVAL_POLICY, McpRef, ToolApprovalLevel } from '@posthog/agent-shared'
 
-const PREFIX_SEPARATOR = '__'
+export const PREFIX_SEPARATOR = '__'
 
 /**
  * Synthetic proxy helper tools (`mcp-proxy.ts` exposes `<prefix>__explore_tools`,
@@ -25,7 +25,43 @@ const PREFIX_SEPARATOR = '__'
 export const PROXY_EXPLORE_TOOL = 'explore_tools'
 export const PROXY_GET_SCHEMA_TOOL = 'get_tool_schema'
 export const PROXY_CALL_TOOL = 'call_tool'
-const PROXY_META_TOOLS: ReadonlySet<string> = new Set([PROXY_EXPLORE_TOOL, PROXY_GET_SCHEMA_TOOL, PROXY_CALL_TOOL])
+
+/** The synthetic read-only proxy helpers — catalog search + schema fetch, no
+ *  side effects. `call_tool` is NOT here: it dispatches a real tool and the
+ *  driver gates it dynamically on the underlying tool. */
+const PROXY_READ_ONLY_HELPERS: ReadonlySet<string> = new Set([PROXY_EXPLORE_TOOL, PROXY_GET_SCHEMA_TOOL])
+
+/** Prefixes of the connections running in proxy mode, derived from the driver's
+ *  `<prefix>__call_tool` executor-map keys. A prefix is proxied iff its
+ *  `call_tool` helper exists. */
+export function proxiedPrefixesFromCallTools(callToolNames: Iterable<string>): Set<string> {
+    const suffix = `${PREFIX_SEPARATOR}${PROXY_CALL_TOOL}`
+    const set = new Set<string>()
+    for (const name of callToolNames) {
+        if (name.endsWith(suffix)) {
+            set.add(name.slice(0, -suffix.length))
+        }
+    }
+    return set
+}
+
+/**
+ * True when `exposedName` is a synthetic read-only proxy helper
+ * (`<prefix>__explore_tools` / `<prefix>__get_tool_schema`) for a connection in
+ * `proxiedPrefixes` — those are ours, ungated. A REAL remote tool that merely
+ * shares one of those names on a non-proxied connection returns false, so it's
+ * gated by its level like any other tool (the bug this guards against: a blanket
+ * name-based exemption let such a tool run inline without approval).
+ */
+export function isProxyReadOnlyHelper(exposedName: string, proxiedPrefixes: ReadonlySet<string>): boolean {
+    const sep = exposedName.indexOf(PREFIX_SEPARATOR)
+    if (sep <= 0) {
+        return false
+    }
+    const prefix = exposedName.slice(0, sep)
+    const remoteName = exposedName.slice(sep + PREFIX_SEPARATOR.length)
+    return PROXY_READ_ONLY_HELPERS.has(remoteName) && proxiedPrefixes.has(prefix)
+}
 
 /**
  * Effective approval level for a remote tool: its `tools[].level` override ??
@@ -71,13 +107,6 @@ export function lookupMcpToolApproval(exposedName: string, spec: AgentSpec): Mcp
     }
     const prefix = exposedName.slice(0, sep)
     const remoteName = exposedName.slice(sep + PREFIX_SEPARATOR.length)
-    // The proxy meta-tools are never gated by per-tool policy: `explore_tools`
-    // is read-only catalog browsing, and `call_tool` is gated dynamically by the
-    // driver on the UNDERLYING tool (re-keyed to `<prefix>__<remoteName>`), not
-    // on the helper itself.
-    if (PROXY_META_TOOLS.has(remoteName)) {
-        return null
-    }
     const ref = findMcpRefByPrefix(spec.mcps, prefix)
     if (!ref) {
         return null
