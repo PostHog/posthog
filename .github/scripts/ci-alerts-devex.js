@@ -95,14 +95,17 @@ function countConsecutiveFailures(runs) {
 // created_at (immutable, the API sort key); an unparseable timestamp stops the walk (fail short,
 // never fail open into an inflated duration).
 function contiguousFailureSince(runs, count) {
-    const dispatchedAt = (run) => new Date(run.created_at || run.updated_at).getTime()
+    // created_at (dispatch time, the API sort key) is immutable; updated_at is bumped by re-runs.
+    // Use it for both the gap and the returned anchor so re-running a run in the streak can't
+    // collapse the shown duration, and a just-completed failure reads as its run age, not "0m".
+    const dispatchedAt = (run) => run.created_at || run.updated_at
     let oldest = runs[0]
     for (let i = 1; i < count; i++) {
-        const gapMins = (dispatchedAt(runs[i - 1]) - dispatchedAt(runs[i])) / 60000
+        const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
         if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe: unknown/oversized gap stops here
         oldest = runs[i]
     }
-    return oldest.updated_at
+    return dispatchedAt(oldest)
 }
 
 // Workflows whose newest run starts a failure streak, keyed by display name.
@@ -383,7 +386,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             }
         })
         .filter((f) => f.byCount || f.byDuration)
-        .sort((a, b) => b.displayRedForMins - a.displayRedForMins) // longest shown-red first
+        .sort((a, b) => b.redForMins - a.redForMins) // most-severe (longest true red) first
 
     const latestCommit = commits[0] || null
     // Fail closed: no dated commit → not recent → the wall-clock arm won't open.

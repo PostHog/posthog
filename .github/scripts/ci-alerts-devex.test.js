@@ -395,6 +395,51 @@ describe('ci-alerts-devex', () => {
         assert.doesNotMatch(body, /red for \d+h/)
     })
 
+    it('re-running a run inside the streak does not collapse the shown duration to ~0', async () => {
+        // The display anchor is created_at (immutable), not updated_at (bumped by re-runs). Five
+        // contiguous failures dispatched 5m apart; the oldest was re-run so its updated_at is now —
+        // the bullet must still read the full ~33m from dispatch, not ~2m.
+        const now = new Date('2026-06-30T12:12:54Z')
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock({
+            'ci-backend.yml': [
+                f('f5', '2026-06-30T12:00:00Z', '2026-06-30T12:07:00Z'),
+                f('f4', '2026-06-30T11:55:00Z', '2026-06-30T12:02:00Z'),
+                f('f3', '2026-06-30T11:50:00Z', '2026-06-30T11:57:00Z'),
+                f('f2', '2026-06-30T11:45:00Z', '2026-06-30T11:52:00Z'),
+                f('f1', '2026-06-30T11:40:00Z', '2026-06-30T12:11:00Z'), // oldest, re-run → updated bumped
+            ],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /5 failed runs in a row/)
+        assert.match(body, /red for 33m/) // from f1's created_at (11:40), not its re-run updated_at (12:11)
+    })
+
+    it('reports the honest full duration for a genuinely-continuous outage', async () => {
+        // Dense failures with no gap > 180m — the cap must NOT fire here, so a real ~1h13m outage
+        // is reported in full (the fix only de-inflates evidence-free gaps).
+        const now = new Date('2026-06-30T12:12:54Z')
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock(
+            {
+                'ci-backend.yml': [
+                    f('c3', '2026-06-30T11:55:00Z', '2026-06-30T12:05:00Z'),
+                    f('c2', '2026-06-30T11:30:00Z', '2026-06-30T11:40:00Z'),
+                    f('c1', '2026-06-30T11:00:00Z', '2026-06-30T11:10:00Z'),
+                ],
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits: pushAt('2026-06-30T12:08:00Z') }
+        )
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for 1h 13m/) // 12:12:54 − 11:00 dispatch ≈ 72.9m → 73m, not truncated
+    })
+
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {
         const github = createGithubMock(
             { 'ci-backend.yml': failingFor(2400), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
