@@ -39,5 +39,6 @@ def test_database_sync_to_async_pool_uses_bounded_executor():
 def test_database_sync_to_async_pool_respects_explicit_executor():
     custom = ThreadPoolExecutor(max_workers=1)
     wrapped = database_sync_to_async_pool(lambda: None, executor=custom)
+    assert isinstance(wrapped, SyncToAsync)
     assert wrapped._executor is custom
     custom.shutdown(wait=False)

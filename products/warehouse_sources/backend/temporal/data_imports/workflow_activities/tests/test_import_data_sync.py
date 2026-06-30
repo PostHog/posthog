@@ -140,6 +140,7 @@ async def test_pool_exhaustion_error_backs_off_before_reraising():
 
     handle_mock.assert_not_awaited()
     sleep_mock.assert_awaited_once()
+    assert sleep_mock.await_args is not None
     assert sleep_mock.await_args.args[0] > 0
 
 
