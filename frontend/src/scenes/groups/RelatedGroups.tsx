@@ -4,6 +4,7 @@ import { IconPerson } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
@@ -21,6 +22,8 @@ export interface RelatedGroupsProps {
     /** Tag the group row whose key matches this value (e.g. the group a ticket was created with). */
     highlightGroupKey?: string | null
     highlightLabel?: string
+    /** Mark the highlighted row as stale (e.g. a ticket-origin group no longer in the live related list). */
+    highlightStale?: boolean
     /** Extra group rows to append (deduped by id), e.g. a group not in the live related list. */
     extraActors?: ActorType[]
 }
@@ -33,6 +36,7 @@ export function RelatedGroups({
     embedded = false,
     highlightGroupKey,
     highlightLabel = 'Ticket origin',
+    highlightStale = false,
     extraActors,
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
@@ -69,6 +73,13 @@ export function RelatedGroups({
                                 <LemonTag type="highlight" size="small">
                                     {highlightLabel}
                                 </LemonTag>
+                            )}
+                            {isHighlighted && highlightStale && (
+                                <Tooltip title="This group was active when the ticket was created, but it's no longer in the person's recent related groups.">
+                                    <LemonTag type="caution" size="small">
+                                        Stale
+                                    </LemonTag>
+                                </Tooltip>
                             )}
                         </div>
                     )

@@ -86,6 +86,7 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
                             embedded
                             highlightGroupKey={organizationId}
                             highlightLabel={HIGHLIGHT_LABEL}
+                            highlightStale={showFallback}
                             extraActors={extraActors}
                         />
                     ),
