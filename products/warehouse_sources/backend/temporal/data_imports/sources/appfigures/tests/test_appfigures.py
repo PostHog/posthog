@@ -48,6 +48,11 @@ class TestToDateStr:
     def test_to_date_str(self, value: Any, expected: str | None):
         assert _to_date_str(value) == expected
 
+    @pytest.mark.parametrize("value", ["2024-01", "not-a-date", "garbage123"])
+    def test_to_date_str_raises_on_unparseable_fragment(self, value: str):
+        with pytest.raises(ValueError, match="Could not derive a yyyy-mm-dd date"):
+            _to_date_str(value)
+
 
 class TestFlattenReport:
     def test_keyed_by_date_becomes_sorted_rows_with_date_injected(self):

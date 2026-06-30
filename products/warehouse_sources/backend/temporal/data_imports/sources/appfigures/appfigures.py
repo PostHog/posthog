@@ -51,7 +51,14 @@ def _to_date_str(value: Any) -> str | None:
     if isinstance(value, date):
         return value.isoformat()
     # Already a string — take the date portion (handles "2024-01-02T03:04:05" and "2024-01-02").
-    return str(value)[:10]
+    text = str(value)[:10]
+    try:
+        date.fromisoformat(text)
+    except ValueError as e:
+        # Surface a descriptive error here rather than letting the partial fragment blow up deep in
+        # _iter_report's date.fromisoformat call.
+        raise ValueError(f"Could not derive a yyyy-mm-dd date from incremental value {value!r}") from e
+    return text
 
 
 @retry(
@@ -87,7 +94,7 @@ def check_credentials(token: str, path: str = "/products/mine") -> int | None:
     scope for that endpoint.
     """
     try:
-        response = make_tracked_session(headers=_headers(token)).get(
+        response = make_tracked_session(headers=_headers(token), redact_values=(token,)).get(
             f"{APPFIGURES_BASE_URL}{path}", params={"count": 1}, timeout=10
         )
         return response.status_code
@@ -215,7 +222,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APPFIGURES_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(token))
+    session = make_tracked_session(headers=_headers(token), redact_values=(token,))
 
     if config.kind == "object":
         yield from _iter_object(session, config, logger)

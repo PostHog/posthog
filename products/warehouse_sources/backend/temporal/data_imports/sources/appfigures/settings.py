@@ -75,7 +75,10 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         primary_keys=["id"],
         data_key="reviews",
         start_param="start",
-        sort="date",  # ascending by creation date so the watermark advances safely
+        # Appfigures docs: bare `date` sorts ascending (oldest first), `-date` reverses it. Ascending
+        # keeps newly-arriving reviews at the tail of the page sequence so earlier pages don't shift
+        # mid-backfill (which would otherwise drop the boundary row).
+        sort="date",
         partition_key="date",
         default_incremental_field="date",
         incremental_fields=[_REVIEW_DATE_FIELD],
