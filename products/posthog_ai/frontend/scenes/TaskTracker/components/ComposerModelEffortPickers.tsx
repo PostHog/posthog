@@ -28,9 +28,9 @@ export interface ComposerModelEffortPickersProps {
 
 /**
  * Controlled, logic-free model + reasoning-effort pickers for a composer footer. The caller owns the selection
- * and the side effects of changing it — the run composer wires it to `runInteractionLogic` (live `set_config_option`
- * switch while running, seeds the next run when terminal), the new-task composer wires it to the form that seeds
- * the first run. This component only renders the dropdowns and reports changes up.
+ * and the side effects of changing it — the run composer wires it to `runInteractionLogic` (held client-side and
+ * applied at send time), the new-task composer wires it to the form that seeds the first run. This component only
+ * renders the dropdowns and reports changes up.
  */
 export function ComposerModelEffortPickers({
     selectedModel,

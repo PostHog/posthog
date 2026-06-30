@@ -99,6 +99,13 @@ describe('runInteractionLogic', () => {
         { jsonrpc: '2.0', method: 'user_message', params: { content } },
     ]
 
+    const setConfigCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
+        '997',
+        TASK_ID,
+        RUN_ID,
+        { jsonrpc: '2.0', method: 'set_config_option', params: { configId, value } },
+    ]
+
     beforeEach(() => {
         jest.clearAllMocks()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
@@ -130,6 +137,45 @@ describe('runInteractionLogic', () => {
         await expectLogic(stream).toDispatchActions(['pushHumanMessage'])
         expect(logic.values.composerForm.draft).toBe('')
         expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('does not send any command when the model or effort is picked', async () => {
+        setThinking(false)
+        logic.actions.setModel('claude-sonnet-4-6')
+        logic.actions.setEffort('low')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Picking is client-side only now — nothing is synced until the message is sent.
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.selectedModel).toBe('claude-sonnet-4-6')
+        expect(logic.values.selectedEffort).toBe('low')
+    })
+
+    it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
+        setThinking(false)
+        logic.actions.setModel('claude-sonnet-4-6')
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        // The config sync lands before the message, never inside it.
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+            setConfigCommand('model', 'claude-sonnet-4-6'),
+            userMessageCommand('ship it'),
+        ])
+
+        // A follow-up with the same selection re-syncs nothing — just the message.
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+        logic.actions.setComposerFormValues({ draft: 'again' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('again')])
     })
 
     it('stages the message in the queue while the agent is busy', async () => {
