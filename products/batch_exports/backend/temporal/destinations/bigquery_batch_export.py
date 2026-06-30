@@ -1167,7 +1167,8 @@ _RETRYABLE_STATUS = {
 _RETRYABLE_CODES = {s.value[0] for s in _RETRYABLE_STATUS}
 
 
-def get_bigquery_write_async_client(credentials) -> BigQueryWriteAsyncClient:
+@contextlib.asynccontextmanager
+async def bigquery_write_async_client(credentials) -> collections.abc.AsyncIterator[BigQueryWriteAsyncClient]:
     """Create a new BigQuery storage write async client."""
     channel = BigQueryWriteGrpcAsyncIOTransport.create_channel(
         credentials=credentials,
@@ -1177,7 +1178,11 @@ def get_bigquery_write_async_client(credentials) -> BigQueryWriteAsyncClient:
     client = BigQueryWriteAsyncClient(
         transport=transport,
     )
-    return client
+
+    try:
+        yield client
+    finally:
+        await transport.close()
 
 
 class BigQueryStorageConsumer(Consumer):
@@ -1681,13 +1686,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     # while testing.
                     # TODO: Remove this or the else block after we have tested out whether multiple
                     # consumers are viable.
-                    consumer: Consumer = BigQueryConsumer(
-                        client=bq_client,
-                        table=bigquery_consumer_table,
-                        file_format=file_format,
-                        model=model.name if isinstance(model, BatchExportModel) else "events",
-                    )
-
                     if use_storage_stream:
                         serialized = SerializedStreamTransformer()
                         transformer: ChunkTransformerProtocol = PipelineTransformer(
@@ -1713,14 +1711,31 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                             )
                         )
 
-                        write_client = get_bigquery_write_async_client(bq_client.sync_client._credentials)
-                        consumer = BigQueryStorageConsumer(
-                            client=write_client,
+                        async with bigquery_write_async_client(bq_client.sync_client._credentials) as write_client:
+                            consumer: Consumer = BigQueryStorageConsumer(
+                                client=write_client,
+                                table=bigquery_consumer_table,
+                                transformer=serialized,
+                                model=model.name if isinstance(model, BatchExportModel) else "events",
+                            )
+
+                            result = await run_consumer_from_stage(
+                                queue=queue,
+                                producer_task=producer_task,
+                                consumer=consumer,
+                                transformer=transformer,
+                                json_columns=(),
+                                records_total=inputs.records_total,
+                            )
+
+                    else:
+                        consumer = BigQueryConsumer(
+                            client=bq_client,
                             table=bigquery_consumer_table,
-                            transformer=serialized,
+                            file_format=file_format,
                             model=model.name if isinstance(model, BatchExportModel) else "events",
                         )
-                    else:
+
                         if can_perform_merge:
                             transformer = PipelineTransformer(
                                 transformers=(
@@ -1745,26 +1760,26 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 )
                             )
 
-                    result = await run_consumer_from_stage(
-                        queue=queue,
-                        producer_task=producer_task,
-                        consumer=consumer,
-                        transformer=transformer,
-                        json_columns=(),
-                        records_total=inputs.records_total,
-                    )
+                        result = await run_consumer_from_stage(
+                            queue=queue,
+                            producer_task=producer_task,
+                            consumer=consumer,
+                            transformer=transformer,
+                            json_columns=(),
+                            records_total=inputs.records_total,
+                        )
 
                 else:
                     if use_storage_stream:
-                        write_client = get_bigquery_write_async_client(bq_client.sync_client._credentials)
-                        result = await run_storage_stream_consumers(
-                            client=write_client,
-                            table=bigquery_consumer_table,
-                            producer_task=producer_task,
-                            queue=queue,
-                            max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
-                            model=model.name if isinstance(model, BatchExportModel) else "events",
-                        )
+                        async with bigquery_write_async_client(bq_client.sync_client._credentials) as write_client:
+                            result = await run_storage_stream_consumers(
+                                client=write_client,
+                                table=bigquery_consumer_table,
+                                producer_task=producer_task,
+                                queue=queue,
+                                max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
+                                model=model.name if isinstance(model, BatchExportModel) else "events",
+                            )
                     else:
                         result = await run_consumers(
                             client=bq_client,
