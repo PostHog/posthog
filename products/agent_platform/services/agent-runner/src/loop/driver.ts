@@ -495,7 +495,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
             gatewayCatalog: deps.gatewayCatalog,
         }
-        const { tools, nameToId, mcpProxyCallTools, mcpOwnerApprovals } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, mcpProxyCallTools } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -612,21 +612,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         // (`<prefix>__<tool>`); the proxy strips that prefix before
                         // dispatch (`resolveRemoteName`), so the gate must strip it
                         // too. Otherwise the lookup keys on a doubled prefix
-                        // (`big__big__promote`), misses the per-tool/owner gate, and
-                        // an `approve`/`needs_approval` tool runs unapproved.
+                        // (`big__big__promote`), misses the per-tool gate, and an
+                        // `approve` tool runs unapproved.
                         const marker = `${proxyClient.prefix}${PREFIX_SEPARATOR}`
                         const remoteName = raw.startsWith(marker) ? raw.slice(marker.length) : raw
                         const exposedName = `${proxyClient.prefix}${PREFIX_SEPARATOR}${remoteName}`
                         const gate = lookupMcpToolApproval(exposedName, rev.spec)
                         if (gate?.requires_approval) {
                             return queueGated(exposedName, toolCallId, a, gate.approval_policy)
-                        }
-                        // Owner-required approval: a connection tool the
-                        // installation owner marked `needs_approval` parks even if
-                        // the agent author set it to `allow`.
-                        const ownerApproval = mcpOwnerApprovals.get(exposedName)
-                        if (ownerApproval) {
-                            return queueGated(exposedName, toolCallId, a, ownerApproval)
                         }
                         return realProxyExecute(toolCallId, a)
                     }
@@ -659,15 +652,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // collision-skip in `build-agent-tools.ts` handles the
                 // surface side; this just keeps the wrap path consistent.
                 const mcpGate = ref ? null : lookupMcpToolApproval(id, rev.spec)
-                // Owner-required approval for inline-exposed connection tools:
-                // force a gate on `needs_approval` tools the agent author left
-                // ungated.
-                const ownerApprovalPolicy = ref ? undefined : mcpOwnerApprovals.get(id)
                 const policy: ApprovalPolicy | null = nativeRef
                     ? (nativeRef.approval_policy as ApprovalPolicy)
                     : mcpGate?.requires_approval
                       ? mcpGate.approval_policy
-                      : (ownerApprovalPolicy ?? null)
+                      : null
                 if (policy) {
                     tool.execute = async (toolCallId, args) =>
                         queueGated(id, toolCallId, (args ?? {}) as Record<string, unknown>, policy)

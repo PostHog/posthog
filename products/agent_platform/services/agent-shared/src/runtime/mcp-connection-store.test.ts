@@ -32,10 +32,7 @@ function makeFakeHttp(response: Response): HttpFetcher & { calls: Array<{ url: s
 type QueryLog = Array<{ sql: string; values: unknown[] }>
 type QueryResult = { rows: Array<Record<string, unknown>> }
 
-function makeFakePool(
-    row: Record<string, unknown> | null,
-    toolStates: Array<{ tool_name: string; approval_state: string }> = []
-): { pool: Pool; calls: QueryLog; writes: QueryLog } {
+function makeFakePool(row: Record<string, unknown> | null): { pool: Pool; calls: QueryLog; writes: QueryLog } {
     const calls: QueryLog = []
     const writes: QueryLog = []
     const handle = (sql: string, values: unknown[]): QueryResult => {
@@ -47,9 +44,6 @@ function makeFakePool(
         if (t.startsWith('UPDATE mcp_store_mcpserverinstallation')) {
             writes.push({ sql, values })
             return { rows: [] }
-        }
-        if (t.includes('mcp_store_mcpserverinstallationtool')) {
-            return { rows: toolStates } // owner per-tool approval states
         }
         return { rows: row ? [row] : [] } // SELECT (read or FOR UPDATE)
     }
@@ -117,24 +111,6 @@ describe('PgMcpConnectionStore', () => {
         expect(calls[0].values).toEqual(['conn-1', 42])
     })
 
-    it('carries the owner per-tool approvals (needs_approval→approve, do_not_use→deny, approved omitted)', async () => {
-        // The direct connection path never goes through the mcp_store proxy that
-        // enforces MCPServerInstallationTool.approval_state, so resolve() must
-        // surface those marks for the runner to apply. Without this an agent
-        // author could call a tool the owner marked do_not_use / needs_approval.
-        const { pool } = makeFakePool(oauthRow({ expiring: false }), [
-            { tool_name: 'delete-incident', approval_state: 'do_not_use' },
-            { tool_name: 'list-incidents', approval_state: 'needs_approval' },
-            { tool_name: 'get-incident', approval_state: 'approved' },
-        ])
-        const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
-        const res = await store.resolve('c', 1)
-        expect(res).toMatchObject({
-            kind: 'resolved',
-            ownerToolApprovals: { 'delete-incident': 'deny', 'list-incidents': 'approve' },
-        })
-    })
-
     it('resolves an api-key installation without refresh', async () => {
         const { pool, writes } = makeFakePool({
             url: 'https://mcp.example.com/mcp',
@@ -152,7 +128,6 @@ describe('PgMcpConnectionStore', () => {
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
             bearer: 'key-1',
-            ownerToolApprovals: {},
         })
         expect(http.calls).toHaveLength(0)
         expect(writes).toHaveLength(0)
@@ -166,7 +141,6 @@ describe('PgMcpConnectionStore', () => {
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
             bearer: 'tok-1',
-            ownerToolApprovals: {},
         })
         expect(http.calls).toHaveLength(0)
         expect(writes).toHaveLength(0)
@@ -183,7 +157,6 @@ describe('PgMcpConnectionStore', () => {
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
             bearer: 'tok-2',
-            ownerToolApprovals: {},
         })
 
         // Refresh hit the token endpoint with the refresh grant + client id.
