@@ -42,6 +42,12 @@ class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]
         return ExternalDataSourceType.CHURNKEY
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # app_id selects which Churnkey app the stored API key is used against; changing it must
+        # require re-entering the secret so a preserved key can't be retargeted at another tenant.
+        return ["app_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHURNKEY,

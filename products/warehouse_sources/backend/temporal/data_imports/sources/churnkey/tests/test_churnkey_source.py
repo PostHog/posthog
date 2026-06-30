@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import ChurnkeyResumeConfig
@@ -42,7 +42,7 @@ class TestChurnkeySourceConfig:
 
     def test_source_config_fields(self) -> None:
         config = ChurnkeySource().get_source_config
-        fields = {f.name: f for f in config.fields}
+        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
 
         assert set(fields) == {"api_key", "app_id"}
         assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
@@ -59,6 +59,11 @@ class TestChurnkeySourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # Static catalog (no I/O), so the public docs can render the table list.
         assert ChurnkeySource.lists_tables_without_credentials is True
+
+    def test_connection_host_fields_includes_app_id(self) -> None:
+        # Changing app_id retargets where the stored API key is used, so editing it must
+        # require re-entering the secret.
+        assert ChurnkeySource().connection_host_fields == ["app_id"]
 
 
 class TestChurnkeySchemas:

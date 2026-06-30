@@ -32,7 +32,7 @@ def _get_headers(api_key: str, app_id: str) -> dict[str, str]:
         "x-ck-api-key": api_key,
         "x-ck-app": app_id,
         "content-type": "application/json",
-        "Accept": "application/json",
+        "accept": "application/json",
     }
 
 
