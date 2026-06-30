@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -102,6 +102,33 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+    definition: zod.string().describe('UUID of the custom property definition whose value to set for this account.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean()])
+        .describe(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        ),
+})
 
 export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),

@@ -14,6 +14,36 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-custom-property-values-create": {
+        "description": "Set the value of a custom property for a Customer Analytics account. This is an upsert: it replaces the account's current value for the given `definition`, keeping at most one active value per account and definition. Pass `definition` (the custom property definition UUID) and `value` matching the definition's type — a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text. List or create definitions with `custom-property-definitions-list` and `custom-property-definitions-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Set account custom property value",
+        "title": "Set account custom property value",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-custom-property-values-list": {
+        "description": "List the current custom property values for a single Customer Analytics account. Each result pairs a custom property definition (via `definition_id`) with the account's `value` for it — typed per the definition's display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with `custom-property-definitions-list` or `custom-property-definitions-retrieve`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account custom property values",
+        "title": "List account custom property values",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-destroy": {
         "description": "Permanently delete a Customer Analytics account by id.",
         "category": "Customer analytics",
