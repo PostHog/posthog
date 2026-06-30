@@ -4,6 +4,8 @@ import { IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -393,6 +395,23 @@ export function QueryPerformance(): JSX.Element {
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
+                                                    <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                        <span>
+                                                            query_id:{' '}
+                                                            <CopyToClipboardInline description="query ID">
+                                                                {item.query_id}
+                                                            </CopyToClipboardInline>
+                                                        </span>
+                                                        {item.experiment_query_group_id && (
+                                                            <span>
+                                                                group:{' '}
+                                                                <CopyToClipboardInline description="group ID">
+                                                                    {item.experiment_query_group_id}
+                                                                </CopyToClipboardInline>
+                                                            </span>
+                                                        )}
+                                                        <LinkMetabaseQuery queryId={item.query_id} />
+                                                    </div>
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>
