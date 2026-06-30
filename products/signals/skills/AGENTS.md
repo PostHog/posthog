@@ -72,7 +72,22 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   starvation, and active flows failing for the people they trigger on. Its
   discriminator is configured-to-deliver vs actually-delivering — drafts, paused
   exports, and deliberately disabled functions are operator choices, not signal;
-  data warehouse / external-data syncs are the health-checks scout's territory.
+  data warehouse / external-data syncs (data coming _in_) are the
+  data-warehouse scout's territory.
+- `signals-scout-data-warehouse/` — import-integrity watcher for the data
+  warehouse: external data sources, their per-table sync schemas, webhook push
+  channels, and materialized views. Watches for source connections in Error
+  (cascading to every armed table under them), schemas Failed or stuck Running,
+  schemas that read Completed but have fallen behind their own sync cadence (a
+  silent, growing data gap), webhook push channels broken behind a green status,
+  row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
+  configured-to-sync (`should_sync: true`) vs actually-syncing and
+  promised-freshness vs actual-freshness — paused schemas, billing limits, and
+  draft sources are operator choices, not signal. The mirror image of
+  data-pipelines (which watches data leaving PostHog); active `external_data_failure`
+  health issues overlap the health-checks scout, so it dedupes against the inbox and
+  owns the silent gaps the active-failure summary misses (staleness behind a green
+  status, broken webhooks, row cliffs).
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-session-replay/` — capture-integrity + friction watcher for session
@@ -255,9 +270,13 @@ directly and does not `emit_signal`, so it carries two references:
   reads only its own files at runtime, so any future report-channel adopter bundles its
   own copy rather than pointing here.
 
-The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
-cluster; those specialists carry their own emit/dedupe contract where they need it,
-and its canonical write-up now lives in
+The rest of the fleet is being ported onto the **report channel** one scout per PR,
+biggest reach first (see the `scouts-emit-reports` spec). A ported scout is report-only —
+its frontmatter `allowed_tools` lists `emit_report` / `edit_report` and it bundles its own
+`references/report.md`, the same shape as the generalist (`signals-scout-ai-observability`
+is on the channel; others follow). A scout not yet ported still emits weak `emit_signal`
+findings for the pipeline to cluster; those specialists carry their own emit/dedupe contract
+where they need it, and its canonical write-up now lives in
 `authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.

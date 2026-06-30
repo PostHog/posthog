@@ -29,6 +29,7 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     hide_direct_mysql_table,
     hide_direct_postgres_table,
+    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_xmin_enabled_for_team,
@@ -36,6 +37,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_webhook_events,
     reproject_direct_mysql_table,
     reproject_direct_postgres_table,
+    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -171,14 +173,17 @@ class RowFiltersField(serializers.JSONField):
     """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
 
 
-def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str | None:
     """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
-    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    clause. Direct-query sources read tables live and CDC streams WAL changes — both bypass that
     query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+
+    This covers every direct engine (Postgres, MySQL, Snowflake): none of the live-query executors
+    apply the predicates, so accepting a filter would be a silent data-restriction bypass.
     """
-    if is_direct_postgres:
+    if is_direct_query:
         return (
-            "Row filters are not supported for direct Postgres sources — "
+            "Row filters are not supported for direct-query sources — "
             "tables are queried live and filters cannot be enforced at the source."
         )
     if is_cdc:
@@ -579,7 +584,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
             )
             if reason := unsupported_row_filter_reason(
-                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+                is_direct_query=instance.source.is_direct_query, is_cdc=target_is_cdc
             ):
                 raise ValidationError(reason)
             try:
@@ -859,9 +864,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                reproject = (
-                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
-                )
+                if source.is_direct_postgres:
+                    reproject = reproject_direct_postgres_table
+                elif source.is_direct_snowflake:
+                    reproject = reproject_direct_snowflake_table
+                else:
+                    reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
                     instance,
                     source=source,
@@ -871,6 +879,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is False and instance.should_sync is True:
                 if source.is_direct_postgres:
                     hide_direct_postgres_table(instance.table)
+                elif source.is_direct_snowflake:
+                    hide_direct_snowflake_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1328,6 +1338,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.source.is_direct_query:
             if instance.source.is_direct_postgres:
                 hide_direct_postgres_table(instance.table)
+            elif instance.source.is_direct_snowflake:
+                hide_direct_snowflake_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

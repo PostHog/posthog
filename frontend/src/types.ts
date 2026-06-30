@@ -5365,6 +5365,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6071,7 +6073,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {

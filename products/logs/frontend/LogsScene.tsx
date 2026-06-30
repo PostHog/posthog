@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -15,7 +16,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
-import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
 import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
@@ -91,14 +91,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
-        ...(showPatternsView ? [{ key: 'patterns' as const, label: 'Patterns' }] : []),
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
         ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
@@ -138,14 +136,16 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 tabs={tabs}
                 sceneInset
             />
-            {activeTab === 'viewer' && (
+            {/* Keep the viewer mounted across tab switches (just hidden when inactive) so its loaded
+                logs, scroll position, and virtualized-list state survive — switching away and back
+                should not replay the initial loading animation. */}
+            <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                         <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
-            )}
-            {activeTab === 'patterns' && showPatternsView && <LogsPatterns />}
+            </div>
             {activeTab === 'services' && showServicesView && (
                 <>
                     <LogsServices />
