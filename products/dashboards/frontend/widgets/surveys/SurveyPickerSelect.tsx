@@ -21,6 +21,8 @@ export type SurveyPickerSelectProps = {
     size?: 'small' | 'medium'
     fullWidth?: boolean
     dataAttr?: string
+    /** Fired when the "New survey" action is clicked, before opening the create page — used for adoption tracking. */
+    onCreateNew?: () => void
 }
 
 function surveyStatusLabel(survey: SurveyApi): string {
@@ -50,6 +52,7 @@ export function SurveyPickerSelect({
     size = 'small',
     fullWidth = false,
     dataAttr,
+    onCreateNew,
 }: SurveyPickerSelectProps): JSX.Element {
     const logic = surveyPickerLogic({ pickerKey })
     const { surveyOptions, surveyOptionsLoading, selectedSurvey, search } = useValues(logic)
@@ -99,7 +102,10 @@ export function SurveyPickerSelect({
             onChange={(values) => onChange(values.length > 0 ? values[0] : null)}
             action={{
                 // Open the create flow in a new tab so the dashboard (and this tile's selection) is kept.
-                onClick: () => window.open(urls.survey('new'), '_blank', 'noopener,noreferrer'),
+                onClick: () => {
+                    onCreateNew?.()
+                    window.open(urls.survey('new'), '_blank', 'noopener,noreferrer')
+                },
                 children: (
                     <span className="flex items-center gap-1">
                         <IconPlus /> New survey

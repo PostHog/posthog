@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
@@ -76,6 +77,12 @@ export function SurveyResultsWidgetTileFilters({
                     onChange={(value) => {
                         void applySurveyId(value)
                     }}
+                    onCreateNew={() =>
+                        posthog.capture('dashboard widget create survey clicked', {
+                            widget_type: 'survey_results',
+                            tile_id: tileId,
+                        })
+                    }
                     dataAttr="survey-results-widget-tile-survey-select"
                 />
             </div>

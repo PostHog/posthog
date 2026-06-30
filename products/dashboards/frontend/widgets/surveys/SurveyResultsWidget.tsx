@@ -278,6 +278,12 @@ export function SurveyResultsWidget({
                             setOptimisticSurveyId((current) => (current === value ? null : current))
                         }
                     }}
+                    onCreateNew={() =>
+                        posthog.capture('dashboard widget create survey clicked', {
+                            widget_type: 'survey_results',
+                            tile_id: tileId,
+                        })
+                    }
                     dataAttr="survey-results-widget-empty-state-select"
                 />
             </div>
