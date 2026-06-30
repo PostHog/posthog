@@ -108,6 +108,27 @@ describe('SqlPieGraph', () => {
         expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 
+    it('lets the legacy showPieTotal turn the total on even when slice content hides it by default', async () => {
+        // sliceContent 'labels' defaults the total off, so this only shows if the legacy true is honored.
+        render(
+            <SqlPieGraph {...baseProps({ showPieTotal: true, pie: { sliceContent: 'labels' } }, [40, 30, 20, 10])} />
+        )
+
+        await waitForSlices()
+
+        expect(screen.getByText('100')).toBeInTheDocument()
+    })
+
+    it('prefers pie.showTotal over the legacy showPieTotal when both are set', async () => {
+        // A chart re-saved with the new `pie` block must win over the stale top-level toggle, otherwise
+        // toggling the total off in the new UI would silently regress to the legacy value.
+        render(<SqlPieGraph {...baseProps({ showPieTotal: true, pie: { showTotal: false } }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
     it('shows slice values as shares of the total when displaying percentages', async () => {
         render(
             <SqlPieGraph
