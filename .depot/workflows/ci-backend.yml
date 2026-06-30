@@ -173,6 +173,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -329,6 +330,10 @@ jobs:
                         # depot strips canonical's separate persons-migration job
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates check-deleted-migrations.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -890,6 +895,60 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners "${existing[@]}"
+
+    # Block deleting historical migration files (see safe-django-migrations.md).
+    # Gated on any migration-file change: a deletion or product move always touches a
+    # migrations/*.py path, so nothing slips and the bootstrap is skipped otherwise.
+    check-deleted-migrations:
+        needs: [changes]
+        if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+        name: Check deleted migrations
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            pull-requests: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Fail if a historical migration file was deleted
+              env:
+                  # No side effects on Depot: GITHUB_ACTIONS=false suppresses the command's
+                  # ::error:: PR annotations; GITHUB_TOKEN is ambient (see header deltas). gh
+                  # only reads the PR file list — no writes.
+                  GITHUB_ACTIONS: 'false'
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  # "removed"/"renamed" files existed on the PR base — i.e. historical
+                  # migrations (renames carry the old path in previous_filename). Retry
+                  # transient gh-api errors. Plain echoes (no ::error::/::warning::) so the
+                  # non-blocking shadow emits no annotations.
+                  for attempt in 1 2 3; do
+                      if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
+                            --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then
+                          break
+                      fi
+                      if [ "$attempt" = 3 ]; then
+                          echo "could not list PR files after 3 attempts" >&2
+                          exit 1
+                      fi
+                      echo "gh api attempt ${attempt} failed; retrying" >&2
+                      sleep $((attempt * 5))
+                  done
+                  printf '%s\n' "$removed" | ./bin/hogli lint:migration-deletions
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -1729,7 +1788,17 @@ jobs:
                   fi
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [sample, django, check-migrations, async-migrations, turbo-discover, turbo-tests, repo-checks]
+        needs:
+            [
+                sample,
+                django,
+                check-migrations,
+                check-deleted-migrations,
+                async-migrations,
+                turbo-discover,
+                turbo-tests,
+                repo-checks,
+            ]
         name: '[optional, does not block merge] Django Tests Pass'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
@@ -1745,6 +1814,7 @@ jobs:
                     echo "| --- | --- |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-deleted-migrations | ${{ needs.check-deleted-migrations.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
@@ -1772,6 +1842,7 @@ jobs:
 
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "Deleted migration check" "${{ needs.check-deleted-migrations.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
