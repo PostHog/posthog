@@ -37,6 +37,9 @@ const HISTORY_LIMIT = 100
 // Attachment side-bar colors (Slack's red / green).
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
+// Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
+// wide between kept failures, so it can't anchor to a stale run.
+const STREAK_MAX_GAP_MINUTES = 180
 
 // ---------------------------------------------------------------------------
 // GitHub data
@@ -62,6 +65,7 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
             sha: run.head_sha,
             run_url: run.html_url,
             updated_at: run.updated_at,
+            created_at: run.created_at, // immutable; updated_at is bumped by re-runs
             workflow_file: workflowFile,
         }))
 }
@@ -78,6 +82,19 @@ function countConsecutiveFailures(runs) {
     return count
 }
 
+// Display-only "red since": oldest failure reachable from the newest without crossing a gap wider
+// than STREAK_MAX_GAP_MINUTES. Uses immutable created_at so re-runs can't collapse the span.
+function contiguousFailureSince(runs, count) {
+    const dispatchedAt = (run) => run.created_at || run.updated_at
+    let oldest = runs[0]
+    for (let i = 1; i < count; i++) {
+        const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
+        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe
+        oldest = runs[i]
+    }
+    return dispatchedAt(oldest)
+}
+
 // Workflows whose newest run starts a failure streak, keyed by display name.
 function buildFailingMap(allWorkflowRuns) {
     const failing = {}
@@ -89,7 +106,8 @@ function buildFailingMap(allWorkflowRuns) {
             const oldest = runs[count - 1]
             failing[latest.name] = {
                 name: latest.name,
-                since: oldest.updated_at,
+                since: oldest.updated_at, // detection (full streak)
+                displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
                 run_url: latest.run_url,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
@@ -237,8 +255,8 @@ function buildAnchorMessage({
     // Duration-only blockers show just the red time — no sub-threshold "N failed runs" count.
     const lines = blocking.map((wf) =>
         wf.byCount
-            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.redForMins)}`
-            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.redForMins)}`
+            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.displayRedForMins)}`
+            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.displayRedForMins)}`
     )
     if (commitActive) {
         lines.push(`• _${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
@@ -348,13 +366,14 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             return {
                 ...f,
                 runsUrl: runsUrlFor(owner, repo, f.workflow_file),
-                redForMins,
+                redForMins, // detection: byDuration + open/resolve thresholds
+                displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
                 byCount: f.consecutive_failures >= workflowThreshold,
                 byDuration: redForMins >= minutesThreshold,
             }
         })
         .filter((f) => f.byCount || f.byDuration)
-        .sort((a, b) => b.redForMins - a.redForMins) // longest red first
+        .sort((a, b) => b.redForMins - a.redForMins) // most-severe (longest true red) first
 
     const latestCommit = commits[0] || null
     // Fail closed: no dated commit → not recent → the wall-clock arm won't open.
@@ -373,9 +392,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
-    // Earliest start across both active signals (preserve original on update).
+    // Earliest start across both active signals (preserve original on update); gap-bounded displaySince.
     const computeSince = () => {
-        const times = blocking.map((b) => new Date(b.since).getTime())
+        const times = blocking.map((b) => new Date(b.displaySince).getTime())
         if (commitActive && commitStreakSince) times.push(new Date(commitStreakSince).getTime())
         return times.length ? new Date(Math.min(...times)).toISOString() : now.toISOString()
     }
