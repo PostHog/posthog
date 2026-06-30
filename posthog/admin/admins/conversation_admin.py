@@ -51,8 +51,6 @@ class ConversationAdmin(admin.ModelAdmin):
 
     @admin.display(description="Checkpoint storage")
     def checkpoint_storage(self, conversation: Conversation):
-        if conversation.pk is None:
-            return "—"
         # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
         blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
         return format_html(
