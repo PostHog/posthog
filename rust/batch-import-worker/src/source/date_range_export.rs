@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
 use crate::error::{RateLimitedError, ToUserError};
 use crate::extractor::PartExtractor;
+use crate::staging::StagingGuard;
 
 // Extract a user friendly error message
 // from status code of request to the export source endpoint
@@ -86,6 +87,7 @@ pub struct DateRangeExportSourceBuilder {
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
+    staging_max_bytes: u64,
 }
 
 impl DateRangeExportSourceBuilder {
@@ -112,7 +114,13 @@ impl DateRangeExportSourceBuilder {
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
+            staging_max_bytes: 0,
         }
+    }
+
+    pub fn with_staging_max_bytes(mut self, staging_max_bytes: u64) -> Self {
+        self.staging_max_bytes = staging_max_bytes;
+        self
     }
 
     pub fn with_query_params(mut self, start_qp: String, end_qp: String) -> Self {
@@ -182,6 +190,7 @@ impl DateRangeExportSourceBuilder {
             retry_delay: self.retry_delay,
             extractor: self.extractor,
             staging_dir: self.staging_dir,
+            staging_max_bytes: self.staging_max_bytes,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -201,6 +210,7 @@ pub struct DateRangeExportSource {
     pub start_qp: String,
     pub end_qp: String,
     staging_dir: PathBuf,
+    staging_max_bytes: u64,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
     auth_config: AuthConfig,
@@ -412,6 +422,11 @@ impl DateRangeExportSource {
 
         let temp_dir = self.get_temp_dir_path().await?;
 
+        // Pause the job if staging is already over budget (e.g. leftover from a
+        // prior part) before we add to it, and again as the `.raw` grows.
+        let mut guard = StagingGuard::new(self.staging_dir.clone(), self.staging_max_bytes);
+        guard.check().await?;
+
         let raw_file_path = temp_dir.join(format!("{}.raw", key.replace(':', "_")));
         let mut raw_file = File::create(&raw_file_path)
             .await
@@ -431,6 +446,7 @@ impl DateRangeExportSource {
                 )
             })?;
             total_bytes += chunk.len();
+            guard.record(chunk.len() as u64).await?;
         }
 
         raw_file.sync_all().await.with_context(|| {

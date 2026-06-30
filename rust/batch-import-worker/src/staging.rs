@@ -1,7 +1,82 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Error};
 use tracing::{debug, info, warn};
+
+use crate::error::UserError;
+
+/// Default amount of freshly-written data between staging-size checks. Stat-ing
+/// the whole staging tree is O(files), so we only re-measure after this much has
+/// been written, bounding overshoot to roughly this value plus one download chunk.
+const DEFAULT_GUARD_CHECK_INTERVAL_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Fail-fast guard against unbounded staging growth.
+///
+/// Sources that download large parts call [`StagingGuard::check`] before starting
+/// (to catch staging that is already over budget from earlier work) and
+/// [`StagingGuard::record`] as they write. If staging exceeds the configured
+/// limit the job is paused via a [`UserError`] instead of the pod being evicted
+/// under disk pressure (which loses all progress and restart-loops). A limit of
+/// `0` disables the guard.
+pub struct StagingGuard {
+    staging_dir: PathBuf,
+    max_bytes: u64,
+    check_interval: u64,
+    since_check: u64,
+}
+
+impl StagingGuard {
+    pub fn new(staging_dir: PathBuf, max_bytes: u64) -> Self {
+        Self {
+            staging_dir,
+            max_bytes,
+            check_interval: DEFAULT_GUARD_CHECK_INTERVAL_BYTES,
+            since_check: 0,
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.max_bytes > 0
+    }
+
+    /// Record `written` freshly-staged bytes and re-check the staging size once
+    /// enough has accumulated since the last check. Cheap to call per chunk.
+    pub async fn record(&mut self, written: u64) -> Result<(), Error> {
+        if !self.enabled() {
+            return Ok(());
+        }
+        self.since_check = self.since_check.saturating_add(written);
+        if self.since_check < self.check_interval {
+            return Ok(());
+        }
+        self.since_check = 0;
+        self.check().await
+    }
+
+    /// Measure staging usage now and fail if it exceeds the limit.
+    pub async fn check(&self) -> Result<(), Error> {
+        if !self.enabled() {
+            return Ok(());
+        }
+        let used = staging_dir_bytes(&self.staging_dir).await;
+        if used > self.max_bytes {
+            crate::metrics::staging_guard_tripped();
+            let user_msg = format!(
+                "Staging disk limit exceeded ({used} bytes used, limit {} bytes). This import \
+                 part is too large to process on a single worker -- split the import into smaller \
+                 date ranges or parts.",
+                self.max_bytes
+            );
+            return Err(Error::msg(format!(
+                "staging dir {} at {used} bytes exceeds limit {}",
+                self.staging_dir.display(),
+                self.max_bytes
+            ))
+            .context(UserError::new(user_msg)));
+        }
+        Ok(())
+    }
+}
 
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {
@@ -191,5 +266,57 @@ mod tests {
         let staging = root.path().join("does-not-exist");
         let bytes = staging_dir_bytes(&staging).await;
         assert_eq!(bytes, 0);
+    }
+
+    #[tokio::test]
+    async fn test_staging_guard_disabled_never_trips() {
+        let root = TempDir::new().unwrap();
+        ensure_staging_dir(root.path()).await.unwrap();
+        tokio::fs::write(root.path().join("big"), vec![0u8; 10_000])
+            .await
+            .unwrap();
+
+        // max_bytes == 0 disables the guard regardless of usage.
+        let mut guard = StagingGuard::new(root.path().to_path_buf(), 0);
+        guard.check().await.unwrap();
+        guard.record(1_000_000_000).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_staging_guard_check_trips_over_limit_with_user_message() {
+        use crate::error::get_user_message;
+
+        let root = TempDir::new().unwrap();
+        ensure_staging_dir(root.path()).await.unwrap();
+        tokio::fs::write(root.path().join("big"), vec![0u8; 4096])
+            .await
+            .unwrap();
+
+        let guard = StagingGuard::new(root.path().to_path_buf(), 1024);
+        let err = guard.check().await.unwrap_err();
+        // Surfaces an actionable user-facing message (so the job pauses, not evicts).
+        assert!(get_user_message(&err).contains("Staging disk limit exceeded"));
+
+        // Under-limit passes.
+        let ok_guard = StagingGuard::new(root.path().to_path_buf(), 1024 * 1024);
+        ok_guard.check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_staging_guard_record_throttles_until_interval() {
+        let root = TempDir::new().unwrap();
+        ensure_staging_dir(root.path()).await.unwrap();
+        tokio::fs::write(root.path().join("big"), vec![0u8; 4096])
+            .await
+            .unwrap();
+
+        // Already over the limit, but record() only re-measures after the check
+        // interval of newly-recorded bytes has accumulated.
+        let mut guard = StagingGuard::new(root.path().to_path_buf(), 1024);
+        guard.check_interval = 1_000_000;
+
+        guard.record(500_000).await.unwrap(); // below interval -> no measurement
+        let tripped = guard.record(600_000).await; // crosses interval -> measures
+        assert!(tripped.is_err());
     }
 }
