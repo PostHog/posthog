@@ -238,3 +238,25 @@ def test_breakdown_compared_funnel_evaluates_current_breakdowns_only():
     assert result.is_breakdown is True
     assert {s.label for s in result.series} == {"US", "DE"}  # current breakdowns only, no crash
     assert {s.label: s.points[0].value for s in result.series} == {"US": 40.0, "DE": 25.0}
+
+
+def test_trends_funnel_relative_widens_date_range_to_cover_lookback():
+    # A relative condition diffs against a prior period; the insight's own range may not yield one, so
+    # the extractor widens it to the trailing intervals the comparator needs (here: 3 days).
+    query = _query("trends")
+    query["interval"] = "day"
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=[_trends_series([10.0, 20.0, 40.0])])
+        FunnelsExtractor().extract(
+            _alert(condition_type=AlertConditionType.RELATIVE_INCREASE), MagicMock(), query, IF_STALE
+        )
+    assert calc.call_args.kwargs["filters_override"] == {"date_from": "-3d"}
+
+
+def test_absolute_funnel_does_not_override_the_insight_date_range():
+    # Absolute conditions read the insight's configured range as-is — widening would change what a
+    # steps-funnel alert has always evaluated.
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=_steps(100, 40))
+        FunnelsExtractor().extract(_alert(), MagicMock(), _query("steps"), IF_STALE)
+    assert calc.call_args.kwargs["filters_override"] is None

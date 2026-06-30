@@ -1,15 +1,23 @@
 from typing import Any
 
-from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery
+from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery, IntervalType
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult
+from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
+
+
+def _trailing_date_range_override(interval: IntervalType | None, periods: int) -> dict:
+    """Widen an insight's date range to the last ``periods`` intervals (no ``date_to``, so the current
+    interval is included). Used so a relative funnel alert always has a prior period to diff against,
+    regardless of the insight's saved range — mirrors the trends extractor's override."""
+    suffix = {IntervalType.DAY: "d", IntervalType.WEEK: "w", IntervalType.MONTH: "m"}.get(interval, "h")
+    return {"date_from": f"-{periods}{suffix}"}
 
 
 class FunnelsExtractor:
@@ -38,11 +46,22 @@ class FunnelsExtractor:
         if condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
             raise AlertExtractionError("This funnel only supports absolute value conditions.")
 
+        # A relative condition diffs against the prior period, but the insight's own date range may be
+        # too short to yield one — leaving the alert silently inert. Widen it to the trailing intervals
+        # the comparator needs (mirroring the trends extractor). Absolute conditions read the insight's
+        # configured range as-is: a steps snapshot, or the trends last-complete period.
+        filters_override = (
+            None
+            if condition.type == AlertConditionType.ABSOLUTE_VALUE
+            else _trailing_date_range_override(funnels_query.interval, lookback_intervals_for(condition))
+        )
+
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
             execution_mode=execution_mode,
             user=alert.created_by,
+            filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )
 
