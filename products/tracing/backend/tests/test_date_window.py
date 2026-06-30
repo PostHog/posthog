@@ -48,7 +48,21 @@ class TestNormalizeTracingWindow:
     def test_empty_values_return_none(self, value) -> None:
         assert normalize_tracing_window(value) is None
 
-    @parameterized.expand([("soon",), ("-30 minutes",), ("last week",), ("-30x",), ("30",)])
+    @parameterized.expand(
+        [
+            ("soon",),
+            ("-30 minutes",),
+            ("last week",),
+            ("-30x",),
+            ("30",),
+            # A bare unit with no number and no Start/End boundary would resolve to "now" in the
+            # global parser — reject it rather than fail open. (Bare-unit-with-boundary like
+            # "wStart" stays valid, covered above.)
+            ("h",),
+            ("-m",),
+            ("d",),
+        ]
+    )
     def test_unparseable_values_raise(self, value: str) -> None:
         # The key behavior: garbage windows 400 instead of silently falling back to "now".
         with pytest.raises(serializers.ValidationError):

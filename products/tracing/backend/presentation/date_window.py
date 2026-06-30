@@ -31,8 +31,10 @@ _UNIT_TO_RELATIVE_TOKEN = {"s": "s", "m": "M", "h": "h", "d": "d", "w": "w"}
 
 # The global relative-date grammar (kept in sync with posthog.utils.relative_date_parse).
 # Used only to let already-supported formats — week/day/month boundaries, quarters, years —
-# pass through unchanged rather than rejecting them.
-_GLOBAL_RELATIVE_RE = re.compile(r"-?\d*[hdwmqysHDWMQY](Start|End)?$")
+# pass through unchanged rather than rejecting them. A match needs either a number (position
+# optional) or a bare unit WITH a Start/End boundary; a bare unit alone (e.g. "h") is rejected,
+# since the global parser would silently resolve it to "now" — the fail-open this module prevents.
+_GLOBAL_RELATIVE_RE = re.compile(r"-?(?:\d+[hdwmqysHDWMQY](?:Start|End)?|[hdwmqysHDWMQY](?:Start|End))")
 
 
 def normalize_tracing_window(value: str | None) -> str | None:
