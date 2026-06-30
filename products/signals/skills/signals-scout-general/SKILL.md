@@ -9,9 +9,13 @@ description: >
   of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
-  scratchpad-remember/forget and emit-signal), llm_skill:read, plus standard analytics reads. Uses the
-  signals-scout MCP family: project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal.
+  scratchpad-remember/forget and emit-signal) + signal_scout_report:write (for emit-report/edit-report,
+  granted because this scout opts into the report channel via allowed_tools), llm_skill:read, plus standard
+  analytics reads. Uses the signals-scout MCP family: project-profile-get, runs-list, runs-retrieve,
+  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal, emit-report, edit-report.
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
 ---
@@ -85,6 +89,15 @@ For each candidate finding:
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence
   bar. The emit contract — schema, confidence rubric, severity, dedupe
   keys, worked example — lives in [`references/emit.md`](references/emit.md).
+- **Author a report** via `signals-scout-emit-report` (or update one with
+  `signals-scout-edit-report`) when you've done the research and have a single,
+  well-formed finding you'd file 1:1 and own end-to-end — no pipeline clustering.
+  A fully-validated cross-product correlation is the natural fit. This is a
+  _higher bar_ than emitting, not a shortcut around the confidence gate. The
+  report channel — when to reach for it, the field schema, dedupe (it is **not**
+  idempotent), reviewer routing, and the edit rules — lives in
+  [`references/report.md`](references/report.md). When in doubt between channels,
+  `emit-signal` and let the pipeline consolidate.
 - **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but
   worth carrying forward, or to record what you ruled out and why.
 - **Skip** if the scratchpad already covers it.
@@ -99,6 +112,8 @@ the key prefix:
 | `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).          |
 | `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                  |
 | `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.               |
+| `report:`     | Records the `report_id` of a report you authored, keyed `report:<domain>:<entity>`, so the next run edits it instead of duplicating. |
+| `reviewer:`   | Caches a resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so reports route to a human faster. |
 | `allowlist:`  | Vetted entities the scout should never re-surface.                               |
 | `not-in-use:` | Close-out memo for "product not in use on this team".                            |
 
