@@ -190,6 +190,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
     # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
     "{:error, :etimedout}",
+    # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
+    # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
+    # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
+    # transient (a suspended compute reactivates in seconds), so a fresh connect after a short
+    # backoff succeeds — recover by reconnecting rather than failing the whole activity. Match the
+    # timeout phrasing, which is distinct from the permanent credential-rejection wordings
+    # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
+    # millisecond value.
+    "authentication did not complete within",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
