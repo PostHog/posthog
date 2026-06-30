@@ -22,16 +22,14 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import TraceFlags
 
+from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.job_logs.thinning import ThinnedLine
 
 logger = structlog.get_logger(__name__)
 
-_SERVICE_NAME = "github-ci-logs"
-
 # GitHub prefixes every raw log line with an RFC3339 UTC timestamp, then the content:
 #   2026-06-25T09:14:02.1234567Z ##[error]Process completed with exit code 1
 _LINE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\s?(?P<body>.*)$")
-_SCALAR = (str, int, float, bool)
 
 
 def _parse_ns(ts: str) -> int | None:
@@ -111,7 +109,13 @@ class JobLogsEmitter:
         """
         if not self._enabled:
             return 0
-        base_attrs = {key: value for key, value in attributes.items() if isinstance(value, _SCALAR)}
+        # Stringify every attribute value: the logs pipeline only indexes string-typed attributes into
+        # the queryable map (logs34 stores them via JSONExtractString), so a numeric attribute would be
+        # invisible to `attributes['...']` reads — and the failure-logs endpoint filters on exactly
+        # these (run_id / job_id / seq / orig_line / orig_total).
+        base_attrs: dict[str, str] = {
+            key: str(value) for key, value in attributes.items() if isinstance(value, (str, int, float, bool))
+        }
         trace, span = _otel_id(trace_id, 16), _otel_id(span_id, 8)
         emitted = 0
         for line in lines:
@@ -119,9 +123,9 @@ class JobLogsEmitter:
             body, timestamp = (match.group("body"), _parse_ns(match.group("ts"))) if match else (line.text, None)
             if not body.strip():
                 continue
-            attrs: dict[str, object] = {**base_attrs, "seq": emitted}
+            attrs: dict[str, str] = {**base_attrs, "seq": str(emitted)}
             if line.original_line_number is not None:
-                attrs["orig_line"] = line.original_line_number
+                attrs["orig_line"] = str(line.original_line_number)
             severity_text, severity_number = _severity(body)
             self._logger.emit(
                 LogRecord(

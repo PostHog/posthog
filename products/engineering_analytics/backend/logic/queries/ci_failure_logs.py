@@ -25,11 +25,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     RepoRef,
 )
+from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 
-# The worker tags every emitted record with this OTel service name (see emitter._SERVICE_NAME).
-_SERVICE_NAME = "github-ci-logs"
 # Overall safety bound on lines pulled per call (one Logs record == one line) — an incident across
 # many runs mustn't return an unbounded body.
 _LINE_CAP = 2000

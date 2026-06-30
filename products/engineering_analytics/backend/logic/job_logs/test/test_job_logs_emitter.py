@@ -83,7 +83,9 @@ def test_emits_per_line_with_parsed_timestamp_severity_and_attributes():
         "##[error]Process completed with exit code 1",
     ]
     assert [r.severity_text for r in records] == ["INFO", "WARN", "ERROR"]
-    assert all(all(record.attributes[key] == value for key, value in _ATTRS.items()) for record in records)
+    # Attributes are stringified — the logs pipeline only indexes string-typed values into the
+    # queryable map, so an int attribute would be unreadable by `attributes['...']`.
+    assert all(all(record.attributes[key] == str(value) for key, value in _ATTRS.items()) for record in records)
     expected_ns = int(datetime(2026, 6, 25, 9, 14, 2, 123456, tzinfo=UTC).timestamp() * 1_000_000_000)
     assert records[0].timestamp == expected_ns
 
@@ -92,7 +94,8 @@ def test_stamps_seq_and_orig_line_so_thinned_lines_stay_anchored_and_ordered():
     # The thinned log drops most lines, so each kept line carries its original 1-based position
     # (orig_line) — the only durable anchor once the full log expires — and every record carries seq
     # (emit order) so the reader can order them. Omission markers (no original line) carry seq but no
-    # orig_line. Without this the failure region looks contiguous and unlocatable in the real log.
+    # orig_line. Values are stringified so they land in the queryable string attribute map (a numeric
+    # attribute is dropped from it). Without this the failure region is contiguous and unlocatable.
     _, records = _emit_lines(
         [
             ThinnedLine("2026-06-25T09:14:02.000000Z first", 1),
@@ -101,10 +104,10 @@ def test_stamps_seq_and_orig_line_so_thinned_lines_stay_anchored_and_ordered():
         ]
     )
     assert [r.body for r in records] == ["first", "... 4810 lines omitted ...", "##[error]boom"]
-    assert [r.attributes["seq"] for r in records] == [0, 1, 2]
-    assert records[0].attributes["orig_line"] == 1
+    assert [r.attributes["seq"] for r in records] == ["0", "1", "2"]
+    assert records[0].attributes["orig_line"] == "1"
     assert "orig_line" not in records[1].attributes  # a marker has no original line
-    assert records[2].attributes["orig_line"] == 4812
+    assert records[2].attributes["orig_line"] == "4812"
 
 
 def test_skips_blank_lines():
@@ -118,7 +121,7 @@ def test_drops_non_scalar_attributes():
     # OTEL attributes accept scalars only; a Mapping-valued attribute must be dropped, not crash
     # or serialize garbage, while scalar attributes survive.
     _, records = _emit("2026-06-25T09:14:02.000000Z x", attributes={"job_id": 1, "nested": {"a": 1}})
-    assert records[0].attributes["job_id"] == 1
+    assert records[0].attributes["job_id"] == "1"
     assert "nested" not in records[0].attributes
 
 
