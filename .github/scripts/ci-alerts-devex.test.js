@@ -307,7 +307,7 @@ describe('ci-alerts-devex', () => {
         assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
     })
 
-    // --- Stale-bridge duration (the 2026-06-30 "red 61h 41m" incident) ---
+    // --- Stale-bridge duration ---
     const failureRun = (name, key, createdAt, updatedAt) => ({
         name,
         conclusion: 'failure',
@@ -320,22 +320,22 @@ describe('ci-alerts-devex', () => {
         { sha: 'push', html_url: 'https://github.com/commit/push', author: { login: 'dev' }, commit: { message: 'p', author: { name: 'dev', date: iso } } },
     ]
 
-    it('the incident that triggered this: a bridged stale failure no longer inflates the duration (regression)', async () => {
-        // Recent failure + a days-old failure (the cancelled runs between are dropped) → the streak
-        // bridged ~60h. Must still open, but report the recent contiguous red, not 61h.
-        const now = new Date('2026-06-30T12:12:54Z')
+    it('bridged stale failures do not inflate the displayed duration (regression)', async () => {
+        // Recent failure + stale failure (the cancelled runs between are dropped) → the detection
+        // streak spans multiple days. Must still open, but report the recent contiguous red.
+        const now = minutes(13)
         const github = createGithubMock(
             {
                 'ci-rust.yml': [
-                    failureRun('Rust CI', 'recent', '2026-06-30T11:50:48Z', '2026-06-30T12:05:00Z'),
-                    failureRun('Rust CI', 'stale', '2026-06-27T23:06:46Z', '2026-06-27T23:20:46Z'),
+                    failureRun('Rust CI', 'recent', minutes(-9).toISOString(), minutes(5).toISOString()),
+                    failureRun('Rust CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
                 ],
                 'ci-backend.yml': [
-                    failureRun('Backend CI', 'recent', '2026-06-30T11:39:11Z', '2026-06-30T12:06:00Z'),
-                    failureRun('Backend CI', 'stale', '2026-06-27T23:15:06Z', '2026-06-27T23:29:17Z'),
+                    failureRun('Backend CI', 'recent', minutes(-21).toISOString(), minutes(6).toISOString()),
+                    failureRun('Backend CI', 'stale', minutes(-3590).toISOString(), minutes(-3576).toISOString()),
                 ],
             },
-            { commits: pushAt('2026-06-30T12:08:00Z') }
+            { commits: pushAt(minutes(8).toISOString()) }
         )
         const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-backend.yml' } })
 
@@ -344,20 +344,20 @@ describe('ci-alerts-devex', () => {
         const body = JSON.stringify(anchor.attachments)
         assert.match(body, /Rust CI/)
         assert.match(body, /Backend CI/)
-        assert.doesNotMatch(body, /\d{2,}h/) // the bug read "61h"; no multi-hour duration survives
+        assert.doesNotMatch(body, /\d{2,}h/) // no stale multi-day duration survives
         assert.match(anchor.text, /\(\d+m\)/) // summary duration is minutes of recent contiguous red
-        // anchored to the recent failure (2026-06-30), not the 2026-06-27 stale run
-        assert.match(anchor.metadata.event_payload.since, /^2026-06-30/)
+        // anchored to the recent failure, not the stale run
+        assert.equal(anchor.metadata.event_payload.since, minutes(-21).toISOString())
     })
 
     it('does not falsely resolve an open incident while the newest run is still failing (regression)', async () => {
         // Newest run still failing, prior failure >180m back — detection uses the full span, so the
         // incident must stay open (never a false "master recovered").
-        const now = new Date('2026-06-30T12:12:54Z')
+        const now = minutes(13)
         const github = createGithubMock({
             'ci-backend.yml': [
-                failureRun('Backend CI', 'recent', '2026-06-30T11:50:00Z', '2026-06-30T12:05:00Z'),
-                failureRun('Backend CI', 'stale', '2026-06-27T23:06:00Z', '2026-06-27T23:20:00Z'),
+                failureRun('Backend CI', 'recent', minutes(-10).toISOString(), minutes(5).toISOString()),
+                failureRun('Backend CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
             ],
             'ci-frontend.yml': runs('Frontend CI', ['success']),
         })
@@ -369,16 +369,16 @@ describe('ci-alerts-devex', () => {
 
     it('still pages for a sparse workflow whose genuine failures are far apart (regression)', async () => {
         // Sparse workflow: two genuine failures >180m apart, no green between. Must still open.
-        const now = new Date('2026-06-30T12:12:54Z')
+        const now = minutes(13)
         const github = createGithubMock(
             {
                 'ci-rust.yml': [
-                    failureRun('Rust CI', 'recent', '2026-06-30T11:55:00Z', '2026-06-30T12:02:00Z'),
-                    failureRun('Rust CI', 'older', '2026-06-30T07:30:00Z', '2026-06-30T07:45:00Z'),
+                    failureRun('Rust CI', 'recent', minutes(-5).toISOString(), minutes(2).toISOString()),
+                    failureRun('Rust CI', 'older', minutes(-270).toISOString(), minutes(-255).toISOString()),
                 ],
                 'ci-frontend.yml': runs('Frontend CI', ['success']),
             },
-            { commits: pushAt('2026-06-30T12:08:00Z') }
+            { commits: pushAt(minutes(8).toISOString()) }
         )
         const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-frontend.yml' } })
         assert.equal(outputs.action, 'create') // old gap-break would have missed this entirely
@@ -389,15 +389,15 @@ describe('ci-alerts-devex', () => {
 
     it('re-running a run inside the streak does not collapse the shown duration to ~0', async () => {
         // Oldest failure re-run (updated_at bumped to ~now) — created_at anchor keeps the full span.
-        const now = new Date('2026-06-30T12:12:54Z')
+        const now = minutes(13)
         const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
         const github = createGithubMock({
             'ci-backend.yml': [
-                f('f5', '2026-06-30T12:00:00Z', '2026-06-30T12:07:00Z'),
-                f('f4', '2026-06-30T11:55:00Z', '2026-06-30T12:02:00Z'),
-                f('f3', '2026-06-30T11:50:00Z', '2026-06-30T11:57:00Z'),
-                f('f2', '2026-06-30T11:45:00Z', '2026-06-30T11:52:00Z'),
-                f('f1', '2026-06-30T11:40:00Z', '2026-06-30T12:11:00Z'), // oldest, re-run → updated bumped
+                f('f5', minutes(0).toISOString(), minutes(7).toISOString()),
+                f('f4', minutes(-5).toISOString(), minutes(2).toISOString()),
+                f('f3', minutes(-10).toISOString(), minutes(-3).toISOString()),
+                f('f2', minutes(-15).toISOString(), minutes(-8).toISOString()),
+                f('f1', minutes(-20).toISOString(), minutes(11).toISOString()), // oldest, re-run → updated bumped
             ],
             'ci-frontend.yml': runs('Frontend CI', ['success']),
         })
@@ -405,28 +405,28 @@ describe('ci-alerts-devex', () => {
         assert.equal(outputs.action, 'create')
         const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
         assert.match(body, /5 failed runs in a row/)
-        assert.match(body, /red for 33m/) // from f1's created_at (11:40), not its re-run updated_at (12:11)
+        assert.match(body, /red for 33m/) // from f1's created_at, not its re-run updated_at
     })
 
     it('reports the honest full duration for a genuinely-continuous outage', async () => {
         // Dense failures, no gap > 180m — the cap must NOT fire, so the full ~1h13m is reported.
-        const now = new Date('2026-06-30T12:12:54Z')
+        const now = minutes(13)
         const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
         const github = createGithubMock(
             {
                 'ci-backend.yml': [
-                    f('c3', '2026-06-30T11:55:00Z', '2026-06-30T12:05:00Z'),
-                    f('c2', '2026-06-30T11:30:00Z', '2026-06-30T11:40:00Z'),
-                    f('c1', '2026-06-30T11:00:00Z', '2026-06-30T11:10:00Z'),
+                    f('c3', minutes(-5).toISOString(), minutes(5).toISOString()),
+                    f('c2', minutes(-30).toISOString(), minutes(-20).toISOString()),
+                    f('c1', minutes(-60).toISOString(), minutes(-50).toISOString()),
                 ],
                 'ci-frontend.yml': runs('Frontend CI', ['success']),
             },
-            { commits: pushAt('2026-06-30T12:08:00Z') }
+            { commits: pushAt(minutes(8).toISOString()) }
         )
         const { slack, outputs } = await run(github, { now })
         assert.equal(outputs.action, 'create')
         const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
-        assert.match(body, /red for 1h 13m/) // 12:12:54 − 11:00 dispatch ≈ 72.9m → 73m, not truncated
+        assert.match(body, /red for 1h 13m/)
     })
 
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {

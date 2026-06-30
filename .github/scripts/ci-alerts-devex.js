@@ -38,7 +38,7 @@ const HISTORY_LIMIT = 100
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
 // Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
-// wide between kept failures, so it can't anchor to a days-old run (the "red 61h" bug).
+// wide between kept failures, so it can't anchor to a stale run.
 const STREAK_MAX_GAP_MINUTES = 180
 
 // ---------------------------------------------------------------------------
