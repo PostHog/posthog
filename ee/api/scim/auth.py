@@ -57,8 +57,12 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         # Read the linked IdP config directly (the source of truth) rather than through the
         # empty-config fallback, so a domain with no config fails clearly here instead of falling
         # through to a misleading "Invalid bearer token" on a null hash below.
+        #
+        # The domain must also be verified: SCIM can be enabled on a config independently of any
+        # domain (the config API has no verification gate), so re-check verification here to keep
+        # provisioning gated behind a verified domain.
         config = domain.identity_provider_config
-        if config is None or not config.has_scim:
+        if not domain.is_verified or config is None or not config.has_scim:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
 
         if not domain.organization.is_feature_available(AvailableFeature.SCIM):
