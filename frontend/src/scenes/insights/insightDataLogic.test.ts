@@ -8,6 +8,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { insightsModel } from '~/models/insightsModel'
@@ -518,6 +521,27 @@ describe('insightDataLogic', () => {
             }).toFinishAllListeners()
 
             expect(patchSpy).not.toHaveBeenCalled()
+        })
+
+        it('skips the PATCH while this insight is being edited in the insight scene', async () => {
+            // Editing an insight opened from a dashboard reuses the tile's keyed logic, which wired
+            // persistDisplayOptions as props.setQuery. The scene must persist only via explicit save.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightLogicRef: { logic: { key: Insight42 } } },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
         })
     })
 })
