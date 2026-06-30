@@ -383,7 +383,6 @@ export function TrendsBarChart({
                     breakdownFilter={breakdownFilter ?? undefined}
                     dateRange={insightData?.resolved_date_range ?? undefined}
                     trendsFilter={trendsFilter}
-                    formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
                     baseCurrency={baseCurrency}

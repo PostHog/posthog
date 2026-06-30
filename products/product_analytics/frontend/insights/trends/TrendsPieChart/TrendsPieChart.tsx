@@ -209,7 +209,6 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
                 context={ctx}
                 breakdownFilter={breakdownFilter ?? undefined}
                 trendsFilter={trendsFilter}
-                formula={formula}
                 baseCurrency={baseCurrency}
                 groupTypeLabel={resolvedGroupTypeLabel}
                 formatCompareLabel={context?.formatCompareLabel}

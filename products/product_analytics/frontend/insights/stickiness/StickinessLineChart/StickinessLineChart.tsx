@@ -167,7 +167,6 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                     interval={interval ?? undefined}
                     breakdownFilter={breakdownFilter ?? undefined}
                     trendsFilter={trendsFilter}
-                    formula={formula}
                     showPercentView={true}
                     isPercentStackView={false}
                     baseCurrency={baseCurrency}
