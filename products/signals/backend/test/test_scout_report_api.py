@@ -16,9 +16,11 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
+    EditReportResult,
     InvalidScoutReportError,
     ReviewerInput,
     _build_suggested_reviewers,
+    _capture_report_edited,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
@@ -363,6 +365,31 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+
+    def test_reviewer_edit_event_uuid_keys_on_reviewers(self) -> None:
+        # A reviewer-only edit carries no `updated_fields` and no title/summary/note, so two distinct
+        # reviewer corrections to the same report in one run would hash to one `event_uuid` and ingestion
+        # would collapse the later routing change. The uuid must key on the reviewer identity too — while
+        # an identical retried reviewer edit still stays one event (idempotent).
+        run = _make_run(self.team)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, reviewers_set=True)
+
+        def forward(reviewers: list[ReviewerInput]) -> str:
+            with patch(CAPTURE_PATH):
+                return _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    suggested_reviewers=reviewers,
+                ).event_uuid
+
+        alice = forward([ReviewerInput(github_login="alice")])
+        bob = forward([ReviewerInput(github_login="bob")])
+        assert alice != bob
+        assert alice == forward([ReviewerInput(github_login="alice")])
 
     @parameterized.expand(
         [

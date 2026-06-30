@@ -567,6 +567,7 @@ def _capture_report_edited(
     title: str | None,
     summary: str | None,
     note: str | None,
+    suggested_reviewers: list[ReviewerInput] | None = None,
 ) -> _ReportForward:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -600,13 +601,17 @@ def _capture_report_edited(
         )
     # Sort `updated_fields` so a retried edit that changed the same set hashes to one `event_uuid` — the
     # set's iteration order isn't guaranteed stable across worker processes, and an unstable key would
-    # double-fire a destination on retry.
+    # double-fire a destination on retry. A reviewer-only edit carries no `updated_fields` and no
+    # title/summary/note, so two distinct reviewer corrections to the same report in one run would
+    # otherwise hash identically and ingestion would collapse the later routing change; key on the
+    # reviewer identity too (only when reviewers were set, so non-reviewer edits keep their existing uuid).
+    parts: list[object] = ["edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note]
+    if result.reviewers_set and suggested_reviewers:
+        parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(
-            "edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note
-        ),
+        event_uuid=_report_event_uuid(*parts),
         properties=properties,
     )
 
@@ -928,7 +933,13 @@ async def edit_report(
         suggested_reviewers=suggested_reviewers,
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
-        team=team, run=run, result=result, title=title, summary=summary, note=append_note
+        team=team,
+        run=run,
+        result=result,
+        title=title,
+        summary=summary,
+        note=append_note,
+        suggested_reviewers=suggested_reviewers,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -955,6 +966,14 @@ def edit_report_sync(
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
     )
-    forward = _capture_report_edited(team=team, run=run, result=result, title=title, summary=summary, note=append_note)
+    forward = _capture_report_edited(
+        team=team,
+        run=run,
+        result=result,
+        title=title,
+        summary=summary,
+        note=append_note,
+        suggested_reviewers=suggested_reviewers,
+    )
     _forward_report_event_to_team(team=team, forward=forward)
     return result
