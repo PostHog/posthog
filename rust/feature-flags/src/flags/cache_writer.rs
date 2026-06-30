@@ -42,14 +42,9 @@ pub fn make_cache_config(
     config
 }
 
-/// What a successful persist wrote, surfaced so callers can log it. Both fields
-/// are computed on the write path anyway (`set_with_etag` returns the etag; the
-/// size is the serialized JSON length), so capturing them is free.
+/// Outcome of a successful persist, for callers that want to log it.
 pub struct PersistOutcome {
-    /// ETag stamped on the entry — `FlagDefinitionsCache` keys on `(team_id, etag)`,
-    /// so this identifies the cache version the request path will read.
     pub etag: String,
-    /// Serialized cache size in bytes.
     pub size_bytes: usize,
 }
 
@@ -59,9 +54,10 @@ pub struct PersistOutcome {
 /// via `delete_etag`, and `FlagDefinitionsCache` keys on `(team_id, etag)`, so a
 /// missing etag forces the in-memory cache bypass on every `/flags` request.
 ///
-/// Returns the typed `HyperCacheError` so callers can attribute a failure to the
-/// Redis vs S3 vs serialization tier (the flags-cache-builder uses this to label
-/// its build-failure metric and DLQ headers for triage).
+/// On success, returns the etag and serialized size so callers can log what was
+/// written. On failure, returns the typed `HyperCacheError` so callers can
+/// attribute it to the Redis vs S3 vs serialization tier (the flags-cache-builder
+/// uses this to label its build-failure metric and DLQ headers for triage).
 pub async fn persist_flags_cache(
     writer: &HyperCacheWriter,
     team_id: TeamId,
