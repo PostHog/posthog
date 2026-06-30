@@ -92,8 +92,8 @@ function outcome(item: SlowestQuery): { label: string; type: LemonTagType } {
     if (!parentFailed && !buildFailed) {
         return { label: 'OK', type: 'success' }
     }
-    if (parentFailed && buildFailed && item.exception_code === 307) {
-        return { label: `Build + read ${codeLabel(307)}`, type: 'danger' }
+    if (parentFailed && buildFailed) {
+        return { label: `Build + read ${codeLabel(item.exception_code)}`, type: 'danger' }
     }
     if (parentFailed) {
         return { label: `Read ${codeLabel(item.exception_code)}`, type: 'danger' }
