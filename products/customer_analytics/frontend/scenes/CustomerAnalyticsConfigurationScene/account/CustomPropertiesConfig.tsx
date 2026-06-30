@@ -1,14 +1,21 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconInfo, IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { urls } from 'scenes/urls'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertyReferenceApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
@@ -50,6 +57,17 @@ export function CustomPropertiesConfig(): JSX.Element {
             dataIndex: 'description',
             render: (_, definition) =>
                 definition.description ? definition.description : <span className="text-secondary">—</span>,
+        },
+        {
+            title: (
+                <span className="flex items-center gap-1">
+                    References
+                    <Tooltip title="Workflows that set this property using an 'Update account property' action. Click the count to open them.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </span>
+            ),
+            render: (_, definition) => <ReferencesCell references={definition.references} />,
         },
         {
             title: 'Last updated',
@@ -105,5 +123,37 @@ export function CustomPropertiesConfig(): JSX.Element {
             />
             <CustomPropertyModal />
         </div>
+    )
+}
+
+function ReferencesCell({ references }: { references: readonly CustomPropertyReferenceApi[] }): JSX.Element {
+    const [open, setOpen] = useState(false)
+
+    if (!references.length) {
+        return <span className="text-secondary">0</span>
+    }
+
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            overlay={
+                <div className="flex flex-col gap-1 p-2 max-w-sm">
+                    <span className="text-xs text-secondary">Used in</span>
+                    {references.map((reference) => (
+                        <Link
+                            key={reference.id}
+                            to={urls.workflow(reference.id, 'workflow')}
+                            target="_blank"
+                            targetBlankIcon
+                        >
+                            {reference.name}
+                        </Link>
+                    ))}
+                </div>
+            }
+        >
+            <Link onClick={() => setOpen((isOpen) => !isOpen)}>{references.length}</Link>
+        </Popover>
     )
 }

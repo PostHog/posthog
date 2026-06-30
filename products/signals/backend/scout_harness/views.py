@@ -3,8 +3,8 @@
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
-`memory-create`, `memory-delete`, and `project-profile-get` — over the standard
-PostHog MCP plumbing.
+`memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
+the standard PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -20,6 +20,7 @@ token is already pinned to the team.
 from __future__ import annotations
 
 import uuid
+import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -56,6 +57,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
     ensure_scout_category,
@@ -75,6 +77,8 @@ from products.signals.backend.scout_harness.serializers import (
     EmitReportRequestSerializer,
     EmitReportResponseSerializer,
     EvidenceEntrySerializer,
+    FleetFindingsSummaryQuerySerializer,
+    FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
@@ -82,6 +86,8 @@ from products.signals.backend.scout_harness.serializers import (
     RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
+    ScoutMemberSerializer,
+    ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
@@ -111,8 +117,18 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
-from products.signals.backend.scout_harness.tools.report import ReportEvidence, edit_report_sync, emit_report_sync
-from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
+from products.signals.backend.scout_harness.tools.report import (
+    ReportEvidence,
+    ReviewerInput,
+    edit_report_sync,
+    emit_report_sync,
+)
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    fleet_findings_summary,
+    get_run,
+    search_recent_runs,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
     forget,
@@ -278,6 +294,21 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     return view.team.parent_team_id or view.team_id
 
 
+def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
+    """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
+    is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
+    yields None so the tool treats it as "no reviewers supplied"."""
+    if not entries:
+        return None
+    return [
+        ReviewerInput(
+            github_login=entry.get("github_login"),
+            user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+        )
+        for entry in entries
+    ]
+
+
 def _resolve_emission_report_links(
     team_id: int, canonical_team: Team, emissions: list[SignalScoutEmission], *, log_context: dict
 ) -> list[dict]:
@@ -389,6 +420,38 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        query_serializer=FleetFindingsSummaryQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=FleetFindingsSummarySerializer,
+                description="Fleet-wide tally of recently emitted findings.",
+            ),
+        },
+        summary="Summarise recently emitted findings across the fleet",
+        description=(
+            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
+            "the total count, the number of distinct scouts behind them, and the latest emission time. "
+            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
+            "through the whole runs window. Counts only runs that emitted at least one finding "
+            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
+            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_findings_summary",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="findings/summary",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def findings_summary(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        window_hours = validated.get("window_hours") or DEFAULT_FINDINGS_WINDOW_HOURS
+        summary = fleet_findings_summary(team_id=_canonical_team_id(self), window_hours=window_hours)
+        return Response(FleetFindingsSummarySerializer(summary.as_dict()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -805,7 +868,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 repository=data.get("repository"),
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
-                suggested_reviewers=data.get("suggested_reviewers"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -832,9 +895,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox "
-            "reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary "
-            "edits are best-effort: the pipeline may later re-research and overwrite them."
+            "Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target "
+            "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
+            "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
+            "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
+            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -857,6 +922,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
+                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -866,6 +932,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "report_id": result.report_id,
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
+                    "reviewers_set": result.reviewers_set,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1144,6 +1211,66 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def current(self, request: Request, *args, **kwargs) -> Response:
         metadata = resolve_team_metadata(_canonical_team_id(self))
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
+
+
+class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project member roster for reviewer routing — sandbox-only.
+
+    `scope_object = "signal_scout_internal"` makes this a strictly scout-run-only surface: the object is
+    in `INTERNAL_API_SCOPE_OBJECTS`, so session auth, personal API keys, and the `*` consent wildcard are
+    all rejected (`posthog/permissions.py`), and only a harness sandbox OAuth token — which carries
+    `signal_scout_internal:write`, satisfying the default `list` action's `signal_scout_internal:read`
+    requirement (write implies read) — can reach it. The roster is member PII (emails, names, GitHub
+    logins), and this gate keeps it off every user-grantable credential and out of a customer's public MCP
+    catalog — the same internal-vs-external boundary as `emit-signal`, the other internal-scope scout tool.
+    The narrower `signal_scout_report` scope (report-channel scouts only) would tighten this to the tool's
+    sole consumer, but that scope is transient — a temporary split kept only while emit-signal and
+    emit-report coexist — so a durable tool stays on `signal_scout_internal` rather than coupling to a scope
+    slated for removal. The residual exposure (a baseline scout reading its own team's roster) is bounded to
+    the single-team sandbox token.
+
+    The roster is resolved server-side (a plain ORM read via `Team.all_users_with_access()`, not a DRF
+    request through the OAuth permission layer), which is why the org-nested `org-members-list` tool —
+    stripped from a scoped-team token's catalog and 403'd by the org-nested permission gate — can't serve
+    this and a project-nested tool can. Scoping through `all_users_with_access()` (not the whole org) keeps
+    a scout on a private project from enumerating members who lack access to it.
+    """
+
+    serializer_class = ScoutMemberSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout_internal"
+    # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
+    # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors
+    # `SignalScoutMetadataViewSet`.
+    queryset = SignalScoutConfig.objects.unscoped()
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ScoutMembersQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutMemberSerializer(many=True),
+                description="The project's members, each with their routing identity.",
+            ),
+        },
+        summary="List project members for reviewer routing",
+        description=(
+            "Return the people who can review work on this project — one row per member with access to it, "
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
+            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
+            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
+            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
+            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
+            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_members_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        canonical_team = self.team.parent_team or self.team
+        members = list_project_members(canonical_team, search=validated.get("search") or None)
+        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:

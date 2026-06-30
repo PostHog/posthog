@@ -24,6 +24,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -943,19 +944,18 @@ export const notebookLogic = kea<notebookLogicType>([
                 !isMarkdownNotebookContent(localContent || notebook?.content),
         ],
         markdownRealtimeEnabled: [
-            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.content, s.notebook],
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook],
             (
                 props: NotebookLogicProps,
                 mode: NotebookLogicMode,
                 isLocalOnly: boolean,
-                content: JSONContent,
                 notebook: NotebookType | null
             ): boolean =>
                 mode === 'notebook' &&
                 !props.cachedNotebook &&
                 !isLocalOnly &&
                 !!notebook &&
-                isMarkdownNotebookContent(content),
+                isMarkdownNotebookContent(notebook.content),
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1833,6 +1833,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.clearLocalContent()
             }
             actions.scheduleNotebookRefresh()
+            if (values.showHistory) {
+                activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: values.shortId }).actions.fetchActivity()
+            }
             actions.processPendingMarkdownStreamEvents()
         },
         saveNotebookFailure: () => {

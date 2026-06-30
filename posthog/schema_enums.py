@@ -1821,6 +1821,7 @@ class ExternalDataSourceType(StrEnum):
     NEXTDOOR_ADS = "NextdoorAds"
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
+    PLUNK = "Plunk"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2221,6 +2222,8 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     POSTGRESQL = "postgresql"
+    AWS_S3 = "aws-s3"
+    S3_COMPATIBLE = "s3-compatible"
 
 
 class IntervalType(StrEnum):
@@ -2644,6 +2647,8 @@ class ProductIntentContext(StrEnum):
     LLM_DATASET_CREATED = "llm_dataset_created"
     LLM_EVALUATION_CREATED = "llm_evaluation_created"
     LLM_PROMPT_CREATED = "llm_prompt_created"
+    MCP_ANALYTICS_VIEWED = "mcp_analytics_viewed"
+    MCP_ANALYTICS_CONNECTED = "mcp_analytics_connected"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
