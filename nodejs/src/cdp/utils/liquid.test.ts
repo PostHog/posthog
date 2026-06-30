@@ -222,7 +222,7 @@ describe('LiquidRenderer', () => {
         })
     })
 
-    describe.each(['render', 'include'])('file inclusion via the %s tag is disabled', (tag) => {
+    describe.each(['render', 'include', 'layout'])('file inclusion via the %s tag is disabled', (tag) => {
         it('does not disclose local files within the working directory', () => {
             // The partial must live under the worker's cwd: LiquidJS confines file lookups there.
             const fixtureName = `liquid-fs-fixture-${process.pid}.txt`
