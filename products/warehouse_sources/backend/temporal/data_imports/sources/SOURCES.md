@@ -78,6 +78,7 @@ the row lists both.
 | campaign_monitor    | HTTP                        | requests                                                        | ✅                          |
 | campayn             | HTTP                        | requests                                                        | ✅                          |
 | canny               | HTTP                        | requests                                                        | ✅                          |
+| care_quality_commission | HTTP                    | requests                                                        | ✅                          |
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
@@ -337,7 +338,6 @@ doesn't conflict with concurrent PRs.
 - campaign_manager_360
 - capsule_crm
 - captain_data
-- care_quality_commission
 - cart_com
 - castor_edc
 - chameleon
