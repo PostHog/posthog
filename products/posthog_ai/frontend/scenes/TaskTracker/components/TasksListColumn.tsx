@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/
 import { Input } from '@posthog/quill-primitives'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { tasksLogic } from '../../../logics/tasksLogic'
@@ -87,8 +88,9 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
         // spacer ends the list above the floating create button so it never hides the last row.
         return (
             <div className="flex flex-col flex-1 min-h-0">
-                <div className="px-1 pb-2 shrink-0">{searchInput}</div>
-                <div className="flex flex-col flex-1 min-h-0">{content}</div>
+                <div className="shrink-0 lg:px-1">{searchInput}</div>
+                <LemonDivider className="mb-0 mt-4" />
+                <div className={cn('flex flex-col flex-1 min-h-0', tasks.length > 0 && '-mx-4')}>{content}</div>
                 <div className="shrink-0 h-20" />
                 <LemonButton
                     type="primary"
@@ -117,11 +119,11 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                     <IconPlusSmall className="size-4" />
                 </Link>
             </div>
-            <div className="px-1 pb-2 shrink-0">{searchInput}</div>
+            <div className="px-1 pb-4 shrink-0">{searchInput}</div>
             <LemonDivider className="m-0 shrink-0" />
 
             {/* flex-1 min-h-0 gives the virtualized list a bounded height to fill (it owns the scroll). */}
-            <div className="flex flex-col flex-1 min-h-0 pt-2">{content}</div>
+            <div className="flex flex-col flex-1 min-h-0">{content}</div>
         </div>
     )
 }

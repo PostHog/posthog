@@ -41,7 +41,7 @@ function TaskRow({
     const task = tasks[index]
 
     return (
-        <div ref={rowRef} style={style} data-index={index}>
+        <div ref={rowRef} style={style} data-index={index} className="px-4 lg:px-0">
             {task ? (
                 <TaskListItem task={task} isActive={task.id === selectedTaskId} />
             ) : (
@@ -82,7 +82,7 @@ export function VirtualizedTasksList({
                 height && width ? (
                     <List<TaskRowProps>
                         style={{ height, width }}
-                        className="pr-2"
+                        className="py-4 overflow-x-hidden"
                         overscanCount={10}
                         rowCount={rowCount}
                         rowHeight={dynamicRowHeight}
