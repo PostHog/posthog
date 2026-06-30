@@ -50,7 +50,7 @@ export function FunnelStepsBarChart({
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     // buildTheme() reads CSS vars; we re-memo on isDarkModeOn so the theme refreshes
     // when the user toggles dark mode even though the function takes no arguments.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -88,11 +88,11 @@ export function FunnelStepsBarChart({
     )
     const config = useMemo(() => {
         const base = isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig
-        if (tooltipEnabled) {
+        if (quillTooltipEnabled) {
             return { ...base, tooltip: { placement: 'cursor' as const } }
         }
         return base
-    }, [isBreakdownCompare, tooltipEnabled])
+    }, [isBreakdownCompare, quillTooltipEnabled])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)

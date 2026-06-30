@@ -35,7 +35,7 @@ export function FunnelBarHorizontalTooltip({
     compareTo,
 }: FunnelBarHorizontalTooltipProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
     const entry = context.seriesData[0]
     if (!entry) {
@@ -64,7 +64,7 @@ export function FunnelBarHorizontalTooltip({
         comparePeriodDateRange,
     }
 
-    return tooltipEnabled ? (
+    return quillTooltipEnabled ? (
         <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
     ) : (
         <FunnelTooltip {...sharedProps} />

@@ -53,7 +53,7 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
@@ -118,7 +118,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: tooltipEnabled ? LIFECYCLE_TOOLTIP_CONFIG : LIFECYCLE_TOOLTIP_CONFIG_LEGACY,
+                tooltip: quillTooltipEnabled ? LIFECYCLE_TOOLTIP_CONFIG : LIFECYCLE_TOOLTIP_CONFIG_LEGACY,
                 legend: legendConfig,
             }),
         [
@@ -135,7 +135,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             showPercentagesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            tooltipEnabled,
+            quillTooltipEnabled,
         ]
     )
 
@@ -207,7 +207,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             trendsFilter,
             formula,
             baseCurrency,
-            tooltipEnabled,
+            quillTooltipEnabled,
             canHandleClick,
             clickDeps,
         ]

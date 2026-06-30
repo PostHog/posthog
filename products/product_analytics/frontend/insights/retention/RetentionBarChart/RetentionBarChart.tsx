@@ -107,11 +107,11 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         [shouldShowMeanPerBreakdown, isIntervalView, series, openModal]
     )
 
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<RetentionSeriesMeta>) => {
-            if (tooltipEnabled) {
+            if (quillTooltipEnabled) {
                 const altTitle =
                     selectedInterval !== null
                         ? `${period ?? ''} ${selectedInterval}`
@@ -146,7 +146,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
             )
         },
         [
-            tooltipEnabled,
+            quillTooltipEnabled,
             xAxisLabels,
             period,
             selectedInterval,

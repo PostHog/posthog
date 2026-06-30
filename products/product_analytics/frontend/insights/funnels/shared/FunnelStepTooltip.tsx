@@ -58,49 +58,38 @@ export function FunnelStepTooltip({
 
     const showDropOff = isDropOffHover && stepIndex > 0
 
-    const rows: { label: string; value: string }[] = showDropOff
-        ? [
-              { label: 'Dropped off', value: humanFriendlyNumber(series.droppedOffFromPrevious) },
-              {
-                  label: 'Drop-off from previous',
-                  value: percentage(1 - series.conversionRates.fromPrevious, 2, true),
-              },
-              {
-                  label: 'Drop-off from start',
-                  value: percentage(1 - series.conversionRates.total, 2, true),
-              },
-          ]
-        : [
-              { label: stepIndex === 0 ? 'Entered' : 'Converted', value: humanFriendlyNumber(series.count) },
-              ...(stepIndex > 0
-                  ? [
-                        {
-                            label: 'Conversion from previous',
-                            value: percentage(series.conversionRates.fromPrevious, 2, true),
-                        },
-                    ]
-                  : []),
-              { label: 'Conversion so far', value: percentage(series.conversionRates.total, 2, true) },
-              ...(stepIndex > 0 && aggregateConversionRate != null
-                  ? [{ label: 'Baseline conversion rate', value: percentage(aggregateConversionRate, 2, true) }]
-                  : []),
-              ...(stepIndex > 0 && series.median_conversion_time != null
-                  ? [
-                        {
-                            label: 'Median time from previous',
-                            value: humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 }),
-                        },
-                    ]
-                  : []),
-              ...(stepIndex > 0 && series.average_conversion_time != null
-                  ? [
-                        {
-                            label: 'Average time from previous',
-                            value: humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 }),
-                        },
-                    ]
-                  : []),
-          ]
+    const rows: { label: string; value: string }[] = []
+    if (showDropOff) {
+        rows.push(
+            { label: 'Dropped off', value: humanFriendlyNumber(series.droppedOffFromPrevious) },
+            { label: 'Drop-off from previous', value: percentage(1 - series.conversionRates.fromPrevious, 2, true) },
+            { label: 'Drop-off from start', value: percentage(1 - series.conversionRates.total, 2, true) }
+        )
+    } else {
+        rows.push({ label: stepIndex === 0 ? 'Entered' : 'Converted', value: humanFriendlyNumber(series.count) })
+        if (stepIndex > 0) {
+            rows.push({
+                label: 'Conversion from previous',
+                value: percentage(series.conversionRates.fromPrevious, 2, true),
+            })
+        }
+        rows.push({ label: 'Conversion so far', value: percentage(series.conversionRates.total, 2, true) })
+        if (stepIndex > 0 && aggregateConversionRate != null) {
+            rows.push({ label: 'Baseline conversion rate', value: percentage(aggregateConversionRate, 2, true) })
+        }
+        if (stepIndex > 0 && series.median_conversion_time != null) {
+            rows.push({
+                label: 'Median time from previous',
+                value: humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 }),
+            })
+        }
+        if (stepIndex > 0 && series.average_conversion_time != null) {
+            rows.push({
+                label: 'Average time from previous',
+                value: humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 }),
+            })
+        }
+    }
 
     return (
         <TooltipSurface>

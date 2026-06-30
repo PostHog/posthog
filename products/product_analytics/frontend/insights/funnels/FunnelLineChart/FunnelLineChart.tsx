@@ -68,8 +68,8 @@ export function FunnelLineChart({
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = tooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
@@ -211,7 +211,7 @@ export function FunnelLineChart({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => {
-            if (tooltipEnabled) {
+            if (quillTooltipEnabled) {
                 return (
                     <InsightSeriesTooltip
                         context={ctx}
@@ -257,7 +257,7 @@ export function FunnelLineChart({
             )
         },
         [
-            tooltipEnabled,
+            quillTooltipEnabled,
             timezone,
             interval,
             breakdownFilter,

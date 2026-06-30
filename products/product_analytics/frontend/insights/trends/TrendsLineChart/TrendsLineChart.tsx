@@ -34,7 +34,7 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltipLegacy } from '../shared/TrendsTooltipLegacy'
+import { TrendsTooltip as TrendsTooltipLegacy } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -48,8 +48,8 @@ const handleChartError = makeChartErrorHandler('trends-line-chart')
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = tooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -191,7 +191,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
             }
-            return tooltipEnabled ? (
+            return quillTooltipEnabled ? (
                 <InsightSeriesTooltip {...tooltipProps} />
             ) : (
                 <TrendsTooltipLegacy {...tooltipProps} />
@@ -211,7 +211,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             context?.formatCompareLabel,
             canHandleClick,
             clickDeps,
-            tooltipEnabled,
+            quillTooltipEnabled,
         ]
     )
 

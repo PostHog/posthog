@@ -33,7 +33,7 @@ export function FunnelStepsBarTooltip({
     compareTo,
 }: FunnelStepsBarTooltipProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
     const stepIndex = context.dataIndex
     const step = steps[stepIndex]
@@ -63,7 +63,7 @@ export function FunnelStepsBarTooltip({
         comparePeriodDateRange,
     }
 
-    return tooltipEnabled ? (
+    return quillTooltipEnabled ? (
         <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
     ) : (
         <FunnelTooltip {...sharedProps} />
