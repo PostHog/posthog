@@ -14080,6 +14080,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * A place that uses a custom property definition (read-only).
+     */
+    export interface CustomPropertyReference {
+      /** Id of the referring entity (e.g. the workflow id). */
+      readonly id: string;
+      /** Display name of the referring entity. */
+      readonly name: string;
+      /** Status of the referring entity (e.g. workflow status). */
+      readonly status: string;
+      /** Kind of reference. Currently always 'workflow'. */
+      readonly type: string;
+    }
+
+    /**
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
@@ -14115,6 +14129,8 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references: readonly CustomPropertyReference[];
     }
 
     /**
@@ -25095,6 +25111,7 @@ export namespace Schemas {
      * * `posthog_ticket_tags` - posthog_ticket_tags
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
+     * * `customer_analytics_account_properties` - customer_analytics_account_properties
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -25114,6 +25131,7 @@ export namespace Schemas {
       PosthogTicketTags: 'posthog_ticket_tags',
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
+      CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -36065,6 +36083,8 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references?: readonly CustomPropertyReference[];
     }
 
     export interface PatchedCustomerJourney {
