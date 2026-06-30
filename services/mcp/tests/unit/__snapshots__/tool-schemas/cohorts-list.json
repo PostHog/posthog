@@ -18,7 +18,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Find cohorts by name or description. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
+            "description": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
             "type": "string"
         }
     },
