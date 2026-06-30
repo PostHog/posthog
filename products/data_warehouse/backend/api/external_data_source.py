@@ -1222,6 +1222,36 @@ class SourceCredentialSerializer(serializers.Serializer):
     )
 
 
+def _find_unresolved_secret_refs(payload: Any) -> list[str]:
+    """Return payload keys whose value is an unresolved secret reference.
+
+    The wizard CLI's `wizard_ask` returns sensitive answers as `{"secretRef": "..."}` objects that the
+    caller must resolve to real values before they reach PostHog. If one slips through, source creation
+    fails downstream with a confusing "invalid credentials"/"invalid API key" error — detect it up front
+    so the agent gets an actionable message instead.
+    """
+    if not isinstance(payload, dict):
+        return []
+    return [key for key, value in payload.items() if isinstance(value, dict) and "secretRef" in value]
+
+
+def _unresolved_secret_ref_response(payload: Any) -> Response | None:
+    offenders = _find_unresolved_secret_refs(payload)
+    if not offenders:
+        return None
+    return Response(
+        status=status.HTTP_400_BAD_REQUEST,
+        data={
+            "message": (
+                f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
+                "`{{'secretRef': ...}}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+                "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
+                "the resulting credential_id instead)."
+            )
+        },
+    )
+
+
 def _find_top_level_oauth_field(config: dict) -> dict | None:
     """Find a top-level OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump.
 
@@ -1362,6 +1392,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        secret_ref_response = _unresolved_secret_ref_response(serializer.validated_data["payload"])
+        if secret_ref_response is not None:
+            return secret_ref_response
 
         return self._create_external_data_source(
             request,
@@ -2244,6 +2278,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Missing required parameter: source_type"},
             )
 
+        secret_ref_response = _unresolved_secret_ref_response(request.data)
+        if secret_ref_response is not None:
+            return secret_ref_response
+
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
@@ -2343,6 +2381,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         source_type = serializer.validated_data["source_type"]
         payload = dict(serializer.validated_data.get("payload") or {})
+
+        secret_ref_response = _unresolved_secret_ref_response(payload)
+        if secret_ref_response is not None:
+            return secret_ref_response
 
         credential: PendingSourceCredential | None = None
         credential_id = payload.pop("credential_id", None)
@@ -3176,14 +3218,45 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ).data,
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated source type(s) to return config for, e.g. 'Postgres' or "
+                    "'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every "
+                    "supported source and is very large. Omit only to enumerate the available types."
+                ),
+            )
+        ],
+    )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
         sources = SourceRegistry.get_all_sources()
+        available = {str(source_type): source for source_type, source in sources.items()}
+
+        requested = request.query_params.get("source_type")
+        if requested:
+            requested_types = [t.strip() for t in requested.split(",") if t.strip()]
+            unknown = [t for t in requested_types if t not in available]
+            if unknown:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Unknown source_type(s): {', '.join(sorted(unknown))}. "
+                        "Omit source_type to list every available type."
+                    },
+                )
+            available = {st: source for st, source in available.items() if st in requested_types}
+
         results = {}
-        for source_type, source in sources.items():
+        for source_type, source in available.items():
             config = source.get_source_config.model_dump()
             config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
+            results[source_type] = config
 
         return Response(status=status.HTTP_200_OK, data=results)
 
