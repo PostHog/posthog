@@ -171,6 +171,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
         self._pr_fingerprint: Optional[str] = None
+        # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
+        # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
+        self._pr_progress_emitted: bool = False
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -381,6 +384,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return CIFollowUpDecision.NO_PR
+        # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
+        # past "Started agent". The url rides the "pr" step's detail; the frontend turns it into the CTA.
+        if pr_context.pr_url and not self._pr_progress_emitted:
+            self._pr_progress_emitted = True
+            await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_context.pr_url)
+            await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
@@ -591,6 +600,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
             elif timed_out:
                 await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+
+            # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
+            if self._pr_progress_emitted:
+                await self._emit_progress("ci", "completed", "Keeping CI green", "setup")
 
             await self._post_slack_update()
 
