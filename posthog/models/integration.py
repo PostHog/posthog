@@ -3,7 +3,6 @@ import hmac
 import json
 import time
 import base64
-import socket
 import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -2860,6 +2859,37 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def get_file_contents(self, repository: str, file_path: str, ref: str | None = None) -> dict[str, Any] | None:
+        """Read a file's decoded text and blob SHA at ``ref`` (default branch when omitted).
+
+        Returns ``{"content": str, "sha": str}``, or ``None`` when the file does not
+        exist — a missing file is a normal state, not an error. The SHA lets a caller
+        pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
+        ``update_file``, kept here so URL and token handling stay inside the client.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = self._github_api_get(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref} if ref else None,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"Failed to read {file_path} from {repository}: {response.text}",
+                status_code=response.status_code,
+            )
+        payload = response.json()
+        return {"content": base64.b64decode(payload["content"]).decode("utf-8"), "sha": payload["sha"]}
+
     def create_pull_request(
         self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
     ) -> dict[str, Any]:
@@ -3418,30 +3448,23 @@ class DatabricksIntegration:
     def validate_host(server_hostname: str):
         """Validate the Databricks host.
 
-        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
-        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
-        test here)
+        We check the value is a bare hostname (not a full URL) and that it passes our shared SSRF
+        guard (rejects unresolvable hosts, internal IPs, cloud-metadata hosts, and internal domain
+        patterns). This is a quick check (testing connectivity to a SQL warehouse requires a
+        warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here).
         """
         # we expect a hostname, not a full URL
         if server_hostname.startswith("http"):
             raise DatabricksIntegrationError(
                 f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
             )
-        # TCP connectivity check
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3.0)
-            # we only support https
-            port = 443
-            sock.connect((server_hostname, port))
-            sock.close()
-        except OSError:
+
+        # Databricks is always https, so reuse the shared URL allowlist as the SSRF guard.
+        allowed, _reason = is_url_allowed(f"https://{server_hostname}")
+        if not allowed:
             raise DatabricksIntegrationError(
-                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
-            )
-        except Exception:
-            raise DatabricksIntegrationError(
-                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+                f"Databricks integration error: could not validate hostname '{server_hostname}'"
             )
 
 
@@ -3588,7 +3611,7 @@ class AwsS3Integration:
     aws_secret_access_key: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
@@ -3651,7 +3674,7 @@ class AwsS3Integration:
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3.value,
+            kind=Integration.IntegrationKind.AWS_S3,
             name=name,
             config={"name": name, "aws_account_id": account_id},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
@@ -3680,7 +3703,7 @@ class S3CompatibleIntegration:
     endpoint_url: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
@@ -3713,7 +3736,7 @@ class S3CompatibleIntegration:
 
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE,
             name=name,
             config={"name": name, "endpoint_url": endpoint_url},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),

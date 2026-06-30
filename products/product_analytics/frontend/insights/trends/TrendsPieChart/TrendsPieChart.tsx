@@ -6,6 +6,8 @@ import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -27,6 +29,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -45,6 +48,8 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 }
 
 export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const { isDarkModeOn } = useValues(themeLogic)
     // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -204,20 +209,24 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
-                context={ctx}
-                breakdownFilter={breakdownFilter ?? undefined}
-                trendsFilter={trendsFilter}
-                formula={formula}
-                baseCurrency={baseCurrency}
-                groupTypeLabel={resolvedGroupTypeLabel}
-                formatCompareLabel={context?.formatCompareLabel}
-                onRowClick={onRowClick}
-                showHeader={false}
-                renderCount={renderCount}
-            />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const sharedProps = {
+                context: ctx,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                showHeader: false as const,
+                renderCount,
+            }
+            return quillTooltipEnabled ? (
+                <InsightSeriesTooltip {...sharedProps} />
+            ) : (
+                <TrendsTooltip {...sharedProps} formula={formula} />
+            )
+        },
         [
             breakdownFilter,
             trendsFilter,
@@ -227,6 +236,7 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
             context?.formatCompareLabel,
             onRowClick,
             renderCount,
+            quillTooltipEnabled,
         ]
     )
 

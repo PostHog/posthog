@@ -5,6 +5,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     SandboxOAuthApplication,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
+    create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
 )
 
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
@@ -16,6 +17,7 @@ __all__ = [
     "ARRAY_APP_CLIENT_ID_US",
     "create_oauth_access_token",
     "create_oauth_access_token_for_user",
+    "create_wizard_oauth_access_token",
 ]
 
 
@@ -43,6 +45,25 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
         scopes=scopes,
         application=_oauth_application_for_task(task),
     )
+
+
+def create_wizard_oauth_access_token(task: Task) -> str:
+    """Create the OAuth access token the setup wizard uses inside a cloud wizard run.
+
+    Minted under the wizard's own OAuthApplication with the wizard's scopes — kept separate from
+    the sandbox/agent token (`create_oauth_access_token`) so the two scope sets stay independent.
+    """
+    if not task.created_by:
+        raise TaskInvalidStateError(
+            f"Task {task.id} has no created_by user",
+            {"task_id": task.id},
+            cause=RuntimeError(f"Task {task.id} missing created_by field"),
+        )
+
+    try:
+        return _create_wizard_oauth_access_token_for_user(task.created_by, task.team_id)
+    except RuntimeError as err:
+        raise OAuthTokenError(str(err), {"team_id": task.team_id}, cause=err) from err
 
 
 def create_oauth_access_token_for_user(

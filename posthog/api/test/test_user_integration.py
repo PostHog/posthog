@@ -739,7 +739,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
                 user_id=self.user.id,
                 team_id=self.team.pk,
                 installation_id="12345",
-                next_url="/project/{}/settings/project-integrations".format(self.team.pk),
+                next_url="/project/{}/integrations/github".format(self.team.pk),
             ),
         )
 
@@ -756,7 +756,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_integration_from_install.assert_called_once_with("12345", self.team.pk, self.user)
         # Redirected back to the requested ``next`` URL with the install/integration ids appended.
         location = response["Location"]
-        self.assertIn(f"/project/{self.team.pk}/settings/project-integrations", location)
+        self.assertIn(f"/project/{self.team.pk}/integrations/github", location)
         self.assertIn("installation_id=12345", location)
         self.assertIn(f"integration_id={team_integration.id}", location)
 

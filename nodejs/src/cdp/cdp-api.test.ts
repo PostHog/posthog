@@ -11,6 +11,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
@@ -908,6 +909,61 @@ describe('CDP API', () => {
                 ),
                 key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
+        })
+
+        it('routes to the cyclotron resolver when CDP_BATCH_RESOLVER_ROUTING matches the team', async () => {
+            // Stub a producer in place of the real CyclotronV2Manager; assert
+            // it gets the right createJob payload (queue name, parentRunId,
+            // serialized state) without standing up a real cyclotron pool.
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+            const originalMatcher = api['batchResolverRoutingMatcher']
+            api['batchResolverRoutingMatcher'] = () => true
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-789`
+                    )
+                    .send({
+                        filters: { filter_test_accounts: true },
+                        max_audience_size: 1234,
+                        variables: { foo: 'bar' },
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body).toEqual({ status: 'queued' })
+
+                // Kafka path stays untouched
+                expect(produceSpy).not.toHaveBeenCalled()
+
+                expect(createJobMock).toHaveBeenCalledTimes(1)
+                const arg = createJobMock.mock.calls[0][0]
+                expect(arg).toMatchObject({
+                    teamId: batchHogFlow.team_id,
+                    queueName: 'hogflow_batch_resolve',
+                    parentRunId: 'job-789',
+                    functionId: batchHogFlow.id,
+                })
+                expect(arg.state).toBeInstanceOf(Buffer)
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state).toMatchObject({
+                    batchJobId: 'job-789',
+                    teamId: batchHogFlow.team_id,
+                    hogFlowId: batchHogFlow.id,
+                    maxAudienceSize: 1234,
+                    variables: { foo: 'bar' },
+                    cursor: null,
+                    totalEnqueued: 0,
+                    pagesProcessed: 0,
+                })
+            } finally {
+                api['batchResolverRoutingMatcher'] = originalMatcher
+                api['batchResolverProducer'] = null
+            }
         })
     })
 

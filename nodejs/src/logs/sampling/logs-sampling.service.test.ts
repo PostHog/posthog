@@ -72,7 +72,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [2, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -115,7 +115,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -154,7 +154,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -200,7 +200,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)

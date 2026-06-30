@@ -76,9 +76,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'posthog_ticket_tags',
                         'posthog_business_hours',
                         'non_failure_status_codes',
+                        'customer_analytics_account_properties',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -173,9 +174,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
                                     'non_failure_status_codes',
+                                    'customer_analytics_account_properties',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -320,9 +322,10 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_ticket_tags',
                         'posthog_business_hours',
                         'non_failure_status_codes',
+                        'customer_analytics_account_properties',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -417,9 +420,10 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
                                     'non_failure_status_codes',
+                                    'customer_analytics_account_properties',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -564,9 +568,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_ticket_tags',
                         'posthog_business_hours',
                         'non_failure_status_codes',
+                        'customer_analytics_account_properties',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -661,9 +666,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
                                     'non_failure_status_codes',
+                                    'customer_analytics_account_properties',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -812,9 +818,10 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         'posthog_ticket_tags',
                         'posthog_business_hours',
                         'non_failure_status_codes',
+                        'customer_analytics_account_properties',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -909,9 +916,10 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
                                     'non_failure_status_codes',
+                                    'customer_analytics_account_properties',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -1130,9 +1138,10 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'posthog_ticket_tags',
                                 'posthog_business_hours',
                                 'non_failure_status_codes',
+                                'customer_analytics_account_properties',
                             ])
                             .describe(
-                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
@@ -1236,9 +1245,10 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             'posthog_ticket_tags',
                                             'posthog_business_hours',
                                             'non_failure_status_codes',
+                                            'customer_analytics_account_properties',
                                         ])
                                         .describe(
-                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes'
+                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
@@ -1415,6 +1425,81 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('When true (default), async functions like fetch() are simulated.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
 })
+
+/**
+ * Rerun past invocations of this hog function from their stored payloads.
+ *
+ * The CDP worker reads matching rows from the `hog_invocation_results`
+ * ClickHouse table, rehydrates the invocation from the stored
+ * `invocation_globals`, and re-enqueues onto cyclotron. Each rerun
+ * run reuses the original `invocation_id` with `is_retry=1` set on the
+ * new lifecycle row so the UI can surface that it was a rerun.
+ *
+ * For source-webhook functions the worker strips `request.headers` from
+ * the rehydrated globals before re-enqueuing (see the rerun paginator):
+ * those headers carry the inbound sender's credentials, and replaying
+ * them through a reconfigured function would let a write-access user
+ * exfiltrate stored secrets.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_function:write`.
+ */
+export const hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax = 255
+
+export const hogFunctionsRerunCreateBodyFilterOneMaxCountMax = 10000
+
+export const hogFunctionsRerunCreateBodyFilterOneInvocationIdsMax = 10000
+
+export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
+    .object({
+        filter: zod
+            .object({
+                window_start: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Inclusive lower bound on `scheduled_at` (UTC).'),
+                window_end: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Exclusive upper bound on `scheduled_at` (UTC).'),
+                status: zod
+                    .array(
+                        zod
+                            .enum(['running', 'succeeded', 'failed'])
+                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                    )
+                    .optional()
+                    .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
+                error_kind: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                max_attempts: zod
+                    .number()
+                    .min(1)
+                    .max(hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax)
+                    .optional()
+                    .describe('Skip invocations that have already been attempted this many times or more.'),
+                max_count: zod
+                    .number()
+                    .min(1)
+                    .max(hogFunctionsRerunCreateBodyFilterOneMaxCountMax)
+                    .optional()
+                    .describe('Maximum number of invocations to rerun in this request. Server-side cap is 10000.'),
+                invocation_ids: zod
+                    .array(zod.string())
+                    .max(hogFunctionsRerunCreateBodyFilterOneInvocationIdsMax)
+                    .optional()
+                    .describe(
+                        'Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`\/`window_end` so the ClickHouse query can be partition-pruned.'
+                    ),
+            })
+            .describe('Filter shape for the rerun endpoint. `window_start`\/`window_end` are required.')
+            .describe(
+                'Required. `window_start` \/ `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window.'
+            ),
+    })
+    .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
 /**
  * Update the execution order of multiple HogFunctions.

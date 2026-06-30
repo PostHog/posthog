@@ -168,6 +168,7 @@ rules:
                               |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
+                              |KnowledgeGapSuggestion
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -229,6 +230,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -252,6 +254,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracingView
                               |UploadedMedia
                               |UserInterview
                               |UserInterviewTopic
@@ -434,6 +437,7 @@ rules:
                         |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
+                        |KnowledgeGapSuggestion
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -491,6 +495,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -514,6 +519,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracingView
                         |UploadedMedia
                         |UserInterview
                         |UserInterviewTopic

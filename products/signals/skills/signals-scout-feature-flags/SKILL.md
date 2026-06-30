@@ -1,14 +1,9 @@
 ---
 name: signals-scout-feature-flags
 description: >
-  Focused Signals scout for PostHog projects using feature flags. Watches the flag roster
-  and the `$feature_flag_called` evaluation stream for contradictions between a flag's
-  configured state and its real traffic: evaluation cliffs on healthy flags, ghost flags
-  (code calling keys that no longer exist), response-distribution shifts with no
-  corresponding flag edit, and flag debt (stale, fully-rolled-out, or dead flags still
-  burning evaluations). Emits findings only when they clear the confidence bar; otherwise
-  writes durable memory and closes out empty. Self-contained peer in the signals-scout-*
-  fleet — no dependencies on other skills.
+  Signals scout for PostHog feature flags. Watches the flag roster and the
+  `$feature_flag_called` stream for evaluation cliffs, ghost flags, response-distribution
+  shifts, and flag debt.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

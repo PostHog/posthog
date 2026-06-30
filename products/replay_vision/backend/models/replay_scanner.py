@@ -9,6 +9,8 @@ from posthog.models.utils import UUIDModel
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
 # models) is runtime-imported in the accessor that materializes the typed query.
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from posthog.schema import RecordingsQuery
 
 
@@ -26,6 +28,17 @@ class ScannerProvider(models.TextChoices):
 class ScannerModel(models.TextChoices):
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
+
+
+def initial_watermark() -> "datetime":
+    """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
+    recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
+    forward normally from there, so there's no re-scan."""
+    from products.replay_vision.backend.queries.scanner_candidate_query import (  # noqa: PLC0415 — keep the heavy hogql query module off the model import path
+        SETTLE_INTERVAL,
+    )
+
+    return timezone.now() - SETTLE_INTERVAL
 
 
 class ReplayScanner(UUIDModel):
@@ -65,7 +78,7 @@ class ReplayScanner(UUIDModel):
         help_text="Increments on every config-changing save. Observations snapshot the version that produced them.",
     )
     last_swept_at = models.DateTimeField(
-        default=timezone.now,
+        default=initial_watermark,
         help_text="Watermark for the scanner schedule's last fire; mirrors Temporal schedule state for recovery.",
     )
     last_seen_session_id = models.CharField(

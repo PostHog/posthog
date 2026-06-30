@@ -181,6 +181,7 @@ export class ErrorTrackingConsumer {
                 bucketCapacity: config.overflowBucketCapacity,
                 replenishRate: config.overflowBucketReplenishRate,
                 statefulEnabled: config.statefulOverflowEnabled,
+                overflowType: 'errortracking',
             })
         }
 
@@ -188,6 +189,7 @@ export class ErrorTrackingConsumer {
         if (config.lane === 'overflow' && config.statefulOverflowEnabled) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'errortracking',
             })
         }
 
