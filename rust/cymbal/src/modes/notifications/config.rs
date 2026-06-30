@@ -8,7 +8,7 @@ pub const DEFAULT_CONSUMER_TOPIC: &str = "error_tracking_ingestion_notifications
 
 /// Consumer group for the notifications mode. Overridable via
 /// `KAFKA_CONSUMER_GROUP`.
-pub const DEFAULT_CONSUMER_GROUP: &str = "error_tracking_ingestion_notifications";
+pub const DEFAULT_CONSUMER_GROUP: &str = "error-tracking-ingestion-notifications";
 
 /// Top-level config for notifications mode. Keep this narrow: only Kafka,
 /// Postgres, signal emission, and the metrics server.
