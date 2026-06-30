@@ -2287,6 +2287,35 @@ class TestAISubscriptionAPI(APILicensedTest):
             )
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            # Editing the prompt must drop the frozen plan: the next delivery has to re-plan, or it would
+            # keep answering the OLD prompt with the stale HogQL. An unrelated edit keeps the plan.
+            ("prompt_change_clears_plan", True),
+            ("title_change_keeps_plan", False),
+        ]
+    )
+    def test_editing_prompt_invalidates_frozen_query_plan(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, prompt_changed
+    ):
+        self._mock_temporal(mock_sync)
+        frozen = {
+            "overall_intent": "i",
+            "steps": [
+                {"description": "d", "query_type": "hogql", "hogql": "SELECT count() FROM events WHERE {{date_range}}"}
+            ],
+        }
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(query_plan=frozen)
+
+        body = (
+            {"prompt": "A completely different question about retention?"} if prompt_changed else {"title": "Renamed"}
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", body)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert Subscription.objects.get(id=sub_id).query_plan == (None if prompt_changed else frozen)
+
     def _enable_access_control_feature(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

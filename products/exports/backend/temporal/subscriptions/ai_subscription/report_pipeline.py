@@ -29,13 +29,16 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     EnrichedPromptSpec,
     HogQLFix,
+    QueryPlan,
     QueryPlanStep,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    DATE_RANGE_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     PromptRejectedError,
     ReportWindow,
+    StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
 )
@@ -143,14 +146,24 @@ async def generate_ai_report(
     ) as slo:
         try:
             # Frozen path: a persisted plan is reused deterministically — both the planner and the
-            # event-selection LLM are skipped. Live path: plan from scratch, then flag the result for
-            # freezing so the next delivery is deterministic.
+            # event-selection LLM are skipped. Live path: plan from scratch. A stored plan that no longer
+            # validates (e.g. after a QueryPlan schema change) self-heals by re-planning live so the
+            # subscription isn't bricked.
             if query_plan is not None:
-                spec = await _build_frozen(team=team, prompt=prompt, window=window, query_plan=query_plan)
-                plan_to_persist: Optional[dict] = None
+                try:
+                    spec = await _build_frozen(team=team, prompt=prompt, window=window, query_plan=query_plan)
+                    freshly_planned = False
+                except StoredPlanInvalidError:
+                    logger.warning(
+                        "ai_report.frozen_plan_invalid_replanning", trace_correlation_id=trace_correlation_id
+                    )
+                    spec = await _plan(
+                        team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id
+                    )
+                    freshly_planned = True
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
-                plan_to_persist = spec.plan.model_dump()
+                freshly_planned = True
             rendered_results, failed_count, diagnostics = await _execute_plan(
                 spec, team, user, window, trace_correlation_id
             )
@@ -182,7 +195,41 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps) + report
+        plan_to_persist = _plan_to_freeze(
+            spec.plan,
+            freshly_planned=freshly_planned,
+            failed_count=failed_count,
+            total_steps=total_steps,
+            trace_correlation_id=trace_correlation_id,
+        )
         return AiReportResult(markdown=report, diagnostics=tuple(diagnostics), plan_to_persist=plan_to_persist)
+
+
+def _plan_to_freeze(
+    plan: QueryPlan,
+    *,
+    freshly_planned: bool,
+    failed_count: int,
+    total_steps: int,
+    trace_correlation_id: Optional[Union[int, str]],
+) -> Optional[dict]:
+    # Decide whether a from-scratch run's plan is worth freezing for deterministic reuse. A reused plan
+    # is already frozen (nothing new). Guard against cementing a plan the next delivery would be better
+    # off re-planning:
+    #   - all-failed: every step errored, so freezing would replay a broken plan forever — re-plan instead.
+    #   - no window placeholder: a step without `{{date_range}}` would run an unbounded, window-less scan
+    #     on every future delivery (the planner is instructed to emit it; a miss is an LLM defect).
+    if not freshly_planned:
+        return None
+    if total_steps and failed_count >= total_steps:
+        return None
+    if not all(DATE_RANGE_PLACEHOLDER in step.hogql for step in plan.steps):
+        logger.warning(
+            "ai_report.plan_missing_window_placeholder_not_frozen",
+            trace_correlation_id=trace_correlation_id,
+        )
+        return None
+    return plan.model_dump()
 
 
 async def _plan(
@@ -214,7 +261,8 @@ async def _build_frozen(
             window=window,
             query_plan=query_plan,
         )
-    except PromptRejectedError:
+    except (PromptRejectedError, StoredPlanInvalidError):
+        # PromptRejectedError → permanent (bad user input); StoredPlanInvalidError → caller re-plans live.
         raise
     except Exception as exc:
         raise AiReportStageError(ReportStage.PLANNER, exc) from exc

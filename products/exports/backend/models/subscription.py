@@ -164,10 +164,11 @@ class Subscription(ModelActivityMixin, models.Model):
 
     prompt = models.TextField(null=True, blank=True)
 
-    # Frozen query plan for AI (prompt) subscriptions. None until the first delivery plans it; once set,
-    # subsequent deliveries reuse it deterministically (same HogQL → same numbers run-to-run) instead of
-    # re-running the planner LLM. The stored HogQL is window-agnostic (uses the {{date_range}} placeholder
-    # the executor substitutes at run time), so the analysis window still advances each run.
+    # Frozen query plan for AI (prompt) subscriptions. None until the first delivery produces a usable
+    # plan (an all-failed or placeholder-less plan is not frozen); once set, subsequent deliveries reuse
+    # it deterministically (same HogQL → same numbers run-to-run) instead of re-running the planner LLM.
+    # The stored HogQL is window-agnostic (uses the {{date_range}} placeholder the executor substitutes
+    # at run time), so the analysis window still advances each run. Cleared when the prompt is edited.
     query_plan = models.JSONField(null=True, blank=True, default=None)
 
     # Subscription type (email, slack etc.)

@@ -71,6 +71,14 @@ class PromptRejectedError(ValueError):
     pass
 
 
+class StoredPlanInvalidError(Exception):
+    """A persisted query plan no longer validates (e.g. the `QueryPlan` schema changed since it was
+    frozen). The caller should self-heal by re-planning live rather than failing the delivery — unlike
+    `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
+
+    pass
+
+
 # System placeholder the planner emits for a query's time filter, so the frozen HogQL stays
 # window-agnostic. The executor substitutes the run's fresh, code-computed bounds into it (see
 # `ReportWindow.render_window_filter`), keeping the persisted plan deterministic while letting the
@@ -110,8 +118,8 @@ class ReportWindow:
     def render_window_filter(self, hogql: str) -> str:
         # Single-pass, non-recursive replace of every `{{date_range}}` token with the run's window
         # predicate. str.replace is non-recursive by construction — the substituted SQL contains no
-        # placeholder, so it can't re-expand. A frozen step that (legacy) baked literal bounds and has
-        # no placeholder passes through unchanged; the executor still anchors `now()` to window.end.
+        # placeholder, so it can't re-expand. HogQL with no placeholder passes through unchanged
+        # (defensive: such plans aren't frozen, so a frozen step always carries the token).
         return hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
 
 
@@ -533,14 +541,16 @@ def build_frozen_prompt(
     `QueryPlan` already encodes the steps, so the same window-agnostic HogQL runs every delivery (same
     numbers, modulo real data). The context blob is rebuilt fresh for THIS run's window (no LLM — only
     DB taxonomy reads) so synthesis sees the current schema; the plan's HogQL keeps its `{{date_range}}`
-    placeholder and the executor substitutes the fresh window. A structurally-invalid stored plan is a
-    permanent failure (same handling as a malformed live plan), surfaced as `PromptRejectedError`.
+    placeholder and the executor substitutes the fresh window. A structurally-invalid stored plan raises
+    `StoredPlanInvalidError` so the caller can self-heal by re-planning live (a `QueryPlan` schema change
+    must not brick every frozen subscription); a bad user prompt still raises `PromptRejectedError`.
     """
     cleaned = sanitize_prompt(prompt)
     try:
         plan = QueryPlan.model_validate(query_plan)
     except ValidationError as exc:
-        raise PromptRejectedError("Stored query plan is malformed.") from exc
+        # Recoverable: the caller re-plans live rather than permanently failing the subscription.
+        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
     # No relevant_events: the event-selection LLM ran at plan time, and the frozen HogQL already names the
     # events it needs. The blob still carries window bounds + taxonomy context for synthesis.
     context_blob = build_context_blob(team, window)

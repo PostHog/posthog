@@ -20,6 +20,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
     ReportWindow,
+    StoredPlanInvalidError,
     _event_property_names,
     _extract_quoted_event_tokens,
     _group_type_labels,
@@ -560,9 +561,10 @@ class TestBuildFrozenPrompt(APIBaseTest):
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_rejects_structurally_invalid_stored_plan(self, _mock_top: object, _mock_groups: object) -> None:
-        # A corrupted persisted plan (no steps) is a permanent failure, surfaced like a malformed live plan.
-        with pytest.raises(PromptRejectedError, match="malformed"):
+    def test_invalid_stored_plan_raises_recoverable_error(self, _mock_top: object, _mock_groups: object) -> None:
+        # A corrupted persisted plan (no steps) raises StoredPlanInvalidError, NOT PromptRejectedError —
+        # the caller self-heals by re-planning live, so a QueryPlan schema change can't brick every sub.
+        with pytest.raises(StoredPlanInvalidError, match="malformed"):
             build_frozen_prompt(
                 team=self.team, prompt="p", window=_window(7), query_plan={"overall_intent": "i", "steps": []}
             )
