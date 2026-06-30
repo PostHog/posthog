@@ -199,12 +199,16 @@ class CustomPropertyDefinitionViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_custom_property_definitions(self.team_id, offset=offset, limit=limit),
+            lambda offset, limit: api.list_custom_property_definitions(
+                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+            ),
             CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        definition = api.get_custom_property_definition(self.team_id, self.kwargs["pk"])
+        definition = api.get_custom_property_definition(
+            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+        )
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
