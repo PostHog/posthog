@@ -14,12 +14,14 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.logs.backend.drop_rule_matching import FacetDimension, matching_drop_rule_names
 from products.logs.backend.logs_query_runner import (
     LogsFilterBuilder,
     LogsQueryResponse,
     LogsQueryRunnerMixin,
     ilike_pattern,
 )
+from products.logs.backend.models import LogsExclusionRule
 
 # Columns a facet may group by. Each value is also the WHERE clause that gets omitted, so a facet's
 # counts reflect every *other* active filter rather than its own selection.
@@ -30,6 +32,30 @@ DEFAULT_FACET_LIMIT = 100
 # Resource-attribute facets read the pre-aggregated log_attributes rollup; cap the read and return
 # partial results rather than erroring, matching LogValuesQueryRunner.
 MAX_RESOURCE_READ_BYTES = 5_000_000_000
+
+
+def annotate_facet_values_with_drop_rules(
+    results: list[dict],
+    *,
+    team_id: int,
+    facet_field: str | None,
+    facet_resource_attribute: str | None,
+) -> list[dict]:
+    """Attach a `dropRules` list (matching enabled drop-rule names) to each facet value dict.
+
+    One indexed query loads the team's enabled rules in evaluation order; with no enabled rules every
+    value gets an empty list without any per-value work.
+    """
+    enabled_rules = list(
+        LogsExclusionRule.objects.filter(team_id=team_id, enabled=True).order_by("priority", "created_at")
+    )
+    if not enabled_rules:
+        return [{**row, "dropRules": []} for row in results]
+    dimension = FacetDimension(field=facet_field, resource_attribute=facet_resource_attribute)
+    return [
+        {**row, "dropRules": matching_drop_rule_names(enabled_rules, dimension, str(row.get("value") or ""))}
+        for row in results
+    ]
 
 
 class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):

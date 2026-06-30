@@ -84,30 +84,6 @@ def matching_drop_rule_names(
     return names
 
 
-def annotate_facet_values_with_drop_rules(
-    results: list[dict],
-    *,
-    team_id: int,
-    facet_field: str | None,
-    facet_resource_attribute: str | None,
-) -> list[dict]:
-    """Attach a `dropRules` list (matching enabled drop-rule names) to each facet value dict.
-
-    One indexed query loads the team's enabled rules in evaluation order; with no enabled rules every
-    value gets an empty list without any per-value work.
-    """
-    enabled_rules = list(
-        LogsExclusionRule.objects.filter(team_id=team_id, enabled=True).order_by("priority", "created_at")
-    )
-    if not enabled_rules:
-        return [{**row, "dropRules": []} for row in results]
-    dimension = FacetDimension(field=facet_field, resource_attribute=facet_resource_attribute)
-    return [
-        {**row, "dropRules": matching_drop_rule_names(enabled_rules, dimension, str(row.get("value") or ""))}
-        for row in results
-    ]
-
-
 def rule_could_apply_to_service(filter_group: Any, service_name: str) -> bool:
     """Return True iff the rule's `config.filter_group` could match some log line with this
     `service_name`. True for an absent/empty filter_group (no scoping → applies to everything);

@@ -43,10 +43,13 @@ from products.logs.backend.count_ranges_query_runner import (
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
 )
-from products.logs.backend.drop_rule_matching import annotate_facet_values_with_drop_rules
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
-from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import (
+    FACET_FIELDS,
+    LogFacetValuesQueryRunner,
+    annotate_facet_values_with_drop_rules,
+)
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
