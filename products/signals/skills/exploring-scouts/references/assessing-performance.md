@@ -48,7 +48,7 @@ so don't infer over-investigation from the ~30-minute duration alone.
   `tool_call_update` / `usage_update` events to get a readable action timeline). Tool calls right up
   to the wall mean genuine over-investigation; silence long before it means a false timeout. A quick
   failure from a query tool erroring, a body referencing an event/table that no longer exists, or a
-  changed surface schema is an authoring fix — hand off to `authoring-signals-scouts`. Recurring
+  changed surface schema is an authoring fix — hand off to `authoring-scouts`. Recurring
   over-investigation timeouts on a firehose surface point at a too-broad body that needs a cheaper
   discriminator, also an authoring fix.
 
@@ -103,5 +103,5 @@ is active (too strict — retune), or no memory growth despite many runs (not le
 
 When the diagnosis points at the scout's instructions — discriminator, thresholds, disqualifiers,
 save-memory, schedule, or posture — that's where exploration ends and authoring begins. Hand off
-to the `authoring-signals-scouts` skill, which covers the dry-run-first test loop and
+to the `authoring-scouts` skill, which covers the dry-run-first test loop and
 `signals-scout-config-update`.

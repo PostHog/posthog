@@ -1,5 +1,5 @@
 ---
-name: exploring-signals-scouts
+name: exploring-scouts
 description: >
   How to explore and make sense of PostHog Signals scouts — the scheduled agents that scan a
   project and emit findings into the Signals inbox. Use when a user wants to understand what
@@ -8,7 +8,7 @@ description: >
   run's reasoning, inspecting the durable scratchpad memory the fleet has built up, tracing a
   run to the findings it emitted, and assessing a scout's health and performance over time
   (cadence, success rate, emit rate, signal-to-noise). Read-only and exploratory — to write or
-  tune a scout, use `authoring-signals-scouts` instead. Trigger on "what are my scouts doing",
+  tune a scout, use `authoring-scouts` instead. Trigger on "what are my scouts doing",
   "how is my <x> scout performing", "show me recent scout runs", "why did this scout find/emit
   nothing", "what has the fleet learned", "explore scout run <id>", "is my scout working".
 metadata:
@@ -31,7 +31,7 @@ tick auto-registers one — or until someone registers it via the write-side
 
 This skill helps you **understand and explore what a project's scouts are doing and how they're
 performing** — entirely through read-only MCP tools. It is the observability counterpart to
-the `authoring-signals-scouts` skill (which teaches writing and tuning) and to the
+the `authoring-scouts` skill (which teaches writing and tuning) and to the
 `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 
 There are six things you can observe about the fleet, each with its own tool:
@@ -254,7 +254,7 @@ follow `<prefix>:<domain>:<entity>` (e.g. `dedupe:error_tracking:019e8375-…`).
 When a user asks "why isn't my scout flagging X anymore?", search the scratchpad for `noise:`,
 `addressed:`, `dedupe:`, and `allowlist:` entries — the fleet may have deliberately learned to
 suppress it. The canonical prefix vocabulary and the four-state dedupe classifier the fleet
-reasons in terms of are documented in the `authoring-signals-scouts` skill
+reasons in terms of are documented in the `authoring-scouts` skill
 (`references/dedupe-and-memory.md`).
 
 ## Workflow: list what scouts have actually emitted
@@ -282,7 +282,7 @@ the emit **silently dropped** by a preflight gate (dry-run at the time, the org 
 AI processing, or the `signals_scout` source is disabled), or the emit failed. Those never reach
 this table, so a claimed-but-absent finding is itself a diagnostic, not a script bug. The emit
 contract behind each row (weight vs. confidence rubrics, severity, dedupe) is documented in the
-`authoring-signals-scouts` skill (`references/emit-contract.md`); the run → finding link and its
+`authoring-scouts` skill (`references/emit-contract.md`); the run → finding link and its
 limits are in [`references/scout-data-model.md`](references/scout-data-model.md).
 
 ## Workflow: see what scouts have surfaced
@@ -307,7 +307,7 @@ the runs instead: `signals-scout-runs-list?emitted=true` lists every emitting ru
 `finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`). To browse the
 inbox more broadly, use the `inbox-exploration` skill (statuses, suggested reviewers, drilling
 into a report's underlying signals). The emit contract behind each finding — weight, confidence,
-severity, the description prose — is documented in the `authoring-signals-scouts` skill
+severity, the description prose — is documented in the `authoring-scouts` skill
 (`references/emit-contract.md`).
 
 ## Workflow: assess health and performance
@@ -464,5 +464,5 @@ disabled) or failed.
   shows whether the surface it watches is even in use — a logs scout on a project with no logs has
   nothing to do.
 - **This skill is read-only.** To change a scout's schedule, posture, or body, hand off to
-  the `authoring-signals-scouts` skill — it covers `signals-scout-config-update` and the
+  the `authoring-scouts` skill — it covers `signals-scout-config-update` and the
   skills-store edit path.

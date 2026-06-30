@@ -1,7 +1,7 @@
 # Scout data model — what you're reading
 
 Three records describe a scout's life on a project, plus one snapshot it orients from. This
-reference is the vocabulary for everything `exploring-signals-scouts` returns.
+reference is the vocabulary for everything `exploring-scouts` returns.
 
 ## SignalScoutConfig — the scout's settings
 
@@ -110,7 +110,7 @@ tracked but still below the emit bar), `noise:` (ignore), `addressed:` (fixed/mo
 (tooling gap). This vocabulary is open — scouts coin their own prefixes and `<domain>` labels, so
 treat an unfamiliar prefix as just another category. Entries link to each other with `[[key]]`
 wikilinks. The canonical prefix set and the four-state dedupe classifier the fleet reasons in terms
-of live in the `authoring-signals-scouts` skill (`references/dedupe-and-memory.md`).
+of live in the `authoring-scouts` skill (`references/dedupe-and-memory.md`).
 
 ## SignalProjectProfile — orientation snapshot
 
