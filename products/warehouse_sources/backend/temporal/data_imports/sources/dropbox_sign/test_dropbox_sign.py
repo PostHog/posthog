@@ -197,16 +197,18 @@ class TestResumeStateSaving:
 
 
 class TestValidateCredentials:
-    def test_status_maps_to_bool(self, monkeypatch: Any) -> None:
-        # parameterized.expand doesn't compose with the monkeypatch fixture, so iterate inline.
-        for status_code, expected in [(200, True), (401, False), (403, False), (500, False)]:
-            response = MagicMock()
-            response.status_code = status_code
-            session = MagicMock()
-            session.get.return_value = response
-            monkeypatch.setattr(dropbox_sign, "make_tracked_session", lambda *a, _s=session, **k: _s)
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [(200, True), (401, False), (403, False), (500, False)],
+    )
+    def test_status_maps_to_bool(self, monkeypatch: Any, status_code: int, expected: bool) -> None:
+        response = MagicMock()
+        response.status_code = status_code
+        session = MagicMock()
+        session.get.return_value = response
+        monkeypatch.setattr(dropbox_sign, "make_tracked_session", lambda *a, _s=session, **k: _s)
 
-            assert dropbox_sign.validate_credentials("key") is expected, status_code
+        assert dropbox_sign.validate_credentials("key") is expected, status_code
 
     def test_network_error_returns_false(self, monkeypatch: Any) -> None:
         session = MagicMock()
