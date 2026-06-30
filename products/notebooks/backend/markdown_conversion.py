@@ -529,8 +529,10 @@ def _to_serializable_prop_value(value: Any) -> NotebookPropValue | object:
 
 def _serialize_component_node(tag_name: str, props: Mapping[str, NotebookPropValue]) -> str:
     if tag_name == "Image":
-        src = props.get("src") if isinstance(props.get("src"), str) else ""
-        alt = props.get("alt") if isinstance(props.get("alt"), str) else ""
+        raw_src = props.get("src")
+        raw_alt = props.get("alt")
+        src = raw_src if isinstance(raw_src, str) else ""
+        alt = raw_alt if isinstance(raw_alt, str) else ""
         return f"![{_escape_markdown_image_alt(alt)}]({_escape_markdown_image_src(src)})"
     return f"<{tag_name}{_serialize_component_props(props)} />"
 

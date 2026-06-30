@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -8,6 +8,7 @@ from django.utils.timezone import now
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import changes_between
 from posthog.models.comment import Comment
+from posthog.models.utils import UUIDT
 
 from products.notebooks.backend import markdown_collab
 from products.notebooks.backend.activity_logging import log_notebook_activity
@@ -143,7 +144,7 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
     log_notebook_activity(
         activity="updated",
         notebook=locked_notebook,
-        organization_id=locked_notebook.team.organization_id,
+        organization_id=cast(UUIDT, locked_notebook.team.organization_id),
         team_id=locked_notebook.team_id,
         user=user,
         was_impersonated=False,

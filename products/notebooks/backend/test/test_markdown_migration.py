@@ -151,7 +151,11 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert other_notebook.content["content"][0]["type"] == "paragraph"
 
         log = ActivityLog.objects.get(scope="Notebook", item_id=notebook.short_id, activity="updated")
-        changes_by_field = {change["field"]: change for change in log.detail["changes"]}
+        detail = log.detail
+        assert isinstance(detail, dict)
+        changes = detail["changes"]
+        assert isinstance(changes, list)
+        changes_by_field = {change["field"]: change for change in changes if isinstance(change, dict)}
         assert changes_by_field["content"]["before"] == rich_content
         assert changes_by_field["content"]["after"] == notebook.content
         assert changes_by_field["version"]["before"] == 7

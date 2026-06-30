@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.contrib import admin
@@ -9,6 +9,9 @@ from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 
 from products.notebooks.backend.facade import api as notebooks_api
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 class NotebookMarkdownMigrationForm(forms.Form):
@@ -56,7 +59,11 @@ def notebook_markdown_migration_run_view(request: HttpRequest) -> JsonResponse:
     try:
         team_id = _parse_team_id(payload.get("team_id"))
         dry_run = bool(payload.get("dry_run", True))
-        result = notebooks_api.migrate_notebooks_to_markdown(user=request.user, team_id=team_id, dry_run=dry_run)
+        result = notebooks_api.migrate_notebooks_to_markdown(
+            user=cast("User", request.user),
+            team_id=team_id,
+            dry_run=dry_run,
+        )
     except ValueError as err:
         return JsonResponse({"error": str(err)}, status=400)
 
