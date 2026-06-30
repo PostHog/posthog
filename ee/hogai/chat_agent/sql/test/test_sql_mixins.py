@@ -1,6 +1,12 @@
 from posthog.test.base import NonAtomicBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import ChartDisplayType, DataVisualizationNode, HogQLQuery
+
+from posthog.sync import database_sync_to_async
+
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
@@ -268,3 +274,26 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         with self.assertRaises(PydanticOutputParserException):
             await mixin._quality_check_output(invalid_output)
+
+    @parameterized.expand(
+        [
+            ("resolves_to_default_in_string_context", "SELECT coalesce({variables.district_name}, '') AS d", False),
+            ("missing_variable_is_reported", "SELECT {variables.nonexistent} AS d", True),
+        ]
+    )
+    async def test_quality_check_resolves_insight_variables(self, _name: str, query: str, should_raise: bool):
+        await database_sync_to_async(InsightVariable.objects.create)(
+            team=self.team,
+            name="District name",
+            code_name="district_name",
+            type=InsightVariable.Type.STRING,
+            default_value="barbaz",
+        )
+        mixin = self._node
+        output = self._sql_output(query)
+
+        if should_raise:
+            with self.assertRaises(PydanticOutputParserException):
+                await mixin._quality_check_output(output)
+        else:
+            await mixin._quality_check_output(output)
