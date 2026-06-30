@@ -122,7 +122,17 @@ stream.actions.startOptimisticRun(message) // empty → "spinning up" + the type
 // …after api create/run resolve, set runId on the same surface to attach + stream it.
 ```
 
-The tasks runner composes exactly this (`scenes/TaskTracker/taskTrackerSceneLogic.ts` + `TaskCreateThread`).
+The attach is **idempotent and seed-preserving** via `runStreamLogic`'s `bootstrappedRunId` /
+`awaitingOptimisticAttach` state — so the run can be adopted by a _different_ surface that mounts later, not
+only by an in-place `runId` flip. A consumer that navigates (e.g. `/tasks/new → /tasks/:id`) keeps the seeded
+instance alive (hold the manual `.mount()`), then has the destination surface bind the **same `streamKey`** plus
+the real `runId`: `RunSurface.Root` sees the instance is already bootstrapped for that run and adopts it without
+a `reset()` — no skeleton re-flash, the thread is continuous across the unmount/mount. If that destination also
+drives `runInteractionLogic`, pass it the same `streamKey` (a `streamKey ?? runId` connect-key) so the composer
+reads the exact stream the thread renders; `runInteractionLogic` still keys its own per-run state by `runId`.
+
+The tasks runner composes exactly this (`scenes/TaskTracker/taskTrackerSceneLogic.ts` + `TaskCreateThread` for
+the pending phase, then `TaskDetailPage → TaskRunLog → TaskRunChat` adopting the seeded stream after navigation).
 
 ### Bespoke / compact thread via `Thread.*` atoms
 

@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -199,7 +199,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
             // composable optimistic-open primitive). Hold a manual mount so the seed is in place when the pending
-            // pane renders, and survives across the React swap; released by `clearActiveCreation`.
+            // pane renders, and survives across the React swap into the detail page (which adopts the same
+            // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
             const streamKey = `draft-${uuid()}`
             const stream = runStreamLogic({ streamKey })
             cache.activeCreationUnmount = stream.mount()
@@ -221,17 +224,21 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                await api.tasks.run(newTask.id, {
+                const runResponse = await api.tasks.run(newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                     model,
                     reasoning_effort: resolveEffortForModel(reasoningEffort, model),
                 })
+
+                // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
+                // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
+                // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
+                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
                 router.actions.push(`/tasks/${newTask.id}`)
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
-                actions.clearActiveCreation()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
@@ -255,4 +262,21 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.maybeAutoSelectIntegration()
         },
     })),
+
+    urlToAction(({ actions, values }) => {
+        // The optimistic creation is kept alive across the success navigation so the detail page can adopt
+        // its seeded stream. Release it once the user lands anywhere other than the created task — another
+        // task, the list, or back to `/tasks/new`. Guarded on `taskId` being set so the pre-id provisioning
+        // phase (still at `/tasks/new`, no id yet) is never torn down mid-create.
+        const clearIfLeftCreatedTask = (taskId?: string): void => {
+            const activeCreation = values.activeCreation
+            if (activeCreation?.taskId && activeCreation.taskId !== taskId) {
+                actions.clearActiveCreation()
+            }
+        }
+        return {
+            '/tasks': () => clearIfLeftCreatedTask(),
+            '/tasks/:taskId': ({ taskId }) => clearIfLeftCreatedTask(taskId),
+        }
+    }),
 ])

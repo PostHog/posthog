@@ -1316,6 +1316,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => false,
             },
         ],
+        // The run id this instance last bootstrapped, so the surface can adopt an already-bootstrapped
+        // instance (the optimistic-create handoff) instead of resetting and re-bootstrapping it. Logic-
+        // resident (not a per-component ref) so the decision survives the create-thread → detail swap.
+        bootstrappedRunId: [
+            null as string | null,
+            {
+                bootstrapRun: (_, { runId }) => runId,
+                reset: () => null,
+            },
+        ],
+        // True between an optimistic seed (`startOptimisticRun`) and its attach (`bootstrapRun`): the
+        // surface uses it to take the seed-preserving fast path when the real run id arrives.
+        awaitingOptimisticAttach: [
+            false,
+            {
+                startOptimisticRun: () => true,
+                bootstrapRun: () => false,
+                reset: () => false,
+            },
+        ],
         // Live-mode bootstrapping remains true after the SSE opens and only clears once the
         // historical log snapshot has been replayed. Fresh runs explicitly skip history.
         logBootstrapLoading: [

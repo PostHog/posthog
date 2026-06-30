@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useContext, useEffect, useRef } from 'react'
+import { createContext, type ReactNode, useContext, useEffect } from 'react'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -121,21 +121,23 @@ function RunSurfaceRoot({
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
     const { rawRunId, interaction } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
-    // Remembers that the surface was mounted pending (no run yet), so the eventual attach preserves the
-    // optimistic seed instead of resetting it.
-    const wasPendingRef = useRef(false)
+    // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
+    // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
+    const { bootstrappedRunId, awaitingOptimisticAttach } = useValues(runStreamLogic)
 
     useEffect(() => {
         // Pending: no run to bootstrap yet — leave the seeded optimistic thread (first message +
         // provisioning indicator) untouched until the consumer supplies the real id.
         if (!rawRunId) {
-            wasPendingRef.current = true
             return
         }
-        const isAttach = wasPendingRef.current
-        wasPendingRef.current = false
-        if (isAttach) {
-            // Attaching a freshly-created run to a pending surface: skip the reset so the optimistic seed
+        // Already bootstrapped this run on this instance — idempotent across re-renders and across a
+        // consumer swap that adopts the same seeded instance (no reset, so the seed/stream survives).
+        if (bootstrappedRunId === rawRunId) {
+            return
+        }
+        if (awaitingOptimisticAttach) {
+            // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
             bootstrapRun({ taskId, runId: rawRunId, justCreatedRun: true })
             return
@@ -146,7 +148,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
         bootstrapRun({ taskId, runId: rawRunId })
-    }, [taskId, rawRunId, interaction, bootstrapRun, reset])
+    }, [taskId, rawRunId, interaction, bootstrappedRunId, awaitingOptimisticAttach, bootstrapRun, reset])
 
     return null
 }

@@ -38,7 +38,11 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
 
     // While an optimistic create is in flight (and no task is selected), the thread opens immediately in place
     // of the composer — see `taskTrackerSceneLogic.submit`.
-    const composerPane = activeCreation ? <TaskCreateThread streamKey={activeCreation.streamKey} /> : <TaskComposer />
+    const composerPane = activeCreation ? (
+        <TaskCreateThread streamKey={activeCreation.streamKey} isMobile={isMobile} />
+    ) : (
+        <TaskComposer />
+    )
     const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} isMobile={false} /> : composerPane
 
     if (isMobile) {
@@ -54,6 +58,19 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
             )
         }
         if (taskId === 'new') {
+            // Optimistic create renders the same scene shell as the detail page (which carries its own
+            // SceneContent + back button), so wrap it like the detail branch — not the composer's
+            // SceneContent — to keep the create → detail handoff seamless and avoid nesting SceneContent.
+            if (activeCreation) {
+                return (
+                    <div className="flex flex-col h-full min-h-0">
+                        <AllowTrainingCallout featureName="Tasks" />
+                        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                            <TaskCreateThread streamKey={activeCreation.streamKey} isMobile />
+                        </div>
+                    </div>
+                )
+            }
             return (
                 <SceneContent className="h-full">
                     <SceneBreadcrumbBackButton
@@ -65,7 +82,9 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                         className="mt-10 w-fit"
                     />
                     <AllowTrainingCallout featureName="Tasks" />
-                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">{composerPane}</div>
+                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                        <TaskComposer />
+                    </div>
                 </SceneContent>
             )
         }
