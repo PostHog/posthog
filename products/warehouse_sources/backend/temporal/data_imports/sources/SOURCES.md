@@ -57,6 +57,7 @@ the row lists both.
 | ashby               | HTTP                        | requests                                                        | ✅                          |
 | attentive           | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| aviationstack       | HTTP                        | requests                                                        | ✅                          |
 | azure_devops        | HTTP                        | requests                                                        | ✅                          |
 | bamboohr            | HTTP                        | requests                                                        | ✅                          |
 | beamer              | HTTP                        | requests                                                        | ✅                          |
@@ -313,7 +314,6 @@ doesn't conflict with concurrent PRs.
 - apptivo
 - assemblyai
 - auth0
-- aviationstack
 - awin
 - aws_cloudtrail
 - azure_blob

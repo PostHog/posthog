@@ -26,6 +26,33 @@ describe('zoomDateRange', () => {
                 date_to: null,
             })
         })
+
+        it('multiplies minute presets while preserving the live-tail (uppercase M)', () => {
+            // PostHog's minute presets use uppercase M (e.g. -5M); these must keep date_to: null
+            expect(zoomDateRange({ date_from: '-5M', date_to: null }, 2)).toEqual({
+                date_from: '-10M',
+                date_to: null,
+            })
+            expect(zoomDateRange({ date_from: '-30M', date_to: null }, 0.5)).toEqual({
+                date_from: '-15M',
+                date_to: null,
+            })
+        })
+
+        it('rounds fractional results to a whole unit so they stay valid relative expressions', () => {
+            // -5M × 0.5 = 2.5, which must not produce the unparseable "-2.5M"
+            expect(zoomDateRange({ date_from: '-5M', date_to: null }, 0.5)).toEqual({
+                date_from: '-3M',
+                date_to: null,
+            })
+        })
+
+        it('floors the amount at 1 so zooming in never collapses to zero', () => {
+            expect(zoomDateRange({ date_from: '-1M', date_to: null }, 0.25)).toEqual({
+                date_from: '-1M',
+                date_to: null,
+            })
+        })
     })
 
     describe('absolute date ranges', () => {
