@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -273,7 +277,16 @@ class TestNotebookMarkdownMigration(BaseTest):
                 }
             ],
         }
-        notebook = Notebook.objects.create(team=self.team, title="Convert me", content=rich_content, version=7)
+        original_modified_at = timezone.now() - timedelta(days=30)
+        original_modifier = self._create_user("original@example.com")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Convert me",
+            content=rich_content,
+            version=7,
+            last_modified_at=original_modified_at,
+            last_modified_by=original_modifier,
+        )
         Comment.objects.create(
             team=self.team,
             scope="Notebook",
@@ -295,6 +308,8 @@ class TestNotebookMarkdownMigration(BaseTest):
         other_notebook.refresh_from_db()
         assert result.converted == 1
         assert notebook.version == 8
+        assert notebook.last_modified_at == original_modified_at
+        assert notebook.last_modified_by_id == original_modifier.id
         assert notebook.text_content is not None
         assert "<Comment" in notebook.text_content
         assert "keep this" in notebook.text_content
@@ -311,6 +326,9 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert changes_by_field["content"]["after"] == notebook.content
         assert changes_by_field["version"]["before"] == 7
         assert changes_by_field["version"]["after"] == 8
+        assert "last_modified_at" not in changes_by_field
+        assert "last_modified_by" not in changes_by_field
+        assert log.created_at == original_modified_at
         mock_publish.assert_called_once_with(self.team.id, notebook.short_id, 8, diff=None)
 
     def test_apply_scopes_mention_label_lookup_to_notebook_organization(self) -> None:

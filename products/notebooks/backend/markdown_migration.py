@@ -3,7 +3,6 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.utils.timezone import now
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import changes_between
@@ -145,15 +144,11 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
         locked_notebook.content = annotated_content
         locked_notebook.text_content = text_content
         locked_notebook.version += 1
-        locked_notebook.last_modified_at = now()
-        locked_notebook.last_modified_by = user
         locked_notebook.save(
             update_fields=[
                 "content",
                 "text_content",
                 "version",
-                "last_modified_at",
-                "last_modified_by",
             ]
         )
 
@@ -178,6 +173,7 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
         user=user,
         was_impersonated=False,
         changes=changes,
+        created_at=before_update.last_modified_at,
     )
     return True
 
