@@ -64,6 +64,19 @@ STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
 )
 
+# Separate from the stale-queued counters above so the 24h sweep and the prewarmed fast-reap
+# stay distinguishable in Prometheus (dashboards/alerts on the 24h sweep shouldn't absorb the
+# prewarmed reap rate).
+PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_swept_total",
+    "Orphaned prewarmed TaskRuns marked FAILED by the prewarmed-queued cleanup sweep",
+)
+
+PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_errors_total",
+    "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -155,7 +168,7 @@ def kill_stale_queued_task_runs() -> None:
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
     PREWARMED_REASON = "Prewarmed run never started its workflow and was orphaned in QUEUED; reaped by the cleanup job."
 
-    def _fail_each(run_ids: list, reason: str) -> tuple[int, int]:
+    def _fail_each(run_ids: list, reason: str, swept_counter: Counter, errors_counter: Counter) -> tuple[int, int]:
         swept = errors = 0
         for run_id in run_ids:
             try:
@@ -163,20 +176,27 @@ def kill_stale_queued_task_runs() -> None:
                 # picked up the run between selection and update (returns False -> skip).
                 if tasks_facade.fail_task_run(run_id, reason):
                     swept += 1
-                    STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
+                    swept_counter.inc()
             except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
                 errors += 1
-                STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
+                errors_counter.inc()
                 capture_exception(exc)
         return swept, errors
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
     stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
-    swept, errors = _fail_each(stale_ids, REASON)
+    swept, errors = _fail_each(
+        stale_ids, REASON, STALE_QUEUED_TASK_RUN_SWEPT_COUNTER, STALE_QUEUED_TASK_RUN_ERRORS_COUNTER
+    )
 
     # Fast-reap orphaned prewarmed runs so they don't ride QUEUED to the 24h sweep above.
     prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
-    prewarmed_swept, prewarmed_errors = _fail_each(prewarmed_ids, PREWARMED_REASON)
+    prewarmed_swept, prewarmed_errors = _fail_each(
+        prewarmed_ids,
+        PREWARMED_REASON,
+        PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
 
     saturated = len(stale_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
