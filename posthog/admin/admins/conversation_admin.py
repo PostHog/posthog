@@ -9,9 +9,13 @@ from django.template.defaultfilters import filesizeformat
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from structlog import get_logger
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.django_checkpoint.compaction import compact_thread
+
+logger = get_logger()
 
 _COMPACT_SKIP_REASON = "not idle, awaiting approval, or nothing to compact"
 
@@ -61,6 +65,7 @@ class ConversationAdmin(admin.ModelAdmin):
 
     @admin.display(description="Checkpoint storage")
     def checkpoint_storage(self, conversation: Conversation):
+        # Change-page only — do not add to list_display: the bytea Length() sum would run per row.
         # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
         blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
         request = getattr(self, "_current_request", None)
@@ -69,7 +74,7 @@ class ConversationAdmin(admin.ModelAdmin):
             "{} checkpoints, {} blobs ({}) &nbsp;"
             '<form method="post" action="{}" style="display: inline">'
             '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
-            '<button type="submit" class="button">Compact now</button>'
+            '<button type="submit" class="button" data-attr="conversation-admin-compact-now">Compact now</button>'
             "</form>",
             conversation.checkpoints.count(),
             blobs["count"] or 0,
@@ -89,6 +94,14 @@ class ConversationAdmin(admin.ModelAdmin):
             return HttpResponseNotAllowed(["POST"])
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
         result = compact_thread(str(conversation.id))
+        logger.info(
+            "admin_compact_conversation",
+            conversation_id=str(conversation.id),
+            compacted=result.compacted,
+            checkpoints_deleted=result.checkpoints_deleted,
+            blobs_deleted=result.blobs_deleted,
+            triggered_by=request.user.email,
+        )
         if result.compacted:
             self.message_user(
                 request,
@@ -97,7 +110,7 @@ class ConversationAdmin(admin.ModelAdmin):
             )
         else:
             self.message_user(request, f"Nothing compacted ({_COMPACT_SKIP_REASON}).", messages.WARNING)
-        return redirect("admin:posthog_ai_conversation_change", object_id)
+        return redirect("admin:posthog_ai_conversation_change", conversation.id)
 
     @admin.action(description="Compact checkpoints (keep latest, reclaim storage)")
     def compact_checkpoints(self, request, queryset) -> None:
