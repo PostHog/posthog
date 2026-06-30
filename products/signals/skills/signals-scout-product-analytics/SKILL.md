@@ -191,7 +191,14 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   _re-escalation_ — `append_note` the fresh week onto the report your
   `report:product_analytics:flow:<short_id>` pointer names and advance the `dedupe:…:<week>` gate;
   do **not** author a fresh report per week. The same flow moving twice is one report, not two.
-  **But check the matched report's status first:** `edit-report` can't change status, so appending
+  **But scope the match to the same rate, not just the same `short_id`:** one funnel/retention
+  insight carries several independent rates (step-2 vs step-5 conversion, one retention cohort vs
+  another, one lifecycle state), and a drop on a _different_ step/cohort is its own regression with
+  its own owner — keep the `report:product_analytics:flow:<short_id>` pointer keyed to the affected
+  rate (e.g. `…:flow:<short_id>:step2`) and only `edit-report` when the matched report covers that
+  same rate; a genuinely distinct rate gets a fresh report so it isn't buried under an unrelated
+  thread.
+  **And check the matched report's status first:** `edit-report` can't change status, so appending
   to a `resolved` / `suppressed` / `failed` report (one that won't surface in the inbox) buries a
   real relapse under a closed item. When the prior report is no longer live, **author a fresh
   report** for the relapse and repoint `report:product_analytics:flow:<short_id>` at the new id.
@@ -209,13 +216,18 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   with no `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
   (autostart needs `immediately_actionable`). Reach for them (P2 broad regression on a human-saved
   flow, P3 single-segment / `inferred`) only on the rare regression you'd actually want a draft PR
-  for. **Always set `suggested_reviewers`** regardless — each entry is `{github_login?, user_uuid?}`,
-  and the reliable route here is to pass the flow's owning person as a `user_uuid` (a saved insight's
-  `created_by`; the server resolves it to their GitHub login), or reuse a cached
-  `reviewer:product_analytics:<area>` login. The org-scoped resolver tools are usually absent from a
-  scout run, so don't depend on them — see [`references/report.md`](references/report.md). It's how the
-  report reaches a human; left empty, the report is assigned to nobody and is likely missed (you can
-  `edit-report` reviewers in later once you resolve one). After authoring, write a
+  for. **Set `suggested_reviewers` whenever you can confidently resolve one** — each entry is
+  `{github_login?, user_uuid?}`, and the usual route here is to pass the flow's owning person as a
+  `user_uuid` (a saved insight's `created_by`; the server resolves it to their GitHub login), or reuse
+  a cached `reviewer:product_analytics:<area>` login. **But `user_uuid` resolution is fail-loud: a
+  `created_by` that isn't an org member with a linked GitHub identity (a PM, a customer, a since-departed
+  user) rejects the _whole_ `emit-report`, not just the reviewer.** So don't reflexively hand a raw
+  `created_by` you're unsure about — prefer a cached login or a `created_by` you've already routed; if
+  you can't confidently resolve an owner, author the report **unrouted** and `edit-report` reviewers in
+  later once you resolve one, rather than risk failing the emit. The org-scoped resolver tools are
+  usually absent from a scout run, so don't depend on them — see
+  [`references/report.md`](references/report.md). Routing is how the report reaches a human; left empty
+  it's assigned to nobody and likely missed, so resolve one when you safely can. After authoring, write a
   `report:product_analytics:flow:<short_id>`
   scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The
   full report channel — field schema, safety × actionability status mapping, reviewer routing,

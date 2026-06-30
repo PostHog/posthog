@@ -136,9 +136,13 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
   the insight owner, an account's CSM — so you route to them without ever looking up their handle.
 
 So you have two routes. Product-analytics evidence almost always hands you the owning **person**
-already — saved funnels/retention insights carry a `created_by` user UUID — so the most reliable path
-here is usually to pass that **`user_uuid`** straight through. Otherwise resolve a `github_login`,
-cheapest first:
+already — saved funnels/retention insights carry a `created_by` user UUID — so passing that
+**`user_uuid`** straight through is usually the route. **But because resolution is fail-loud (an
+unlinked `created_by` rejects the whole `emit-report`, per above), don't hand a `user_uuid` you're
+unsure about:** a `created_by` belonging to a PM, a customer, or a departed user has no linked GitHub
+identity and will fail the emit. Prefer a `created_by` you've already routed, or a cached login; if
+you can't confidently resolve an owner, author the report **unrouted** and `edit-report` reviewers in
+later (see below) rather than risk the emit. Otherwise resolve a `github_login`, cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For product-analytics, key by the owning flow / product area (`reviewer:product_analytics:<area>`).
@@ -208,6 +212,11 @@ server-side dedup key. The dedup story is two-sided and you own it:
 1. **The scratchpad pointer is the reliable dedup key.** After authoring, write a
    `report:product_analytics:flow:<short_id>` entry recording the `report_id`; the next run
    `inbox-reports-retrieve`s it directly — no search guess. This is the path that actually holds up.
+   **Key the pointer to the affected rate, not just the `short_id`:** one funnel/retention insight
+   carries several independent rates (different funnel steps, retention cohorts, lifecycle states), so
+   a pointer like `report:product_analytics:flow:<short_id>:step2` keeps a later drop on a _different_
+   step/cohort from being appended onto an unrelated report. Only `edit-report` when the matched report
+   covers the **same** rate; a genuinely distinct rate within the same insight is a fresh report.
 2. **A keyword `inbox-reports-list` search is a noisy fallback** — use it only when no pointer exists.
    On a busy project a broad term (e.g. `search=funnel`) returns hundreds of unrelated reports
    (error-tracking funnel bugs, other scouts' funnel reports), and your flow's report can sit far down
