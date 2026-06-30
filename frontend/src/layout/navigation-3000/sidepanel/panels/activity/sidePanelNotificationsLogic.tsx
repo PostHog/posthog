@@ -742,6 +742,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+        // Unread among the rows actually loaded into the panel. The panel's "Mark all as read"
+        // button and Unread tab key off this — not `inAppUnreadCount`, a separately-fetched server
+        // total that's hand-patched at several call sites — so they can never drift from the
+        // visible rows. `inAppUnreadCount` stays the source for the global bell badge.
+        loadedUnreadCount: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): number => inAppNotifications.filter((n) => !n.read).length,
+        ],
         projectNameForNotification: [
             (s) => [s.currentTeamId, s.currentOrganization],
             (currentTeamId, currentOrganization) => {

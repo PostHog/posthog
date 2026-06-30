@@ -18,7 +18,7 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
+    const { groups, loadedUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
         useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
@@ -46,12 +46,12 @@ export function NotificationsPanel(): JSX.Element {
                     onClick={() => setActiveTab('unread')}
                 >
                     Unread
-                    {inAppUnreadCount > 0 && (
-                        <span className="ml-1 text-[10px] text-danger font-bold">{inAppUnreadCount}</span>
+                    {loadedUnreadCount > 0 && (
+                        <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
             </div>
-            {inAppUnreadCount > 0 && (
+            {loadedUnreadCount > 0 && (
                 <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
                     Mark all as read
                 </LemonButton>
