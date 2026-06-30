@@ -4,8 +4,6 @@ import { IconBell, IconCheck, IconEllipsis, IconRefresh, IconSparkles, IconSuppo
 import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,9 +25,6 @@ export const HealthScene = (): JSX.Element => {
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const askAiEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ASK_AI]
 
     const now = Date.now()
     const inCooldown = nextRefreshAvailableAt !== null && nextRefreshAvailableAt > now
@@ -59,25 +54,23 @@ export const HealthScene = (): JSX.Element => {
                         Alerts
                     </LemonButton>
 
-                    {askAiEnabled && (
-                        <LemonMenu
-                            items={HEALTH_OVERVIEW_QUESTIONS.map((question) => ({
-                                label: question,
-                                onClick: () =>
-                                    openSidePanel(SidePanelTab.Max, `!${buildHealthOverviewPrompt(issues, question)}`),
-                            }))}
-                            placement="bottom-end"
+                    <LemonMenu
+                        items={HEALTH_OVERVIEW_QUESTIONS.map((question) => ({
+                            label: question,
+                            onClick: () =>
+                                openSidePanel(SidePanelTab.Max, `!${buildHealthOverviewPrompt(issues, question)}`),
+                        }))}
+                        placement="bottom-end"
+                    >
+                        <LemonButton
+                            icon={<IconSparkles />}
+                            type="secondary"
+                            size="small"
+                            tooltip="Ask PostHog AI about your health issues"
                         >
-                            <LemonButton
-                                icon={<IconSparkles />}
-                                type="secondary"
-                                size="small"
-                                tooltip="Ask PostHog AI about your health issues"
-                            >
-                                Ask PostHog AI
-                            </LemonButton>
-                        </LemonMenu>
-                    )}
+                            Ask PostHog AI
+                        </LemonButton>
+                    </LemonMenu>
                     <LemonButton
                         icon={<IconSupport />}
                         type="secondary"

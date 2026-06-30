@@ -1,11 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconRevert, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -25,8 +23,6 @@ export const HealthIssueCard = ({
 }): JSX.Element => {
     const Renderer = getIssueRenderer(issue.kind)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const askAiEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ASK_AI]
 
     const askMax = (): void => openSidePanel(SidePanelTab.Max, `!${buildHealthIssuePrompt(issue)}`)
 
@@ -43,15 +39,13 @@ export const HealthIssueCard = ({
                     </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                    {askAiEnabled && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconSparkles />}
-                            tooltip="Ask PostHog AI about this issue"
-                            onClick={askMax}
-                        />
-                    )}
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={<IconSparkles />}
+                        tooltip="Ask PostHog AI about this issue"
+                        onClick={askMax}
+                    />
                     <LemonButton
                         size="xsmall"
                         type="tertiary"
