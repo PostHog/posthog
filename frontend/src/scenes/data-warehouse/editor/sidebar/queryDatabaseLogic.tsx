@@ -1025,18 +1025,6 @@ const createSourceFolderNode = (
             sources.push({ id: source.id, label })
         }
     })
-    // Number labels that collide (e.g. two prefixless Postgres connections both fall back to "Postgres")
-    // so each source stays distinguishable in the menu.
-    const labelCounts = new Map<string, number>()
-    sources.forEach((s) => labelCounts.set(s.label, (labelCounts.get(s.label) ?? 0) + 1))
-    const labelSeen = new Map<string, number>()
-    sources.forEach((s) => {
-        if ((labelCounts.get(s.label) ?? 0) > 1) {
-            const n = (labelSeen.get(s.label) ?? 0) + 1
-            labelSeen.set(s.label, n)
-            s.label = `${s.label} ${n}`
-        }
-    })
 
     return {
         id: sourceFolderId,
