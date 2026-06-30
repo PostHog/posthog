@@ -42,6 +42,31 @@ ROLES=(
 # Pin to the same chschema build as bin/hclexp; override via repo variable.
 HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-1871283}"
 
+# Object-name globs the gate ignores, parsed from exclude.hcl (the quoted glob
+# strings). hclexp -exclude applies these to the live introspection; we ALSO
+# apply them to a copy of the golden so out-of-band-managed objects (real on
+# prod, golden-only because the local migrate path doesn't create them — e.g.
+# custom_metrics*, events_team_daily_stats) don't show as drift. One source of
+# truth for both sides.
+GATE_IGNORE="$(grep -oE '"[^"]+"' "$EXCLUDE" 2>/dev/null | tr -d '"' | tr '\n' ' ')"
+
+# Strip top-level object blocks (table/materialized_view/view/dictionary) whose
+# name matches any GATE_IGNORE glob, from $1 in place. Portable awk (mawk/BSD):
+# no gawk-only match()/gensub.
+strip_objects() {
+  local file="$1"
+  awk -v pats="$GATE_IGNORE" '
+    BEGIN { n=split(pats, P, " "); for (i=1;i<=n;i++){ g=P[i]; gsub(/\*/,".*",g); RX[i]="^" g "$" } }
+    function braces(s,  t,o,c){ t=s; gsub(/[^{]/,"",t); o=length(t); t=s; gsub(/[^}]/,"",t); c=length(t); return o-c }
+    !inblk && $0 ~ /^[[:space:]]*(table|materialized_view|view|dictionary)[[:space:]]+"/ {
+      s=$0; i=index(s,"\""); rest=substr(s,i+1); j=index(rest,"\""); name=substr(rest,1,j-1)
+      for (k=1;k<=n;k++) if (name ~ RX[k]) { inblk=1; depth=0; break }
+    }
+    inblk { depth+=braces($0); if (depth<=0) inblk=0; next }
+    { print }
+  ' "$file" > "$file.objf" && mv "$file.objf" "$file"
+}
+
 # hclexp that can reach ClickHouse on the host's published ports. Prefer a local
 # binary; otherwise a container sharing the host network namespace so localhost
 # resolves to the published compose ports (works on Linux CI; on macOS set
@@ -79,8 +104,29 @@ for spec in "${ROLES[@]}"; do
     echo "FAIL: introspect $ENV/$role ($host:$port/$db)"; rc=1; rm -f "$live"; continue
   fi
 
+  # introspect always captures named_collections (Kafka broker configs — secret-
+  # bearing environment infra), which the table-schema golden never models, so
+  # they would always diff. Drop the top-level named_collection blocks before
+  # comparing. (-exclude doesn't reach named collections; tracked upstream in
+  # chschema — remove this once it does.)
+  awk '
+    function braces(s,  t,o,c){ t=s; gsub(/[^{]/,"",t); o=length(t); t=s; gsub(/[^}]/,"",t); c=length(t); return o-c }
+    /^named_collection[ \t]/ && !inblk { inblk=1; depth=0 }
+    inblk { depth+=braces($0); if (depth<=0) inblk=0; next }
+    { print }
+  ' "$live" > "$live.filtered" && mv "$live.filtered" "$live"
+
+  # Drop gate-ignored objects from BOTH sides (live already had -exclude applied,
+  # so this mostly affects the golden — see GATE_IGNORE above). Compare a copy so
+  # the committed golden is untouched.
+  gcopy="$(mktemp "${TMPDIR:-/tmp}/verify-live-$role-golden.XXXXXX")"
+  cp "$golden" "$gcopy"
+  strip_objects "$gcopy"
+  strip_objects "$live"
+
   echo "== $ENV/$role: diff golden vs live =="
-  out="$(run_hclexp diff -left "$golden" -right "$live" 2>&1 || true)"
+  out="$(run_hclexp diff -left "$gcopy" -right "$live" 2>&1 || true)"
+  rm -f "$gcopy"
   if [ "$out" != "no differences" ]; then
     echo "DRIFT: $ENV/$role — migrations produced a schema that differs from the HCL golden"
     echo "$out"

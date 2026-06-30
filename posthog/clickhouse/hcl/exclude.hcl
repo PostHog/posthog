@@ -35,5 +35,15 @@ exclude {
     # Distributed proxies into the main event cluster; not part of OPS/LOGS.
     "events_main",
     "events_recent",
+
+    # --- out-of-band managed: real on prod, not created by the local
+    #     migrate_clickhouse path, so the gate ignores them on BOTH sides until
+    #     a proper OPS migration reproduces them locally. Remove each entry once
+    #     its migration lands. ---
+    # custom_metrics* views are created on NodeRole.DATA (migration 0117), never
+    # on the OPS node, yet prod OPS carries them (created out-of-band).
+    "custom_metrics*",
+    # Orphan: present on prod OPS but no migration or code creates it anywhere.
+    "events_team_daily_stats",
   ]
 }
