@@ -123,7 +123,7 @@ function SurveyStatsSummary({ stats, rates }: { stats: SurveyStats; rates: Surve
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-stretch rounded border bg-bg-light/40">
+            <div className="flex items-stretch overflow-x-auto rounded border bg-bg-light/40">
                 {[
                     { title: 'Shown', value: humanFriendlyNumber(shown), valueClass: 'text-primary' },
                     { title: 'Responses', value: humanFriendlyNumber(sent), valueClass: 'text-success' },
@@ -135,7 +135,7 @@ function SurveyStatsSummary({ stats, rates }: { stats: SurveyStats; rates: Surve
                 ].map((item, index) => (
                     <div
                         key={item.title}
-                        className={`flex flex-1 flex-col items-center px-2 py-1.5 text-center ${
+                        className={`flex min-w-[6rem] flex-1 flex-col items-center px-2 py-1.5 text-center ${
                             index > 0 ? 'border-l border-border' : ''
                         }`}
                     >
