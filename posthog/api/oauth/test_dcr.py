@@ -3,12 +3,11 @@ import hashlib
 
 from posthog.test.base import APIBaseTest
 
-from django.utils.html import escape
-
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel
 
 
@@ -383,7 +382,7 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Escaped once at ingestion and capped to the model's name column.
-        expected = escape(payload)[:255]
+        expected = sanitize_client_name(payload)
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
         self.assertEqual(app.name, expected)
         self.assertNotIn("<", app.name)

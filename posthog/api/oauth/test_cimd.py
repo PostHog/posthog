@@ -34,6 +34,7 @@ from posthog.api.oauth.cimd import (
     register_cimd_provisioning_application_task,
     validate_cimd_url,
 )
+from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
 from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
 
@@ -378,7 +379,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
         assert app is not None
-        expected = escape(payload)[:255]
+        expected = sanitize_client_name(payload)
         self.assertEqual(app.name, expected)
         self.assertNotIn("<", app.name)
         self.assertNotIn(">", app.name)
