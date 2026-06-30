@@ -9,7 +9,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
-import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 // The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
@@ -63,7 +63,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}
-                    onChange={setDateRange}
+                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
                 <LemonInput

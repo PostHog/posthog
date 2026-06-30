@@ -44,18 +44,17 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
         },
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => ({
         // Hydrate from the URL on any CI-analytics route — a shared link, a reload, or a drill-down link that
         // carried the params. Guarded so we only dispatch on a real change, which also breaks the actionToUrl
         // loop. '*' is safe here: the logic is only mounted while a CI-analytics scene connects it, so this
-        // never fires for unrelated routes.
-        const sync = (_: Record<string, string>, search: Record<string, string>): void => {
-            const dateFrom = search.date_from ?? SHARED_DEFAULT_DATE_FROM
-            const dateTo = search.date_to ?? null
+        // never fires for unrelated routes. Handler params are inferred (kea-router types them).
+        '*': (_, searchParams) => {
+            const dateFrom = searchParams.date_from ?? SHARED_DEFAULT_DATE_FROM
+            const dateTo = searchParams.date_to ?? null
             if (dateFrom !== values.dateFrom || dateTo !== values.dateTo) {
                 actions.setDateRange(dateFrom, dateTo)
             }
-        }
-        return { '*': sync }
-    }),
+        },
+    })),
 ])

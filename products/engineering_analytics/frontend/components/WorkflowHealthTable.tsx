@@ -3,7 +3,8 @@
 // (`WorkflowHealthRow`) and sparkline series are the same in both; only the bucket axis and the
 // optional row expansion differ — passed in by the caller.
 
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconTrending } from '@posthog/icons'
@@ -140,6 +141,13 @@ export function WorkflowHealthTable({
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    // Carry the active CI-analytics window into the drill-down so opening a workflow from a non-default
+    // window keeps it instead of snapping back to the default (the tab links already preserve it this way).
+    const windowParams: Record<string, string> = {
+        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+    }
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -152,7 +160,7 @@ export function WorkflowHealthTable({
                         to={
                             combineUrl(
                                 urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
-                                sourceId ? { source: sourceId } : {}
+                                { ...windowParams, ...(sourceId ? { source: sourceId } : {}) }
                             ).url
                         }
                         className="font-medium"

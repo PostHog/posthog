@@ -122,11 +122,14 @@ function RunActivityBrush({
     isDefault: boolean
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
-    const dragRef = useRef<{ x: number; view: TimeRange } | null>(null)
+    // The extent is frozen at pointer-down: on a live workflow fullMax tracks `now` and would otherwise
+    // drift every render mid-drag, churning the listeners and applying the pan against a moving span.
+    const dragRef = useRef<{ x: number; view: TimeRange; fullMin: number; fullMax: number } | null>(null)
     const [dragMode, setDragMode] = useState<null | 'pan' | 'start' | 'end'>(null)
 
     // Track the pointer on the window (not just the lens) so a fast drag that outruns the cursor keeps
-    // panning; the listeners live only while dragging and are tied to the latest bounds via the deps.
+    // panning; the listeners attach once per drag (deps don't include the moving bounds — they're frozen in
+    // dragRef) and tear down on pointer-up.
     useEffect(() => {
         if (!dragMode) {
             return
@@ -139,11 +142,11 @@ function RunActivityBrush({
             }
             const width = strip.clientWidth
             if (dragMode === 'pan') {
-                const deltaMs = ((e.clientX - start.x) / Math.max(1, width)) * (fullMax - fullMin)
-                onChange(panFocus(start.view, deltaMs, fullMin, fullMax))
+                const deltaMs = ((e.clientX - start.x) / Math.max(1, width)) * (start.fullMax - start.fullMin)
+                onChange(panFocus(start.view, deltaMs, start.fullMin, start.fullMax))
             } else {
-                const t = pxToTime(e.clientX - strip.getBoundingClientRect().left, width, fullMin, fullMax)
-                onChange(resizeFocus(start.view, dragMode, t, fullMin, fullMax, MIN_LENS_MS))
+                const t = pxToTime(e.clientX - strip.getBoundingClientRect().left, width, start.fullMin, start.fullMax)
+                onChange(resizeFocus(start.view, dragMode, t, start.fullMin, start.fullMax, MIN_LENS_MS))
             }
         }
         const onUp = (): void => setDragMode(null)
@@ -153,14 +156,14 @@ function RunActivityBrush({
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
         }
-    }, [dragMode, fullMin, fullMax, onChange])
+    }, [dragMode, onChange])
 
     const begin =
         (mode: 'pan' | 'start' | 'end') =>
         (e: ReactPointerEvent): void => {
             e.preventDefault()
             e.stopPropagation()
-            dragRef.current = { x: e.clientX, view }
+            dragRef.current = { x: e.clientX, view, fullMin, fullMax }
             setDragMode(mode)
         }
 
@@ -233,6 +236,11 @@ export function RunActivityChart({
     // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
     // the early return so the hook order is stable when there aren't enough points to draw.
     const [focus, setFocus] = useState<TimeRange | null>(null)
+    // Drop a manual pan when the runs change (e.g. the shared window changed and reloaded) so the lens
+    // returns to the live default instead of clamping a stale range onto an unrelated slice of new data.
+    useEffect(() => {
+        setFocus(null)
+    }, [runs])
     const now = dayjs().valueOf()
     // Every run with a start contributes an interval to the band; a still-running run extends to now, but
     // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
