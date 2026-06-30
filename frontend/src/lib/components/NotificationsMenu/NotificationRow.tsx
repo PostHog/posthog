@@ -62,6 +62,59 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
     },
 }
 
+export function NotificationTitle({
+    notificationType,
+    title,
+}: {
+    notificationType: string
+    title: string
+}): JSX.Element {
+    // Float the icon so wrapped lines flow back under it (not a hanging indent),
+    // break "Prefix: Name" titles at the colon
+    const splitAt = title.indexOf(': ')
+    return (
+        <span className="block text-xs leading-snug font-semibold">
+            {getNotificationIcon(notificationType, 'size-3.5 mt-px mr-1.5 float-left')}
+            {splitAt === -1 ? (
+                title
+            ) : (
+                <>
+                    <span className="whitespace-nowrap">{title.slice(0, splitAt + 1)}</span>{' '}
+                    <span className="whitespace-nowrap">{title.slice(splitAt + 2)}</span>
+                </>
+            )}
+        </span>
+    )
+}
+
+export function NotificationReadToggle({
+    read,
+    onToggle,
+    target,
+}: {
+    read: boolean
+    onToggle: (e: React.MouseEvent) => void
+    target?: string
+}): JSX.Element {
+    return (
+        <Tooltip title={`Mark ${target ? `${target} ` : ''}as ${read ? 'unread' : 'read'}`}>
+            <button
+                className="group/read shrink-0 flex size-5 items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
+                onClick={onToggle}
+            >
+                {read ? (
+                    <IconCheckCircle className="size-4 text-success" />
+                ) : (
+                    <>
+                        <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
+                        <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
+                    </>
+                )}
+            </button>
+        </Tooltip>
+    )
+}
+
 export function NotificationRow({
     notification,
     onNavigate,
@@ -96,20 +149,21 @@ export function NotificationRow({
 
     return (
         <div
-            className={`relative flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
+            className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
             onClick={handleOpen}
         >
-            <div className="shrink-0 mt-0.5">{getNotificationIcon(notification.notification_type)}</div>
             <div className="flex-1 min-w-0">
-                {/* pr-7 keeps the title clear of the absolutely-positioned read toggle */}
-                <span className="block pr-7 text-xs leading-snug font-semibold">
-                    {rich ? 'Web analytics digest' : notification.title}
-                </span>
+                <NotificationTitle
+                    notificationType={notification.notification_type}
+                    title={rich ? 'Web analytics digest' : notification.title}
+                />
                 {rich
                     ? customBody
-                    : notification.body && <div className="text-xs text-secondary mt-2">{notification.body}</div>}
+                    : notification.body && (
+                          <div className="text-xs text-secondary mt-2 text-pretty">{notification.body}</div>
+                      )}
                 <div className="flex items-center gap-1.5 mt-2">
                     <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
                     {otherProjectName && (
@@ -121,21 +175,7 @@ export function NotificationRow({
                     )}
                 </div>
             </div>
-            <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
-                <button
-                    className="group/read absolute top-1.5 right-1.5 min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
-                    onClick={handleToggleRead}
-                >
-                    {notification.read ? (
-                        <IconCheckCircle className="size-4 text-success" />
-                    ) : (
-                        <>
-                            <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
-                            <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
-                        </>
-                    )}
-                </button>
-            </Tooltip>
+            <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
         </div>
     )
 }
