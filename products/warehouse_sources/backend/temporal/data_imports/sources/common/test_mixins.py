@@ -242,7 +242,9 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         # a non-config value as "no usable tunnel" instead of crashing.
         mixin = SSHTunnelMixin()
         config = FakeConfig()
-        config.ssh_tunnel = {"enabled": True, "host": "10.0.0.1"}  # type: ignore[assignment]
+        # `setattr` simulates a malformed runtime value (a raw dict) without tripping the
+        # static type checker on the typed `ssh_tunnel` field.
+        setattr(config, "ssh_tunnel", {"enabled": True, "host": "10.0.0.1"})  # noqa: B010
         valid, error = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert valid
         assert error is None
