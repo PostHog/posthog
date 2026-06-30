@@ -23664,6 +23664,22 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     */
+    export interface FleetFindingsSummary {
+      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      count: number;
+      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      scout_count: number;
+      /**
+         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * @nullable
+         */
+      latest_at: string | null;
+    }
+
     export interface FolderInstructions {
       /** Unique identifier for this instructions version. */
       readonly id: string;
@@ -65183,6 +65199,15 @@ export namespace Schemas {
      * @minLength 1
      */
     skill_name?: string;
+    };
+
+    export type SignalsScoutRunsFindingsSummaryParams = {
+    /**
+     * Lookback window in hours over runs' `created_at` (default 72, hard cap 168).
+     * @minimum 1
+     * @maximum 168
+     */
+    window_hours?: number;
     };
 
     export type SignalsScoutScratchpadSearchParams = {

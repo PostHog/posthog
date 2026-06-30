@@ -69,6 +69,8 @@ from products.signals.backend.scout_harness.serializers import (
     EmitReportRequestSerializer,
     EmitReportResponseSerializer,
     EvidenceEntrySerializer,
+    FleetFindingsSummaryQuerySerializer,
+    FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
@@ -101,7 +103,12 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    fleet_findings_summary,
+    get_run,
+    search_recent_runs,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
     forget,
@@ -326,6 +333,38 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        query_serializer=FleetFindingsSummaryQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=FleetFindingsSummarySerializer,
+                description="Fleet-wide tally of recently emitted findings.",
+            ),
+        },
+        summary="Summarise recently emitted findings across the fleet",
+        description=(
+            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
+            "the total count, the number of distinct scouts behind them, and the latest emission time. "
+            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
+            "through the whole runs window. Counts only runs that emitted at least one finding "
+            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
+            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_findings_summary",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="findings/summary",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def findings_summary(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        window_hours = validated.get("window_hours") or DEFAULT_FINDINGS_WINDOW_HOURS
+        summary = fleet_findings_summary(team_id=_canonical_team_id(self), window_hours=window_hours)
+        return Response(FleetFindingsSummarySerializer(summary.as_dict()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],

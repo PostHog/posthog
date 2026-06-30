@@ -28,6 +28,7 @@ import {
     SignalScoutConfigUpdate,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
+    SignalScoutFleetFindingsSummary,
     SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -5245,6 +5246,15 @@ const api = {
                     .signalScoutRuns()
                     .withAction('emissions/reports/batch')
                     .create({ data: { run_ids: runIds } })
+            },
+            // Cheap fleet-wide findings tally for the "Scout findings" callout — one query instead of
+            // walking the whole paginated runs window. `window_hours` defaults to 72 server-side.
+            async findingsSummary(params?: { window_hours?: number }): Promise<SignalScoutFleetFindingsSummary> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('findings/summary')
+                    .withQueryString(params)
+                    .get()
             },
         },
         configs: {
