@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import validate_snowflake_account_id
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import (
+    validate_snowflake_account_id,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,

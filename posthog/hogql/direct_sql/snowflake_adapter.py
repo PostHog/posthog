@@ -13,7 +13,9 @@ from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import validate_snowflake_account_id
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.account import (
+    validate_snowflake_account_id,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
