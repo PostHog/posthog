@@ -675,37 +675,63 @@ def _to_custom_property_definition_view(
     )
 
 
-def _custom_property_references_by_definition_id(team_id: int) -> dict[str, list[contracts.CustomPropertyReference]]:
+def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
+    """Whether the caller may see the workflows that reference a custom property.
+
+    ``references`` exposes HogFlow metadata (id, name, status), so it's gated on the caller
+    having at least viewer access to the ``hog_flow`` resource — the property-definition API is
+    authorized as ``account``, and a caller without workflow read access must not enumerate
+    workflows through it. Without RBAC restrictions this resolves to the default (allowed)."""
+    return user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+
+
+def _custom_property_references_by_definition_id(
+    team_id: int, definition_id: str | None = None
+) -> dict[str, list[contracts.CustomPropertyReference]]:
     """Map each referenced definition id to the workflows that set it via the "Update account
-    property" action. One scan of the team's workflows, matched by definition id."""
+    property" action. One scan of the team's workflows, matched by definition id. Pass
+    ``definition_id`` to scan for just that one definition (the single-definition lookup)."""
     usage = get_hog_flows_referencing_template_input_keys(
-        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY
+        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY, only_value_key=definition_id
     )
     return {
-        definition_id: [
+        referenced_id: [
             contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
             for ref in refs
         ]
-        for definition_id, refs in usage.items()
+        for referenced_id, refs in usage.items()
     }
 
 
 def list_custom_property_definitions(
-    team_id: int, offset: int, limit: int
+    team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
-    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``."""
+    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
+
+    ``references`` (the workflows referencing each definition) is included only when the caller can
+    read workflows — see ``_can_read_workflow_references``."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    references = _custom_property_references_by_definition_id(team_id)
+    references = (
+        _custom_property_references_by_definition_id(team_id)
+        if _can_read_workflow_references(user_access_control)
+        else {}
+    )
     return [_to_custom_property_definition_view(d, references.get(str(d.id), [])) for d in page], total_count
 
 
-def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
+def get_custom_property_definition(
+    team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
+) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
-    references = _custom_property_references_by_definition_id(team_id).get(str(definition.id), [])
+    references: list[contracts.CustomPropertyReference] = []
+    if _can_read_workflow_references(user_access_control):
+        references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
+            str(definition.id), []
+        )
     return _to_custom_property_definition_view(definition, references)
 
 

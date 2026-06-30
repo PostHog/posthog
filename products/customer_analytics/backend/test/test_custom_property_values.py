@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.utils import timezone
@@ -331,6 +331,11 @@ class TestSetExternalAccountCustomProperties(BaseTest):
 
 
 class TestCustomPropertyDefinitionReferences(BaseTest):
+    def _uac(self, *, can_read_workflows: bool = True) -> MagicMock:
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = can_read_workflows
+        return uac
+
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
         return HogFlow.objects.create(
             team=self.team,
@@ -353,7 +358,9 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         workflow = self._create_workflow_setting(str(plan.id))
 
         with team_scope(self.team.id):
-            page, _ = facade.list_custom_property_definitions(self.team.id, offset=0, limit=50)
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            )
         by_id = {view.id: view for view in page}
 
         assert [(r.id, r.name, r.status, r.type) for r in by_id[plan.id].references] == [
@@ -369,6 +376,37 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         self._create_workflow_setting(str(uuid4()))
 
         with team_scope(self.team.id):
-            page, _ = facade.list_custom_property_definitions(self.team.id, offset=0, limit=50)
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            )
 
         assert next(v for v in page if v.id == plan.id).references == []
+
+    def test_get_attaches_workflow_references_for_single_definition(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        workflow = self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.get_custom_property_definition(self.team.id, str(plan.id), user_access_control=self._uac())
+
+        assert view is not None
+        assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
+            (str(workflow.id), "Onboarding", "active", "workflow")
+        ]
+
+    def test_references_hidden_without_workflow_read_access(self):
+        # references expose HogFlow metadata, so a caller without hog_flow read access sees none.
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac(can_read_workflows=False)
+            )
+            view = facade.get_custom_property_definition(
+                self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
+            )
+
+        assert next(v for v in page if v.id == plan.id).references == []
+        assert view is not None
+        assert view.references == []
