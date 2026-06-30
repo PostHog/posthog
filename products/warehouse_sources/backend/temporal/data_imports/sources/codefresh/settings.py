@@ -79,6 +79,9 @@ CODEFRESH_ENDPOINTS: dict[str, CodefreshEndpointConfig] = {
         # A trigger row is the link between a trigger-event and a pipeline; neither is unique on its
         # own across the table, so the pair is the key.
         primary_keys=["event", "pipeline"],
+        # `event-data.secret` is the webhook signing secret, and `event-data.endpoint` embeds it as a
+        # query parameter — keep both out of the warehouse where any table reader could recover them.
+        redact_keys=["event-data.endpoint", "event-data.secret"],
     ),
     "step_types": CodefreshEndpointConfig(
         name="step_types",

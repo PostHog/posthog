@@ -144,9 +144,17 @@ class TestTransformRow:
         row = _transform_row({"id": "b1", "variables": ["x"]}, config)
         assert row == {"id": "b1", "variables": ["x"]}
 
-    @parameterized.expand([("projects", "variables"), ("pipelines", "spec.variables")])
+    @parameterized.expand(
+        [
+            ("projects", "variables"),
+            ("pipelines", "spec.variables"),
+            ("triggers", "event-data.endpoint"),
+            ("triggers", "event-data.secret"),
+        ]
+    )
     def test_endpoint_redacts_secret_bearing_variables(self, endpoint: str, redacted_key: str) -> None:
-        # These endpoints expose plaintext config/CI variables; the configured source must strip them.
+        # These endpoints expose plaintext config/CI variables or webhook secrets; the configured
+        # source must strip them.
         assert redacted_key in CODEFRESH_ENDPOINTS[endpoint].redact_keys
 
 
