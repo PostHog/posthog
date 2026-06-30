@@ -2387,8 +2387,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 3.0,  # includes only events after date_from
-                    "data": [0.0, 2.0, 1.0, 0.0],
+                    "count": 4.0,
+                    "data": [1.0, 2.0, 1.0, 0.0],
                     "labels": [
                         "4–7 Nov",
                         "8–14 Nov",
@@ -8158,7 +8158,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response_monday[0]["days"], ["2020-01-06", "2020-01-13", "2020-01-20"])
-        self.assertEqual(response_monday[0]["data"], [1.0, 0.0, 1.0])  # only includes events after 2020-01-12
+        self.assertEqual(
+            response_monday[0]["data"], [2.0, 0.0, 1.0]
+        )  # Jan 11 event included since we snap to Mon Jan 6
 
     def test_same_day(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})

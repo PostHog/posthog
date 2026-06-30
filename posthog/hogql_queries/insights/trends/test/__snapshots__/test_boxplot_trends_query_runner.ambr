@@ -117,7 +117,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-11-27 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfWeek(assumeNotNull(toDateTime('2023-11-27 00:00:00', 'UTC')), 0)), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,

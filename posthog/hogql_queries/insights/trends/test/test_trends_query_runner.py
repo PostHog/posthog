@@ -6804,12 +6804,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
 
-    def test_week_interval_includes_only_data_after_date_from(self):
+    def test_week_interval_aligns_buckets_to_week_boundary(self):
         """
-        When using week intervals, the data should only include data after the date_from and not the start of the week.
+        Weekly interval queries snap date_from back to the start of the week so every
+        bucket covers a full 7-day span. This ensures the same week bucket shows the
+        same count regardless of the surrounding date range (e.g. last 30 days vs last 90 days).
         """
         self._create_test_events()
 
+        # date_from mid-week (Tue Jan 14) — filter snaps back to Sun Jan 12,
+        # so the Jan 12 bucket includes all events through Jan 16 (= 6 events)
         response = self._run_trends_query(
             "2020-01-14",
             "2020-01-16",
@@ -6818,9 +6822,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(1, len(response.results))
         self.assertEqual(1, len(response.results[0]["days"]))
-        self.assertEqual(2, response.results[0]["count"])
+        self.assertEqual(6, response.results[0]["count"])
 
-        # check it works correctly if the date_from is on the week start
+        # date_from already on the week start (Sun Jan 12) — no adjustment needed
         response = self._run_trends_query(
             "2020-01-12",
             "2020-01-16",
@@ -6831,7 +6835,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, len(response.results[0]["days"]))
         self.assertEqual(6, response.results[0]["count"])
 
-        # check it works correctly if the date_from is before the week start
+        # date_from (Fri Jan 10) snaps back to Sun Jan 5, creating two full week buckets
         response = self._run_trends_query(
             "2020-01-10",
             "2020-01-16",
@@ -6840,7 +6844,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(1, len(response.results))
         self.assertEqual(2, len(response.results[0]["days"]))
-        self.assertEqual(7, response.results[0]["count"])
+        self.assertEqual(8, response.results[0]["count"])
 
     def test_exact_time_range_with_larger_interval(self):
         """
@@ -7798,16 +7802,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-14",
                 "2020-01-19",
                 WeekStartDay.MONDAY,
-                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
-                4,
+                # date_from snaps to Mon Jan 13; events Jan 13 (1), Jan 15 (2), Jan 17 (1), Jan 19 (1) = 5
+                5,
             ),
             (
                 "mid_week_sunday_start",
                 "2020-01-14",
                 "2020-01-19",
                 WeekStartDay.SUNDAY,
-                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
-                4,
+                # date_from snaps to Sun Jan 12; events Jan 12 (3), Jan 13 (1), Jan 15 (2), Jan 17 (1), Jan 19 (1) = 8
+                8,
             ),
             (
                 "week_boundary_monday",
