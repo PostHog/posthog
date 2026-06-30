@@ -160,7 +160,7 @@ pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
-/// (`person_memo_hit`) (counter).
+/// (`person_memo_hit`|`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
 /// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
 pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";

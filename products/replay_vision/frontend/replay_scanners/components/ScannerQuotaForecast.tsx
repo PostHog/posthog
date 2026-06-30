@@ -30,13 +30,14 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    // The fleet sum already contains this scanner's stored estimate when it's enabled. Deriving the
-    // delta from the clamped `othersMonthly` keeps the projection and the bar split consistent even
-    // when a stale stored estimate exceeds the reported fleet sum.
-    const storedContribution = scanner.enabled ? (scanner.estimated_monthly_observations ?? 0) : 0
+    // `other_enabled_scanners_monthly` comes from the same estimate response as `projected`, so the two are a
+    // consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would race the
+    // estimate-refresh cadence and double-count the scanner right after creating it.
     const fleetMonthly = quota?.projected_monthly_observations ?? 0
-    const othersMonthly = Math.max(fleetMonthly - storedContribution, 0)
-    const projection = projectQuota(quota, projected !== null ? othersMonthly + projected - fleetMonthly : 0)
+    const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly ?? 0
+    // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
+    const newFleetMonthly = projected !== null ? othersMonthly + projected : fleetMonthly
+    const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
     const { status, percentLabel, resetsOn, usedPct, projectedPct } = projection
 
     const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status

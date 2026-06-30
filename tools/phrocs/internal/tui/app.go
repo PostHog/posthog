@@ -144,6 +144,7 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 	h := help.New()
 	h.Styles = helpStyles()
 
+	dims := groupDimensions(cfg)
 	m := Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
@@ -157,8 +158,8 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 		procListWidth:    cfg.ProcListWidth,
 		configPath:       configPath,
 		cfg:              cfg,
-		groupDims:        groupDimensions(cfg),
-		groupDimIndex:    -1,
+		groupDims:        dims,
+		groupDimIndex:    initialGroupDimIndex(dims, cfg.DefaultGroup),
 		keys:             keys,
 		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),

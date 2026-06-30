@@ -564,6 +564,20 @@ procs:
             layer: Infrastructure
             tech: Migrations
 
+    ensure-local-setup:
+        # Idempotent local-dev bootstrap (feature flags, dev API key, wizard OAuth app). phrocs has no
+        # depends_on, so wait for the tables it touches before running (same approach as
+        # migrate-clickhouse waiting on posthog_instancesetting).
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_featureflag posthog_personalapikey posthog_oauthapplication && bin/ensure-local-setup'
+        capability: core_infra
+        ready_pattern: 'Local setup complete'
+        # Unlike the other Tools-layer entries (manual `autostart: false` utilities), this one
+        # must run automatically every startup to keep local dev bootstrapped.
+        autostart: true
+        groups:
+            layer: Tools
+            tech: Setup
+
     migrate-clickhouse:
         # Wait on posthog_instancesetting because Django queries that table at
         # import time -- it's created by migrate-postgres. Without the guard,
@@ -694,6 +708,9 @@ procs:
             layer: Tools
             tech: Python
         # no capability - manual start
+
+# Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
+default_group: layer
 
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]
