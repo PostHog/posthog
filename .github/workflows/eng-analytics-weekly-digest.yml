@@ -5,7 +5,7 @@ name: Engineering analytics weekly digest
 # layer behind its MCP tools/UI) and relays a week-over-week summary to Slack — it
 # does not re-derive any metric from the GitHub API. See
 # .github/scripts/eng-analytics-weekly-digest.mjs for what it reports and what is
-# deliberately deferred (total CI minutes / Depot $, re-run waste).
+# deliberately deferred.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
@@ -17,7 +17,7 @@ name: Engineering analytics weekly digest
 
 on:
     schedule:
-        - cron: '0 13 * * 1' # Mondays 13:00 UTC (~9am US-East / 9am Puerto Rico)
+        - cron: '0 13 * * 1' # Mondays 13:00 UTC
     workflow_dispatch:
         inputs:
             dry_run:
@@ -39,7 +39,12 @@ jobs:
               with:
                   sparse-checkout: |
                       .github/scripts/eng-analytics-weekly-digest.mjs
+                      .nvmrc
                   sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
 
             - name: Build and post weekly CI digest
               env:
