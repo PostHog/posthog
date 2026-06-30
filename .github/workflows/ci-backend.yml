@@ -33,8 +33,6 @@ env:
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
     SCHEMA_CACHE_EPOCH: v1
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -660,6 +658,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1035,6 +1036,9 @@ jobs:
 
         name: Validate migrations
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1670,6 +1674,9 @@ jobs:
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2087,6 +2094,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2956,6 +2966,9 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
