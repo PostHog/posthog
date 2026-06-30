@@ -49,6 +49,8 @@ export function formatCustomPropertyValue(
     switch (definition.display_type) {
         case 'currency':
             return isNumber ? humanFriendlyCurrency(numeric) : raw
+        // Percent values are stored as fractions (0.5 → 50%), matching how the backend coerces them
+        // (see test_custom_property_values.py: a `percent` definition stores 0.5). percentage() multiplies by 100.
         case 'percent':
             return isNumber ? percentage(numeric) : raw
         case 'number':
