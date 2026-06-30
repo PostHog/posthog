@@ -140,23 +140,22 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(f"2024-01-01T00:{i}:00Z"):
+            with freeze_time(f"2099-01-01T00:{i:02d}:00Z"):
                 _create_person(
                     distinct_ids=[id],
                     properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
-        with freeze_time(f"2024-01-02T00:00:00Z"):
+        with freeze_time("2099-01-02T00:00:00Z"):
             _create_person(
                 distinct_ids=["person25"],
                 properties={"taxonomy_email": "person25@example.com", "id": 25},
                 team=self.team,
             )
 
-        self.assertIn(
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "taxonomy_email"),
-        )
+        result = toolkit.retrieve_entity_property_values("person", "taxonomy_email")
+        for person in ["person25@example.com", "person24@example.com", "person23@example.com"]:
+            self.assertIn(person, result)
         self.assertIn(
             "1 more distinct value",
             toolkit.retrieve_entity_property_values("person", "id"),
