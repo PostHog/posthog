@@ -14,7 +14,7 @@ Import from a domain-scoped **`api/<module>`** entry. Never reach into deep inte
 them. The `products/*` path alias is configured in tsconfig, so the import is absolute:
 
 ```ts
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 ```
 
@@ -30,15 +30,21 @@ re-introduce the exact bundling problem the split solves. Always import an `api/
 
 Pick the **lowest tier** that does the job.
 
-| Tier                           | Module                     | What's in it                                                                                                                                                                                                                  | Use when                                                                                    |
-| ------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (lazy, code-split embeddable → default layout), `RunComposer`                                                                                                                                                     | "Just show/drive a run." Inbox read-only embed, tasks embed.                                |
-| **2 — Compound primitives**    | `api/primitives`           | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces | Custom layout, or a bespoke/compact thread.                                                 |
-| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers; folded-thread + tool types                                                              | Status badge or automation — no React, no registry.                                         |
-| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                              | Your product renders tool cards (insights, dashboards…). Register them from your own scene. |
+| Tier                           | Module                               | What's in it                                                                                                                                                                                                                                       | Use when                                                                                                       |
+| ------------------------------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts                                                                                                                      | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). |
+| **2 — Compound primitives**    | `api/primitives`                     | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces | Custom layout, or a bespoke/compact thread.                                                                    |
+| **3 — Headless logic + types** | `api/logics` + `api/types`           | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers; folded-thread + tool types                                                                                   | Status badge or automation — no React, no registry.                                                            |
+| **4 — Extension seam**         | `api/tools`                          | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                   | Your product renders tool cards (insights, dashboards…). Register them from your own scene.                    |
 
-`api/run` (Tier 1) is built on `api/primitives` (Tier 2); `api/primitives` consumes the headless
+The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
+
+`ReadonlyRunSurface` is **lazy by default** — code-split behind a `RunLogSkeleton` Suspense fallback —
+because the embeds that use it (the inbox detail views) show it as a secondary panel. The `RunSurface`
+compound (`api/runSurface`) is **eager**: import it only where the surface is the _primary_ content of an
+already-code-split route (the `/tasks` runner scene composes its own live-composer layout), so it doesn't pay
+a second chunk fetch + Suspense flash for the one thing the route exists to show.
 
 ## 3. Recipes
 
@@ -47,28 +53,50 @@ Each recipe shows the granular import to copy.
 ### Read-only embed (inbox-style)
 
 ```tsx
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
-;<RunViewer taskId={task.id} runId={run.id} interaction="read-only" />
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
+;<ReadonlyRunSurface taskId={task.id} runId={run.id} interaction="read-only" />
 ```
 
-### Live embed with composer + queue (tasks-style; caller owns draft/queue)
+The prepackaged, lazy read-only surface: thread (plus the meta bars for a live run), no composer and no
+approval prompt. It streams fresh frames while running when `interaction='live'`, and replays the snapshot
+once when `'read-only'`. This is what all three inbox embeds drop in.
+
+### Live embed with composer (tasks-style; caller owns the composer + draft/queue)
+
+Compose the `RunSurface` compound (`api/runSurface`, eager) and pass your composer UI as the
+`RunSurface.Composer` children — the slot owns prompt-vs-composer precedence and the null-bootstrap gate; you
+own the composer. See `scenes/TaskTracker/components/TaskRunChat.tsx` for the full wiring.
 
 ```tsx
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
-import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
+import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
+import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
+import { runInteractionLogic } from 'products/posthog_ai/frontend/api/logics'
 
-// Bind runInteractionLogic for the follow-up/queue facade, then render the viewer with a composer slot.
-const { queuedMessages } = useValues(runInteractionLogic(props))
-<RunViewer taskId={task.id} runId={run.id} />
+// Bind runInteractionLogic (the follow-up/queue facade) keyed by the same runId RunSurface.Root binds.
+const { draft, isSubmitting, queuedMessages } = useValues(runInteractionLogic(props))
+;<RunSurface.Root taskId={task.id} runId={run.id} interaction="live">
+  <div className="@container/thread flex flex-col h-full overflow-hidden">
+    <div className="flex-1 min-h-0">
+      <RunSurface.Thread />
+    </div>
+    <RunSurface.Resources />
+    <RunSurface.Composer>
+      <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
+        {/* …Composer.Frame / Field / Textarea / Submit… */}
+      </Composer.Root>
+    </RunSurface.Composer>
+    <RunSurface.ContextUsage />
+  </div>
+</RunSurface.Root>
 ```
 
-### Custom layout via `Thread.*` + the run primitives
+### Custom layout via the `RunSurface` compound
 
-`RunViewer` (Tier 1) is a single lazy embeddable — it renders the default layout and intentionally does
-not surface slot atoms (no consumer composed them, and lazy-wrapping each would only add Suspense
-boundaries that never fire). For a custom layout, bind `runStreamLogic` yourself and compose the Tier 2
-primitives (`ThreadView`, `ResourcesBar`, `PermissionInput`, `Composer.*`, `ContextUsageBar`) — use
-`RunLogSkeleton` for the loading state so the surface keeps its shape.
+`RunSurface.Root` (Tier 1, `api/runSurface`) binds the stream logic and bootstraps the run; the slots
+(`.Thread/.Composer/.Resources/.ContextUsage`) compose into any layout — there is no default. Omit
+`RunSurface.Composer` for a no-input surface (that's exactly what `ReadonlyRunSurface` does); render it with
+composer children for an interactive one. For something even more bespoke, drop to the Tier 2 primitives
+(`ThreadView`, `ResourcesBar`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
 
 ### Bespoke / compact thread via `Thread.*` atoms
 

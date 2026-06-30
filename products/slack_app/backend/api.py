@@ -62,6 +62,22 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
+from products.slack_app.backend.services.slack_app_home import (
+    ACTION_EDIT_PERSONAL,
+    ACTION_EDIT_WORKSPACE,
+    ACTION_RESET_PERSONAL,
+    ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_UNLINK_ACCOUNT,
+    EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
+    MODAL_ACTION_MODEL,
+    MODAL_ACTION_RUNTIME_ADAPTER,
+    handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
+    handle_app_home_opened as _handle_app_home_opened,
+    handle_app_home_view_submission as _handle_app_home_view_submission,
+)
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
     get_slack_user_info,
@@ -84,6 +100,7 @@ HANDLED_EVENT_TYPES = [
     "member_joined_channel",
     "assistant_thread_started",
     "assistant_thread_context_changed",
+    "app_home_opened",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -1694,6 +1711,16 @@ def route_posthog_code_event_to_relevant_region(
         eu_domain=_eu_region_domain(),
     )
 
+    # App Home tab: published per-user when they open the Home tab. Always
+    # handled locally — `views.publish` just renders a snapshot of the user's
+    # AI preferences against the integration row, no cross-region state.
+    if event_type == "app_home_opened":
+        try:
+            _handle_app_home_opened(event, slack_team_id)
+        except Exception:
+            logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+        return ROUTE_HANDLED_LOCALLY
+
     # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run
     # against their project. A ``message`` is a DM iff ``channel_type == "im"`` — channel ``message``
     # events (untagged thread follow-ups) and ``app_mention`` share the pipeline below instead.
@@ -2545,6 +2572,40 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
+_AI_PREFERENCES_ACTION_IDS = frozenset(
+    {
+        ACTION_EDIT_PERSONAL,
+        ACTION_EDIT_WORKSPACE,
+        ACTION_RESET_PERSONAL,
+        ACTION_RESET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_UNLINK_ACCOUNT,
+        MODAL_ACTION_RUNTIME_ADAPTER,
+        MODAL_ACTION_MODEL,
+    }
+)
+_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
+
+
+def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
+    """Return True if this payload is a Slack App Home AI-settings interaction.
+
+    AI-settings buttons (Edit/Reset on the Home tab, runtime/model dispatch
+    re-renders inside the modal) and modal submissions carry no per-row hint —
+    the picker is workspace-scoped, not tied to a specific task or repo. The
+    cross-region router uses this to claim locality based on the workspace
+    integration alone rather than dropping the click.
+    """
+    if payload_type == "view_submission":
+        return payload.get("view", {}).get("callback_id", "") in _AI_PREFERENCES_CALLBACK_IDS
+    if payload_type == "block_actions":
+        for action in payload.get("actions", []) or ():
+            if action.get("action_id", "") in _AI_PREFERENCES_ACTION_IDS:
+                return True
+    return False
+
+
 def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     """Extract integration_id and mentioning user id from block_id for fallback handling."""
     block_id = payload.get("block_id", "")
@@ -3239,6 +3300,16 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
+    elif slack_team_id and _is_ai_preferences_interactivity(payload, payload_type):
+        # App Home AI-settings actions (Edit/Reset/Save) and the modal
+        # re-render dispatched_actions carry no per-row hint — the button is
+        # tied to the workspace, not a specific picker context. Claim locality
+        # based on the workspace integration alone; if we own *any* Integration
+        # for this Slack team, the click is ours to handle.
+        local = Integration.objects.filter(
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
 
     proxied = _was_proxied(request)
     incoming_host = request.get_host()
@@ -3311,28 +3382,34 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_suggestion":
         return _handle_repo_picker_options(payload)
 
+    if payload_type == "view_submission":
+        return _handle_app_home_view_submission(payload)
+
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
-            if action.get("action_id") == "posthog_code_repo_select":
+            action_id = action.get("action_id")
+            if action_id == "posthog_code_repo_select":
                 return _handle_repo_picker_submit(payload)
-            if action.get("action_id") == "posthog_code_repo_none":
+            if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action.get("action_id") == "posthog_code_terminate_task":
+            if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
-            if action.get("action_id") == CHANNEL_APPROVAL_ACTION_APPROVE:
+            if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
-            if action.get("action_id") == CHANNEL_APPROVAL_ACTION_DENY:
+            if action_id == CHANNEL_APPROVAL_ACTION_DENY:
                 return _handle_channel_approval_deny(payload)
-            if action.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID:
+            if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
-            if action.get("action_id") == onboarding.INBOX_CREATE_ACTION_ID:
+            if action_id == onboarding.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)
-            if action.get("action_id") == onboarding.INBOX_JOIN_ACTION_ID:
+            if action_id == onboarding.INBOX_JOIN_ACTION_ID:
                 return inbox_interactivity.handle_inbox_join(payload)
-            if action.get("action_id") == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+            if action_id == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
                 return inbox_interactivity.handle_inbox_sources(payload)
-            if action.get("action_id") == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+            if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
+            if action_id in _AI_PREFERENCES_ACTION_IDS:
+                return _handle_ai_preferences_block_action(payload, action)
 
     return HttpResponse(status=200)

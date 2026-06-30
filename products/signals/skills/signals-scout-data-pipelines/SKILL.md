@@ -1,15 +1,9 @@
 ---
 name: signals-scout-data-pipelines
 description: >
-  Focused Signals scout for PostHog projects moving data through pipelines. Watches the
-  three delivery surfaces — CDP destinations and transformations (hog functions), batch
-  exports, and hog flows (workflows/messaging) — for contradictions between configured
-  state and actual delivery: functions the watcher quietly degraded or disabled, failure
-  rates stepping above a pipeline's own baseline, batch export runs failing or stalling
-  (a growing data gap), and active flows failing for the people they trigger on. Emits
-  findings only when they clear the confidence bar; otherwise writes durable memory and
-  closes out empty. Self-contained peer in the signals-scout-* fleet — no dependencies
-  on other skills.
+  Signals scout for PostHog data pipelines — CDP destinations and transformations, batch
+  exports, and hog flows. Watches for delivery failures, degraded functions, and stalled
+  exports against each pipeline's baseline.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

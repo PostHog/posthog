@@ -25,6 +25,10 @@ import {
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
 
+// Function types whose stored globals carry inbound `request.headers`
+// (sender credentials) that must be stripped before a rerun rehydrates them.
+const WEBHOOK_SOURCE_TYPES = new Set(['source_webhook', 'warehouse_source_webhook'])
+
 const counterRerunPageProcessed = new Counter({
     name: 'cdp_hog_invocation_rerun_pages_processed_total',
     help: 'Rerun paginator pages processed, by function kind and outcome.',
@@ -172,9 +176,34 @@ export class RerunPaginatorService {
                         this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
                     }
                 } else {
-                    // kafka. No PK, so a re-enqueue with the original
-                    // invocation_id can't conflict — no overwrite path needed.
-                    await this.jobQueues.hog_function.queueInvocations(invocationsToEnqueue)
+                    // kafka. There's no PK to reject a duplicate the way the
+                    // postgres-v2 path does, so re-enqueuing an invocation that
+                    // is still running would fire its side effects (webhook,
+                    // email) a second time. Skip any whose latest CH lifecycle
+                    // row is still 'running'. The 'running' rows we queued for
+                    // this page aren't flushed yet, so this reflects prior state.
+                    const runningIds = await this.fetchRunningInvocationIds(
+                        teamId,
+                        function_kind,
+                        function_id,
+                        invocationsToEnqueue.map((i) => i.id)
+                    )
+                    if (runningIds.size > 0) {
+                        logger.warn('Rerun skipping hog invocations that are still in-flight', {
+                            rerun_function_kind: function_kind,
+                            rerun_function_id: function_id,
+                            conflicting_invocation_ids: Array.from(runningIds),
+                        })
+                        conflictSkipped = runningIds.size
+                        for (let i = 0; i < conflictSkipped; i++) {
+                            counterRerunInvocationsSkipped.labels(function_kind, 'still_in_flight_hog').inc()
+                        }
+                        invocationsToEnqueue = queuedInvocations.filter((i) => !runningIds.has(i.id))
+                        this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(runningIds))
+                    }
+                    if (invocationsToEnqueue.length > 0) {
+                        await this.jobQueues.hog_function.queueInvocations(invocationsToEnqueue)
+                    }
                 }
                 await this.invocationResultsRowsService.flush()
                 counterRerunInvocationsQueued.labels(function_kind).inc(invocationsToEnqueue.length)
@@ -359,12 +388,54 @@ export class RerunPaginatorService {
         return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
     }
 
+    /**
+     * Of the given hog-function invocation ids, return those whose latest
+     * lifecycle row is still `running`. The query keys on the table's primary
+     * prefix (team_id, function_kind, function_id, invocation_id) so it stays
+     * cheap without a partition bound. Used to avoid re-enqueuing an in-flight
+     * invocation on the kafka path, which has no conflict guard of its own.
+     */
+    private async fetchRunningInvocationIds(
+        teamId: number,
+        functionKind: RerunFunctionKind,
+        functionId: string,
+        invocationIds: string[]
+    ): Promise<Set<string>> {
+        if (invocationIds.length === 0) {
+            return new Set()
+        }
+        const result = await this.clickhouse.query({
+            query: `/* team_id:${teamId} query_type:hog_invocation_rerun_inflight */
+                SELECT invocation_id
+                FROM hog_invocation_results
+                WHERE team_id = {team_id:Int64}
+                  AND function_kind = {function_kind:String}
+                  AND function_id = {function_id:String}
+                  AND invocation_id IN {invocation_ids:Array(String)}
+                GROUP BY invocation_id
+                HAVING argMax(is_deleted, version) = 0
+                   AND argMax(status, version) = 'running'`,
+            query_params: {
+                team_id: teamId,
+                function_kind: functionKind,
+                function_id: functionId,
+                invocation_ids: invocationIds,
+            },
+            format: 'JSONEachRow',
+        })
+        const rows = (await result.json()) as { invocation_id: string }[]
+        return new Set(rows.map((r) => r.invocation_id))
+    }
+
     private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
         const filter = state.request.filter
         const requestedStatus = filter.status?.length ? filter.status : ['failed']
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
         // ClickHouse `DateTime64` only parses 'YYYY-MM-DD HH:MM:SS[.fff]'. Convert
-        // before passing as a query parameter.
+        // before passing as a query parameter. The bound params below are typed
+        // `DateTime64(6, 'UTC')` so the (tz-stripped) UTC wall-clock string is
+        // always interpreted as UTC — an untyped `DateTime64` would be parsed in
+        // the CH server timezone, shifting the window on non-UTC servers.
         const windowStart = toClickhouseDateTime(filter.window_start)
         const windowEnd = toClickhouseDateTime(filter.window_end)
         const cursorScheduledAt = state.progress.cursor?.scheduled_at
@@ -377,7 +448,7 @@ export class RerunPaginatorService {
         const cursor = state.progress.cursor
         const cursorClause =
             cursor && cursor.scheduled_at
-                ? '   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64}, {cursor_invocation_id:String})'
+                ? "   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})"
                 : ''
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
@@ -404,8 +475,8 @@ export class RerunPaginatorService {
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
-                  AND scheduled_at >= {window_start:DateTime64}
-                  AND scheduled_at <  {window_end:DateTime64}
+                  AND scheduled_at >= {window_start:DateTime64(6, 'UTC')}
+                  AND scheduled_at <  {window_end:DateTime64(6, 'UTC')}
                   ${invocationIdsClause}
                 ${cursorClause}
                 GROUP BY invocation_id
@@ -517,6 +588,19 @@ export class RerunPaginatorService {
             // from the current hog function config, so the rerun runs against
             // the latest config/secrets rather than a stored snapshot.
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
+
+            // For source-webhook functions the stored `request.headers` AND
+            // `request.query` carry the inbound sender's credentials
+            // (Authorization / x-api-key / signing secrets in headers; URL
+            // tokens like `?token=` in query). Rerunning feeds those back into
+            // the live function, so a write-access user could reconfigure the
+            // function to forward them to an attacker endpoint and replay
+            // history to exfiltrate past senders' secrets. Drop both on
+            // rehydration; non-webhook globals never carry `request` so they're
+            // untouched.
+            if (WEBHOOK_SOURCE_TYPES.has(hogFunction.type) && persistedGlobals.request) {
+                persistedGlobals.request = { ...persistedGlobals.request, headers: {}, query: {} }
+            }
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.

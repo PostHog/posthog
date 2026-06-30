@@ -23,8 +23,8 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
@@ -1363,7 +1363,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         version = endpoint.versions.first()
         version.refresh_from_db()
@@ -1392,7 +1392,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
@@ -1425,7 +1425,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
