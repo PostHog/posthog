@@ -20,7 +20,6 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
-from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
@@ -94,6 +93,17 @@ class NodeSerializer(serializers.ModelSerializer):
 
     def get_dag_name(self, node: Node) -> str:
         return node.dag.name
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # maintains them directly via the ORM and bypasses this serializer. Block users from
+        # editing managed nodes or moving any node into a managed DAG via the API.
+        if self.instance is not None and self.instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        target_dag = attrs.get("dag")
+        if target_dag is not None and target_dag.is_managed:
+            raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        return attrs
 
 
 class NodePagination(PageNumberPagination):
@@ -189,6 +199,11 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
+
+    def perform_destroy(self, instance: Node) -> None:
+        if instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        instance.delete()
 
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
@@ -338,6 +353,8 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
+        from products.data_modeling.backend.facade.api import start_node_materialization
+
         node = self.get_object()
 
         if node.type == NodeType.TABLE:
@@ -346,36 +363,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if _is_v2_backend_enabled(cast(User, req.user), self.team):
-            inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
-                team_id=self.team_id,
-                dag_id=str(node.dag_id),
-                node_id=str(node.id),
-            )
-            workflow_name = "data-modeling-materialize-view"
-            workflow_id = f"materialize-view-{node.id}-{uuid4()}"
-        else:
-            inputs = RunWorkflowInputs(
-                team_id=self.team_id,
-                select=[Selector(label=str(node.saved_query_id), ancestors=0, descendants=0)],
-            )
-            workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.id}-{uuid4()}"
-
-        temporal = sync_connect()
-        asyncio.run(
-            temporal.start_workflow(
-                workflow_name,
-                asdict(inputs),
-                id=workflow_id,
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
-                ),
-            )
-        )
+        start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
 
         return response.Response(status=status.HTTP_200_OK)

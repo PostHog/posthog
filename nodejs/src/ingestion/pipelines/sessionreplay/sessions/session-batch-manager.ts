@@ -1,7 +1,7 @@
 import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -24,7 +24,7 @@ export interface SessionBatchManagerConfig {
     /** Handles writing session batch files to storage */
     fileStorage: SessionBatchFileStorage
     /** Manages storing session metadata */
-    metadataStore: SessionMetadataStore
+    metadataStore: SessionMetadataSink
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
     /** Manages storing session features for ML scoring */
@@ -81,7 +81,7 @@ export class SessionBatchManager {
     private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly metadataStore: SessionMetadataStore
+    private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
     private lastFlushTime: number

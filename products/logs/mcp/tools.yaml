@@ -347,6 +347,9 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
+    logs-patterns-create:
+        operation: logs_patterns_create
+        enabled: false
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false

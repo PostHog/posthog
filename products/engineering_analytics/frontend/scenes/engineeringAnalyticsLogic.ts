@@ -1,4 +1,4 @@
-import { LogicWrapper, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -17,6 +17,7 @@ import {
 import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
@@ -39,9 +40,6 @@ export type CardFilter = 'open' | 'failing' | 'stuck'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
-
-/** Mirrors the workflow_health endpoint's default window — CI health is a "right now" question. */
-export const DEFAULT_WORKFLOW_DATE_FROM = '-24h'
 
 export interface PullRequestRow {
     number: number
@@ -420,6 +418,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
     kea<engineeringAnalyticsLogicType>([
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
+        // The Workflows tab reads the shared CI-analytics window; the loader and reload listener use it.
+        connect(() => ({
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+        })),
+
         actions({
             setStateFilter: (state: PRStateFilter) => ({ state }),
             setAuthor: (author: string | null) => ({ author }),
@@ -427,7 +430,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
-            setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
             // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
             // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
             setBranchFilter: (branch: string) => ({ branch }),
@@ -479,8 +481,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 {
                     loadWorkflowHealth: async (): Promise<WorkflowHealthRow[]> => {
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
-                            date_from: values.workflowDateFrom ?? undefined,
-                            date_to: values.workflowDateTo ?? undefined,
+                            date_from: values.dateFrom ?? undefined,
+                            date_to: values.dateTo ?? undefined,
                             branch: values.appliedBranch || undefined,
                             source_id: values.sourceId ?? undefined,
                         })
@@ -577,11 +579,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
-            workflowDateFrom: [
-                DEFAULT_WORKFLOW_DATE_FROM as string | null,
-                { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
-            ],
-            workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
             // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
             // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
             // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
@@ -812,7 +809,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             // Cards, the PR list, workflow health, and the quarantine repo are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
-            setWorkflowDateRange: () => {
+            // The shared window scopes workflow health; reload it when the window changes.
+            [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
             setBranchFilter: ({ branch }) => {

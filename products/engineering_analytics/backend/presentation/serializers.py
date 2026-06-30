@@ -237,8 +237,8 @@ class PRCostSummarySerializer(DataclassSerializer):
                 "figure is then zero/null and the cost cards should be hidden.",
             },
             "billable_minutes": {
-                "help_text": "Wall-clock minutes consumed on billable (self-hosted) runners, summed across "
-                "costed jobs.",
+                "help_text": "Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. "
+                "Parallel jobs add up, so this is compute time spent, not wall-clock run duration.",
             },
             "estimated_cost_usd": {
                 "help_text": "Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x "
