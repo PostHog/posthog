@@ -334,6 +334,7 @@ export function HogFunctionFilters({
                                         <DataWarehouseColumnsHint
                                             schemaColumns={dataWarehouseColumns}
                                             tableName={dataWarehouseTableName}
+                                            personAvailable
                                         />
                                     ) : null}
                                 </>

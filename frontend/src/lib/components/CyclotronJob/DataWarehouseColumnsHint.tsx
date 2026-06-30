@@ -8,6 +8,9 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 export type DataWarehouseColumnsHintProps = {
     schemaColumns: DatabaseSchemaField[]
     tableName?: string
+    // Destinations resolve a person and event from the synced row, so `{person}`/`{event}` are valid
+    // globals there. Workflow triggers are row-scoped (no person/event), so they leave this false.
+    personAvailable?: boolean
 }
 
 /**
@@ -18,6 +21,7 @@ export type DataWarehouseColumnsHintProps = {
 export function DataWarehouseColumnsHint({
     schemaColumns,
     tableName,
+    personAvailable = false,
 }: DataWarehouseColumnsHintProps): JSX.Element | null {
     if (!schemaColumns.length) {
         return null
@@ -34,7 +38,13 @@ export function DataWarehouseColumnsHint({
                         <div className="flex flex-col gap-2">
                             <p className="mb-0 text-xs text-secondary">
                                 Use <code>{'{record.<column>}'}</code> in your templates to insert a value from the
-                                synced row. Click a column to copy its reference.
+                                synced row.{' '}
+                                {personAvailable ? (
+                                    <>
+                                        <code>{'{person}'}</code> and <code>{'{event}'}</code> are also available.{' '}
+                                    </>
+                                ) : null}
+                                Click a column to copy its reference.
                             </p>
                             <div className="flex flex-wrap gap-1">
                                 {schemaColumns.map((column) => (
