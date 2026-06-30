@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -499,13 +499,21 @@ export function processResultsForSurveyQuestions(
     return responsesByQuestion
 }
 
+// The query falls back to distinct_id when no display-name property is set, so only
+// treat the value as a real name when it differs from the distinct_id. Otherwise we
+// leave it undefined and let PersonDisplay render the id (and the async lookup retry).
+function resolvePersonDisplayName(value: unknown, distinctId: string): string | undefined {
+    return typeof value === 'string' && value && value !== distinctId ? value : undefined
+}
+
 function collectOpenChoiceResponses(
     question: MultipleSurveyQuestion,
     questionType: SurveyQuestionType,
     rows: any[][],
     columnIndex: number,
     distinctIdIdx: number,
-    timestampIdx: number
+    timestampIdx: number,
+    personDisplayNameIdx: number
 ): ChoiceQuestionResponseData[] {
     const predefined = new Set(question.choices ?? [])
     const otherData: ChoiceQuestionResponseData[] = []
@@ -524,14 +532,16 @@ function collectOpenChoiceResponses(
             choices = [rawValue as string]
         }
 
+        const distinctId = row[distinctIdIdx] as string
         for (const choice of choices) {
             if (choice && !predefined.has(choice)) {
                 otherData.push({
                     label: choice,
                     value: 1,
                     isPredefined: false,
-                    distinctId: row[distinctIdIdx] as string,
+                    distinctId,
                     timestamp: row[timestampIdx] as string,
+                    personDisplayName: resolvePersonDisplayName(row[personDisplayNameIdx], distinctId),
                 })
             }
         }
@@ -553,6 +563,7 @@ export function processOpenEndedResults(
     const distinctIdIdx = numCols
     const timestampIdx = numCols + 1
     const sessionIdIdx = numCols + 2
+    const personDisplayNameIdx = numCols + 3
     const result: ResponsesByQuestion = {}
 
     for (const [questionId, { columnIndex, type }] of Object.entries(columnMap)) {
@@ -563,11 +574,13 @@ export function processOpenEndedResults(
                 if (!value) {
                     continue
                 }
+                const distinctId = row[distinctIdIdx] as string
                 data.push({
-                    distinctId: row[distinctIdIdx] as string,
+                    distinctId,
                     response: value,
                     timestamp: row[timestampIdx] as string,
                     sessionId: (row[sessionIdIdx] as string) || undefined,
+                    personDisplayName: resolvePersonDisplayName(row[personDisplayNameIdx], distinctId),
                 })
             }
             result[questionId] = { type: SurveyQuestionType.Open, data, totalResponses: data.length }
@@ -576,7 +589,15 @@ export function processOpenEndedResults(
             if (!question) {
                 continue
             }
-            const otherData = collectOpenChoiceResponses(question, type, rows, columnIndex, distinctIdIdx, timestampIdx)
+            const otherData = collectOpenChoiceResponses(
+                question,
+                type,
+                rows,
+                columnIndex,
+                distinctIdIdx,
+                timestampIdx,
+                personDisplayNameIdx
+            )
             if (otherData.length > 0) {
                 result[questionId] = { type, data: otherData, totalResponses: 0, noResponseCount: 0 }
             }
@@ -993,8 +1014,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
+                const personDisplayNameProperties =
+                    teamLogic.values.currentTeam?.person_display_name_properties ||
+                    PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                 const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
-                const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
+                const openEndedResult = buildOpenEndedQuery(
+                    survey,
+                    queryFilters,
+                    values.dateRange,
+                    personDisplayNameProperties
+                )
 
                 const startMs = performance.now()
                 let aggregateDuration = 0
@@ -1214,11 +1243,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
             loadConsolidatedSurveyResultsSuccess: async ({ consolidatedSurveyResults }) => {
+                // The query already resolves most display names server-side; only look up
+                // the distinct_ids that still lack one (no display-name property at query time).
                 const distinctIds = new Set<string>()
                 for (const data of Object.values(consolidatedSurveyResults.responsesByQuestion)) {
                     for (const r of data.data) {
                         const id = 'distinctId' in r ? r.distinctId : undefined
-                        if (id) {
+                        if (id && !r.personDisplayName) {
                             distinctIds.add(id)
                         }
                     }
@@ -1955,7 +1986,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ...data,
                         data: data.data.map((r) => {
                             const id = 'distinctId' in r ? r.distinctId : undefined
-                            return id && personNames[id] ? { ...r, personDisplayName: personNames[id] } : r
+                            // Server-resolved names win; only the async fallback fills the gaps.
+                            return id && personNames[id] && !r.personDisplayName
+                                ? { ...r, personDisplayName: personNames[id] }
+                                : r
                         }),
                     } as typeof data
                 }

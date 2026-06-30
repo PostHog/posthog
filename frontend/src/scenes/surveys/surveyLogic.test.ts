@@ -2334,6 +2334,25 @@ describe('processOpenEndedResults', () => {
         })
     })
 
+    it('uses the server-resolved person display name when it differs from the distinct_id', () => {
+        const questions = [{ id: 'open-q1', type: SurveyQuestionType.Open as const, question: 'Tell us more' }]
+        const columnMap: OpenEndedColumnMap = {
+            'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
+        }
+        // Columns: [response, distinct_id, timestamp, session_id, person_display_name]
+        const rows = [
+            ['Great product!', 'user123', '2024-01-15T10:30:00Z', 'session-abc', 'jane@example.com'],
+            // No display-name property at query time: the query coalesces to the distinct_id, which we drop
+            ['Could be better', 'user456', '2024-01-15T11:45:00Z', '', 'user456'],
+        ]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const openData = result['open-q1'] as OpenQuestionProcessedResponses
+
+        expect(openData.data[0].personDisplayName).toBe('jane@example.com')
+        expect(openData.data[1].personDisplayName).toBeUndefined()
+    })
+
     it('collects non-predefined "Other" text from single choice with hasOpenChoice', () => {
         const questions = [
             {
