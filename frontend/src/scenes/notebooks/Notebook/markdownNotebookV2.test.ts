@@ -388,6 +388,85 @@ after`)
 | line1 line2 |`)
     })
 
+    it('converts legacy markdown ast alias nodes without losing structure', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'bullet_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'ordered_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'step' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'code_block',
+                    attrs: { language: 'sql' },
+                    content: [
+                        { type: 'text', text: 'select 1' },
+                        { type: 'hardBreak' },
+                        { type: 'text', text: 'select 2' },
+                    ],
+                },
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'table_row',
+                            content: [
+                                {
+                                    type: 'table_header',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Metric' }] }],
+                                },
+                                {
+                                    type: 'table_cell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                { type: 'text', text: 'Heads', marks: [{ type: 'strong' }] },
+                                { type: 'text', text: ' and ' },
+                                { type: 'text', text: 'note', marks: [{ type: 'em' }] },
+                            ],
+                        },
+                    ],
+                },
+                { type: 'ph-link', attrs: { href: 'https://app.posthog.com/cohorts/37958' } },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('- first')
+        expect(markdown).toContain('1. step')
+        expect(markdown).toContain('```sql\nselect 1\nselect 2\n```')
+        expect(markdown).toContain('| Metric | Value |')
+        expect(markdown).toContain('| --- | --- |')
+        expect(markdown).toContain('> ! **Heads** and *note*')
+        expect(markdown).toContain('[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
     it('produces markdown that parses without errors in the markdown notebook model', () => {
         const content: JSONContent = {
             type: 'doc',
