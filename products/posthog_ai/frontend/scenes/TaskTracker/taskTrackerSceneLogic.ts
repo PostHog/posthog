@@ -70,23 +70,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     forms(({ actions }) => ({
         taskCreateForm: {
             defaults: EMPTY_TASK_FORM,
-            // Only `description` is validated here: `repositoryConfig`'s fields are optional, so they don't map
-            // to a leaf error type. The repository is gated by the composer's `disabledReason` (the send button
-            // is disabled until one is picked) and re-checked defensively in `submit` below.
+            // Only `description` is validated here. `repositoryConfig` is optional — PostHog AI can run without a
+            // repo, so the send button is never gated on it; when set, the task is scoped to that repo/branch.
             errors: ({ description }) => ({
                 description: !description.trim() ? 'Description is required' : undefined,
             }),
             submit: async ({ description, repositoryConfig, model, reasoningEffort }) => {
-                if (!repositoryConfig.integrationId || !repositoryConfig.repository) {
-                    lemonToast.error('Repository is required')
-                    return
-                }
                 try {
                     const taskData: TaskUpsertProps = {
                         title: '',
                         description,
                         origin_product: OriginProduct.USER_CREATED,
-                        repository: repositoryConfig.repository,
+                        repository: repositoryConfig.repository ?? null,
                         github_integration: repositoryConfig.integrationId ?? null,
                     }
 
