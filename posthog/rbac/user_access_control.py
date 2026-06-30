@@ -391,8 +391,7 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row
-        # on every request (was causing Client:ClientWrite backpressure on Aurora under load).
+        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
         return list(
             AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
                 self._filter_options({"team_id": self._team.id})
