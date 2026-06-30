@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import HogVMException, get_nested_value, like
+from ..utils import HogVMException, _require_string, get_nested_value, like
 from .crypto import md5, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -968,12 +968,10 @@ def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[
 def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
     if args[1] is None or args[0] is None:
         return False
-    if not isinstance(args[0], str):
-        raise HogVMException(f"Function match requires input to be a string, got {type(args[0]).__name__}")
-    if not isinstance(args[1], str):
-        raise HogVMException(f"Function match requires pattern to be a string, got {type(args[1]).__name__}")
+    input_string = _require_string(args[0], "input", "match")
+    pattern = _require_string(args[1], "pattern", "match")
     try:
-        return re.search(re.compile(args[1]), args[0]) is not None
+        return re.search(re.compile(pattern), input_string) is not None
     except re.error as e:
         raise HogVMException(f"Invalid regex pattern: {e}") from e
 
