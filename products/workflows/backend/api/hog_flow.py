@@ -474,7 +474,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={"function_type": template.type},
+                    context={
+                        "function_type": template.type,
+                        "is_dwh_source": self.context.get("is_dwh_source", False),
+                    },
                 )
 
                 if not strict:
@@ -851,6 +854,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = self.instance.status
         if status != "active":
             self.context["is_draft"] = True
+
+        # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
+        # synced row. Flag it before child action validation so function-input compilation rewrites it.
+        actions = data.get("actions")
+        if actions is None and self.instance:
+            actions = self.instance.actions
+        self.context["is_dwh_source"] = any(
+            isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            for action in (actions or [])
+        )
         return super().to_internal_value(data)
 
     class Meta:
