@@ -100,7 +100,7 @@ def get_rows(
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if (resume is not None and resume.page) else 1
+    page = resume.page if resume is not None else 1
 
     while True:
         data = _fetch_page(session, url, headers, {"page": page, "page_size": PAGE_SIZE}, logger)

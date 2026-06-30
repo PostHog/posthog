@@ -1,10 +1,15 @@
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -53,6 +58,7 @@ class TestSourceConfig:
         fields = DropboxSignSource().get_source_config.fields
         assert len(fields) == 1
         field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
         assert field.name == "api_key"
         assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
@@ -151,7 +157,7 @@ class TestSourceForPipeline:
             _inputs(schema_name="signature_requests"),
         )
 
-        assert result == "response"
+        assert cast(Any, result) == "response"
         assert captured["api_key"] == "my-key"
         assert captured["endpoint"] == "signature_requests"
         assert captured["resumable_source_manager"] is manager

@@ -1,5 +1,5 @@
 import base64
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock
@@ -254,15 +254,15 @@ class TestRetryClassification:
         with pytest.raises(dropbox_sign.DropboxSignRetryableError):
             # Call the undecorated function body once via the public wrapper with a single attempt
             # would still retry; instead assert the classification directly.
-            dropbox_sign._fetch_page.__wrapped__(session, "http://x", {}, {}, MagicMock())
+            cast(Any, dropbox_sign._fetch_page).__wrapped__(session, "http://x", {}, {}, MagicMock())
 
     def test_client_error_raises_http_error(self) -> None:
         response = MagicMock()
         response.status_code = 400
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("400")
+        response.raise_for_status.side_effect = requests.HTTPError("400", response=cast(requests.Response, response))
         session = MagicMock()
         session.get.return_value = response
 
         with pytest.raises(requests.HTTPError):
-            dropbox_sign._fetch_page.__wrapped__(session, "http://x", {}, {}, MagicMock())
+            cast(Any, dropbox_sign._fetch_page).__wrapped__(session, "http://x", {}, {}, MagicMock())
