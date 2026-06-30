@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -76,15 +77,17 @@ class ImportDataActivityInputs:
 
 @database_sync_to_async_pool
 def _get_external_data_job(run_id: str) -> ExternalDataJob:
-    return ExternalDataJob.objects.prefetch_related(
-        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-    ).get(id=run_id)
+    return db_read_with_retry(
+        lambda: ExternalDataJob.objects.prefetch_related(
+            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+        ).get(id=run_id)
+    )
 
 
 @database_sync_to_async_pool
 def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDataSchema:
-    return (
-        ExternalDataSchema.objects.prefetch_related("source", "table")
+    return db_read_with_retry(
+        lambda: ExternalDataSchema.objects.prefetch_related("source", "table")
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
