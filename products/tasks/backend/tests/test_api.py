@@ -3342,13 +3342,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
+                "use_modal_directory_resume_snapshots": True,
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
         # credential-propagation target at a sandbox they control, inflate the run's compute /
         # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
-        # (which would mint a write-scoped wizard token into the sandbox). Non-protected keys merge.
+        # (which would mint a write-scoped wizard token into the sandbox), or change rollout
+        # decisions. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3361,6 +3363,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
+                    "use_modal_directory_resume_snapshots": False,
                     "scratch": "ok",
                 }
             },
@@ -3376,18 +3379,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
+        assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            {
+                "state": {},
+                "state_remove_keys": [
+                    "github_credential_source",
+                    "sandbox_id",
+                    "use_modal_directory_resume_snapshots",
+                    "scratch",
+                ],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
