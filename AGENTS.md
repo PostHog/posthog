@@ -72,7 +72,6 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 ### Pushing to remote
 
 Don't open GitHub issues or pull requests without human instruction.
-When you do open a PR (with human instruction), open it in Draft by default (`gh pr create --draft`). Draft PRs run only a narrow subset of CI, which saves a large amount of runner credits. Fix CI failures and run affected tests locally before marking the PR ready for review.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
