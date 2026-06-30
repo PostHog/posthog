@@ -10,7 +10,8 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 const ROW_HEIGHT = 33
 
 function dropRulesTooltip(ruleNames: string[]): string {
-    const count = `${ruleNames.length} drop rule${ruleNames.length > 1 ? 's' : ''} target this value`
+    const single = ruleNames.length === 1
+    const count = `${ruleNames.length} drop rule${single ? '' : 's'} ${single ? 'targets' : 'target'} this value`
     return `${count}: ${ruleNames.join(', ')}`
 }
 
