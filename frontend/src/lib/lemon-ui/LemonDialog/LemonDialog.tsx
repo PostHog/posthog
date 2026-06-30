@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
@@ -109,6 +110,12 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
                         try {
                             // eslint-disable-next-line @typescript-eslint/await-thenable
                             await button.onClick?.(e)
+                        } catch (error) {
+                            // The submit handler is responsible for surfacing the error to the user
+                            // (e.g. via a toast). Keep the dialog open so they can correct and retry,
+                            // and capture so genuine bugs aren't silently swallowed.
+                            posthog.captureException(error)
+                            return
                         } finally {
                             setIsLoading(false)
                             isLoadingCallback?.(false)
@@ -215,7 +222,15 @@ export const LemonFormDialog = ({
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
                           if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                              await onSubmit(form)
+                              try {
+                                  await onSubmit(form)
+                              } catch (error) {
+                                  // Mirror the button path: keep the dialog open on failure so the
+                                  // user can correct and retry, and capture instead of leaking an
+                                  // unhandled rejection.
+                                  posthog.captureException(error)
+                                  return
+                              }
                               ref?.current?.closeDialog()
                           }
                       }
