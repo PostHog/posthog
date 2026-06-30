@@ -704,6 +704,9 @@ def create_wizard_cloud_run(
     PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
     token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
     the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+
+    ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
+    run is explicitly attributed to them.
     """
     return create_and_run_task(
         team=team,
