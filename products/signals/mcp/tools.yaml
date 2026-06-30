@@ -229,6 +229,24 @@ tools:
             survives later transitions. Returns 409 if the transition is not allowed from the report's current status.
             To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per
             report.
+    inbox-reports-update:
+        operation: signals_reports_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Edit a signal report's title or summary
+        description: >
+            Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields
+            are optional — pass only the ones you want to change, but supply at least one. Use this to clarify a
+            report's title or rewrite its summary when you understand the underlying issue better than the
+            auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed
+            by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and
+            its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true

@@ -21,6 +21,7 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
+    _TracingSparklineRequestApi,
     _TracingTimeseriesRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
@@ -191,14 +192,14 @@ export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
 
 export const tracingSpansSparklineCreate = async (
     projectId: string,
-    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
+    _tracingSparklineRequestApi: _TracingSparklineRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingTimeseriesRequestApi),
+        body: JSON.stringify(_tracingSparklineRequestApi),
     })
 }
 

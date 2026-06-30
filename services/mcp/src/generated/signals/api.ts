@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 31 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -70,6 +70,44 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const SignalsReportsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsReportsPartialUpdateBodyTitleMax = 300
+
+export const signalsReportsPartialUpdateBodySummaryMax = 10000
+
+export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodyTitleMax)
+            .optional()
+            .describe('New human-facing title for the report. Omit to leave the title unchanged.'),
+        summary: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodySummaryMax)
+            .optional()
+            .describe(
+                "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged."
+            ),
+    })
+    .describe(
+        'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
+    )
 
 /**
  * Transition a report to a new state. The model validates allowed transitions.
