@@ -4369,6 +4369,8 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Postgresql: 'postgresql',
+    AwsS3: 'aws-s3',
+    S3Compatible: 's3-compatible',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
