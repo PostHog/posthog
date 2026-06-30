@@ -1079,7 +1079,7 @@ class EventbriteSourceConfig(config.Config):
 
 @config.config
 class EventeeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
