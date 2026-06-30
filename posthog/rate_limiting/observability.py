@@ -93,11 +93,19 @@ class EgressObservability:
         method: str | None = None,
         endpoint: str | None = None,
     ) -> None:
-        # Read request via getattr on the response: some responses (and test mocks) don't carry a
-        # .request, and accessing it directly would raise rather than fall back to the defaults.
+        # The response's .request (and its method/url) may be absent or non-string — a response built
+        # without a prepared request, or a test mock whose attributes are themselves Mocks. Coerce to
+        # str-or-None so a recorder never raises into the request flow: telemetry is best-effort, and a
+        # urlparse(Mock) blowing up here must not fail the actual GitHub call.
         request = getattr(response, "request", None)
-        method_label = (method or getattr(request, "method", None) or "GET").upper()
-        endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(getattr(request, "url", None))
+        req_method = getattr(request, "method", None)
+        req_url = getattr(request, "url", None)
+        method_label = (method or (req_method if isinstance(req_method, str) else None) or "GET").upper()
+        endpoint_label = (
+            endpoint
+            if endpoint is not None
+            else self._normalize_endpoint(req_url if isinstance(req_url, str) else None)
+        )
         self._metrics.request_counter.labels(
             scope or "", method_label, endpoint_label, str(response.status_code), source
         ).inc()

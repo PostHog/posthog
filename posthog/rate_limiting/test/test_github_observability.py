@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from django.test import SimpleTestCase
 
 import requests
@@ -152,6 +154,27 @@ class TestGithubObservability(SimpleTestCase):
     def test_unregistered_domain_raises(self) -> None:
         with self.assertRaises(ValueError):
             resolve_egress_observability("definitely-not-registered")
+
+    def test_records_without_crashing_when_request_is_a_mock(self) -> None:
+        # A MagicMock response auto-vivifies .request.url / .request.method as Mocks (non-str);
+        # the recorder must coerce them to defaults, not raise urlparse(Mock) into the caller.
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = CaseInsensitiveDict({})
+        record_github_api_response(response, source="unit-mockreq")
+        self.assertEqual(
+            REGISTRY.get_sample_value(
+                _COUNTER,
+                {
+                    "integration_id": "",
+                    "method": "GET",
+                    "endpoint": "unknown",
+                    "status_code": "200",
+                    "source": "unit-mockreq",
+                },
+            ),
+            1,
+        )
 
     def test_exception_record_uppercases_method(self) -> None:
         record_github_api_exception(source="unit-exc", method="get", endpoint="/foo")
