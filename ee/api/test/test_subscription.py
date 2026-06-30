@@ -287,6 +287,84 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         self.mock_temporal_client.start_workflow.assert_called_once()
 
+    def test_update_integration_swap_fires_delivery(self):
+        # Slack routing depends on the connected workspace, not just target_value — swapping the
+        # integration while keeping target_type/target_value unchanged must still fire a confirmation.
+        old_integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        new_integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="slack",
+            target_value="#general",
+            integration=old_integration,
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"integration_id": new_integration.id},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_called_once()
+
+    def test_update_dashboard_export_insights_change_fires_delivery(self):
+        # Changing which insights a dashboard subscription exports is delivery-relevant (the M2M branch
+        # of the change check, not the scalar comparison), so it must fire a confirmation.
+        self.dashboard.tiles.create(insight=self.insight)
+        other_insight = Insight.objects.create(team=self.team, name="other")
+        self.dashboard.tiles.create(insight=other_insight)
+        sub_id = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "dashboard": self.dashboard.id,
+                "dashboard_export_insights": [self.insight.id],
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Dash",
+            },
+        ).json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"dashboard_export_insights": [self.insight.id, other_insight.id]},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_called_once()
+
+    def test_update_resubmitting_same_dashboard_export_insights_does_not_fire(self):
+        # Re-submitting the identical export set is not a delivery-relevant change — the set comparison
+        # must short-circuit so a meta-only edit that echoes the M2M payload doesn't re-fire a delivery.
+        self.dashboard.tiles.create(insight=self.insight)
+        sub_id = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "dashboard": self.dashboard.id,
+                "dashboard_export_insights": [self.insight.id],
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Dash",
+            },
+        ).json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"dashboard_export_insights": [self.insight.id], "title": "Renamed"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_can_create_dashboard_subscription_with_dashboard_export_insights(self):
         self.dashboard.tiles.create(insight=self.insight)
         response = self.client.post(

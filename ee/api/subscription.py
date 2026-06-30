@@ -128,6 +128,21 @@ class DashboardExportInsightsField(serializers.Field):
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
+    # Scalar fields whose value defines *what* (and where) gets delivered. A change to any of these
+    # warrants an immediate confirmation delivery on update; schedule/meta edits (frequency, interval,
+    # title, summary_*, …) must not re-fire one. `integration_id` is delivery-relevant because Slack
+    # routing depends on the connected workspace, not just `target_value`. The dashboard_export_insights
+    # M2M is also delivery-relevant but is popped from validated_data and compared separately in update()
+    # (it can't live in this scalar set).
+    DELIVERY_RELEVANT_FIELDS: ClassVar[tuple[str, ...]] = (
+        "target_value",
+        "target_type",
+        "integration_id",
+        "prompt",
+        "insight_id",
+        "dashboard_id",
+    )
+
     created_by = UserBasicSerializer(read_only=True)
     summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
     invite_message = serializers.CharField(
@@ -673,19 +688,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             )
 
         return instance
-
-    # Scalar fields whose value defines *what* gets delivered. A change to any of these
-    # warrants an immediate confirmation delivery on update; schedule/meta edits
-    # (frequency, interval, title, summary_*, …) must not re-fire one. The
-    # dashboard_export_insights M2M is also delivery-relevant but is popped from
-    # validated_data and compared separately in update() (it can't live in this scalar set).
-    DELIVERY_RELEVANT_FIELDS: ClassVar[tuple[str, ...]] = (
-        "target_value",
-        "target_type",
-        "prompt",
-        "insight_id",
-        "dashboard_id",
-    )
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
