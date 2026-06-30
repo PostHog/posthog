@@ -803,3 +803,49 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         self._call_verify(request)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.QUEUED)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminDuplicate(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _call_duplicate(self, queryset):
+        http_request = self.factory.post("/admin/posthog/datadeletionrequest/")
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            self.admin.duplicate_requests(http_request, queryset)
+
+    def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self):
+        original = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            notes="please be careful",
+            status=RequestStatus.COMPLETED,
+            count=42,
+            approved=True,
+            approved_at=datetime.now(),
+            attempt_count=3,
+        )
+
+        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        self.assertEqual(copy.team_id, original.team_id)
+        self.assertEqual(copy.events, ["$pageview"])
+        self.assertEqual(copy.status, RequestStatus.DRAFT)
+        self.assertIsNone(copy.count)
+        self.assertFalse(copy.approved)
+        self.assertEqual(copy.attempt_count, 0)
+        self.assertEqual(copy.created_by, self.user)
+        self.assertIn(str(original.pk), copy.notes)
+        self.assertIn("Copy of data deletion request", copy.notes)
+        self.assertIn("please be careful", copy.notes)
