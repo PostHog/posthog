@@ -45,7 +45,7 @@ from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search, normalize_search_term
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
@@ -1381,11 +1381,11 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Match against cohort `name` and `description`. Returns case-insensitive "
-                    "substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) "
-                    "together, ordered exact-first then by relevance; each result's `search_match_type` is "
-                    "`exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 "
-                    "characters; longer queries return a 400 error."
+                    "Optional. Match against cohort `name`. Returns case-insensitive substring matches and "
+                    "fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered "
+                    "exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. "
+                    "When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries "
+                    "return a 400 error."
                 ),
             ),
             OpenApiParameter(
@@ -1445,14 +1445,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     queryset,
                     search,
                     span_prefix="cohort.search",
-                    fields=(NAME_FIELD, DESCRIPTION_FIELD),
+                    fields=(NAME_FIELD,),
                     tiebreakers=("-created_at",),
                 )
 
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        is_search = self.action == "list" and bool(self.request.query_params.get("search"))
+        # Match apply_trigram_search's own normalization: a whitespace/NUL-only term is a no-op
+        # there, so treat it as not-a-search and keep the default ordering (else the list has no
+        # ORDER BY and paginates non-deterministically).
+        is_search = self.action == "list" and bool(normalize_search_term(self.request.query_params.get("search", "")))
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 

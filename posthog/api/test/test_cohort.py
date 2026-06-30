@@ -1647,6 +1647,15 @@ email@example.org,
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert "200 characters" in response.json()["detail"]
 
+    @parameterized.expand([("whitespace", "%20%20"), ("empty", "")])
+    def test_cohort_list_blank_search_keeps_default_ordering(self, _name, search):
+        older = Cohort.objects.create(team=self.team, name="older", created_by=self.user)
+        newer = Cohort.objects.create(team=self.team, name="newer", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
+
+        assert [c["id"] for c in response["results"]] == [newer.id, older.id]
+
     def test_cohort_list_with_type_filter(self):
         create_person(team=self.team, properties={"prop": 5})
 
