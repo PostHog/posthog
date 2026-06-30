@@ -98,7 +98,10 @@ export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
     constructor(redis: RedisV2, ttlSeconds: number) {
-        this.rateLimiter = new KeyedRateLimiterService({ name: 'logs-sampling-rate', ttlSeconds }, redis)
+        this.rateLimiter = new KeyedRateLimiterService(
+            { name: 'logs-sampling-rate', ttlSeconds, scriptVersion: 'v3' },
+            redis
+        )
     }
 
     @instrumented({
@@ -242,6 +245,7 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
+        const nowSeconds = Date.now() / 1000
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
         const entries: Entry[] = []
 
@@ -261,6 +265,7 @@ export class LogsSamplingService {
                     cost: totalCost,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
+                    now: nowSeconds,
                 },
             })
         }

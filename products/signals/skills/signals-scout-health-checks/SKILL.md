@@ -1,15 +1,9 @@
 ---
 name: signals-scout-health-checks
 description: >
-  Focused Signals scout for PostHog setup health. Reads the project's active health
-  issues — the deterministic findings of PostHog's own health checks (no live events,
-  outdated SDKs, missing reverse proxy, absent web vitals, ingestion warnings, failing
-  data-warehouse models, and more) — and decides which are genuinely worth surfacing.
-  Unlike a one-signal-per-issue push, it bundles kind-clusters into a single finding,
-  weights by real blast radius (cross-referencing actual event volume and reach), and
-  prioritizes issues an agent can resolve via the MCP. Emits only above the confidence
-  bar; otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet — no dependencies on other skills.
+  Signals scout over PostHog's own health checks. Reads the project's active health issues,
+  bundles them by kind, weights by blast radius, and surfaces the ones genuinely worth acting
+  on.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

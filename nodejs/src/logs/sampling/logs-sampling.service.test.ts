@@ -72,7 +72,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [2, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -115,7 +115,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -154,7 +154,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -200,7 +200,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -250,5 +250,41 @@ describe('LogsSamplingService', () => {
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)
+    })
+
+    it('passes a sub-second timestamp to the rate limiter so refill is continuous within a second', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-1',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [baseLog('a', 'api', 100)])
+
+        const nowMs = 1_700_000_000_400
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(nowMs)
+        const checkRateLimitV3 = jest.fn()
+
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                cb({ checkRateLimitV3 } as unknown as RedisClientPipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+
+        const nowArg = checkRateLimitV3.mock.calls[0]![1]
+        expect(nowArg).toBe(nowMs / 1000)
+        expect(Number.isInteger(nowArg)).toBe(false)
+
+        nowSpy.mockRestore()
     })
 })

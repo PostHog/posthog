@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isEmailAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
@@ -49,6 +49,8 @@ export type EmailMetricRow = {
     sent: number
     opened: number
     linkClicked: number
+    bounced: number
+    blocked: number
 }
 
 export const WORKFLOW_SUMMARY_METRICS: Record<
@@ -148,6 +150,38 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: getColorVar('danger'),
         metricNames: ['email_spam'],
     },
+}
+
+// Email metrics whose SES events also write per-invocation log entries (see the SES webhook
+// handler). Clicking the tile drills into the Invocations tab filtered to those log entries.
+// The `search` term matches the start of the log message the handler emits (e.g. "Permanent
+// bounce to …"), so it surfaces every invocation that logged that failure in the timeframe.
+export const EMAIL_METRIC_LOG_FILTERS: Partial<Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>> = {
+    email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
+    email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
+    // email_failed (RenderingFailure + Reject) is intentionally omitted: its two SES events emit
+    // differently-worded messages ("Rendering failure …" vs "Message rejected by SES …") with no
+    // shared substring, and filtering by ERROR level alone would also catch permanent bounces.
+    // A reliable drill-down would need the log writer to emit a stable machine token to match on.
+}
+
+// Build the router search params that point the Invocations (logs) tab at the invocations whose
+// log entries match the given email metric over the metrics view's current timeframe.
+export function buildEmailMetricLogSearchParams(
+    metricKey: EmailMetric,
+    dateFrom: string,
+    dateTo: string
+): Record<string, string | string[]> | null {
+    const filter = EMAIL_METRIC_LOG_FILTERS[metricKey]
+    if (!filter) {
+        return null
+    }
+    return {
+        search: filter.search,
+        levels: filter.levels,
+        date_from: dateFrom,
+        date_to: dateTo,
+    }
 }
 
 const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSummaryMetric[]).filter(
@@ -436,6 +470,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         sent: totals.email_sent ?? 0,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
+                        bounced,
+                        blocked,
                     }
                 }),
         ],

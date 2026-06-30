@@ -8,6 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import { engineeringAnalyticsWorkflowJobs, engineeringAnalyticsWorkflowRun } from '../generated/api'
 import type { WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
 import type { workflowRunDetailLogicType } from './workflowRunDetailLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -68,6 +69,9 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     selectors({
         // Exposed so the scene can preserve `?source=` when linking out to the PR detail.
         sourceId: [() => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
+        // The run's own CI cost, summed from the jobs already loaded for the breakdown table — no extra
+        // query. null until jobs load or when nothing on the run is billable. Mirrors the PR page's tile.
+        runCost: [(s) => [s.jobs], (jobs): RunCostSummary | null => (jobs ? summarizeRunCost(jobs) : null)],
         // A non-numeric path segment yields NaN — the scene shows a clean "not found" instead of a load error.
         isValidRunId: [
             () => [(_, p: WorkflowRunDetailLogicProps) => p.runId],

@@ -1425,6 +1425,31 @@ class TestExecuteHogEvalActivity:
         assert "NoneType" not in result["reasoning"]
 
     @pytest.mark.asyncio
+    async def test_hog_eval_comparison_type_error_returns_skipped(self):
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
+        assert "Unexpected error during evaluation" not in result["reasoning"]
+
+    @pytest.mark.asyncio
     async def test_hog_eval_unexpected_error_raises(self):
         from posthog.cdp.validation import compile_hog
 

@@ -148,7 +148,6 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -449,6 +448,19 @@ def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDT
     """Fetch a sandbox snapshot as a DTO."""
     snapshot = SandboxSnapshot.objects.filter(id=snapshot_id).first()
     return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
+
+
+def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> list[contracts.TaskDTO]:
+    """Tasks matching the supplied ids, restricted to ``team_ids``.
+
+    For multi-team callers (e.g. the Slack App Home Tasks card) that already resolved the
+    set of accessible teams upstream and need a bulk DTO fetch in one query.
+    """
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return []
+    return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
@@ -1733,16 +1745,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
-
-
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Raw session-log JSONL for a run. ``None`` if the run isn't found."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return object_storage.read(run.log_url, missing_ok=True) or ""
 
 
 def create_task_run_connection_token(
