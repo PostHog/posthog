@@ -62,6 +62,7 @@ class NotificationArchiveState(UUIDModel):
     user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
+        db_constraint=False,
         related_name="notification_archive_states",
     )
     created_at = models.DateTimeField(auto_now_add=True)
