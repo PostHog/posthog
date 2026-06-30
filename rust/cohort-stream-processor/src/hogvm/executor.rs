@@ -132,9 +132,11 @@ fn outcome_to_bool(outcome: EvalOutcome) -> bool {
             // distinct name once at info — the counter already tracks volume, so a per-event line
             // would be spam.
             counter!(STAGE1_HOGVM_UNKNOWN_FUNCTION).increment(1);
-            if !SEEN_UNKNOWN_FNS.contains(name.as_str()) {
+            // Steady state is a read-only `contains` (no allocation; the same handful of names recur
+            // forever). Only on first sight do we clone-and-insert: `insert` returns `true` for
+            // exactly one thread, so the log fires once even when several race past `contains` at once.
+            if !SEEN_UNKNOWN_FNS.contains(name.as_str()) && SEEN_UNKNOWN_FNS.insert(name.clone()) {
                 info!(function = %name, "cohort bytecode called a function with no registered Rust native");
-                SEEN_UNKNOWN_FNS.insert(name); // move in — name unused after the log
             }
             false
         }
