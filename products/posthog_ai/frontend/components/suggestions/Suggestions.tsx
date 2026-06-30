@@ -5,6 +5,7 @@ import { createContext, type ReactNode, useContext, useEffect, useRef } from 're
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { cn } from 'lib/utils/css-classes'
 
 // Radix-style compound suggestions surface: a logic-free button row ("Try PostHog AI for…") plus an
@@ -87,9 +88,35 @@ function SuggestionsRoot({
         onActiveGroupChange(null)
     }
 
+    // The dropdown dismisses on Esc or a click anywhere outside the suggestions subtree. The `contents`
+    // wrapper is layout-transparent (it doesn't establish a box or positioning context, so the flex layout
+    // and the dropdown's absolute positioning are unchanged) but gives `useOutsideClickHandler` one node that
+    // spans every slot — so clicking another category button to switch groups doesn't count as "outside".
+    const rootRef = useRef<HTMLDivElement | null>(null)
+    useOutsideClickHandler([rootRef], () => {
+        if (activeGroup) {
+            onActiveGroupChange(null)
+        }
+    })
+
+    useEffect(() => {
+        if (!activeGroup) {
+            return
+        }
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                onActiveGroupChange(null)
+            }
+        }
+        document.addEventListener('keydown', handleKeyDown)
+        return () => document.removeEventListener('keydown', handleKeyDown)
+    }, [activeGroup, onActiveGroupChange])
+
     return (
         <SuggestionsContext.Provider value={{ activeGroup, handleGroupClick, handleSelect, disabled, disabledReason }}>
-            {children}
+            <div ref={rootRef} className="contents">
+                {children}
+            </div>
         </SuggestionsContext.Provider>
     )
 }

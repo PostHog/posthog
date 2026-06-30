@@ -35,10 +35,12 @@ export function TaskComposer(): JSX.Element {
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
                 <Welcome headline={headline} />
 
-                <RepositorySelector
-                    value={taskCreateForm.repositoryConfig}
-                    onChange={(config) => setTaskCreateFormValues({ repositoryConfig: config })}
-                />
+                <div className="w-full">
+                    <RepositorySelector
+                        value={taskCreateForm.repositoryConfig}
+                        onChange={(config) => setTaskCreateFormValues({ repositoryConfig: config })}
+                    />
+                </div>
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
