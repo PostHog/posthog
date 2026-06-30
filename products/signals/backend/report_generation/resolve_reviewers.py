@@ -8,9 +8,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery
+from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Lower
+from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
@@ -269,8 +269,14 @@ def list_project_members(
     """
     users = team.all_users_with_access()
     if search:
-        users = users.filter(
-            Q(email__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
+        # Match the search against email, each name part, AND the concatenated full name, so a
+        # display-name query like "Jane Doe" still finds a member stored as first_name="Jane",
+        # last_name="Doe" — not just one whose email happens to contain the whole phrase.
+        users = users.annotate(_full_name=Concat("first_name", Value(" "), "last_name")).filter(
+            Q(email__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+            | Q(_full_name__icontains=search)
         )
     users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
     return [

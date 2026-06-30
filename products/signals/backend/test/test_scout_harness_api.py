@@ -1448,15 +1448,24 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert by_email[self.user.email]["user_uuid"] == str(self.user.uuid)
         assert by_email["second@posthog.com"]["github_login"] is None
 
-    def test_search_narrows_the_roster_by_email_or_name(self) -> None:
+    @parameterized.expand(
+        [
+            # a single token matches an email / one name part …
+            ("single_token", "alice", {"alice@posthog.com"}),
+            # … and a full display name matches the concatenated first+last, not just one field —
+            # the case a naive per-field filter misses (regression guard for the search predicate).
+            ("full_display_name", "jane doe", {"jane@posthog.com"}),
+        ]
+    )
+    def test_search_narrows_the_roster(self, _name: str, query: str, expected_emails: set[str]) -> None:
         # `search` is the bound on a large roster — it must filter to matching email/name so a scout
         # can pull just the owner instead of the whole directory. Case-insensitive substring.
         User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
-        User.objects.create_and_join(self.organization, "bob@posthog.com", None, first_name="Bob")
-        response = self.client.get(f"{self._url()}?search=alice")
+        User.objects.create_and_join(self.organization, "jane@posthog.com", None, first_name="Jane", last_name="Doe")
+        response = self.client.get(self._url(), data={"search": query})
         assert response.status_code == status.HTTP_200_OK
         emails = {row["email"] for row in response.json()}
-        assert emails == {"alice@posthog.com"}
+        assert emails == expected_emails
 
     def test_does_not_leak_members_from_another_org(self) -> None:
         other_org = Organization.objects.create(name="Other Org")
