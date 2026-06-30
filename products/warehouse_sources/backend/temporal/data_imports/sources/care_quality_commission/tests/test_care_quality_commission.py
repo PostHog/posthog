@@ -77,7 +77,7 @@ class TestFetch:
         response = MagicMock()
         response.status_code = status
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status} error", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
@@ -107,7 +107,7 @@ def _collect(
         return result
 
     monkeypatch.setattr(cqc, "_fetch", fake_fetch)
-    monkeypatch.setattr(cqc, "make_tracked_session", lambda: MagicMock())
+    monkeypatch.setattr(cqc, "make_tracked_session", lambda **kwargs: MagicMock())
 
     rows: list[dict] = []
     for table in get_rows(
@@ -173,16 +173,17 @@ class TestGetRowsFanOut:
         }
         assert _collect(_FakeResumableManager(), monkeypatch, pages) == []
 
-    def test_skips_records_without_id(self, monkeypatch: Any) -> None:
+    def test_record_without_id_raises(self, monkeypatch: Any) -> None:
+        # A list record missing its id field is an API contract violation — fail fast with a
+        # KeyError rather than silently dropping the row.
         pages = {
             f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-A"}, {"name": "no id"}],
+                "providers": [{"name": "no id"}],
                 "totalPages": 1,
             },
-            f"{CQC_BASE_URL}/providers/1-A?partnerCode=PC": {"providerId": "1-A"},
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [{"providerId": "1-A"}]
+        with pytest.raises(KeyError):
+            _collect(_FakeResumableManager(), monkeypatch, pages)
 
     def test_resume_skips_already_synced_pages(self, monkeypatch: Any) -> None:
         # Saved state says page 2; page 1 must not be fetched again.
@@ -233,11 +234,11 @@ class TestValidateCredentials:
         response.status_code = status
         session = MagicMock()
         session.get.return_value = response
-        with patch.object(cqc, "make_tracked_session", lambda: session):
+        with patch.object(cqc, "make_tracked_session", lambda **kwargs: session):
             assert cqc.validate_credentials("key", "PC") is expected
 
     def test_network_error_is_invalid(self) -> None:
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(cqc, "make_tracked_session", lambda: session):
+        with patch.object(cqc, "make_tracked_session", lambda **kwargs: session):
             assert cqc.validate_credentials("key", "PC") is False

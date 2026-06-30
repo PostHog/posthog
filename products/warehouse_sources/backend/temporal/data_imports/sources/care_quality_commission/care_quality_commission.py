@@ -98,7 +98,10 @@ def validate_credentials(api_key: str, partner_code: str | None) -> bool:
     # depending on any particular record existing.
     url = _build_url("/providers", {"page": 1, "perPage": 1, "partnerCode": partner_code})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=30)
+        # `redact_values` scrubs the subscription key from logged URLs and captured HTTP samples;
+        # `allow_redirects=False` stops a 30x from forwarding the credentialed header off-host.
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(url, headers=_get_headers(api_key), timeout=30)
         return response.status_code == 200
     except Exception:
         return False
@@ -130,9 +133,9 @@ def _iter_detail_rows(
         total_pages = list_data.get("totalPages") or page
 
         for item in items:
-            record_id = item.get(config.id_field)
-            if not record_id:
-                continue
+            # Direct access: a list record missing its id field is an API contract violation worth
+            # surfacing as a KeyError rather than silently skipping the row.
+            record_id = item[config.id_field]
 
             detail = _fetch(
                 session,
@@ -167,8 +170,10 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every list page and detail call so urllib3 keeps the connection
-    # alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # alive instead of re-handshaking per request. `redact_values` scrubs the subscription key
+    # from logged URLs and captured HTTP samples; `allow_redirects=False` stops a 30x from
+    # forwarding the credentialed header off-host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_page = resume.page if resume is not None else 1

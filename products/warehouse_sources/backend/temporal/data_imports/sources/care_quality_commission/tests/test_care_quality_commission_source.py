@@ -40,7 +40,7 @@ class TestSourceConfig:
         assert config.unreleasedSource is None
 
     def test_fields(self) -> None:
-        fields = {f.name: f for f in CareQualityCommissionSource().get_source_config.fields}
+        fields: dict[str, Any] = {f.name: f for f in CareQualityCommissionSource().get_source_config.fields}
         assert set(fields) == {"api_key", "partner_code"}
         # The subscription key is the secret; the partner code is an optional throttling hint.
         assert fields["api_key"].required is True
@@ -156,7 +156,7 @@ class TestSourceForPipeline:
         inputs = MagicMock()
         inputs.schema_name = "providers"
         manager = MagicMock()
-        result = CareQualityCommissionSource().source_for_pipeline(
+        result: Any = CareQualityCommissionSource().source_for_pipeline(
             _config(api_key="k", partner_code="P1"), manager, inputs
         )
 

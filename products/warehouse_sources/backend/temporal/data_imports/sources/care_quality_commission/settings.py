@@ -15,7 +15,9 @@ class CQCEndpointConfig:
     id_field: str
     # Detail endpoint template fetched per id for the full record (e.g. "/providers/{id}").
     detail_path: str
-    primary_keys: list[str] = field(default_factory=lambda: ["providerId"])
+    # Required, no default: each endpoint has its own key (providerId vs locationId), so a generic
+    # default would silently mis-key any future endpoint that forgot to set it.
+    primary_keys: list[str]
     # Stable date field used for datetime partitioning. `registrationDate` is the date the
     # provider/location first registered with CQC — it never changes once set, unlike rating
     # or inspection dates which move on every re-inspection.
