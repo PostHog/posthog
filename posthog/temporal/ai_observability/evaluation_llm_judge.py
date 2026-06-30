@@ -27,6 +27,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
@@ -172,6 +173,7 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
 
 
 @temporalio.activity.defn
+@close_db_connections
 @posthoganalytics.scoped()
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
