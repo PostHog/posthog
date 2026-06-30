@@ -6,6 +6,7 @@ use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
+use limiters::redis::QuotaResource;
 use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
@@ -274,8 +275,17 @@ async fn ai_handler_inner(
     let gw_trusted = gw_outcome == gp::Provenance::Verified && !gw_request_id.is_empty();
 
     // Step 4: Check quota limiter - drop if over quota. Gateway-verified events are
-    // wallet-billed (not AIO), so they bypass it.
+    // wallet-billed, so they're exempt from the scoped LLM-events quota — but still
+    // subject to the team's global Events quota (matching the v1 flow), so the trusted
+    // path can't become a global-quota bypass.
     let event_metadata = if gw_trusted {
+        if state
+            .quota_limiter
+            .is_quota_limited_v1(token, &QuotaResource::Events)
+            .await
+        {
+            return Err(CaptureError::BillingLimit);
+        }
         event_metadata
     } else {
         // We pass a single-element vec and check if it's filtered out

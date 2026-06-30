@@ -3211,3 +3211,52 @@ async fn test_ai_endpoint_forged_marker_is_stripped() {
         "a forged $ai_gateway_verified with an invalid signature must be stripped"
     );
 }
+
+// Over the global Events quota (the team-wide cap, not the scoped LLM one), with
+// the signing secret set.
+fn setup_ai_router_global_quota_limited_with_secret(token: &str) -> (Router, CapturingSink) {
+    let events_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&events_key, vec![token.to_string()]));
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    ai_router(redis, quota_limiter)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_verified_gateway_event_still_subject_to_global_quota() {
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+    let (router, sink) = setup_ai_router_global_quota_limited_with_secret(token);
+    let client = TestClient::new(router);
+
+    let distinct_id = "user-7";
+    let request_id = "req-global-limited";
+    let sig = capture::v1::gateway_provenance::sign_for_test(
+        GW_SECRET.as_bytes(),
+        token,
+        distinct_id,
+        request_id,
+        DEFAULT_TEST_TIME,
+    );
+    let form = create_ai_event_form(
+        "$ai_generation",
+        distinct_id,
+        json!({"$ai_model": "claude"}),
+    );
+    let resp =
+        send_signed_ai_request(&client, form, token, &sig, DEFAULT_TEST_TIME, request_id).await;
+
+    // Verified gateway events are exempt from the scoped LLM quota but not the
+    // global Events quota, so an over-global-quota token is still rejected.
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        sink.get_events().await.len(),
+        0,
+        "verified gateway event must still obey the global Events quota"
+    );
+}
