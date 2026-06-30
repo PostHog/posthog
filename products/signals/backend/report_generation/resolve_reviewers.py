@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from django.db.models import Expression, Prefetch, QuerySet, Subquery
+from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Lower
 
@@ -238,59 +238,50 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     return user_uuid_to_login
 
 
+MAX_PROJECT_MEMBERS = 200
+
+
 @dataclass
-class OrgMemberIdentity:
-    """One org member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
+class ProjectMemberIdentity:
+    """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
 
     user_uuid: str
     email: str
     first_name: str
     last_name: str
-    level: int
     github_login: str | None
 
 
-def list_org_members_for_team(team_id: int) -> list[OrgMemberIdentity]:
-    """Every member of the team's org, with their UUID/email/name/level and resolved GitHub login.
+def list_project_members(
+    team: Team, *, search: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+) -> list[ProjectMemberIdentity]:
+    """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
 
     Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
     that can't read an owner off a fetched entity's ``created_by`` and has no cached
-    ``reviewer:<area>`` memory or inbox precedent. Two queries — the membership roster, then the
-    GitHub identity prefetch for the same users (``get_github_login`` reads the same prefetched
-    relations the reviewer resolver uses, so a member with no linked GitHub identity gets a null
-    login rather than dropping out). Scoped to the team's org, so it returns exactly the people who
-    (on an open project) can act on the team — the same boundary reviewer resolution already uses.
+    ``reviewer:<area>`` memory or inbox precedent. Scoped via ``Team.all_users_with_access()`` so
+    private-project access control is honored — a scout on a private project sees only the people who
+    can actually act on it, not the whole org roster — and inactive users are excluded.
+    ``get_github_login`` reads the same prefetched relations the reviewer resolver uses, so a member
+    with no linked GitHub identity gets a null login rather than dropping out. ``search``
+    (case-insensitive, over email + name) narrows the roster; the result is capped at ``limit`` so a
+    large org can't push its whole directory into the scout's context in one call.
     """
-    try:
-        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
-    except Team.DoesNotExist:
-        return []
-
-    memberships = list(
-        OrganizationMembership.objects.filter(organization_id=org_id).select_related("user").order_by("user_id")
-    )
-    if not memberships:
-        return []
-
-    login_by_uuid: dict[str, str] = {}
-    users = User.objects.filter(pk__in=[membership.user.pk for membership in memberships]).prefetch_related(
-        *_github_identity_prefetches()
-    )
-    for user in users:
-        login = user.get_github_login()
-        if login:
-            login_by_uuid[str(user.uuid)] = login.lower()
-
-    return [
-        OrgMemberIdentity(
-            user_uuid=str(membership.user.uuid),
-            email=membership.user.email,
-            first_name=membership.user.first_name,
-            last_name=membership.user.last_name,
-            level=membership.level,
-            github_login=login_by_uuid.get(str(membership.user.uuid)),
+    users = team.all_users_with_access()
+    if search:
+        users = users.filter(
+            Q(email__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
         )
-        for membership in memberships
+    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
+    return [
+        ProjectMemberIdentity(
+            user_uuid=str(user.uuid),
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            github_login=(login.lower() if (login := user.get_github_login()) else None),
+        )
+        for user in users
     ]
 
 

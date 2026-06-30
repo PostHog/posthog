@@ -270,9 +270,9 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         assert "suggested_reviewers" in prompt
-        # The standalone suggested-reviewers deep-dive — where `signals-scout-members-list` is named —
-        # rides the author-time section, so it drops for an edit-only scout along with that section.
-        assert "signals-scout-members-list" not in prompt
+        # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
+        # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
+        assert "signals-scout-members-list" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

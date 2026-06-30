@@ -20,6 +20,7 @@ token is already pinned to the team.
 from __future__ import annotations
 
 import uuid
+import dataclasses
 from dataclasses import dataclass
 
 import structlog
@@ -50,7 +51,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
-from products.signals.backend.report_generation.resolve_reviewers import list_org_members_for_team
+from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
     ensure_scout_category,
@@ -78,6 +79,7 @@ from products.signals.backend.scout_harness.serializers import (
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMemberSerializer,
+    ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
@@ -1101,22 +1103,25 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     scout tool. Every scout posture (baseline and report-channel) carries the internal scope, so any scout
     can route, but it's only useful to a report-channel scout setting `suggested_reviewers`.
 
-    The roster is the team's org membership (resolved server-side, not over the OAuth permission layer),
-    which is why the org-nested `org-members-list` tool — stripped from a scoped-team token's catalog and
-    403'd by the org-nested permission gate — can't serve this and a project-nested tool can.
+    The roster is resolved server-side (a plain ORM read via `Team.all_users_with_access()`, not a DRF
+    request through the OAuth permission layer), which is why the org-nested `org-members-list` tool —
+    stripped from a scoped-team token's catalog and 403'd by the org-nested permission gate — can't serve
+    this and a project-nested tool can. Scoping through `all_users_with_access()` (not the whole org) keeps
+    a scout on a private project from enumerating members who lack access to it.
     """
 
     serializer_class = ScoutMemberSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout_internal"
-    # No team-scoped model backs this endpoint — members come from org membership, resolved by the
-    # harness helper. A queryset is still required to satisfy the team/org viewset mixin; `list` never
-    # reads it. Mirrors `SignalScoutMetadataViewSet`.
+    # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
+    # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors
+    # `SignalScoutMetadataViewSet`.
     queryset = SignalScoutConfig.objects.unscoped()
     pagination_class = None
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=ScoutMembersQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=ScoutMemberSerializer(many=True),
@@ -1125,19 +1130,21 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         },
         summary="List project members for reviewer routing",
         description=(
-            "Return the people who can review work on this project — one row per org member with their "
-            "`user_uuid`, `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null "
+            "Return the people who can review work on this project — one row per member with access to it, "
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
             "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
             "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
-            "memory or inbox precedent, list members and pick the owner, then pass their `user_uuid` "
-            "(preferred) or `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. "
-            "Strictly team-scoped."
+            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
+            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
+            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        members = list_org_members_for_team(_canonical_team_id(self))
-        return Response(ScoutMemberSerializer([vars(member) for member in members], many=True).data)
+        validated = getattr(request, "validated_query_data", {}) or {}
+        canonical_team = self.team.parent_team or self.team
+        members = list_project_members(canonical_team, search=validated.get("search") or None)
+        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:

@@ -1436,8 +1436,8 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/members/"
 
-    def test_lists_org_members_with_resolved_github_login(self) -> None:
-        # self.user has a GitHub identity (login lowercased on resolution); a second org member has
+    def test_lists_project_members_with_resolved_github_login(self) -> None:
+        # self.user has a GitHub identity (login lowercased on resolution); a second member has
         # none, so their `github_login` is null rather than dropping out of the roster.
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-self", extra_data={"login": "OctoCat"})
         User.objects.create_and_join(self.organization, "second@posthog.com", None, first_name="Sec")
@@ -1447,6 +1447,16 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert by_email[self.user.email]["github_login"] == "octocat"
         assert by_email[self.user.email]["user_uuid"] == str(self.user.uuid)
         assert by_email["second@posthog.com"]["github_login"] is None
+
+    def test_search_narrows_the_roster_by_email_or_name(self) -> None:
+        # `search` is the bound on a large roster — it must filter to matching email/name so a scout
+        # can pull just the owner instead of the whole directory. Case-insensitive substring.
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@posthog.com", None, first_name="Bob")
+        response = self.client.get(f"{self._url()}?search=alice")
+        assert response.status_code == status.HTTP_200_OK
+        emails = {row["email"] for row in response.json()}
+        assert emails == {"alice@posthog.com"}
 
     def test_does_not_leak_members_from_another_org(self) -> None:
         other_org = Organization.objects.create(name="Other Org")

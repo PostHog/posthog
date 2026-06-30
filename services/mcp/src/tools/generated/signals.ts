@@ -27,6 +27,7 @@ import {
     SignalsScoutEmitReportParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
+    SignalsScoutMembersListQueryParams,
     SignalsScoutProjectProfileGetQueryParams,
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
@@ -718,7 +719,7 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
     },
 })
 
-const SignalsScoutMembersListSchema = z.object({})
+const SignalsScoutMembersListSchema = SignalsScoutMembersListQueryParams
 
 const signalsScoutMembersList = (): ToolBase<
     typeof SignalsScoutMembersListSchema,
@@ -726,12 +727,14 @@ const signalsScoutMembersList = (): ToolBase<
 > => ({
     name: 'signals-scout-members-list',
     schema: SignalsScoutMembersListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof SignalsScoutMembersListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutMember[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/members/`,
+            query: {
+                search: params.search,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },

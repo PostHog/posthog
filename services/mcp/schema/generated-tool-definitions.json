@@ -6655,7 +6655,7 @@
         }
     },
     "signals-scout-members-list": {
-        "description": "Return the people who can review work on this project — one row per member with their `user_uuid`, `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then route to their `user_uuid` (the server resolves it to a GitHub login) or `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report`. Strictly team-scoped.",
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List project members for reviewer routing",

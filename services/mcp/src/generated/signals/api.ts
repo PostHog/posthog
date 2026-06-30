@@ -463,7 +463,7 @@ export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Return the people who can review work on this project — one row per org member with their `user_uuid`, `email`, `first_name`/`last_name`, org `level`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members and pick the owner, then pass their `user_uuid` (preferred) or `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const SignalsScoutMembersListParams = /* @__PURE__ */ zod.object({
@@ -471,6 +471,16 @@ export const SignalsScoutMembersListParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const SignalsScoutMembersListQueryParams = /* @__PURE__ */ zod.object({
+    search: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member."
         ),
 })
 
