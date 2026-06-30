@@ -20,6 +20,18 @@ _INTERNAL_IP_ERROR = "Hosts with internal IP addresses are not allowed"
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
 
+def ssh_tunnel_enabled(config) -> bool:
+    """Return True only when `config` carries a typed, enabled SSH tunnel.
+
+    A partially-submitted tunnel can survive config parsing as something other than an
+    `SSHTunnelConfig` (e.g. a raw dict that couldn't be coerced), so read `.enabled` defensively
+    via `getattr` rather than assuming the attribute exists — a missing attribute means "no usable
+    tunnel", not a crash (`'dict' object has no attribute 'enabled'`).
+    """
+    ssh_tunnel = getattr(config, "ssh_tunnel", None)
+    return bool(ssh_tunnel) and bool(getattr(ssh_tunnel, "enabled", False))
+
+
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     """Validate that a host is not an internal/private IP address.
 
@@ -104,7 +116,7 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
 @contextmanager
 def open_ssh_tunnel(config) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
-    if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+    if ssh_tunnel_enabled(config):
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
         with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
@@ -122,7 +134,7 @@ def make_ssh_tunnel_factory(config) -> Callable[[], _GeneratorContextManager[tup
     The dlt pipeline factories accept a tunnel-factory callable so the tunnel can be
     (re)opened inside the pipeline process.
     """
-    if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+    if ssh_tunnel_enabled(config):
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
         @contextmanager
@@ -151,7 +163,7 @@ class SSHTunnelMixin:
         return make_ssh_tunnel_factory(config)
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        if ssh_tunnel_enabled(config):
             if config.ssh_tunnel.host:
                 is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
                 if not is_host_valid:

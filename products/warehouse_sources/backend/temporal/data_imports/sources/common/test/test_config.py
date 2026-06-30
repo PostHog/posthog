@@ -331,6 +331,48 @@ def test_to_config_override_alias_fallback():
     assert cfg.c == "seen"
 
 
+def test_to_config_optional_config_with_partial_dict_coerces_to_none():
+    """A partial dict for an optional nested config must coerce to `None`, not store the raw dict.
+
+    Mirrors a partial `ssh_tunnel` payload (missing the required `host`): the `Inner` arm of
+    `Inner | None` can't build, so parsing falls through to the `None` arm. Previously that arm
+    stored the raw mapping, which later crashed on attribute access (`'dict' object has no
+    attribute 'enabled'`). It must yield `None` instead.
+    """
+
+    @config.config
+    class Inner:
+        host: str
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        inner: Inner | None = config.value(default_factory=lambda: None)
+
+    cfg = Outer.from_dict({"inner": {"enabled": True}})
+
+    assert cfg.inner is None
+
+
+def test_to_config_optional_config_with_complete_dict_still_builds():
+    """The `None`-arm coercion must not shadow a valid optional config that does build."""
+
+    @config.config
+    class Inner:
+        host: str
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        inner: Inner | None = config.value(default_factory=lambda: None)
+
+    cfg = Outer.from_dict({"inner": {"host": "bastion.example.com", "enabled": True}})
+
+    assert isinstance(cfg.inner, Inner)
+    assert cfg.inner.host == "bastion.example.com"
+    assert cfg.inner.enabled is True
+
+
 def test_to_config_union_nested_configs():
     """Test `config.to_config` with a union of nested configs."""
 

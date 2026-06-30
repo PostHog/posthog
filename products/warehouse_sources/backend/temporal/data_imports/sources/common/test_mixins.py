@@ -235,6 +235,18 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ssh_tunnel_dict_does_not_crash(self):
+        # A partially-submitted tunnel can reach validation as a raw dict rather than a config
+        # object. Reading `.enabled` off it used to raise `AttributeError`; the helper must treat
+        # a non-config value as "no usable tunnel" instead of crashing.
+        mixin = SSHTunnelMixin()
+        config = FakeConfig()
+        config.ssh_tunnel = {"enabled": True, "host": "10.0.0.1"}  # type: ignore[assignment]
+        valid, error = mixin.ssh_tunnel_is_valid(config, team_id=999)
+        assert valid
+        assert error is None
+
 
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
     @parameterized.expand(

@@ -245,6 +245,16 @@ def to_config(
 
             for config_type in config_types:
                 if not is_config(config_type):
+                    if config_type is type(None):
+                        # The `None` arm of an Optional config union (e.g. `SSHTunnelConfig | None`).
+                        # We only reach here when no config arm matched the value — for instance a
+                        # partial `ssh_tunnel` dict that's missing a required field, so its
+                        # `SSHTunnelConfig` arm raised and was skipped above. Coerce to `None` rather
+                        # than falling through and storing the raw mapping, which would later crash on
+                        # attribute access (`'dict' object has no attribute 'enabled'`). Don't `break`:
+                        # a real config arm later in the union should still win if one matches.
+                        inputs.setdefault(field.name, None)
+                        continue
                     try:
                         value = d[field_key]
                     except KeyError:

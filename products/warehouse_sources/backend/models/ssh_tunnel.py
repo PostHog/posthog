@@ -1,4 +1,5 @@
 import typing
+import logging
 import dataclasses
 from io import StringIO
 from typing import IO, Literal
@@ -6,9 +7,57 @@ from typing import IO, Literal
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
-from sshtunnel import SSHTunnelForwarder
+from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
+
+# sshtunnel funnels the specific reason a tunnel failed to open (gateway unreachable, DNS
+# failure, auth rejected, forwarding refused) into ERROR-level log records inside
+# `_create_tunnels` / `_connect_to_gateway`, then raises a generic
+# `BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")` that discards
+# which one it was. That opaque string is what reaches the customer, leaving them nothing to
+# debug. `_DetailCapturingForwarder` records those messages and folds the real reason into the
+# raised exception so the connection-test / sync error surfaces it instead.
+_GENERIC_GATEWAY_REASON = "Could not establish session to SSH gateway"
+
+
+class _TunnelErrorCapture(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+    @property
+    def detail(self) -> str | None:
+        # The most recent ERROR record is the most specific failure (gateway connect / auth /
+        # forwarding). sshtunnel doesn't log the generic "Could not establish session" reason
+        # itself, so any captured record is useful signal — return the last one.
+        relevant = [m for m in self.messages if m and _GENERIC_GATEWAY_REASON not in m]
+        return relevant[-1] if relevant else None
+
+
+class _DetailCapturingForwarder(SSHTunnelForwarder):
+    """`SSHTunnelForwarder` that augments the generic gateway error with the captured reason."""
+
+    def __init__(self, *args: typing.Any, **kwargs: typing.Any) -> None:
+        self._error_capture = _TunnelErrorCapture()
+        # A standalone `Logger` (not via `getLogger`) so we don't accumulate handlers across
+        # instances or propagate sshtunnel's chatter to the root logger.
+        capture_logger = logging.Logger(f"{__name__}.sshtunnel")
+        capture_logger.addHandler(self._error_capture)
+        kwargs["logger"] = capture_logger
+        super().__init__(*args, **kwargs)
+
+    def start(self) -> None:
+        try:
+            super().start()
+        except BaseSSHTunnelForwarderError as e:
+            detail = self._error_capture.detail
+            if detail and detail not in str(e.value):
+                raise BaseSSHTunnelForwarderError(value=f"{e.value}: {detail}") from e
+            raise
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
@@ -163,7 +212,7 @@ class SSHTunnel:
             raise Exception("SSHTunnel port is not valid")
 
         if self.auth_type == "password":
-            return SSHTunnelForwarder(
+            return _DetailCapturingForwarder(
                 (self.host, int(self.port)),
                 ssh_username=self.username,
                 ssh_password=self.password,
@@ -171,7 +220,7 @@ class SSHTunnel:
                 local_bind_address=("127.0.0.1",),
             )
         else:
-            return SSHTunnelForwarder(
+            return _DetailCapturingForwarder(
                 (self.host, int(self.port)),
                 ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
