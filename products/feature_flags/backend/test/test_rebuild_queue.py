@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch
 
 import fakeredis
+from celery.exceptions import SoftTimeLimitExceeded
 
 from products.feature_flags.backend import rebuild_queue
 from products.feature_flags.backend.rebuild_queue import (
@@ -113,6 +114,16 @@ def test_rebuild_exception_is_caught_and_counts_as_failure(fake_redis):
     rebuild.assert_called_once_with(5)
     assert stats["failure"] == 1
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=5)) == b"1"
+
+
+def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):
+    _enqueue(fake_redis, 3)
+    with patch.object(rebuild_queue, "update_flag_definitions_cache", side_effect=SoftTimeLimitExceeded()):
+        # The soft limit must wind the task down, not be swallowed as a team failure.
+        with pytest.raises(SoftTimeLimitExceeded):
+            drain_rebuild_requests()
+
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=3)) is None
 
 
 def test_request_zset_key_matches_rust_contract():

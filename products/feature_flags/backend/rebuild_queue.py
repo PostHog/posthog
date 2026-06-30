@@ -21,6 +21,7 @@ import time
 
 import redis as redis_lib
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge
 
 from posthog.redis import get_client
@@ -143,6 +144,11 @@ def _rebuild_one(redis: redis_lib.Redis, team_id: int) -> bool:
     """Rebuild one team's cache; track the failure streak and trip the circuit."""
     try:
         ok = update_flag_definitions_cache(team_id)
+    except SoftTimeLimitExceeded:
+        # The drain task hit its soft time limit mid-rebuild. Let it propagate so the
+        # task winds down cleanly before the hard limit, and don't count it as a team
+        # failure (it would wrongly advance the streak and could trip the circuit).
+        raise
     except Exception:
         logger.exception("flag definitions self-heal rebuild raised", team_id=team_id)
         ok = False
