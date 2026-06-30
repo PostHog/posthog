@@ -117,6 +117,7 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
+LOCAL_DEV_SLACK_EMAIL = "test@posthog.com"
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -350,7 +351,7 @@ def resolve_slack_user(
             # other callers (e.g. `resolve_posthog_user_from_event` from the
             # channel-approval path) can still drive the helper with stubbed
             # Slack responses in tests.
-            slack_email = "test@posthog.com"
+            slack_email = LOCAL_DEV_SLACK_EMAIL
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
