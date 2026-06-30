@@ -3035,9 +3035,8 @@ async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor()
 
 const GW_SECRET: &str = "test-signing-secret";
 
-// Shared router builder for the provenance tests: sink, timesource, health
-// handles, and the long router() call with the signing secret set. Callers
-// supply only what differs — the redis client and quota limiter.
+// Shared router builder for the provenance tests, with the signing secret set;
+// callers supply only what differs (the redis client and quota limiter).
 fn ai_router(
     redis: Arc<MockRedisClient>,
     quota_limiter: CaptureQuotaLimiter,
