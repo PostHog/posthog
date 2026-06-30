@@ -194,15 +194,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
 # libpq/PgBouncer signature — it raises its own pooler-internal error as a generic psycopg
-# InternalError_ (SQLSTATE XX000) carrying the "(EDBHANDLEREXITED)" code. The trailing message
-# varies — both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
+# InternalError_ (SQLSTATE XX000) carrying a Supavisor error code. The trailing message varies —
+# both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
 # "(EDBHANDLEREXITED) connection to database closed. Check logs for more information" have been
-# observed for the same condition — but the EDBHANDLEREXITED code is the stable signal: the
-# pooler's per-session DbHandler process exited because its backend connection died (idle cull,
-# backend restart, failover). That's the same transient class as the libpq drops above and
-# recovers on reconnect, so match the code itself rather than any one message wording. Genuine
+# observed for the same condition — but the code is the stable signal, so match the code itself
+# rather than any one message wording.
+#   - EDBHANDLEREXITED: the pooler's per-session DbHandler process exited because its backend
+#     connection died (idle cull, backend restart, failover).
+#   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
+#     couldn't hand us a backend connection after retrying internally — its pool was momentarily
+#     exhausted or every backend was busy. A slot frees the moment another session returns one.
+# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
