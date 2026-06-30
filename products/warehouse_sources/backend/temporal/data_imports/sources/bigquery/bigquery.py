@@ -76,10 +76,12 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 
 __all__ = [
     "BIGQUERY_DATASET_NOT_FOUND_ERROR",
+    "BIGQUERY_INVALID_IDENTIFIER_ERROR",
     "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryCredentialsRejectedError",
     "BigQueryDatasetNotFoundError",
     "BigQueryImplementation",
+    "BigQueryInvalidIdentifierError",
     "BigQueryTokenRefreshError",
     "bigquery_client",
     "bigquery_storage_read_client",
