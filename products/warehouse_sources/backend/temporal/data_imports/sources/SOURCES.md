@@ -121,6 +121,7 @@ the row lists both.
 | financial_modelling | HTTP                        | requests                                                        | ✅                          |
 | finnhub             | HTTP                        | requests                                                        | ✅                          |
 | finnworlds          | HTTP                        | requests                                                        | ✅                          |
+| fleetio             | HTTP                        | requests                                                        | ✅                          |
 | front               | HTTP                        | requests                                                        | ✅                          |
 | fullstory           | HTTP                        | requests                                                        | ✅                          |
 | github              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -398,7 +399,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - firebolt
 - firehydrant
-- fleetio
 - flexmail
 - flexport
 - float_app

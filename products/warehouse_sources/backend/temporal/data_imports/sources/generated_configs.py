@@ -1170,7 +1170,8 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FleetioSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_token: str
 
 
 @config.config
