@@ -212,11 +212,14 @@ allowed_tools:
 ```
 
 A scout with no `allowed_tools` (or one that omits these) runs on the `emit-signal`-only
-contract — the report channel is invisible to it. No canonical scout enables the channel yet —
-`signals-scout-health-checks` and `signals-scout-observability-gaps` are its intended first
+contract — the report channel is invisible to it. `signals-scout-anomaly-detection` is the
+first canonical adopter — each scored, attributed metric anomaly is a natural finished 1:1
+report, so it files via `emit_report` / `edit_report` rather than a weak signal (see its
+`references/report-contract.md` for the worked, surface-specific shape).
+`signals-scout-health-checks` and `signals-scout-observability-gaps` are the next intended
 adopters (a bundled health-check cluster and a single observability-gap recommendation are both
-natural 1:1 reports). Add a short body section telling the scout _when_ to reach for the channel.
-Keep it lean — the field-level detail lives here, not in the body.
+natural 1:1 reports too). Add a short body section telling the scout _when_ to reach for the
+channel. Keep it lean — the field-level detail lives here, not in the body.
 
 **Rollout posture:** start a newly opted-in scout in **dry-run** (`emit=false` on its
 `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.

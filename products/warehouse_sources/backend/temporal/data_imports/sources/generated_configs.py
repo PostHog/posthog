@@ -170,7 +170,8 @@ class AgileCRMSourceConfig(config.Config):
 
 @config.config
 class AhaSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -451,7 +452,8 @@ class BluetallySourceConfig(config.Config):
 
 @config.config
 class BoldSignSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
