@@ -2,7 +2,7 @@
 - Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
   ✅ feat(insights): add retention graph export
   ❌ feat: Added retention export.   (capitalized, period, no scope)
-- Description: high-level rationale, not a step-by-step replay. See "Rules for agent-authored PRs" lower down.
+- Description: high-level rationale, not a step-by-step replay.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
