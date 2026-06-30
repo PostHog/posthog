@@ -754,7 +754,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return manifest
 
     def validate_credentials(
-        self, config: CustomSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CustomSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        *,
+        source_id: Optional[str] = None,
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
@@ -784,7 +789,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # with a pointed message; a transient one doesn't block (the first real sync retries).
         if config.auth_oauth2_integration_id:
             try:
-                _inject_oauth2_integration_secrets(manifest, config.auth_oauth2_integration_id, team_id)
+                # Bind the integration to the source being validated, mirroring sync/preview: on update
+                # (source_id given) the row must belong to that source; on create/setup (no source yet) it
+                # must be unbound. Without this, the probe below could mint and send another source's token
+                # to an attacker-supplied base_url.
+                _inject_oauth2_integration_secrets(
+                    manifest,
+                    config.auth_oauth2_integration_id,
+                    team_id,
+                    source_id=source_id,
+                    forbid_bound=source_id is None,
+                )
             except CustomOAuth2Integration.DoesNotExist:
                 return False, "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
             except OAuth2AuthRequestError as exc:

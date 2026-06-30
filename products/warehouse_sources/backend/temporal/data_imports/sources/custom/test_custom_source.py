@@ -649,6 +649,41 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         assert "no longer exists" in (err or "")
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_on_update_rejects_another_sources_integration(self, mock_session):
+        # Updating source A must not validate with source B's integration UUID — the probe would otherwise
+        # mint and send B's token to the (attacker-supplied) manifest host. Rejected before any mint.
+        owner = self._make_source("owner")
+        attacker = self._make_source("attacker")
+        integration = self._make_integration(external_data_source=owner)
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, source_id=str(attacker.pk))
+
+        assert not ok
+        assert "no longer exists" in (err or "")
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_on_create_rejects_bound_integration(self, mock_session):
+        # Create/setup validation has no source yet, so an already-bound integration (another source's) is
+        # rejected before its token is minted.
+        owner = self._make_source("owner")
+        integration = self._make_integration(external_data_source=owner)
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert not ok
+        assert "no longer exists" in (err or "")
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_sync_rejects_integration_bound_to_another_source(self, mock_session):
         # The cross-source theft guard: at sync time a source cannot use an integration that belongs to a
         # different source, even within the same team — no token is minted and the lookup fails closed.

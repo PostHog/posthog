@@ -1057,6 +1057,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
                 )
+            elif isinstance(source, CustomSource):
+                # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                # with the integration bound to it — not another source's, whose token the probe would
+                # otherwise mint and send to the submitted manifest host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, instance.team_id, source_id=str(instance.pk)
+                )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
