@@ -47,46 +47,51 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
         validatedEmailToken: [
             null as ValidatedTokenResponseType | null,
             {
-                validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }, breakpoint) => {
+                validateEmailToken: async (
+                    { uuid, token }: { uuid: string; token: string },
+                    breakpoint
+                ): Promise<ValidatedTokenResponseType> => {
+                    let response: { success: boolean; token?: string; requires_2fa?: boolean } | null = null
+                    // Only the API call belongs in the try/catch. The success-animation
+                    // breakpoint below must stay outside it: if it threw inside a catch
+                    // its cancellation would be swallowed and the loader would resolve to
+                    // `undefined`, tripping the auto-generated success reducer's guard.
                     try {
-                        const response = await api.create<{ success: boolean; token?: string; requires_2fa?: boolean }>(
+                        response = await api.create<{ success: boolean; token?: string; requires_2fa?: boolean }>(
                             `api/users/verify_email/`,
                             { token, uuid }
                         )
-                        actions.setView('success')
-                        await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
-
-                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
-                        if (response.requires_2fa) {
-                            lemonToast.success(
-                                'Email verified! Please log in with your password to complete two-factor authentication.'
-                            )
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, token, uuid }
-                        }
-
-                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
-                        // this url is also secret and so we can trust it's not attacker controlled
-                        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                        location.href = nextUrl || resolvePostVerifyDefault(values)
-                        return { success: true, token, uuid }
                     } catch (e: any) {
+                        // The token can fail to validate if the email was already verified
+                        // (e.g. the link was opened twice) — treat an already-verified user
+                        // as success, otherwise surface the invalid-token view.
                         const user = (values as any).user
-                        if (user?.is_email_verified) {
-                            actions.setView('success')
-                            await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
-                            const nextUrl = getRelativeNextPath(
-                                new URLSearchParams(location.search).get('next'),
-                                location
-                            )
-                            // this url is validated in getRelativeNextPath as either being relative or on the same origin
-                            // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                            location.href = nextUrl || resolvePostVerifyDefault(values)
-                            return { success: true, token, uuid }
+                        if (!user?.is_email_verified) {
+                            actions.setView('invalid')
+                            return { success: false, errorCode: e.code, errorDetail: e.detail }
                         }
-                        actions.setView('invalid')
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
+
+                    actions.setView('success')
+                    // Outside the try/catch on purpose: if the logic unmounts or the route
+                    // re-matches during this delay, this breakpoint throws and kea-loaders
+                    // aborts the stale run cleanly instead of dispatching an undefined result.
+                    await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
+
+                    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+                    if (response?.requires_2fa) {
+                        lemonToast.success(
+                            'Email verified! Please log in with your password to complete two-factor authentication.'
+                        )
+                        router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                        return { success: true, token, uuid }
+                    }
+
+                    // this url is validated in getRelativeNextPath as either being relative or on the same origin
+                    // this url is also secret and so we can trust it's not attacker controlled
+                    // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
+                    location.href = nextUrl || resolvePostVerifyDefault(values)
+                    return { success: true, token, uuid }
                 },
             },
         ],
@@ -130,7 +135,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/verify_email/:uuid': ({ uuid }) => {
             if (uuid) {
                 actions.setUuid(uuid)
@@ -138,7 +143,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             }
         },
         '/verify_email/:uuid/:token': ({ uuid, token }) => {
-            if (token && uuid) {
+            // Skip if a validation is already in flight (including during the
+            // post-success redirect delay) — re-dispatching would cancel the
+            // in-flight breakpoint and restart the flow needlessly.
+            if (token && uuid && !values.validatedEmailTokenLoading) {
                 actions.setUuid(uuid)
                 actions.setView('verify')
                 actions.validateEmailToken({ uuid, token })
