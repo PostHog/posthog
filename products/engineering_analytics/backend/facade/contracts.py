@@ -275,7 +275,8 @@ class PRCostSummary:
     """
 
     jobs_available: bool
-    # Wall-clock minutes consumed on billable (self-hosted) runners (sum of elapsed across costed jobs).
+    # Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so
+    # this is compute time spent, not wall-clock run duration.
     billable_minutes: float
     # Estimated dollar cost (sum of per-job estimates), or None when no job was costable.
     estimated_cost_usd: float | None

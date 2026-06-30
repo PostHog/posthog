@@ -195,6 +195,8 @@ export function WorkflowHealthTable({
             ? [
                   {
                       title: 'Cost',
+                      tooltip:
+                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time.",
                       key: 'cost',
                       width: CI_GRID.cost,
                       align: 'right',
@@ -233,6 +235,7 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p50',
+            tooltip: 'Median run duration (wall-clock) over completed runs in the window.',
             key: 'p50Seconds',
             width: CI_GRID.p50,
             align: 'right',
@@ -243,6 +246,7 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p95',
+            tooltip: '95th-percentile run duration (wall-clock) over completed runs in the window.',
             key: 'p95Seconds',
             width: CI_GRID.p95,
             align: 'right',
