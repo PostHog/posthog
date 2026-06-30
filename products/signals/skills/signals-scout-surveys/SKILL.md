@@ -1,13 +1,9 @@
 ---
 name: signals-scout-surveys
 description: >
-  Focused Signals scout for PostHog projects running surveys. Watches active surveys for
-  score regressions (NPS / CSAT / rating drops), response-volume drops, abandonment
-  spikes, and targeting drift, AND aggregates open-text responses into recurring themes
-  the team should know about (clusters of complaints, praise, feature requests). Emits
-  findings only when a theme or anomaly clears the confidence bar; otherwise writes
-  durable memory and closes out empty. Self-contained peer in the signals-scout-* fleet
-  — no dependencies on other skills.
+  Signals scout for PostHog surveys. Watches active surveys for score regressions,
+  response-volume drops, abandonment spikes, and targeting drift, and aggregates open-text
+  responses into recurring themes.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

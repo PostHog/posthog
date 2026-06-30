@@ -11,33 +11,27 @@ the cheapest either. Match the policy to the job.
 
 ## auto is the default — start there
 
-The model lives in `spec.models`, a discriminated union on
-`mode`:
+`spec.models` is a discriminated union on `mode`. For the exact shape —
+every field, enum, and default — call
+`@posthog/agent-applications-spec-schema` with `section: "models"` rather
+than reciting it from memory; it stays current as the schema moves. The
+`mode`, `level`, and `reasoning` names used throughout this skill are the
+set that exists _today_ — if the schema returns a different set, the schema
+wins. The judgment that schema can't give you is below.
 
-- **`auto`** (the default for almost every agent) — you pick a
-  `level` (`low` / `medium` / `high`, default `medium`) and the
-  platform resolves it to a maintained, priority-ordered,
-  cross-provider model list at runtime. The list is kept current as
-  models ship and prices move, so an `auto` agent rides upgrades
-  without a spec edit and falls back across providers automatically.
-- **`manual`** — an explicit, author-ordered priority list. Only
-  reach for this when the agent genuinely needs a specific model
-  (a fine-tune, a capability only one model has, a contractual /
-  compliance pin). It opts you OUT of platform model upgrades.
+- **`auto`** (the default for almost every agent) — pick a `level`
+  (`low` / `medium` / `high`) and the platform resolves it to a
+  maintained, priority-ordered, cross-provider list at runtime, so the
+  agent rides model upgrades and cross-provider fallback for free.
+- **`manual`** — an explicit, author-ordered priority list. Reach for it
+  only when the agent genuinely needs a specific model (a fine-tune, a
+  capability only one model has, a contractual / compliance pin); it opts
+  you OUT of platform upgrades.
 
-```jsonc
-// auto — the recommendation for most agents
-{ "models": { "mode": "auto", "level": "medium" } }
-
-// auto with reasoning, when the job benefits from deliberation
-{ "models": { "mode": "auto", "level": "high", "reasoning": "high" } }
-
-// manual — explicit, PROVIDER-DIVERSE priority list
-{ "models": { "mode": "manual", "models": [
-    { "model": "anthropic/claude-sonnet-4-6", "reasoning": "high" },
-    { "model": "openai/gpt-5" }
-] } }
-```
+`optimize_for` (on either mode) trades cost for resilience: `cost`
+(default) pins one model for the session to keep its prompt cache warm;
+`availability` fails over on outage at the price of a one-time cold
+re-read. Leave it at `cost` unless uptime matters more than spend.
 
 ## The cost / quality axes
 
@@ -99,10 +93,14 @@ same provider as the primary doesn't help when that provider is the
 thing that's down — list a different vendor next so an outage degrades
 instead of failing.
 
-- Good: `[ anthropic/claude-sonnet-4-6, openai/gpt-5 ]` — Anthropic
-  down → OpenAI catches it.
-- Pointless: `[ anthropic/claude-sonnet-4-6,
-anthropic/claude-haiku-4-5 ]` — one provider outage takes out both.
+- Good: a primary from one vendor, then a model from a _different_ vendor —
+  if the first vendor has an outage, the other still answers.
+- Pointless: two models from the _same_ vendor — one provider outage takes
+  out both.
+
+Don't hardcode model ids from memory — they get added and retired. Call
+`@posthog/agent-applications-models` for the currently served ids (grouped by
+provider) and pick the primary + a different-vendor fallback from that.
 
 Set per-model `reasoning` when the fallback should think differently
 from the primary (e.g. high on the primary, unset on a cheaper

@@ -33,7 +33,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # fleet is. Same divergence-aware sync; one caveat: removing a name from this tuple strands its
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion
 # means cleaning up its rows out-of-band.
-_COMPANION_SKILL_DIRS = ("authoring-signals-scouts",)
+_COMPANION_SKILL_DIRS = ("authoring-scouts",)
 
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
