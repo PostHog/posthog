@@ -6621,9 +6621,9 @@ snapshots:
     scenes-app-settings-user--settings-user-api-keys--light:
         hash: v1.k794b7964.9ed13c308512de59cf24896971ab2c0cefc9c73ed11ac9f771013379574fd92c.Br9Kji5snFAIrpj7Kjuvv46vCfLhawgk8AfyG2H2k2c
     scenes-app-settings-user--settings-user-customization--dark:
-        hash: v1.k794b7964.076d98fad8c9cd3744598b0af728f9dff5c56755d8e5f0359ad862962e6c38ab.ucQrUGf1WrWtQ-_AxU6xibubolGINN8oXGZsZilmMuc
+        hash: v1.k794b7964.985f271dead6331536cd623be8974c8725cc51ab0b2d7bab21214b798081160d.axbVcVPHNCFfHdbF5kApJL1wiPPlS_mvAyNDP2hch7I
     scenes-app-settings-user--settings-user-customization--light:
-        hash: v1.k794b7964.f3c9a4bc19ea8f1c90b3b20547f6b27edd08d2e13848cd6988e2505856f5c013.G2SVY5xYIxtMVuED2eKRbXL_QY4wR4CVEOwBvCr0Hn0
+        hash: v1.k794b7964.885b0ec009bc4cfeba12726e7695f93c46497e20e77cc417580d54f47bf46ec4.NdHAVCFN-eianYRIShKnBx57NP2XFSKKuhB5C2uJpYA
     scenes-app-settings-user--settings-user-danger-zone--dark:
         hash: v1.k794b7964.5fd4e997d34a4778652509e76543401e7b150a5afcd38fc8d2ff9cae90ba0889.j03y4Nf2EOj9bz3wvVsK3AS-_yLFoJz2sQ-sTXo2_-c
     scenes-app-settings-user--settings-user-danger-zone--light:
@@ -6885,25 +6885,25 @@ snapshots:
     scenes-app-web-analytics--web-analytics-dashboard-metric-cards--light:
         hash: v1.k794b7964.9bf4b15241d6ad9dd5ff8351d0e406eae90ed3b90bf0d27898ad71fcac75c3cf.JHdneVs_9-GeN4mCAGsHiqOOb54zrfYevPNJ-Hf-DQs
     scenes-app-web-analytics-achievements--daily-only-arm--dark:
-        hash: v1.k794b7964.c369dba55996c7e0c87c80faa7a1a0d080c4001df6438309da6cc75ca7e4206b.F4pM5hdAm9PGJDRfbqb8bdNUjlN0k8X0VFuk0xrx6X0
+        hash: v1.k794b7964.174037c85766d1b4684d4a98b9d9160a08183243164b33da0a18a31c405c3269.mCHtB7nTpe_MGw_gh3t2s7uYQEmx0j27U3ppjC1L0N4
     scenes-app-web-analytics-achievements--daily-only-arm--light:
-        hash: v1.k794b7964.f4bb4a569ae8fbc3b9bf10a0a240e4479ded8d7a36f2308f13431e1c8059b6a2.HS48wLZ51j5q_wZY10etMzHSp7a1Af7VSxjPSVia8PY
+        hash: v1.k794b7964.33109ce5e35ca3ab1d74a5dd08ee950aabb9d0e6a3b8fa87544bc3f056e12d90.lBAVYVZSC7atVO5ZQQeSTly9CsLSDGeDbQkavW9poIU
     scenes-app-web-analytics-achievements--expanded-ladder--dark:
-        hash: v1.k794b7964.66ea82d52b92ae5da5326f3a4940bda1ec0d090cd5ccde13b387cedaccf9505d.pWxyVlH2e4ru9ek_vhFFYkXl4HoiSHQrEkXMoQTSGzE
+        hash: v1.k794b7964.580000cd5045f265375997449c6260b4f3d25b0bc946c28652c6fef3b8e2822b.pMV9WEW2kaKlwcOBBfMv2LIn3Qj5Nn6WUseW67jDmHI
     scenes-app-web-analytics-achievements--expanded-ladder--light:
-        hash: v1.k794b7964.300f8a6fb088829cc8fb1ce9d620bde8ba698236267487f666d444f1402446d8.cCJqUPk03u0zXdVi0eBKE6dJ44xV66sk_AWOcnFQ57U
+        hash: v1.k794b7964.4bbac50b76a2a1b0f6afb408a6f64ac0a2d09273f3bad3e715d75115b7fb497b.fCsB0QQFEFlPcE4umSKHjwnUdT8Dls3xeaSsDVP7wfE
     scenes-app-web-analytics-achievements--hybrid-arm--dark:
-        hash: v1.k794b7964.c369dba55996c7e0c87c80faa7a1a0d080c4001df6438309da6cc75ca7e4206b.rS9287M5JcSo4KFTCYLBgiEdBXNPIkqxh_p5aoqiQFA
+        hash: v1.k794b7964.174037c85766d1b4684d4a98b9d9160a08183243164b33da0a18a31c405c3269._JEq1UQFgYQ4eqAPTzXYF8vN6411x748952w3F8zOD8
     scenes-app-web-analytics-achievements--hybrid-arm--light:
-        hash: v1.k794b7964.283fe16739e1e7e9a36f15e775e5a9bfbec2387cad9812260dfea07866d6d314.EyRKyPetJpm0u6IoTwRTHT5L0wOBmUCGxBxF_99KYsI
+        hash: v1.k794b7964.33109ce5e35ca3ab1d74a5dd08ee950aabb9d0e6a3b8fa87544bc3f056e12d90.yTJ7Cr6hqX6tjEXcdp_PlQYLw4UM4zK0yT2YsUxEBg0
     scenes-app-web-analytics-achievements--tier-colors--dark:
-        hash: v1.k794b7964.cf9319d270b8c284828276bab26d6aa5f3829cb298e3435dadbe3f2292032f50.TqIpW5xI8qyTmh0A-LFniRmV86HI7wvdGhzZprTIaUE
+        hash: v1.k794b7964.cc91ad3e9a0d5473eaaff3c53236501bae74606db5dbdeeb6ed319bf843f278b.DQfMR5Lf0gmnBP3pOhsGCQXRBdIKc51jGfeWuvYsM6E
     scenes-app-web-analytics-achievements--tier-colors--light:
-        hash: v1.k794b7964.a3c078fc77c0452e02419881c618e0420638ae86317d2e4c8c158265e76e6a11.IvLMiKHAu3dzScj0TbOenVodcyZ7-7F-YgRBzN-034I
+        hash: v1.k794b7964.9343a93e433cba93cf8f9be216509de7cc166aa586260bd9cb808178a12e2a02.ZIiIh0hDet2ZCB_DFJji3qfoyOY8LDd5KZSVZUZL18o
     scenes-app-web-analytics-achievements--weekly-only-arm--dark:
-        hash: v1.k794b7964.a7b5aaceb4044eee81ccbf8d0b922646f5bd48ae705799ec18e6c964ac2d78a8.F5dLBTV6qZj-I7lqHJiCwulXVjL2qCRtiICA25TYgeI
+        hash: v1.k794b7964.727181874023bc4b5977ab957315e19057435cad2410b6ffa402cf31333c36f7.3a5tsEfLiJv82Yg4_Z85UsvAPUbu046BZXzOa8WtgmE
     scenes-app-web-analytics-achievements--weekly-only-arm--light:
-        hash: v1.k794b7964.08993bfcc929cfb49058322184d604ceb1a5e591c2e607a51069020683315015.LFOCYxabgBjxo7gQvessExg28KRrpfcgltXSveejq2c
+        hash: v1.k794b7964.a92e2edac03b52df63371e4db0c7bd084d97bdf80d738422c9e040d4d212d128.buGSSknR1fKQIevCN19xYMVjXNRBdoQn9ZNHD3hqfOM
     scenes-other-account-connected--github-integration-connected--dark:
         hash: v1.k794b7964.2db4cfed52e63c42b2f38f5b2c03f5a1c4229b916c32f0bd1ca6144f9cc3b88b._Q3jfpO6l_D6KZCh8fuoqhxFI6589TxijWK93C2uPyI
     scenes-other-account-connected--github-integration-connected--light:

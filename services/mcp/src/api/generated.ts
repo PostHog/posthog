@@ -52942,6 +52942,11 @@ export namespace Schemas {
       recap_url: string;
     }
 
+    export interface WebAnalyticsUserPreferences {
+      /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
+      achievements_opt_out: boolean;
+    }
+
     export interface WeeklyDigestResponse {
       /** Unique visitors. */
       visitors: NumericMetric;
