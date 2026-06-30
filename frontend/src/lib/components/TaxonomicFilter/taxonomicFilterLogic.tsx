@@ -56,7 +56,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import { isString } from 'lib/utils/guards'
-import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { toParams } from 'lib/utils/url'
 import {
@@ -1731,15 +1730,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListCounts: [
             (s) => [
                 (state, props) =>
-                    Object.fromEntries(
-                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
-                            groupType,
-                            logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0,
-                        ])
-                    ),
+                    Object.entries(s.infiniteListLogics(state, props))
+                        .map(
+                            ([groupType, logic]) =>
+                                `${groupType}=${logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0}`
+                        )
+                        .join(','),
             ],
-            (infiniteListCounts) => infiniteListCounts,
-            { resultEqualityCheck: objectsEqual },
+            (serialized: string): Record<string, number> =>
+                serialized
+                    ? Object.fromEntries(
+                          serialized.split(',').map((entry) => {
+                              const sep = entry.lastIndexOf('=')
+                              return [entry.slice(0, sep), Number(entry.slice(sep + 1))]
+                          })
+                      )
+                    : {},
         ],
         // Like `infiniteListCounts` but counts only genuine search results (`totalResultCount`),
         // excluding the affordance rows `totalListCount` adds for render-backed groups (e.g. the
@@ -1748,15 +1754,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListResultCounts: [
             (s) => [
                 (state, props) =>
-                    Object.fromEntries(
-                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
-                            groupType,
-                            logic.isMounted() ? logic.selectors.totalResultCount(state, logic.props) : 0,
-                        ])
-                    ),
+                    Object.entries(s.infiniteListLogics(state, props))
+                        .map(
+                            ([groupType, logic]) =>
+                                `${groupType}=${logic.isMounted() ? logic.selectors.totalResultCount(state, logic.props) : 0}`
+                        )
+                        .join(','),
             ],
-            (infiniteListResultCounts) => infiniteListResultCounts,
-            { resultEqualityCheck: objectsEqual },
+            (serialized: string): Record<string, number> =>
+                serialized
+                    ? Object.fromEntries(
+                          serialized.split(',').map((entry) => {
+                              const sep = entry.lastIndexOf('=')
+                              return [entry.slice(0, sep), Number(entry.slice(sep + 1))]
+                          })
+                      )
+                    : {},
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
