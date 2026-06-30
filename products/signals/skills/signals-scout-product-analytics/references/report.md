@@ -142,7 +142,7 @@ unlinked `created_by` rejects the whole `emit-report`, per above), don't hand a 
 unsure about:** a `created_by` belonging to a PM, a customer, or a departed user has no linked GitHub
 identity and will fail the emit. Prefer a `created_by` you've already routed, or a cached login; if
 you can't confidently resolve an owner, author the report **unrouted** and `edit-report` reviewers in
-later (see below) rather than risk the emit. Otherwise resolve a `github_login`, cheapest first:
+later (see below) rather than risk the emit. Otherwise resolve an owner, cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For product-analytics, key by the owning flow / product area (`reviewer:product_analytics:<area>`).
@@ -151,16 +151,17 @@ later (see below) rather than risk the emit. Otherwise resolve a `github_login`,
    signals) for a comparable report on the same flow/surface, then `inbox-report-artefacts-list` on it — the
    `suggested_reviewers` artefact is where the routed reviewer lives (the report record itself doesn't
    expose it). Reuse that reviewer for the same area.
-3. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the
-   cache and inbox precedent don't resolve an owner. The org-scoped `org-members-list` /
-   `org-member-get-github-login` tools are **not available in a scout run** (a scoped-team token can't
+3. **`user_uuid` from the entity** — the primary route, restated here as a step so it isn't skipped:
+   the flow's `created_by` is usually the owner, so pass it straight through and the server resolves it,
+   subject to the fail-loud caveat above. Reach past it to the roster lookup below only when you have no
+   entity owner, or the `created_by` isn't a linked org member.
+4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the
+   cache, inbox precedent, and entity `created_by` all come up empty. The org-scoped `org-members-list`
+   / `org-member-get-github-login` tools are **not available in a scout run** (a scoped-team token can't
    reach the org-nested endpoint), so this is the resolver to reach for. It returns this project's
    members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to
-   narrow); match the owner and route to their `github_login`. The flow's `created_by` UUID stays the
-   most convenient route when you have it — but per the fail-loud caveat above it only works when that
-   user is an org member with a linked GitHub identity (a PM, customer, or departed user fails the
-   whole `emit-report`), and a member with a null `github_login` in the roster is the same signal:
-   pick a different owner or author unrouted.
+   narrow); match the owner and route to their `github_login`. A member with a null `github_login` can't
+   be routed to — pick a different owner or author unrouted.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces, just
