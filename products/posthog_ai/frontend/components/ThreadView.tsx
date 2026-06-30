@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
@@ -193,10 +195,29 @@ function ThinkingIndicator({
     progress: string | null
     phase: 'thinking' | 'provisioning'
 }): JSX.Element {
-    // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
-    const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
-    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Spinning up sandbox…' : fallbackMessage
-    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text),
-    // static (no shimmer), via the shared Activity primitive — not a MessageTemplate bubble.
-    return <ReasoningAnswer content={message} id="sandbox-thinking" completed={false} showCompletionIcon={false} />
+    const [fallbackMessage, setFallbackMessage] = useState(() => getRandomThinkingMessage())
+
+    // Re-roll the gerund every 5s while genuinely thinking; static "Spinning up sandbox…" during provisioning
+    // doesn't need it, and rotating in Storybook would make snapshots non-deterministic.
+    useEffect(() => {
+        if (phase !== 'thinking' || inStorybookTestRunner()) {
+            return
+        }
+        const interval = setInterval(() => setFallbackMessage(getRandomThinkingMessage()), 5000)
+        return () => clearInterval(interval)
+    }, [phase])
+
+    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text), via the
+    // shared Activity primitive — not a MessageTemplate bubble. Shimmers only while genuinely thinking;
+    // provisioning stays static since it's infra boot, not model reasoning.
+    return (
+        <ReasoningAnswer
+            content={message}
+            id="sandbox-thinking"
+            completed={false}
+            showCompletionIcon={false}
+            animate={phase === 'thinking' || phase === 'provisioning'}
+        />
+    )
 }
