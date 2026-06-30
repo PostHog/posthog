@@ -245,17 +245,22 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         ).json()["id"]
 
-    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). The inline factory
-    # keeps each case's setup next to its expected outcome.
+    # Each case is (name, build, should_fire, expected_reason); build(test) -> (sub_id, patch_payload).
+    # The inline factory keeps each case's setup next to its expected outcome.
     @parameterized.expand(
         [
             # Schedule/meta-only edits must NOT re-fire a delivery.
-            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
-            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False),
-            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False),
+            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False, "no_delivery_relevant_change"),
+            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False, "no_delivery_relevant_change"),
+            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False, "no_delivery_relevant_change"),
             # Delivery-relevant edits MUST fire a confirmation — what (or where) gets delivered changed,
             # or the subscription was re-enabled.
-            ("target_value", lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}), True),
+            (
+                "target_value",
+                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
+                True,
+                "delivery_field_changed",
+            ),
             (
                 "target_type",  # switching channel routes delivery elsewhere — needs a Slack integration
                 lambda t: (
@@ -267,8 +272,9 @@ class TestSubscriptionTemporal(APILicensedTest):
                     },
                 ),
                 True,
+                "delivery_field_changed",
             ),
-            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True),
+            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
             (
                 "integration_swap",  # Slack routing depends on the workspace, not just target_value
                 lambda t: (
@@ -285,6 +291,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                     {"integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id},
                 ),
                 True,
+                "delivery_field_changed",
             ),
             (
                 "dashboard_export_change",  # changing the exported insight set hits the M2M branch
@@ -296,6 +303,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                     {"dashboard_export_insights": [t.insight.id, other.id]},
                 ),
                 True,
+                "delivery_field_changed",
             ),
             # ...except re-submitting the identical export set, which changes nothing.
             (
@@ -305,22 +313,41 @@ class TestSubscriptionTemporal(APILicensedTest):
                     {"dashboard_export_insights": [t.insight.id], "title": "Renamed"},
                 ),
                 False,
+                "no_delivery_relevant_change",
             ),
         ]
     )
     def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
-        self, _name: str, build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]], should_fire: bool
+        self,
+        _name: str,
+        build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
+        should_fire: bool,
+        expected_reason: str,
     ):
         sub_id, patch_payload = build(self)
         self.mock_temporal_client.start_workflow.reset_mock()
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
-        assert response.status_code == status.HTTP_200_OK, response.content
+        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
+            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
+            assert response.status_code == status.HTTP_200_OK, response.content
 
+        # The workflow fires only when the edit warrants a confirmation delivery...
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
+
+        # ...and the decision is always emitted so a silent suppression is observable — the post_save
+        # "<kind> subscription updated" event fires pre-decision and can't carry this signal.
+        decision_calls = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "subscription_update_delivery_decision"
+        ]
+        assert len(decision_calls) == 1
+        properties = decision_calls[0].kwargs["properties"]
+        assert properties["delivery_triggered"] is should_fire
+        assert properties["reason"] == expected_reason
 
     def test_schedule_only_update_still_recomputes_next_delivery_date(self):
         # A schedule edit must not fire a delivery but MUST still reschedule — the model
@@ -341,47 +368,6 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert before is not None
         assert after is not None
         assert after < before
-
-    @parameterized.expand(
-        [
-            (
-                "delivery_field_changed",
-                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
-                True,
-                "delivery_field_changed",
-            ),
-            (
-                "meta_only_edit",
-                lambda t: (t._basic_sub(), {"frequency": "daily"}),
-                False,
-                "no_delivery_relevant_change",
-            ),
-            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
-        ]
-    )
-    def test_update_emits_delivery_decision_event(
-        self,
-        _name: str,
-        build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
-        expected_triggered: bool,
-        expected_reason: str,
-    ):
-        # The decision must be observable so a regression that silently suppresses deliveries is caught
-        # — the "<kind> subscription updated" event fires pre-decision and can't carry this signal.
-        sub_id, patch_payload = build(self)
-        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
-            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
-            assert response.status_code == status.HTTP_200_OK, response.content
-
-        decision_calls = [
-            call
-            for call in mock_capture.call_args_list
-            if call.kwargs.get("event") == "subscription_update_delivery_decision"
-        ]
-        assert len(decision_calls) == 1
-        properties = decision_calls[0].kwargs["properties"]
-        assert properties["delivery_triggered"] is expected_triggered
-        assert properties["reason"] == expected_reason
 
     def test_can_create_dashboard_subscription_with_dashboard_export_insights(self):
         self.dashboard.tiles.create(insight=self.insight)
