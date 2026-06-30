@@ -8,7 +8,6 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -233,7 +232,8 @@ export const exportsLogic = kea<exportsLogicType>([
                                 lemonToast.success('Export started', {
                                     button: {
                                         label: 'View exports',
-                                        action: () => newInternalTab(urls.exports()),
+                                        to: urls.exports(),
+                                        targetBlank: true,
                                     },
                                 })
                                 actions.addFresh(response)

@@ -26,7 +26,10 @@ export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): J
 
 interface ToastButton {
     label: string
-    action: (() => void) | (() => Promise<void>)
+    action?: (() => void) | (() => Promise<void>)
+    /** Render the button as a real link to this path, so it can be cmd/right-clicked to open in a new window. */
+    to?: string
+    targetBlank?: boolean
     dataAttr?: string
     className?: string
 }
@@ -56,8 +59,10 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
             <span className="grow overflow-hidden text-ellipsis">{message}</span>
             {button && (
                 <LemonButton
+                    to={button.to}
+                    targetBlank={button.targetBlank}
                     onClick={() => {
-                        void button.action()
+                        void button.action?.()
                         toast.dismiss(id)
                     }}
                     type="secondary"
