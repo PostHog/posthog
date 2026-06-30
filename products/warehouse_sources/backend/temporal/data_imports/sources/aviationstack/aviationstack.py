@@ -62,7 +62,14 @@ def _fetch_page(
 
     if not response.ok:
         logger.error(f"aviationstack API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
+        # Don't use `response.raise_for_status()` — it embeds `response.url` (which carries the
+        # access_key query param) in the error message, and that exception is later logged via
+        # `str(error)` outside the tracked session's redaction. Strip the query string instead.
+        kind = "Client Error" if response.status_code < 500 else "Server Error"
+        safe_url = response.url.split("?", 1)[0]
+        raise requests.HTTPError(
+            f"{response.status_code} {kind}: {response.reason} for url: {safe_url}", response=response
+        )
 
     body = response.json()
     error = body.get("error") if isinstance(body, dict) else None

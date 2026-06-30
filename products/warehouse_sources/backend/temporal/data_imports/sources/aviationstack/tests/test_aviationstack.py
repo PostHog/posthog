@@ -29,6 +29,9 @@ def _response(
     response = MagicMock()
     response.status_code = status
     response.ok = ok
+    response.reason = "Client Error" if status < 500 else "Server Error"
+    # Real requests responses expose the full URL (access_key included) on `response.url`.
+    response.url = "https://api.aviationstack.com/v1/airlines?access_key=supersecret&limit=1"
     body: dict[str, Any] = {}
     if error is not None:
         body["error"] = error
@@ -36,13 +39,6 @@ def _response(
         body["data"] = data if data is not None else []
         body["pagination"] = {"limit": 100, "offset": 0, "count": len(data or []), "total": total}
     response.json.return_value = body
-    response.raise_for_status.side_effect = (
-        requests.HTTPError(
-            f"{status} Client Error for url: https://api.aviationstack.com/v1/airlines", response=response
-        )
-        if not ok
-        else None
-    )
     return response
 
 
@@ -75,8 +71,11 @@ class TestFetchPage:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_http_client_error_raises(self, _name: str, status: int) -> None:
         session = _session_returning([_response(status=status, ok=False)])
-        with pytest.raises(requests.HTTPError):
+        with pytest.raises(requests.HTTPError) as exc:
             _fetch_page(session, "https://api.aviationstack.com/v1/airlines", {"access_key": "k"}, MagicMock())
+        # The access_key must never appear in the error message — it's logged downstream via str(error).
+        assert "supersecret" not in str(exc.value)
+        assert "access_key" not in str(exc.value)
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_status_retries_then_raises(self, _name: str, status: int) -> None:
