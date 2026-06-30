@@ -1790,14 +1790,20 @@ def _fixup_partition_values_for_added_files(
                 _assert_live_spec_matches(cur, table_kind, table_name, table_id, partition_id)
 
                 # Single-statement DELETE + INSERT so no reader sees zero ducklake_file_partition_value rows.
-                # DELETE is scoped by table_id AND data_file_id (defense in depth);
-                # `deleted` is referenced in the INSERT predicate to make the
-                # data-modifying CTE dependency unmissable for the optimizer.
+                # DELETE is scoped by table_id AND data_file_id (defense in depth).
+                # The INSERT runs unconditionally over `to_repair`. Do NOT add a
+                # defensive `WHERE EXISTS (... deleted)` or scalar-subquery
+                # reference — that filters out target files whose DELETE returned
+                # 0 rows (e.g., a file that arrived with no fpv rows at all),
+                # leaving them stuck. `deleted` is intentionally unreferenced:
+                # per PG docs §7.8.2, data-modifying CTEs in WITH execute exactly
+                # once "always to completion, independently of whether the
+                # primary query reads all (or indeed any) of their output."
                 insert_branches = psql.SQL(" UNION ALL ").join(
                     psql.SQL(
                         "SELECT t.data_file_id, {tid}, {idx}, "
                         "(substring(t.path from {hive_re}))::INT::TEXT "
-                        "FROM targets t WHERE EXISTS (SELECT 1 FROM deleted WHERE deleted.data_file_id = t.data_file_id)"
+                        "FROM targets t"
                     ).format(
                         tid=psql.Literal(table_id),
                         idx=psql.Literal(key_index),
