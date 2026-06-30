@@ -146,6 +146,17 @@ STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
     "address_country": "BillingCountry",
 }
 
+CONVERSATIONS_SLACK_ENRICHMENT_BATCH_SIZE: int = 100
+
+
+CONVERSATIONS_SLACK_FIELD_MAPPINGS: dict[str, str] = {
+    "slack_channel_url": "Slack_Channel__c",
+    "slack_issue_count": "slack_issue_count__c",
+    "slack_user_count": "slack_user_count__c",
+    "last_slack_activity": "last_slack_activity__c",
+    "most_recent_support_ticket_url": "Most_Recent_Support_Ticket__c",
+}
+
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com",
     "yahoo.com",
