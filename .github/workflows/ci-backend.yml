@@ -247,10 +247,8 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
-                      # Any Django migration file in any app — broader than `migrations`
-                      # above (which omits ee/ and posthog sub-package dirs). Gates the
-                      # check-deleted-migrations job so its venv bootstrap runs only when a
-                      # migration could have been deleted or moved.
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates check-deleted-migrations.
                       migrations_any:
                         - '**/migrations/*.py'
                       persons_sql:
@@ -1021,10 +1019,9 @@ jobs:
                   fi
                   ./bin/hogli product:lint:owners $names
 
-    # Block deleting historical migration files (see safe-django-migrations.md for why).
-    # Gate on any migration-file change so the venv bootstrap is skipped on the
-    # majority of PRs that touch no migrations; a deletion or a product move always
-    # changes a `migrations/*.py` path, so nothing slips.
+    # Block deleting historical migration files (see safe-django-migrations.md).
+    # Gated on any migration-file change: a deletion or product move always touches a
+    # migrations/*.py path, so nothing slips and the bootstrap is skipped otherwise.
     check-deleted-migrations:
         needs: [changes]
         if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
@@ -1055,10 +1052,9 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  # The PR files API reports each file's status relative to the PR base
-                  # (base...head), so a "removed" file existed on the base branch — i.e. a
-                  # historical migration. Renames carry the old path in previous_filename.
-                  # Retry transient API errors so a hiccup can't red this required check.
+                  # "removed"/"renamed" files existed on the PR base — i.e. historical
+                  # migrations (renames carry the old path in previous_filename). Retry
+                  # transient gh-api errors so a hiccup can't red this required check.
                   for attempt in 1 2 3; do
                       if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
                             --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then

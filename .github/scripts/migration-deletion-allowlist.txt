@@ -1,16 +1,12 @@
-# Migration files whose deletion is intentional and reviewed.
-#
-# The check-deleted-migrations CI job (hogli lint:migration-deletions) blocks deleting any
-# Django migration that exists on master: doing so diverges fresh databases from
-# deployed ones and false-flags phantom migrations on other open PRs. See
+# Migration files whose deletion is intentional and reviewed — listed here to pass the
+# check-deleted-migrations guard (hogli lint:migration-deletions). Deleting a migration
+# that exists on master diverges fresh DBs from deployed ones; see
 # docs/published/handbook/engineering/safe-django-migrations.md.
 #
-# Add a path here ONLY when the deletion is genuinely safe and reviewed — e.g.
-# relocating a product's migrations (git mv as part of a SeparateDatabaseAndState
-# move), reverting a not-yet-deployed migration, or a squash. One entry per line.
-# An entry ending in "/" allowlists every migration under that directory. Prefer
-# removing stale entries once the acknowledging PR has merged.
+# Add a path ONLY when the deletion is genuinely safe and reviewed (a product move, a
+# revert of a not-yet-deployed migration, a squash). One entry per line; a directory entry
+# allowlists everything under it (trailing slash optional). Remove stale entries once merged.
 #
-# Examples (commented out — these are not active entries):
+# Examples (commented out, not active):
 #   products/old_product/backend/migrations/   # whole-product move
 #   posthog/migrations/0500_oops.py            # single revert

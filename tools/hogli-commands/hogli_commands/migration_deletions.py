@@ -1,15 +1,10 @@
-"""hogli lint:migration-deletions — refuse to delete historical Django migration files.
+"""hogli lint:migration-deletions — fail when a PR deletes a historical Django migration.
 
-Run in CI (the check-deleted-migrations job): the GitHub PR-files API feeds the
-removed/renamed paths on stdin, and this command fails if any is a Django migration
-that the deletion allowlist does not acknowledge. Those paths are "removed relative to
-the PR base", so each already-existing migration among them is historical.
-
-Deleting a migration that already exists on master does not undo its schema change and
-diverges fresh databases from deployed ones; see _GUIDANCE below and
-docs/published/handbook/engineering/safe-django-migrations.md for the full rationale,
-the safe way to retire a table, and how to acknowledge an intentional deletion via
-.github/scripts/migration-deletion-allowlist.txt.
+Reads removed/renamed paths from stdin (the check-deleted-migrations CI job feeds them
+from the GitHub PR-files API) and fails on any Django migration the allowlist doesn't
+acknowledge. Those paths are removed relative to the PR base, so each already-existing
+migration among them is historical. See _GUIDANCE and
+docs/published/handbook/engineering/safe-django-migrations.md for the why.
 """
 
 from __future__ import annotations
@@ -23,8 +18,7 @@ from hogli.manifest import REPO_ROOT
 
 ALLOWLIST_PATH = REPO_ROOT / ".github" / "scripts" / "migration-deletion-allowlist.txt"
 
-# ClickHouse and async migrations are separate systems with their own safety checks;
-# they live under <app>/clickhouse/migrations/ and <app>/async_migrations/migrations/.
+# ClickHouse and async migrations are separate systems, excluded by grandparent dir name.
 _NON_DJANGO_PARENTS = {"clickhouse", "async_migrations"}
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -51,23 +45,20 @@ or a squash), acknowledge it by adding the path(s) to
 
 
 def is_django_migration(path: str) -> bool:
-    """True for a Django migration file, e.g. posthog/migrations/0001_initial.py.
+    """True for a numbered Django migration file, e.g. posthog/migrations/0001_initial.py.
 
-    A migration is any .py module in a migrations/ package other than __init__.py
-    (Django does not require the NNNN_ numeric prefix). Excludes the separate
-    ClickHouse and async-migration systems.
+    Require the NNNN_ prefix: it excludes __init__.py and, crucially, the standalone data
+    scripts that also live in a migrations/ dir (e.g. posthog/rbac/migrations/rbac_*.py),
+    which are not Django ORM migrations. Also excludes the ClickHouse/async systems.
     """
     p = PurePosixPath(path)
-    if p.parent.name != "migrations" or p.suffix != ".py" or p.name == "__init__.py":
+    if p.parent.name != "migrations" or p.suffix != ".py" or not p.name[:1].isdigit():
         return False
     return p.parent.parent.name not in _NON_DJANGO_PARENTS
 
 
 def load_allowlist(allowlist_path: Path) -> list[str]:
-    """Parse the deletion allowlist: one path per line, '#' comments and blanks ignored.
-
-    A missing file is an empty allowlist, not an error.
-    """
+    """Allowlist entries (one path per line; '#' comments, blanks, and a missing file ignored)."""
     if not allowlist_path.exists():
         return []
     entries = []
@@ -79,9 +70,13 @@ def load_allowlist(allowlist_path: Path) -> list[str]:
 
 
 def is_allowlisted(path: str, allowlist: list[str]) -> bool:
-    """True if path matches an allowlist entry exactly, or sits under a directory
-    entry (one ending in '/')."""
-    return any(path == entry or (entry.endswith("/") and path.startswith(entry)) for entry in allowlist)
+    """True if path matches an allowlist entry exactly, or sits under a directory entry
+    (trailing slash optional, so `products/x/migrations` and `.../migrations/` both work)."""
+    for entry in allowlist:
+        prefix = entry.rstrip("/")
+        if path == prefix or path.startswith(prefix + "/"):
+            return True
+    return False
 
 
 def guarded_deletions(paths: list[str], allowlist: list[str]) -> list[str]:

@@ -14,8 +14,10 @@ from click.testing import CliRunner
         ("posthog/migrations/0001_initial.py", True),
         ("ee/migrations/0042_thing.py", True),
         ("products/tasks/backend/migrations/0003_x.py", True),
-        ("posthog/migrations/manual_fix.py", True),  # Django allows non-numeric names
+        ("posthog/session/migrations/0001_initial.py", True),  # real Django sub-package app
         ("posthog/migrations/__init__.py", False),
+        ("posthog/migrations/manual_fix.py", False),  # non-numbered -> not a flagged migration
+        ("posthog/rbac/migrations/rbac_team_migration.py", False),  # standalone RBAC data script, not ORM
         ("posthog/clickhouse/migrations/0099_x.py", False),
         ("posthog/async_migrations/migrations/0005_y.py", False),
         ("posthog/migrations/0001_initial.txt", False),
@@ -43,6 +45,11 @@ def test_load_allowlist_missing_file_is_empty(tmp_path: Path) -> None:
     [
         ("posthog/migrations/0500_oops.py", ["posthog/migrations/0500_oops.py"], True),
         ("products/old/backend/migrations/0001_initial.py", ["products/old/backend/migrations/"], True),
+        (
+            "products/old/backend/migrations/0001_initial.py",
+            ["products/old/backend/migrations"],
+            True,
+        ),  # trailing slash optional
         ("products/old_v2/backend/migrations/0001_initial.py", ["products/old/backend/migrations/"], False),
         ("posthog/migrations/0500_oops.py", [], False),
     ],
@@ -62,18 +69,22 @@ def test_guarded_deletions_filters_and_respects_allowlist() -> None:
     assert md.guarded_deletions(paths, ["products/old/backend/migrations/"]) == ["posthog/migrations/0001_initial.py"]
 
 
-def test_command_blocks_historical(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(md, "ALLOWLIST_PATH", tmp_path / "none.txt")
-    result = CliRunner().invoke(
-        md.cmd_lint_migration_deletions, input="posthog/migrations/0001_initial.py\nfrontend/x.ts\n"
-    )
-    assert result.exit_code == 1
-
-
-def test_command_passes_when_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(md, "ALLOWLIST_PATH", tmp_path / "none.txt")
-    result = CliRunner().invoke(
-        md.cmd_lint_migration_deletions, input="posthog/migrations/__init__.py\nfrontend/app.ts\n"
-    )
-    assert result.exit_code == 0
-    assert "No historical migration files deleted." in result.output
+@pytest.mark.parametrize(
+    "stdin,allowlist,expected_exit",
+    [
+        ("posthog/migrations/0001_initial.py\nfrontend/x.ts\n", "", 1),  # historical deletion -> block
+        ("posthog/migrations/__init__.py\nfrontend/app.ts\n", "", 0),  # only non-migrations -> pass
+        # historical migration deleted but acknowledged in the allowlist -> pass
+        ("products/old/backend/migrations/0001_x.py\n", "products/old/backend/migrations/\n", 0),
+    ],
+)
+def test_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stdin: str, allowlist: str, expected_exit: int
+) -> None:
+    allow = tmp_path / "allow.txt"
+    allow.write_text(allowlist)
+    monkeypatch.setattr(md, "ALLOWLIST_PATH", allow)
+    result = CliRunner().invoke(md.cmd_lint_migration_deletions, input=stdin)
+    # A crash also exits non-zero — assert the exit is a real verdict, not a trapped exception.
+    assert not isinstance(result.exception, Exception)
+    assert result.exit_code == expected_exit
