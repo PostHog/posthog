@@ -797,9 +797,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return instance
 
         # A changed prompt invalidates any frozen AI query plan: the next delivery must re-plan, or it
-        # would keep answering the old prompt with the now-stale HogQL. `query_plan` isn't a serializer
-        # field, so set it on validated_data to ride the single super().update() write.
-        if "prompt" in validated_data and validated_data["prompt"] != previous_prompt:
+        # would keep answering the old prompt with the now-stale HogQL. Skip the auto-clear when the same
+        # request also writes query_plan explicitly (query:editor) — the explicit edit wins.
+        if (
+            "prompt" in validated_data
+            and validated_data["prompt"] != previous_prompt
+            and "query_plan" not in validated_data
+        ):
             validated_data["query_plan"] = None
 
         with attribute_subscription_saves(analytics_props):

@@ -2777,6 +2777,22 @@ class TestAISubscriptionAPI(APILicensedTest):
         stored = Subscription.objects.get(pk=sub_id).query_plan
         assert stored["steps"][0]["hogql"] == plan["steps"][0]["hogql"]
 
+    def test_explicit_query_plan_write_wins_over_prompt_edit_invalidation(self, mock_is_cloud, mock_flag, mock_sync):
+        # Editing the prompt normally clears the frozen plan, but an explicit query_plan in the SAME
+        # request must win — otherwise the editor's hand-written plan would be silently dropped.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(pk=sub_id).update(query_plan={"old": "plan"})
+        new_plan = self._valid_query_plan()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"prompt": "A different prompt about retention entirely?", "query_plan": new_plan},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        stored = Subscription.objects.get(pk=sub_id).query_plan
+        assert stored["steps"][0]["hogql"] == new_plan["steps"][0]["hogql"]
+
     def test_query_plan_write_rejected_without_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
         # A restricted member with only query "none" cannot edit the plan even though they could read a
         # subscription — editing query content requires the stronger editor level.
