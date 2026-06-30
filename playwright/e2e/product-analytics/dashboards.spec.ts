@@ -185,8 +185,11 @@ test.describe('Dashboards', () => {
             await page.keyboard.press('Escape')
 
             await page.getByRole('button', { name: 'Run' }).click()
-            await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeEnabled({ timeout: 30000 })
+            // Wait for actual results to render rather than just the empty state disappearing.
+            // The empty-state check alone is insufficient — under CI load the button can stay
+            // disabled while the query is still in-flight.
+            await expect(page.getByTestId('sql-editor-output-pane-results')).toBeVisible()
+            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeEnabled()
             await page.getByRole('button', { name: 'Save as insight' }).click()
 
             const saveModal = page.locator('.LemonModal').filter({ hasText: 'Save as new insight' })
