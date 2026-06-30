@@ -1,4 +1,15 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "tools/hogli-commands/hogli_commands/tests/test_test_runner.py",
+            "runner": "pytest",
+            "reason": "Just testing out this feature",
+            "owner": "team-devex",
+            "issue": "https://github.com/PostHog/posthog/issues/67092",
+            "added": "2026-06-30",
+            "expires": "2026-07-20",
+            "mode": "run"
+        }
+    ]
 }
