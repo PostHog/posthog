@@ -2,13 +2,20 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import {
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
+} from '~/common/config/kafka-topics'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { ASYNC_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
+import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
@@ -20,14 +27,12 @@ import {
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Person, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { normalizeEvent, normalizeProcessPerson } from '~/utils/event'
-import { UUIDT } from '~/utils/utils'
+import { Person, Team } from '~/types'
 
 describe('createProcessPersonsStep', () => {
-    let hub: Hub
+    let infra: IngestionTestInfra
     let teamId: number
     let team: Team
     let pluginEvent: PluginEvent
@@ -41,6 +46,8 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
@@ -48,12 +55,12 @@ describe('createProcessPersonsStep', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
-        const organizationId = await createOrganization(hub.postgres)
-        teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub.postgres, teamId))!
+        infra = await createIngestionTestInfra()
+        const organizationId = await createOrganization(infra.postgres)
+        teamId = await createTeam(infra.postgres, organizationId)
+        team = (await getTeam(infra.postgres, teamId))!
 
-        personRepository = new PostgresPersonRepository(hub.postgres)
+        personRepository = new PostgresPersonRepository(infra.postgres)
         personOutputs = new IngestionOutputs({
             [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
             [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
@@ -65,6 +72,12 @@ describe('createProcessPersonsStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_INGESTION_WARNINGS,
+                mockProducer,
+                'test'
+            ),
+            [PERSON_MERGE_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_MERGE_EVENTS_OUTPUT,
+                KAFKA_PERSON_MERGE_EVENTS,
                 mockProducer,
                 'test'
             ),
@@ -90,7 +103,7 @@ describe('createProcessPersonsStep', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await infra.close()
     })
 
     const createInput = (overrides: Partial<ProcessPersonsInput> = {}): ProcessPersonsInput => ({
@@ -140,7 +153,7 @@ describe('createProcessPersonsStep', () => {
             )
 
             await personsStore.flush()
-            const persons = await fetchPostgresPersons(hub.postgres, teamId)
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
             expect(persons).toEqual([result.value.person])
         }
     })
@@ -194,7 +207,7 @@ describe('createProcessPersonsStep', () => {
             )
 
             await personsStore.flush()
-            const persons = await fetchPostgresPersons(hub.postgres, teamId)
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
             expect(persons).toEqual([result.value.person])
         }
     })
@@ -216,7 +229,7 @@ describe('createProcessPersonsStep', () => {
             expect(result.sideEffects).toEqual([])
         }
 
-        const persons = await fetchPostgresPersons(hub.postgres, teamId)
+        const persons = await fetchPostgresPersons(infra.postgres, teamId)
         expect(persons).toEqual([])
     })
 
@@ -239,7 +252,7 @@ describe('createProcessPersonsStep', () => {
         }
 
         await personsStore.flush()
-        const persons = await fetchPostgresPersons(hub.postgres, teamId)
+        const persons = await fetchPostgresPersons(infra.postgres, teamId)
         expect(persons.length).toBe(1)
     })
 
@@ -292,7 +305,7 @@ describe('createProcessPersonsStep', () => {
     it('does not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
         await createPersonWithDistinctIds('my_id')
 
-        const personsBefore = await fetchPostgresPersons(hub.postgres, teamId)
+        const personsBefore = await fetchPostgresPersons(infra.postgres, teamId)
         const initialLastSeenAt = personsBefore[0].last_seen_at
 
         const futureTimestamp = DateTime.utc().plus({ hours: 2 }).toISO()!
@@ -313,17 +326,17 @@ describe('createProcessPersonsStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         await personsStore.flush()
-        const persons = await fetchPostgresPersons(hub.postgres, teamId)
+        const persons = await fetchPostgresPersons(infra.postgres, teamId)
         expect(persons).toHaveLength(1)
         expect(persons[0].last_seen_at).toEqual(initialLastSeenAt)
     })
 
     it('updates last_seen_at when person_last_seen_at_enabled is true', async () => {
-        const organizationId = await createOrganization(hub.postgres)
-        const enabledTeamId = await createTeam(hub.postgres, organizationId, undefined, {
+        const organizationId = await createOrganization(infra.postgres)
+        const enabledTeamId = await createTeam(infra.postgres, organizationId, undefined, {
             extra_settings: JSON.stringify({ person_last_seen_at_enabled: true }),
         })
-        const enabledTeam = (await getTeam(hub.postgres, enabledTeamId))!
+        const enabledTeam = (await getTeam(infra.postgres, enabledTeamId))!
 
         await personRepository.createPerson(
             DateTime.utc(),
@@ -357,7 +370,7 @@ describe('createProcessPersonsStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         await personsStore.flush()
-        const persons = await fetchPostgresPersons(hub.postgres, enabledTeamId)
+        const persons = await fetchPostgresPersons(infra.postgres, enabledTeamId)
         expect(persons).toHaveLength(1)
         expect(persons[0].last_seen_at).toEqual(futureTimestamp.startOf('hour'))
     })

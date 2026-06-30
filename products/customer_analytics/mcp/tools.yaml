@@ -37,6 +37,12 @@ tools:
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
                     team.
         feature_flag: customer-analytics-csp
+    accounts-custom-property-values-create:
+        operation: accounts_custom_property_values_create
+        enabled: false
+    accounts-custom-property-values-list:
+        operation: accounts_custom_property_values_list
+        enabled: false
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
@@ -182,6 +188,24 @@ tools:
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
+        enabled: false
+    custom-property-definitions-create:
+        operation: custom_property_definitions_create
+        enabled: false
+    custom-property-definitions-destroy:
+        operation: custom_property_definitions_destroy
+        enabled: false
+    custom-property-definitions-list:
+        operation: custom_property_definitions_list
+        enabled: false
+    custom-property-definitions-partial-update:
+        operation: custom_property_definitions_partial_update
+        enabled: false
+    custom-property-definitions-retrieve:
+        operation: custom_property_definitions_retrieve
+        enabled: false
+    custom-property-definitions-update:
+        operation: custom_property_definitions_update
         enabled: false
     customer-journeys-create:
         operation: customer_journeys_create

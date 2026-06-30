@@ -2,7 +2,7 @@ import { Code, ConnectError } from '@connectrpc/connect'
 
 import { withRetry } from './grpc-retry'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 describe('withRetry', () => {
     it('returns the result on first success', async () => {

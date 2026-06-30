@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -283,6 +284,7 @@ describe('StateManager', () => {
             const mockApi = stateManager as any
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
 
             mockApi._api = {
                 organizations: () => ({
@@ -299,6 +301,47 @@ describe('StateManager', () => {
 
             expect(result.organizationId).toBe('org-3')
             expect(result.projectId).toBeUndefined()
+            // Unexpected failures still reach error tracking.
+            expect(reportSpy).toHaveBeenCalledOnce()
+        })
+
+        it('does not capture a 404 from the scoped-org projects lookup', async () => {
+            // A misconfigured key pointed at a deleted or inaccessible org makes
+            // the org-nested projects endpoint return 404 on every retry. This
+            // is a recoverable user-config state, so it must not flood error
+            // tracking — the agent recovers via switch-project/switch-organization.
+            const scopedOrgApiKey = {
+                ...mockApiKey,
+                scoped_organizations: ['org-3'],
+            }
+
+            const mockApi = stateManager as any
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({
+                            success: false,
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Organization not found."}',
+                                url: 'https://app.posthog.com/api/organizations/org-3/projects/',
+                                method: 'GET',
+                            }),
+                        }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBe('org-3')
+            expect(result.projectId).toBeUndefined()
+            expect(reportSpy).not.toHaveBeenCalled()
         })
     })
 

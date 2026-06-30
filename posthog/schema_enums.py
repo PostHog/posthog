@@ -21,6 +21,15 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
+class AccessControlLevel(StrEnum):
+    NONE = "none"
+    MEMBER = "member"
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -1796,6 +1805,23 @@ class ExternalDataSourceType(StrEnum):
     CUSTOM = "Custom"
     TILE38 = "Tile38"
     CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
+    METRONOME = "Metronome"
+    JOBBER = "Jobber"
+    KNOCK = "Knock"
+    LEEXI = "Leexi"
+    RB2_B = "RB2B"
+    SUPERWALL = "Superwall"
+    LIANA = "Liana"
+    TAWK_TO = "TawkTo"
+    HIGHTOUCH = "Hightouch"
+    LEMON_SQUEEZY = "LemonSqueezy"
+    IKAS = "Ikas"
+    TALKWALKER = "Talkwalker"
+    NEXTDOOR_ADS = "NextdoorAds"
+    APP_LOVIN = "AppLovin"
+    BASEROW = "Baserow"
+    PLUNK = "Plunk"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1871,7 +1897,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
-    APPS = "apps"
+    TOOLS = "tools"
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
@@ -1897,6 +1923,11 @@ class FileSystemIconType(StrEnum):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FunnelConversionMetric(StrEnum):
+    CONVERSION_FROM_START = "conversion_from_start"
+    CONVERSION_FROM_PREVIOUS = "conversion_from_previous"
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):
@@ -1941,6 +1972,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2184,6 +2222,8 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     POSTGRESQL = "postgresql"
+    AWS_S3 = "aws-s3"
+    S3_COMPATIBLE = "s3-compatible"
 
 
 class IntervalType(StrEnum):
@@ -2259,6 +2299,11 @@ class LogsOrderBy(StrEnum):
 class LogsSparklineBreakdownBy(StrEnum):
     SEVERITY = "severity"
     SERVICE = "service"
+
+
+class NeighborDirection(StrEnum):
+    BEFORE = "before"
+    AFTER = "after"
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
@@ -2528,6 +2573,14 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
+    MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
+    MCP_TOOL_STATS_QUERY = "MCPToolStatsQuery"
+    MCP_TOOL_DAILY_STATS_QUERY = "MCPToolDailyStatsQuery"
+    MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
+    MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
+    MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2541,6 +2594,17 @@ class PathType(StrEnum):
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
     HOGQL = "hogql"
+
+
+class SliceContent(StrEnum):
+    LABELS = "labels"
+    VALUES = "values"
+    NONE = "none"
+
+
+class ValueDisplay(StrEnum):
+    ABSOLUTE = "absolute"
+    PERCENTAGE = "percentage"
 
 
 class PinterestAdsDefaultSources(StrEnum):
@@ -2698,6 +2762,7 @@ class ProductKey(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
+    MCP_ANALYTICS = "mcp_analytics"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
     PERSONS = "persons"
@@ -3203,6 +3268,7 @@ class TaxonomicFilterGroupType(StrEnum):
     COHORTS = "cohorts"
     COHORTS_WITH_ALL = "cohorts_with_all"
     DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_SOURCE_TABLES = "data_warehouse_source_tables"
     DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
@@ -3286,13 +3352,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

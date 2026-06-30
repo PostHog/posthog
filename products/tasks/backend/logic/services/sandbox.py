@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -103,8 +104,14 @@ class SandboxConfig(BaseModel):
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
 
+    @property
+    def is_vm(self) -> bool:
+        return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
+
 
 WORKING_DIR = "/tmp/workspace"
+
+REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
@@ -133,6 +140,7 @@ def build_agent_runtime_env_prefix(
     model: str | None = None,
     reasoning_effort: str | None = None,
     event_ingest_token: str | None = None,
+    event_ingest_url: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -141,6 +149,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -250,6 +259,9 @@ class SandboxBase(ABC):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -259,6 +271,12 @@ class SandboxBase(ABC):
         ...
 
     @abstractmethod
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+
+    @abstractmethod
+    def mark_repo_ready(self, repo_ready_file: str) -> None: ...
+
+    @abstractmethod
     def create_snapshot(self) -> str: ...
 
     @abstractmethod
@@ -266,6 +284,18 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def is_running(self) -> bool: ...
+
+    def read_agent_server_session_init_ms(self) -> int | None:
+        return None
+
+    def _read_health_session_init_ms(self, port: int) -> int | None:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
+        except Exception:
+            return None
 
     def __enter__(self) -> Self:
         return self

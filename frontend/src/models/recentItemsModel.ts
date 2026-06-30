@@ -42,11 +42,13 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
                     try {
                         const response = await withTimeout(
-                            api.fileSystem.list({
-                                orderBy: '-last_viewed_at',
-                                notType: 'folder',
-                                limit: RECENTS_FETCH_LIMIT,
-                            }),
+                            (signal) =>
+                                api.fileSystem.list({
+                                    orderBy: '-last_viewed_at',
+                                    notType: 'folder',
+                                    limit: RECENTS_FETCH_LIMIT,
+                                    signal,
+                                }),
                             LOADER_TIMEOUT_MS,
                             'loadRecents timed out'
                         )
@@ -75,7 +77,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
                     try {
                         const results = await withTimeout(
-                            api.fileSystemLogView.list({ type: 'scene' }),
+                            (signal) => api.fileSystemLogView.list({ type: 'scene', signal }),
                             LOADER_TIMEOUT_MS,
                             'loadSceneLogViews timed out'
                         )

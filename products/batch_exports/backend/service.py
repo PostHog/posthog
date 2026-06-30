@@ -264,8 +264,10 @@ class S3BatchExportInputs(BaseBatchExportInputs):
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3.
-        aws_secret_access_key: Secret access key used to authenticate with S3.
+        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
+            exports resolve credentials from the linked Integration at run time (see `integration_id`),
+            while legacy exports carry them inline.
+        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
@@ -279,8 +281,8 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -294,14 +296,16 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
+    integration-backed exports resolve them from the linked Integration at run time (see
+    `integration_id`), while legacy exports carry them inline.
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -319,11 +323,12 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
-    Covers providers like MinIO, DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH,
-    Backblaze, etc. `endpoint_url` is required.
+    Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
+    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
+    otherwise carried inline (legacy).
     """
 
-    endpoint_url: str
+    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -1387,6 +1392,8 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    # Total rows staged for this run (from ClickHouse), used to report export progress
+    records_total: int | None = None
     on_demand: bool = False
 
     def get_is_backfill(self) -> bool:

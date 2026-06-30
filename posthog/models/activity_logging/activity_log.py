@@ -279,6 +279,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
+        "is_ai_data_processing_approved": "third-party AI services",
     },
     "BatchExport": {
         "paused": "enabled",
@@ -420,6 +421,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Experiment": [
         "feature_flag",
+        "feature_flag_auto_archived",
         "exposure_cohort",
         "holdout",
         "saved_metrics",
@@ -535,7 +537,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "setup_section_2_completed",
         "plugins_access_level",
         "is_hipaa",
-        "is_ai_data_processing_approved",
         "never_drop_data",
     ],
     "BatchExport": [

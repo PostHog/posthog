@@ -2,12 +2,12 @@ import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { HealthCheckResult, PluginServerService } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { Scope, extend } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'

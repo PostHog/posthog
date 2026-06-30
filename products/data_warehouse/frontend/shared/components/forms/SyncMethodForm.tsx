@@ -316,8 +316,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">Both</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    CDC history table plus an auto-generated view for the current state
-                                                    (<code>valid_to IS NULL</code>).
+                                                    Consolidated current-state table plus a separate <code>_cdc</code>
+                                                    -suffixed history table.
                                                 </p>
                                             </div>
                                         ),

@@ -124,6 +124,22 @@ tools:
             List every agent application in the project. Returns id, slug, name, description, live_revision, archived
             state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the
             `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-models:
+        operation: agent_applications_models
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List models + what each auto level resolves to
+        description: >
+            Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display
+            name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto`
+            level (`low` / `medium` / `high`) currently resolves to. Use this to answer "what will auto/medium actually
+            run?" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live
+            against the catalog, so it reflects what the runner picks today, not a hardcoded list.
     agent-applications-partial-update:
         operation: agent_applications_partial_update
         enabled: true
@@ -159,6 +175,9 @@ tools:
         enabled: false
     agent-applications-preview-token:
         operation: agent_applications_preview_token
+        enabled: false
+    agent-applications-preview-token-mint:
+        operation: agent_applications_preview_token_mint
         enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
@@ -231,9 +250,11 @@ tools:
             idempotent: false
         title: Full-replace the typed bundle
         description: >
-            Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in
-            the payload is deleted. For incremental edits use the single-resource PUTs
-            (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled
+            Body shape is `{ agent_md, tools, spec }` — **full replace**, anything not in the payload is deleted. Skills
+            are NOT authored here: they come from the llma-skill store via `skill_refs` and are materialized at freeze
+            (set them with `agent-applications-revisions-skill-refs-update`). For incremental edits use the
+            single-resource PUTs (`agent-applications-revisions-agent-md-update`,
+            `agent-applications-revisions-tools-update`). Each tool source is AST-checked + esbuild-compiled
             synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.
             Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate →
             freeze → promote workflow.
@@ -401,35 +422,25 @@ tools:
     agent-applications-revisions-set-env-create:
         operation: agent_applications_revisions_set_env_create
         enabled: false
-    agent-applications-revisions-skills-destroy:
-        operation: agent_applications_revisions_skills_destroy
+    agent-applications-revisions-skill-refs-update:
+        operation: agent_applications_revisions_skill_refs_update
         enabled: true
         scopes:
             - agents:write
         annotations:
             readOnly: false
-            destructive: true
+            destructive: false
             idempotent: true
-        title: Delete one skill
+        title: Set a draft's store-skill references
         description: >
-            Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist.
-            Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch
-            → validate → freeze → promote workflow.
-    agent-applications-revisions-skills-update:
-        operation: agent_applications_revisions_skills_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Upsert one skill
-        description: >
-            Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is
-            stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only. Playbook: read the
-            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
-            workflow.
+            Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is `{ from_template,
+            alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's
+            materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/underscores, unique
+            within the revision), and optional `version` pins a published version (omit to pin the latest at freeze). At
+            freeze each referenced skill is resolved and baked into the immutable bundle, so a frozen agent never
+            re-resolves a changed skill. Find skills with `skill-list`; author a new one with `skill-create`. Not
+            destructive — it only changes which skills the draft pins, never deletes skill content. Draft-only.
+            Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource`.
     agent-applications-revisions-slack-manifest:
         operation: agent_applications_revisions_slack_manifest
         enabled: true
@@ -532,7 +543,23 @@ tools:
             workflow.
     agent-applications-session-logs:
         operation: agent_applications_session_logs
-        enabled: false
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a session's structured event log
+        description: >
+            The append-only event log for one session — the runner's own record of what happened, separate from the
+            conversation transcript. Entries carry a level (info / warn / error), a message, and structured metadata:
+            tool executions + results, MCP open successes / failures (with a coarse failure category), identity
+            resolution decisions (`identity.resolved` — which credential source acted as whom, never the token),
+            approval gates, and errors. Use this to debug WHY a session behaved as it did when the transcript alone
+            isn't enough (e.g. a tool degraded, an MCP failed to open, or an asker's identity resolved unexpectedly).
+            Pair with `agent-applications-sessions-retrieve` for the transcript. Playbook: read the `debugging-sessions`
+            playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
@@ -570,11 +597,33 @@ tools:
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
             via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-spec-schema:
+        operation: agent_applications_spec_schema
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the agent spec JSON schema
+        description: >
+            The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated
+            unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same
+            source the runner validates against, so fields with a default are optional on write. Read this BEFORE
+            composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape.
+            Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false
     agent-applications-update:
         operation: agent_applications_update
+        enabled: false
+    agent-applications-users-connection-delete:
+        operation: agent_applications_users_connection_delete
+        enabled: false
+    agent-applications-users-list:
+        operation: agent_applications_users_list
         enabled: false
     agent-fleet-approvals-list:
         operation: agent_fleet_approvals_list

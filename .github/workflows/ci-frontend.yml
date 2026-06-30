@@ -30,13 +30,24 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
+        # Skip when a bot's push adds only snapshot baselines — Visual Review auto-commits
+        # frontend/snapshots.yml after human review and CI approval, so re-running the suite
+        # on that commit is pure waste. The detect step keys off the push delta (this push's
+        # commits), not the whole-PR diff dorny reports, so it fires even when the PR also
+        # carries real code changes. The aggregator (frontend_tests) treats skips as success.
         outputs:
             # AND the broad filter with `exclude` (below): a PR that touches only
-            # the Node-only agent-platform services/packages must not trigger
-            # frontend CI — they have their own suite (ci-agents.yml) and are
-            # excluded from jest (frontend/jest.config.ts) and the bundle.
-            frontend: ${{ (steps.filter.outputs.frontend || 'true') == 'true' && (steps.exclude.outputs.outside_non_frontend_ts || 'true') == 'true' }}
-            frontend_code: ${{ (steps.filter.outputs.frontend_code || 'true') == 'true' && (steps.exclude.outputs.outside_non_frontend_ts || 'true') == 'true' }}
+            # Node-only product workspaces (their own ci-agents.yml suite, no stories,
+            # nothing in the bundle) must not trigger frontend CI. The excluded dirs are
+            # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
+            frontend: >-
+                ${{ (steps.filter.outputs.frontend || 'true') == 'true'
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
+                    && steps.baseline_push.outputs.result != 'true' }}
+            frontend_code: >-
+                ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
+                    && steps.baseline_push.outputs.result != 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -112,28 +123,61 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-            # Dirs that match the broad `frontend` rules above but aren't frontend
-            # code — Node-only TS that has its own suite (ci-agents.yml) and isn't in
-            # jest or the bundle. Appending a plain `!...` negation to the rules above
-            # wouldn't help: dorny's default `some` quantifier OR-matches predicates,
-            # so the broad `products/**/*.ts` rule still matches and the negation is
-            # neutralized (same gotcha documented in
-            # ci-migrations-service-separation-check.yml). A separate step is required
-            # because `predicate-quantifier` is step-level: with `every`, this filter
-            # is true only when some changed file lives OUTSIDE every excluded dir.
-            # AND-ed into the outputs above so a PR touching only these dirs skips
-            # frontend CI. To exclude another non-frontend dir, add a `!` line below —
-            # the outputs reference this one filter, so they don't need to change.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # Diff only the commits this push added. compare uses merge-base(before, after),
+                      # which for an appended commit is exactly the push delta; a force-push/rebase
+                      # widens it and won't match. dorny above already covers the whole-PR diff.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
+            # The broad `products/**/*.ts(x)` rules above correctly match all product
+            # frontend code (which doesn't always live under frontend/ — see
+            # products/games, products/data_warehouse, products/ai_observability/shared),
+            # but they also match product dirs that are their own Node services
+            # (products/agent_platform/services/**) with their own ci-agents.yml suite and
+            # nothing in the bundle. Exclude those so a PR touching only them skips frontend
+            # CI. The excluded dirs are derived from pnpm-workspace.yaml (the product paths
+            # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
+            # services are excluded automatically — see bin/frontend-exclude-filter.
+            #
+            # A separate `every`-quantifier step is required: appending a plain `!...` to the
+            # broad filter wouldn't work because dorny's default `some` quantifier OR-matches
+            # predicates and neutralizes the negation (same gotcha as
+            # ci-migrations-service-separation-check.yml). With `every`, the filter is true
+            # only when some changed file lives OUTSIDE every excluded dir.
+            - name: Derive Node-only product workspace exclusions
+              if: github.event_name != 'push'
+              run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   predicate-quantifier: 'every'
-                  filters: |
-                      outside_non_frontend_ts:
-                        - '!products/agent_platform/services/**'
-                        - '!products/agent_platform/packages/**'
+                  filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
@@ -323,6 +367,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -376,7 +423,7 @@ jobs:
             # The eager graph check runs in --report-only mode inside build:with-report
             # (compressed-size-action runs that for the PR AND base builds — a failing
             # base build must not abort the action for every open PR). These steps post
-            # the sticky PR comment and enforce the budgets from the PR build's report,
+            # the sticky PR comment and warn on budget breaches from the PR build's report,
             # which carries the checkout sha in its filename because the base build
             # overwrites the plain one. After compressed-size-action the tree is on the
             # BASE branch, so guard for the scripts' absence (also covers branches
@@ -392,11 +439,11 @@ jobs:
                       echo "Skipping eager graph comment — script not present on this checkout"
                   fi
 
-            - name: Enforce eager graph budgets
+            - name: Check eager graph budgets (warn only)
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
-                      echo "Skipping eager graph enforcement — script not present on this checkout"
+                      echo "Skipping eager graph check — script not present on this checkout"
                       exit 0
                   fi
                   REPORT="frontend/eager-graph-report-${GITHUB_SHA}.json"
@@ -404,7 +451,7 @@ jobs:
                       REPORT="frontend/eager-graph-report.json"
                   fi
                   if [ ! -f "$REPORT" ]; then
-                      echo "Skipping eager graph enforcement — no report found (branch may predate the check)"
+                      echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
                   node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"

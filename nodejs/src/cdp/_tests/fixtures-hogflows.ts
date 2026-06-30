@@ -1,8 +1,8 @@
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { insertRow } from '~/tests/helpers/sql'
 
-import { PostgresRouter } from '../../utils/db/postgres'
-import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createHogExecutionGlobals } from './fixtures'

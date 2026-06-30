@@ -291,6 +291,57 @@
                     }
                 ]
             }
+        },
+        {
+            "files": ["products/posthog_ai/frontend/sandbox/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": ["**/ee/api/conversation", "**/ee/api/conversation/**"],
+                                "message": "Sandbox renderer must not import the conversation API. Use products/tasks/frontend/generated/api for task data."
+                            },
+                            {
+                                "group": ["**/api.conversations*"],
+                                "message": "Sandbox renderer must not import api.conversations. Use api.tasks.* and products/tasks/frontend/generated/api."
+                            }
+                        ],
+                        "paths": [
+                            {
+                                "name": "scenes/max/maxThreadLogic",
+                                "message": "Sandbox module must not import maxThreadLogic (conversation orchestration). Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxContextLogic",
+                                "message": "Sandbox module must not import maxContextLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxLogic",
+                                "message": "Sandbox module must not import maxLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxGlobalLogic",
+                                "message": "Sandbox module must not import maxGlobalLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxTypes",
+                                "message": "Avoid importing maxTypes from the sandbox module. Extract needed types (e.g. SandboxToolCallMessage) into products/posthog_ai/frontend/sandbox/types/ instead.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ]
 }

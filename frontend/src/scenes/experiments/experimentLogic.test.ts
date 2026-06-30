@@ -1114,7 +1114,9 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['archiveExperiment', 'setExperiment'])
                 .toFinishAllListeners()
 
-            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`))
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`), {
+                disable_feature_flag: false,
+            })
             createSpy.mockRestore()
             keyed.unmount()
         })
@@ -2003,17 +2005,14 @@ describe('experimentLogic', () => {
     })
 
     describe('excluded variants', () => {
-        it('excludedVariants selector returns parameters.excluded_variants', async () => {
+        it('excludedVariants selector reads the excluded_variants column', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
+                    excluded_variants: ['test-3'],
                 })
             }).toMatchValues({
-                excludedVariants: ['test-2'],
+                excludedVariants: ['test-3'],
             })
         })
 
@@ -2028,15 +2027,12 @@ describe('experimentLogic', () => {
             })
         })
 
-        it('setVariantExcluded sends a PATCH with the merged exclusion list', async () => {
+        it('setVariantExcluded PATCHes excluded_variants with the merged exclusion list', async () => {
             jest.spyOn(api, 'update')
             api.update.mockClear()
             const existingExperiment = {
                 ...experiment,
-                parameters: {
-                    ...experiment.parameters,
-                    excluded_variants: ['test-1'],
-                },
+                excluded_variants: ['test-1'],
             } as Experiment
             api.update.mockResolvedValue(existingExperiment)
 
@@ -2048,19 +2044,18 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['setVariantExcluded'])
                 .toFinishAllListeners()
 
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
-            expect(sentParams.excluded_variants).toHaveLength(2)
+            // The PATCH targets excluded_variants only — no parameters / feature_flag_variants resend.
+            const sentBody = api.update.mock.calls[0][1] as Record<string, any>
+            expect(sentBody.parameters).toBeUndefined()
+            expect(sentBody.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
+            expect(sentBody.excluded_variants).toHaveLength(2)
         })
 
         it('setVariantExcluded(key, false) removes the key from the exclusion list', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-1', 'test-2'],
-                    },
+                    excluded_variants: ['test-1', 'test-2'],
                 })
             }).toMatchValues({
                 excludedVariants: ['test-1', 'test-2'],

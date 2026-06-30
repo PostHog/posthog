@@ -1841,17 +1841,17 @@ _MAX_COMMENT_IMAGES = 8
 
 
 def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
-    """Presigned URL for embedding a snapshot image in a PR comment.
+    """Presigned URL for the full-resolution snapshot image in a PR comment.
 
-    Prefers the thumbnail to keep the comment lightweight. Returns None when the
-    artifact is missing or object storage is disabled — the caller renders an
-    empty cell in that case.
+    Serves the original artifact (not the thumbnail) so the embedded image opens at full
+    resolution when clicked — GitHub constrains the rendered size via the ``<img width>``
+    attribute but links the original. Returns None when the artifact is missing or object
+    storage is disabled — the caller renders an empty cell in that case.
     """
     if artifact is None:
         return None
-    display = artifact.thumbnail or artifact
     storage = ArtifactStorage(str(repo.id))
-    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    return storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
 
 
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -1887,7 +1887,12 @@ def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str
 
 
 def _image_cell(url: str | None, alt: str) -> str:
-    """Render an image (or an empty placeholder) for a before/after table cell."""
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    The image is constrained to ``_COMMENT_IMAGE_WIDTH`` so the table stays compact, but
+    ``src`` points at the full-resolution original — GitHub opens that original when the
+    image is clicked.
+    """
     if not url:
         return "_(none)_"
     # Escape both attributes — a URL containing a quote would otherwise break out of src.
@@ -1927,9 +1932,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
         _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
-            "current_artifact__thumbnail",
             "baseline_artifact",
-            "baseline_artifact__thumbnail",
         )
         .order_by("identifier")
     )

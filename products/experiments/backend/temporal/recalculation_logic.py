@@ -13,19 +13,27 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.event_usage import groups
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -174,7 +182,12 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            proposed_query_to = timezone.now()
+            # query_to is the run's data-window end, not bare "now": for a stopped experiment
+            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
+            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
+            # timeseries point on every run. A running experiment still advances with now.
+            experiment = Experiment.objects.get(id=state.experiment_id)
+            proposed_query_to = experiment_window_end(experiment, timezone.now())
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
@@ -323,17 +336,21 @@ def _store_result(
     status: str,
     result: dict | None,
     error_message: str | None,
+    query_id: str | None = None,
 ) -> None:
+    # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+    # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+    # duplicate. This heals rows written under the old per-run fingerprint scheme.
     ExperimentMetricResult.objects.update_or_create(
         experiment_id=experiment_id,
         metric_uuid=metric_uuid,
-        fingerprint=recalc_fp,
         query_to=query_to,
         defaults={
+            "fingerprint": recalc_fp,
             "query_from": query_from,
             "status": status,
             "result": result,
-            "query_id": None,
+            "query_id": query_id,
             "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
             "error_message": error_message,
         },
@@ -404,6 +421,22 @@ def _capture_experiment_metric_event(
         )
 
 
+# error_type values mirror the client-side `classifyError` taxonomy (experimentLogic.tsx) so
+# recalculation failures land on the same dashboards as the legacy client events.
+def _classify_query_error_type(e: Exception) -> str:
+    if isinstance(e, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
+        return "timeout"
+    if isinstance(e, ClickHouseQueryMemoryLimitExceeded):
+        return "out_of_memory"
+    if isinstance(e, ServerException):
+        name = look_up_clickhouse_error_code_meta(e).name
+        if name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
+            return "timeout"
+        if name == "MEMORY_LIMIT_EXCEEDED":
+            return "out_of_memory"
+    return "server_error"
+
+
 # ---------------------------------------------------------------------------
 # Calculation
 # ---------------------------------------------------------------------------
@@ -416,6 +449,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     recalculation_id: str,
     query_to: str,
     metric_type: str = "primary",
+    is_final_attempt: bool = True,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -477,23 +511,42 @@ def _calculate_experiment_metric_for_recalculation_sync(
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
+        recalc_fp = compute_recalc_fingerprint(config_fp)
+
+        # Skip the query if this metric is already computed for this exact config and window; a config change
+        # changes the fingerprint, so a stale result won't match and recomputes.
+        already_computed = ExperimentMetricResult.objects.filter(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=query_to_dt,
+            fingerprint=recalc_fp,
+            status=ExperimentMetricResult.Status.COMPLETED,
+        ).exists()
+        if already_computed:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
+        # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for
+        # `system.query_log` (covers every attempt, including Temporal retries). Bound before the try so the
+        # failure paths can always persist it.
+        client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
 
         calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
-            # the runner falls back to its default ("now-ish"), so every metric in the run would query a
-            # slightly different time window — defeating the "one query_to for the whole run" guarantee.
+            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
+            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
+            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
-                override_end_date=query_to_dt,
+                as_of=query_to_dt,
                 workload=Workload.OFFLINE,
                 # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
                 # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
                 user=experiment.created_by,
             )
+
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
             tag_queries(
@@ -501,6 +554,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team_id=state.team_id,
                 product=Product.EXPERIMENTS,
                 feature=Feature.CACHE_WARMUP,
+                client_query_id=client_query_id,
             )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = result.model_dump(mode="json")
@@ -514,6 +568,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result=result_dict,
                 error_message=None,
+                query_id=client_query_id,
             )
             _capture_experiment_metric_event(
                 experiment,
@@ -537,6 +592,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.FAILED,
                 result=None,
                 error_message=message,
+                query_id=client_query_id,
             )
             logger.warning(
                 "Experiment metric recalculation failed due to insufficient data",
@@ -560,8 +616,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         except Exception as e:
             # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
-            # Record the failure so the UI sees it, then re-raise so Temporal's retry policy gets a chance.
-            # If all attempts fail, the workflow's gather(return_exceptions=True) counts this metric as failed.
+            # Persist the failure ONLY on the final attempt, then re-raise; on earlier attempts we re-raise
+            # without persisting so Temporal retries while the metric stays in its loading/dim state on the
+            # frontend, rather than flashing an error for a failure that may yet succeed on the next attempt.
             # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             capture_exception(
@@ -572,23 +629,38 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "recalculation_id": recalculation_id,
                 },
             )
-            _store_result(
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
-                query_from=experiment.start_date,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.FAILED,
-                result=None,
-                error_message=message,
-            )
-            _record_failure(recalculation_id, metric_uuid, "calculation", message)
+            if is_final_attempt:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                # Emit only on the terminal failure (retries exhausted) — the error the user actually
+                # sees. error_type mirrors the client taxonomy so it lands on the same dashboards.
+                # Earlier attempts re-raise silently to avoid double-counting a failure that may still succeed.
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": _classify_query_error_type(e),
+                        "error_message": message,
+                    },
+                )
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
             )
-            # No 'experiment metric error' event here: this path re-raises and Temporal retries, so
-            # emitting would double-count per attempt. The final failed count is reported once at the
-            # run level ('experiment results refresh completed').
             raise

@@ -66,8 +66,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
-    const { selectedReportId, selectedScoutSkillName } = useValues(inboxSceneLogic)
-    const listVisible = !selectedReportId && !selectedScoutSkillName
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen } = useValues(inboxSceneLogic)
+    const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen
     const sentinelRef = useRef<HTMLDivElement>(null)
 
     // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.

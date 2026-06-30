@@ -106,10 +106,10 @@ class TestDiscoverCanonicalSkills:
         )
         _write_canonical_skill(
             tmp_path,
-            dir_name="authoring-signals-scouts",
+            dir_name="authoring-scouts",
             frontmatter="""
                 ---
-                name: authoring-signals-scouts
+                name: authoring-scouts
                 description: companion authoring guide
                 ---
             """,
@@ -128,14 +128,14 @@ class TestDiscoverCanonicalSkills:
             body="# nope\n",
         )
         skills = discover_canonical_skills(tmp_path)
-        assert [s.name for s in skills] == ["authoring-signals-scouts", "signals-scout-foo"]
+        assert [s.name for s in skills] == ["authoring-scouts", "signals-scout-foo"]
 
     def test_companion_name_with_scout_prefix_raises(self, tmp_path: Path) -> None:
         # A scout-prefixed name on a companion would get a SignalScoutConfig from
         # register_missing_configs and be dispatched as a scout — reject at parse time.
         _write_canonical_skill(
             tmp_path,
-            dir_name="authoring-signals-scouts",
+            dir_name="authoring-scouts",
             frontmatter="""
                 ---
                 name: signals-scout-authoring
@@ -149,7 +149,7 @@ class TestDiscoverCanonicalSkills:
     def test_companion_name_must_match_directory(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,
-            dir_name="authoring-signals-scouts",
+            dir_name="authoring-scouts",
             frontmatter="""
                 ---
                 name: authoring-scouts-renamed
@@ -322,7 +322,7 @@ class TestDiscoverCanonicalSkills:
             "signals-scout-revenue-analytics",
             # Companion (non-scout) skill, seeded so store-only agents can read the
             # authoring guide via llma-skill-get.
-            "authoring-signals-scouts",
+            "authoring-scouts",
         }
         assert expected.issubset(names), f"missing canonical skills: {expected - names}"
 
@@ -483,18 +483,18 @@ class TestSyncCanonicalSkills(BaseTest):
 
     def test_companion_skill_seeds_without_scout_config(self) -> None:
         scout = _make_canonical("signals-scout-alpha")
-        companion = _make_canonical("authoring-signals-scouts", body="# Authoring guide\n")
+        companion = _make_canonical("authoring-scouts", body="# Authoring guide\n")
         with self._patch_canonicals((scout, companion)):
             result = sync_canonical_skills(self.team)
 
-        assert set(result.created_skill_names) == {"signals-scout-alpha", "authoring-signals-scouts"}
-        row = LLMSkill.objects.get(team=self.team, name="authoring-signals-scouts", is_latest=True, deleted=False)
+        assert set(result.created_skill_names) == {"signals-scout-alpha", "authoring-scouts"}
+        row = LLMSkill.objects.get(team=self.team, name="authoring-scouts", is_latest=True, deleted=False)
         assert row.metadata["seeded_by"] == "signals_scout_harness"
 
         # The companion never materializes a scout config — only prefix-matching skills do.
         live_skills = register_missing_configs(self.team.id)
         assert live_skills == {"signals-scout-alpha"}
-        assert not SignalScoutConfig.all_teams.filter(team=self.team, skill_name="authoring-signals-scouts").exists()
+        assert not SignalScoutConfig.all_teams.filter(team=self.team, skill_name="authoring-scouts").exists()
 
     def test_prune_skipped_when_no_scout_canonicals_discovered(self) -> None:
         # A disk read that surfaces only companions (broken checkout, partial deploy) must
@@ -503,7 +503,7 @@ class TestSyncCanonicalSkills(BaseTest):
         with self._patch_canonicals((scout,)):
             sync_canonical_skills(self.team)
 
-        companion = _make_canonical("authoring-signals-scouts")
+        companion = _make_canonical("authoring-scouts")
         with self._patch_canonicals((companion,)):
             result = sync_canonical_skills(self.team, prune=True)
 
@@ -816,6 +816,60 @@ class TestSyncCanonicalSkills(BaseTest):
         assert hasattr(result, "updated_skill_names")
         assert hasattr(result, "diverged_skill_names")
         assert hasattr(result, "tombstoned_skill_names")
+
+    def test_withheld_skill_is_not_seeded(self) -> None:
+        # A scout on the per-team holdback denylist never materializes a row for that team.
+        allowed = _make_canonical("signals-scout-alpha", body="x")
+        withheld = _make_canonical("signals-scout-error-tracking", body="y")
+        with self._patch_canonicals((allowed, withheld)):
+            result = sync_canonical_skills(self.team, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.created_skill_names == ("signals-scout-alpha",)
+        assert LLMSkill.objects.filter(team=self.team, name="signals-scout-alpha", deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking").exists()
+
+    def test_withheld_skill_does_not_update_existing_row(self) -> None:
+        # Seed a row, then withhold the skill and change canonical content: the existing row is
+        # left untouched (no update, no version bump) rather than tombstoned.
+        v1 = _make_canonical("signals-scout-error-tracking", body="v1")
+        with self._patch_canonicals((v1,)):
+            sync_canonical_skills(self.team)
+        v2 = _make_canonical("signals-scout-error-tracking", body="v2")
+        with self._patch_canonicals((v2,)):
+            result = sync_canonical_skills(self.team, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.updated_skill_names == ()
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-error-tracking", is_latest=True, deleted=False)
+        assert row.body == "v1"
+
+    def test_withheld_skill_not_pruned_as_orphan(self) -> None:
+        # A withheld skill is still on disk, so the prune pass must not reap it as an orphan.
+        v1 = _make_canonical("signals-scout-error-tracking", body="v1")
+        with self._patch_canonicals((v1,)):
+            sync_canonical_skills(self.team)
+        with self._patch_canonicals((v1,)):
+            result = sync_canonical_skills(self.team, prune=True, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.pruned_skill_names == ()
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-error-tracking", is_latest=True)
+        assert row.deleted is False
+
+    def test_register_missing_configs_excludes_withheld(self) -> None:
+        # Even if a withheld scout's skill row exists (e.g. a team previously allowed), no config
+        # is seeded for it and it's dropped from the returned live-skill set the coordinator
+        # dispatches from — so it can never run.
+        allowed = _make_canonical("signals-scout-alpha")
+        withheld = _make_canonical("signals-scout-error-tracking")
+        with self._patch_canonicals((allowed, withheld)):
+            sync_canonical_skills(self.team)  # no withholding at seed: both rows exist
+
+        live = register_missing_configs(self.team.id, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert live == {"signals-scout-alpha"}
+        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-alpha").exists()
+        assert not SignalScoutConfig.all_teams.filter(
+            team=self.team, skill_name="signals-scout-error-tracking"
+        ).exists()
 
 
 class TestSeedCanonicalSkillsAlias(BaseTest):

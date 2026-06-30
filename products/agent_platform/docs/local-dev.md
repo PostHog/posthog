@@ -51,10 +51,11 @@ etc.) live in [products/agent_platform/services/agent-tools](../../../products/a
 
 - **POSTHOG_DB** — Django-owned. Tables: `agent_application`,
   `agent_revision`. Written by Django; read by ingress + runner.
-- **AGENT_DB** — node-owned. Tables: `agent_session`, `agent_user`,
-  `agent_sandbox_instance`, `agent_tool_approval_request`. Schema is
-  managed by [@posthog/agent-migrations](../../../products/agent_platform/services/agent-migrations/);
-  the runner applies pending migrations on boot (idempotent).
+- **AGENT_DB** — the queue / runtime database. Tables: `agent_session`,
+  `agent_user`, `agent_sandbox_instance`, `agent_tool_approval_request`.
+  Schema is Django-owned ([products/agent_platform/backend/migrations/](../backend/migrations/)),
+  applied by the main `migrate` process (`migrate_product_databases`); the
+  node services are pure clients that connect and run raw SQL, never DDL.
 
 In dev they're the same Postgres (`postgres://posthog:posthog@localhost:5432`),
 just two databases: `posthog` and `agent_runtime_queue`. In prod they're
@@ -70,7 +71,6 @@ dev:setup` and `hogli start` (or `./bin/start`) gives you:
 agent-ingress     → http://localhost:3030     (PORT=AGENT_INGRESS_PORT)
 agent-janitor     → http://localhost:3031     (PORT=AGENT_JANITOR_PORT)
 agent-runner      → no HTTP, watches the queue
-migrate-agent-runtime → applies AGENT_DB migrations once on boot
 ```
 
 Standalone (without phrocs) if you only want the agent services:
@@ -161,17 +161,24 @@ addition.
 
 ### 1. `bin/run-agent` — the smoke test
 
-Fires a chat trigger against the canned dev revision and tails SSE:
+Fires a chat trigger against an agent you've already authored + promoted
+to `live`, and tails SSE:
 
 ```bash
-bin/run-agent                            # default app (slug=demo)
-bin/run-agent --input='{"foo":"bar"}'
-bin/run-agent --no-listen                # skip SSE tail
+bin/run-agent --slug=<your-slug>
+bin/run-agent --slug=<your-slug> --message='hello'           # chat shape
+bin/run-agent --slug=<your-slug> --input='{"foo":"bar"}'     # raw JSON
+bin/run-agent --slug=<your-slug> --no-listen                 # skip SSE tail
 ```
 
 Validates the full ingress → queue → runner → bus → SSE path with one
 command. Reach for this first when anything changes in any of the three
 services.
+
+Auth: the script defaults to `x-posthog-internal: <dev-key>` so an agent
+whose spec declares `auth.modes: [{type:'posthog_internal'}]` (the
+ingress fallback when no modes are configured) works out of the box. For
+`auth.modes: [{type:'posthog'}]`, pass `--bearer=<PAT>`.
 
 ### 2. Local MCP — end-to-end via an MCP client
 
@@ -269,10 +276,17 @@ pnpm --filter @posthog/agent-tests test                 # full suite (faux)
 pnpm --filter @posthog/agent-tests test cases/chat      # one case file
 ```
 
-Requires `agent_runtime_queue_test` to exist locally (`bin/migrate
---scope=agent_runtime` creates `agent_runtime_queue`; the test DB is a
-sibling). The harness drops + reapplies schema per test, so DB state
-is never shared between tests.
+Requires the `agent_runtime_queue_test` DB to exist locally **with the schema
+applied**. Schema is Django-owned (the single source of truth —
+`products/agent_platform/backend/migrations/`), so create + migrate it with:
+
+```bash
+bin/migrate-agent-test-db        # drop + recreate + migrate agent_platform
+```
+
+Run that once, and again after pulling a new agent*platform migration. The test
+harness's `reset()` then only truncates the `agent*\*` tables between cases, so DB
+state is never shared between tests (and there's no hand-maintained SQL to drift).
 
 ### Vital-feature coverage rule
 
@@ -334,6 +348,10 @@ auth predicates). Anything that crosses two services belongs in
 
 ## Where the canonical docs live
 
+- [README.md](README.md) — docs index.
+- [architecture.md](architecture.md) — high-level architecture (diagrams).
+- [services.md](services.md) — what each service does (diagrams).
+- [identity-and-tools.md](identity-and-tools.md) — identity → tools → MCP (diagrams).
 - This file — local dev + testing.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
 - [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.

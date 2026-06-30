@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -88,6 +90,8 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomPropertyDefinition
+                              |CustomPropertyValue
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -107,7 +111,6 @@ rules:
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -165,6 +168,7 @@ rules:
                               |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
+                              |KnowledgeGapSuggestion
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -225,6 +229,8 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -248,12 +254,15 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracingView
                               |UploadedMedia
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -319,6 +328,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -348,6 +359,8 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomPropertyDefinition
+                        |CustomPropertyValue
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -367,7 +380,6 @@ rules:
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -425,6 +437,7 @@ rules:
                         |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
+                        |KnowledgeGapSuggestion
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -481,6 +494,8 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -504,12 +519,15 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracingView
                         |UploadedMedia
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
@@ -613,6 +631,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -681,6 +700,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

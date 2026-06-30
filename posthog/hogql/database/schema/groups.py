@@ -18,12 +18,30 @@ from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenue
 from posthog.hogql.errors import ResolutionError
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
-    "index": IntegerDatabaseField(name="group_type_index", nullable=False),
+    "index": IntegerDatabaseField(
+        name="group_type_index",
+        nullable=False,
+        description="Group type index (0-4); identifies which group type this row belongs to, matching `events.$group_N`.",
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "key": StringDatabaseField(name="group_key", nullable=False),
-    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
-    "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
-    "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
+    "key": StringDatabaseField(
+        name="group_key",
+        nullable=False,
+        description="Unique key for the group within its group type; join target for `events.$group_N`.",
+    ),
+    "created_at": DateTimeDatabaseField(
+        name="created_at", nullable=False, description="When the group was first created in PostHog."
+    ),
+    "updated_at": DateTimeDatabaseField(
+        name="_timestamp",
+        nullable=False,
+        description="When this group row was last written (ingestion timestamp); used to pick the latest version.",
+    ),
+    "properties": StringJSONDatabaseField(
+        name="group_properties",
+        nullable=False,
+        description="JSON map of group properties (latest known values). Access keys with `properties.name` etc.",
+    ),
     "revenue_analytics": LazyJoin(
         from_field=["key"],
         join_table=GroupsRevenueAnalyticsTable(),
@@ -80,6 +98,10 @@ def join_with_group_n_table(
 
 
 class RawGroupsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated groups rows (one per update). Query `groups` instead unless you need to "
+        "resolve the latest version of each group's properties yourself."
+    )
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def to_printed_clickhouse(self, context):
@@ -90,6 +112,10 @@ class RawGroupsTable(Table):
 
 
 class GroupsTable(LazyTable):
+    description: str = (
+        "Deduplicated groups (companies, organizations, etc.) in the project, with their latest properties. "
+        "One row per (group type, group key). Join from events via `events.$group_N = groups.key`."
+    )
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

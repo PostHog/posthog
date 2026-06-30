@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { type PiiScrubStats } from '~/logs/log-pii-scrub'
 import {
     type LogRecord,
@@ -12,7 +13,6 @@ import {
     transformDecodedLogRecordsInPlace,
 } from '~/logs/log-record-avro'
 import type { LogsSettings } from '~/types'
-import { logger } from '~/utils/logger'
 
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
@@ -98,7 +98,10 @@ export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
     constructor(redis: RedisV2, ttlSeconds: number) {
-        this.rateLimiter = new KeyedRateLimiterService({ name: 'logs-sampling-rate', ttlSeconds }, redis)
+        this.rateLimiter = new KeyedRateLimiterService(
+            { name: 'logs-sampling-rate', ttlSeconds, scriptVersion: 'v3' },
+            redis
+        )
     }
 
     @instrumented({
@@ -242,6 +245,7 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
+        const nowSeconds = Date.now() / 1000
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
         const entries: Entry[] = []
 
@@ -261,6 +265,7 @@ export class LogsSamplingService {
                     cost: totalCost,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
+                    now: nowSeconds,
                 },
             })
         }

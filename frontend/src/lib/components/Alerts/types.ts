@@ -5,19 +5,23 @@ import {
     AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
+    FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
-export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig
+export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig
 
 export const isTrendsAlertConfig = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
     config?.type === 'TrendsAlertConfig'
 
 export const isHogQLAlertConfig = (config: AlertConfig | null | undefined): config is HogQLAlertConfig =>
     config?.type === 'HogQLAlertConfig'
+
+export const isFunnelsAlertConfig = (config: AlertConfig | null | undefined): config is FunnelsAlertConfig =>
+    config?.type === 'FunnelsAlertConfig'
 
 /** SQL alert in any-row mode: every result row is checked (one entity per row), which changes
  * row labeling and history rendering versus the single-value modes. */
@@ -38,9 +42,10 @@ export const supportsOngoingInterval = (config: AlertConfig | null | undefined):
  * own window inside the query, so there's no interval to echo in the UI. */
 export const supportsTimeWindow = (config: AlertConfig | null | undefined): boolean => !isHogQLAlertConfig(config)
 
-/** Anomaly detection currently only has a trends detector extractor. */
-export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
-    isTrendsAlertConfig(config)
+/** Anomaly detection needs a time series to score: trends, or SQL in last/first-row mode (an
+ * any-row SQL alert's rows are unrelated entities, not a time axis, so there's nothing to score). */
+export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): boolean =>
+    isTrendsAlertConfig(config) || (isHogQLAlertConfig(config) && !isAnyRowHogQLConfig(config))
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 

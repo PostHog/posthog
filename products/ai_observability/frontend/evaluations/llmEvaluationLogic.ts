@@ -51,6 +51,8 @@ if (not result) {
 return result`
 
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
+const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
+const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
 
 function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation {
     return {
@@ -84,15 +86,40 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
+function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] {
+    if (filter === 'all') {
+        return runs
+    }
+
+    const completedRuns = runs.filter((r) => r.status === 'completed')
+    if (filter === 'pass') {
+        return completedRuns.filter((r) => r.result === true)
+    }
+    if (filter === 'fail') {
+        return completedRuns.filter((r) => r.result === false)
+    }
+    if (filter === 'na') {
+        return completedRuns.filter((r) => r.result === null)
+    }
+
+    return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
+}
+
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    evaluationType?: EvaluationType
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}${
+                props.evaluationType ? `-${props.evaluationType}` : ''
+            }`
+    ),
 
     connect(() => ({
         values: [
@@ -379,6 +406,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             'all' as EvaluationSummaryFilter,
             {
                 setEvaluationSummaryFilter: (_, { filter }) => filter,
+                loadEvaluationSuccess: (_, { evaluation }) =>
+                    evaluation?.evaluation_type === 'sentiment' ? DEFAULT_SENTIMENT_RUNS_FILTER : 'all',
             },
         ],
         // Clear summary when filter changes so stale summary doesn't mismatch current filter
@@ -441,12 +470,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active' as const,
                     status_reason: null,
+                    status_reason_detail: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 0,
+                            rollout_percentage: DEFAULT_CONDITION_ROLLOUT_PERCENTAGE,
                             properties: [],
                         },
                     ],
@@ -456,19 +486,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     updated_at: new Date().toISOString(),
                 }
                 const newEvaluation: EvaluationConfig =
-                    template?.evaluation_type === 'hog'
+                    props.evaluationType === 'sentiment'
                         ? {
                               ...baseFields,
-                              evaluation_type: 'hog' as const,
-                              evaluation_config: { source: template.source, bytecode: [] },
+                              evaluation_type: 'sentiment' as const,
+                              evaluation_config: { source: DEFAULT_SENTIMENT_SOURCE },
+                              output_type: 'sentiment' as const,
+                              output_config: {},
                           }
-                        : {
-                              ...baseFields,
-                              evaluation_type: 'llm_judge' as const,
-                              evaluation_config: {
-                                  prompt: template && 'prompt' in template ? template.prompt : '',
-                              },
-                          }
+                        : template?.evaluation_type === 'hog'
+                          ? {
+                                ...baseFields,
+                                evaluation_type: 'hog' as const,
+                                evaluation_config: { source: template.source, bytecode: [] },
+                            }
+                          : {
+                                ...baseFields,
+                                evaluation_type: 'llm_judge' as const,
+                                evaluation_config: {
+                                    prompt: template && 'prompt' in template ? template.prompt : '',
+                                },
+                            }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
@@ -527,6 +565,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active',
                     status_reason: null,
+                    status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -536,7 +575,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 0,
+                            rollout_percentage: DEFAULT_CONDITION_ROLLOUT_PERCENTAGE,
                             properties: [],
                         },
                     ],
@@ -769,21 +808,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         filteredEvaluationRuns: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
-                if (filter === 'all') {
-                    return runs
-                }
-                // Only consider completed runs for filtering
-                const completedRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    return completedRuns.filter((r) => r.result === true)
-                }
-                if (filter === 'fail') {
-                    return completedRuns.filter((r) => r.result === false)
-                }
-                // na
-                return completedRuns.filter((r) => r.result === null)
-            },
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] =>
+                filterEvaluationRuns(runs, filter),
         ],
 
         runsToSummarizeCount: [

@@ -1,17 +1,9 @@
 ---
 name: signals-scout-replay-vision
 description: >
-  Focused Signals scout for PostHog projects running Replay Vision scanners — the standing
-  LLM probes that watch session recordings and write `$recording_observed` events. Watches
-  two promises: that enabled scanners are actually observing (throughput / success-rate
-  cliffs, exhausted quota — a silent watch gap), and that what the scanners see in aggregate
-  gets surfaced (a monitor's `yes`-rate or a scorer's score stepping away from its own
-  baseline, a classifier tag or a recurring summarizer theme concentrating across many
-  sessions). It is the agentic pull complement to the per-session push path: scanners with
-  `emits_signals` already emit one signal per session into this same inbox, so this scout
-  never repeats them — it adds the cross-session shape the per-session probe can't see.
-  Emits findings only when they clear the confidence bar; otherwise writes durable memory
-  and closes out empty. Self-contained peer in the signals-scout-* fleet.
+  Signals scout for PostHog Replay Vision scanners. Watches that enabled scanners keep
+  observing (throughput / quota cliffs) and that what they see in aggregate gets surfaced
+  (score shifts, recurring themes across sessions).
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (mostly read-only, plus signal_scout_internal:write). Assumes the signals-scout MCP

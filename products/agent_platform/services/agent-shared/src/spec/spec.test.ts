@@ -3,23 +3,24 @@ import {
     AgentSpecSchema,
     AuthConfigSchema,
     getSecretAllowedHosts,
+    MODEL_POLICY_LEVELS,
+    modelPolicyToList,
     principalsMatch,
     secretHostMatches,
 } from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
-        const parsed = AgentSpecSchema.parse({ model: 'claude-opus-4-7' })
-        expect(parsed.model).toBe('claude-opus-4-7')
+        const parsed = AgentSpecSchema.parse({})
+        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium', optimize_for: 'cost' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
-        expect(parsed.entrypoint).toBe('agent.md')
         expect(parsed.limits.max_turns).toBe(50)
     })
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'claude-opus-4-7',
+            models: { mode: 'auto', level: 'high' },
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -30,10 +31,8 @@ describe('AgentSpecSchema', () => {
             ],
             mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
-            integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
-            entrypoint: 'agent.md',
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)
@@ -42,7 +41,7 @@ describe('AgentSpecSchema', () => {
 
     describe('limits.max_output_tokens', () => {
         it('defaults to undefined (runner picks a reasoning-aware default)', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            const parsed = AgentSpecSchema.parse({})
             expect(parsed.limits.max_output_tokens).toBeUndefined()
         })
 
@@ -69,6 +68,44 @@ describe('AgentSpecSchema', () => {
 
     it('rejects unknown tool kind', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
+    })
+
+    describe('models.manual model id format', () => {
+        // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
+        // freeze fine and then 400 on the very first session.
+        it('rejects a bare model id (no provider prefix)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects an uppercase provider', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'Anthropic/claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects a missing model id (trailing slash)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'anthropic/' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('accepts a canonical `<provider>/<model-id>`', () => {
+            const parsed = AgentSpecSchema.parse({
+                models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
+            })
+            expect(parsed.models).toMatchObject({
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-haiku-4-5' }],
+            })
+        })
     })
 
     describe('cron trigger config', () => {
@@ -252,9 +289,8 @@ describe('AgentSpecSchema', () => {
                 throw new Error('expected native tool')
             }
             expect(t.requires_approval).toBe(false)
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.type).toBe('principal')
             expect(t.approval_policy.allow_edit).toBe(false)
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
             expect(t.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
         })
 
@@ -278,8 +314,7 @@ describe('AgentSpecSchema', () => {
             expect(t.approval_policy.allow_edit).toBe(true)
             expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)
             // unspecified fields still defaulted
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
+            expect(t.approval_policy.type).toBe('principal')
         })
 
         it('rejects ttl_ms below 1 minute', () => {
@@ -314,26 +349,9 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
-        it('rejects empty approvers list', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    tools: [
-                        {
-                            kind: 'native',
-                            id: '@posthog/team-delete',
-                            requires_approval: true,
-                            approval_policy: { approvers: [] },
-                        },
-                    ],
-                })
-            ).toThrow()
-        })
-
-        it('parses session_principal as an approver scope', () => {
-            // PR 7 widened the v0 enum from `['team_admins']` to add
-            // `['session_principal']` so the concierge can route gated
-            // calls back to the session owner via the per-asker fast path.
+        it('back-compat: an unmappable legacy approvers list falls back to the default principal type', () => {
+            // An empty (or unrecognised) legacy `approvers` derives no `type`, so
+            // it lands on the `principal` default rather than throwing.
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 tools: [
@@ -341,7 +359,7 @@ describe('AgentSpecSchema', () => {
                         kind: 'native',
                         id: '@posthog/team-delete',
                         requires_approval: true,
-                        approval_policy: { approvers: ['session_principal'] },
+                        approval_policy: { approvers: [] },
                     },
                 ],
             })
@@ -349,10 +367,58 @@ describe('AgentSpecSchema', () => {
             if (t.kind === 'client') {
                 throw new Error('expected native tool')
             }
-            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+            expect(t.approval_policy.type).toBe('principal')
         })
 
-        it('rejects approver scopes not yet supported in v0', () => {
+        it('parses an explicit agent type', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { type: 'agent' },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe('agent')
+        })
+
+        it.each([
+            { approvers: ['session_principal'], type: 'principal' },
+            { approvers: ['team_admins'], type: 'agent' },
+        ])('back-compat: maps legacy approvers $approvers to type $type', ({ approvers, type }) => {
+            // Specs frozen before the principal/agent split carry `approvers[]`
+            // (+ `allow_agent_approver`); the preprocess derives `type` and drops
+            // the legacy keys so old revisions keep validating.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers, allow_agent_approver: false, ttl_ms: 900_000 },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe(type)
+            expect(t.approval_policy.ttl_ms).toBe(900_000)
+            // Legacy keys are gone from the parsed shape.
+            expect('approvers' in t.approval_policy).toBe(false)
+            expect('allow_agent_approver' in t.approval_policy).toBe(false)
+        })
+
+        it('rejects an invalid approval type', () => {
             expect(() =>
                 AgentSpecSchema.parse({
                     model: 'x',
@@ -361,7 +427,7 @@ describe('AgentSpecSchema', () => {
                             kind: 'native',
                             id: '@posthog/team-delete',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_owner'] },
+                            approval_policy: { type: 'session_owner' },
                         },
                     ],
                 })
@@ -379,7 +445,6 @@ describe('AgentSpecSchema', () => {
                     {
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
-                        auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
                         tools: ['create-issue', 'list-issues'],
                     },
@@ -388,7 +453,6 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
-            expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
             expect(m.tools).toEqual(['create-issue', 'list-issues'])
         })
@@ -405,7 +469,7 @@ describe('AgentSpecSchema', () => {
                             {
                                 name: 'agent-applications-revisions-promote-create',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                                approval_policy: { type: 'principal', ttl_ms: 900_000 },
                             },
                         ],
                     },
@@ -419,7 +483,7 @@ describe('AgentSpecSchema', () => {
             }
             expect(gated.name).toBe('agent-applications-revisions-promote-create')
             expect(gated.requires_approval).toBe(true)
-            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
+            expect(gated.approval_policy.type).toBe('principal')
             expect(gated.approval_policy.ttl_ms).toBe(900_000)
             // Unspecified fields fall through to the approval-policy defaults.
             expect(gated.approval_policy.allow_edit).toBe(false)
@@ -727,5 +791,104 @@ describe('AgentSpecSchema', () => {
         ])('%s', (_label, stored, incoming, expected) => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
         })
+    })
+
+    describe('identity_providers[] binding', () => {
+        it('accepts the per-asker `principal` binding (defaulting when omitted)', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog' }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('principal')
+        })
+
+        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                })
+            ).toThrow()
+        })
+    })
+})
+
+describe('modelPolicyToList', () => {
+    it('expands an auto level to its priority list, order preserved, no reasoning by default', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'low' } })
+        expect(modelPolicyToList(spec)).toEqual(
+            MODEL_POLICY_LEVELS.low.map((model) => ({ model, reasoning: undefined }))
+        )
+    })
+
+    it('defaults to the auto/medium list when models is omitted', () => {
+        const spec = AgentSpecSchema.parse({})
+        expect(modelPolicyToList(spec).map((e) => e.model)).toEqual([...MODEL_POLICY_LEVELS.medium])
+    })
+
+    it('auto: policy.reasoning applies to every resolved entry', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', reasoning: 'high' } })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'high')).toBe(true)
+    })
+
+    it('auto: falls back to spec.reasoning when the policy declares none', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' }, reasoning: 'low' })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'low')).toBe(true)
+    })
+
+    it('auto: policy.reasoning wins over spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'auto', level: 'medium', reasoning: 'xhigh' },
+            reasoning: 'low',
+        })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'xhigh')).toBe(true)
+    })
+
+    it('manual: passes the explicit list through in order, per-entry reasoning preserved', () => {
+        const spec = AgentSpecSchema.parse({
+            models: {
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-opus-4-7', reasoning: 'high' }, { model: 'openai/gpt-5' }],
+            },
+        })
+        expect(modelPolicyToList(spec)).toEqual([
+            { model: 'anthropic/claude-opus-4-7', reasoning: 'high' },
+            { model: 'openai/gpt-5', reasoning: undefined },
+        ])
+    })
+
+    it('manual: an entry without its own reasoning inherits spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] },
+            reasoning: 'medium',
+        })
+        expect(modelPolicyToList(spec)).toEqual([{ model: 'openai/gpt-5', reasoning: 'medium' }])
+    })
+})
+
+describe('models.optimize_for', () => {
+    it('defaults to cost on an auto policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost on a manual policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost when models is omitted entirely', () => {
+        expect(AgentSpecSchema.parse({}).models.optimize_for).toBe('cost')
+    })
+
+    it.each(['cost', 'availability'] as const)('accepts optimize_for: %s', (mode) => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: mode } })
+        expect(spec.models.optimize_for).toBe(mode)
+    })
+
+    it('rejects an unknown optimize_for', () => {
+        expect(() =>
+            AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
+        ).toThrow()
     })
 })

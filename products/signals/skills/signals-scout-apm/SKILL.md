@@ -1,14 +1,9 @@
 ---
 name: signals-scout-apm
 description: >
-  Focused Signals scout for PostHog projects using the distributed tracing (APM /
-  OpenTelemetry spans) product. Watches RED metrics per (service, operation) — error rate,
-  p95 latency, and request volume — for regressions against each operation's own
-  seasonality-matched baseline (the same window 7 days ago), plus new error signatures,
-  failing downstream dependencies, and service traffic cliffs. Emits findings only when
-  they clear the confidence bar; otherwise writes durable memory and closes out empty.
-  Self-contained peer in the signals-scout-* fleet — not AI observability ($ai_* traces)
-  and not logs.
+  Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches RED
+  metrics per (service, operation) — error rate, p95 latency, request volume — for
+  regressions, new error signatures, and traffic cliffs.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

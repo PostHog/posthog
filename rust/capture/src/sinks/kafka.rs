@@ -794,7 +794,7 @@ mod tests {
     use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
-    use crate::utils::uuid_v7;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use rand::distributions::Alphanumeric;
@@ -895,8 +895,9 @@ mod tests {
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let distinct_id = "test_distinct_id_123".to_string();
+        let timestamp = chrono::Utc::now();
         let event: CapturedEvent = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.clone(),
             session_id: None,
             ip: "".to_string(),
@@ -905,7 +906,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -949,8 +950,9 @@ mod tests {
             .take(2_000_000)
             .map(char::from)
             .collect();
+        let timestamp = chrono::Utc::now();
         let captured = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: "id1".to_string(),
             session_id: None,
             ip: "".to_string(),
@@ -959,7 +961,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -980,9 +982,10 @@ mod tests {
             .map(char::from)
             .collect();
 
+        let timestamp = chrono::Utc::now();
         let big_event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "id1".to_string(),
                 session_id: None,
                 ip: "".to_string(),
@@ -991,7 +994,7 @@ mod tests {
                 sent_at: None,
                 token: "token1".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -1210,8 +1213,9 @@ mod tests {
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
+            let timestamp = chrono::Utc::now();
             let event = CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_user".to_string(),
                 session_id: Some("session123".to_string()),
                 ip: "127.0.0.1".to_string(),
@@ -1220,7 +1224,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             };

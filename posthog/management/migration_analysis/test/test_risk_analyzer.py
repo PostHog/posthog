@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+from django.conf import settings
 from django.db import migrations, models
 
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from posthog.management.migration_analysis.models import RiskLevel
 from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
 from posthog.migration_helpers import (
     AddConstraintNotValid,
+    AddForeignKeyNotValid,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
     ValidateConstraint,
@@ -2302,3 +2304,152 @@ class TestHotTableAlterPolicy:
         mock_migration.__module__ = "products.some_product.backend.migrations.0001_test"
         risk = self.analyzer.analyze_migration(mock_migration, "products/some_product/backend/migrations/0001_test.py")
         assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def _analyze_product(self, operations, app_label="some_product", name="0001_test"):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = app_label
+        mock_migration.name = name
+        mock_migration.operations = operations
+        mock_migration.__module__ = f"products.{app_label}.backend.migrations.{name}"
+        return self.analyzer.analyze_migration(mock_migration, f"products/{app_label}/backend/migrations/{name}.py")
+
+    def test_create_model_with_fk_to_hot_table_blocked(self):
+        """The warehouse_sources.0034 case: a product CreateModel with a FK to posthog.team."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+        assert any("db_constraint=False" in v for v in risk.policy_violations)
+        assert any("AddForeignKeyNotValid" in v for v in risk.policy_violations)
+
+    def test_create_model_with_fk_to_hot_table_db_constraint_false_not_flagged(self):
+        """db_constraint=False emits no FK constraint and takes no parent lock - the escape hatch."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE, db_constraint=False)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_fk_to_hot_table_blocked(self):
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="team",
+            field=models.ForeignKey("posthog.team", on_delete=models.CASCADE),
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_with_fk_to_non_hot_table_not_flagged(self):
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("table", models.ForeignKey("warehouse_sources.datawarehousetable", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_unmanaged_with_fk_to_hot_table_not_flagged(self):
+        """managed=False maps an external table - Django emits no DDL or FK, so no parent lock."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+            options={"managed": False},
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_to_hot_table_blocked(self):
+        """A M2M to a hot table auto-creates a through table with FK constraints to the parent."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team"),
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_to_hot_table_db_constraint_false_not_flagged(self):
+        """db_constraint=False propagates to the through FKs - the same escape hatch as a plain FK."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", db_constraint=False),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_with_explicit_through_not_flagged(self):
+        """An explicit through model defines its own FKs, analyzed when its CreateModel runs."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", through="some_product.TableTeam"),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_with_swappable_user_fk_blocked(self):
+        """settings.AUTH_USER_MODEL desugars to posthog.user, a hot table."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("created_by", models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_fk_to_hot_table_acknowledged_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("some_product.0001_test\n")
+        monkeypatch.setattr(HotTableAlterPolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_on_hot_child_blocked(self):
+        """The helper run against a hot child still ALTERs posthog_team itself - gate it."""
+        op = AddForeignKeyNotValid(model_name="team", name="team_owner_fk", column="owner_id", to_table="some_table")
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_pointing_at_hot_parent_not_flagged(self):
+        """The sanctioned use: a non-hot child's FK pointing at a hot parent carries the
+        parent in to_table, not model_name, so it isn't gated as a direct hot-table alter."""
+        op = AddForeignKeyNotValid(
+            model_name="mymodel", name="mymodel_team_fk", column="team_id", to_table="posthog_team"
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)

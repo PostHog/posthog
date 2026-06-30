@@ -23,12 +23,15 @@ import {
     createLogger,
     createMetricsServer,
     createModalSandboxTerminator,
+    DirectHttpClient,
+    HttpGatewayCatalog,
     initMetrics,
     installProcessHandlers,
     isDev,
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
+    PgIdentityAdminStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -98,6 +101,9 @@ async function main(): Promise<void> {
     // (same secret_env entries the runner reads).
     const sandboxInstances = new PgSandboxInstanceStore(agentDb)
     const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+    // Keyless admin view over agent_user + agent_identity_credential for the
+    // console "Users" pane. No decryption key — metadata only.
+    const identityAdmin = new PgIdentityAdminStore(agentDb)
 
     const sweep = {
         queue,
@@ -150,6 +156,15 @@ async function main(): Promise<void> {
         'memory.s3.enabled'
     )
 
+    // Served-model catalog off the same gateway the runner uses — validate +
+    // freeze reject a models the gateway can't serve. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = new HttpGatewayCatalog({
+        baseUrl: config.aiGatewayUrl,
+        bearer: config.posthogAiGatewayKey,
+        http: new DirectHttpClient(),
+    })
+
     const app = buildJanitorApp({
         queue,
         sweep,
@@ -158,6 +173,8 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
+        identityAdmin,
+        gatewayCatalog,
         internalSigningKey: config.internalSigningKey,
     })
     app.listen(config.port, () => {

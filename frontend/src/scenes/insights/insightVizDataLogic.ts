@@ -114,6 +114,16 @@ import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
+// and bar layouts). Lifecycle always renders it regardless of display.
+const DISPLAYS_WITH_IN_CHART_LEGEND = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+]
+
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
@@ -469,6 +479,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
+        // Whether the active chart renders the unified in-chart quill legend (replacing the legacy
+        // side legend) instead of the legacy show/hide checkbox. Single source of truth shared by
+        // InsightDisplayConfig (which control to show) and InsightVizDisplay (suppress side legend).
+        usesInChartLegend: [
+            (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (featureFlags, isTrends, isStickiness, isLifecycle, display): boolean => {
+                // Lifecycle always uses config.legend inside TimeSeriesBarChart — no flag gate needed.
+                if (isLifecycle) {
+                    return true
+                }
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
+                    return false
+                }
+                return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
+            },
+        ],
+
         hasDetailedResultsTable: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends: boolean, isStickiness: boolean, display: ChartDisplayType | undefined) =>
@@ -686,7 +713,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
+            // When an external save handler is wired (dashboard card), skip the debounce so
+            // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            if (!props.setQuery) {
+                await breakpoint(300)
+            }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 return
