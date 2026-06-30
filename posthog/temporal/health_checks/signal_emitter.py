@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import structlog
 from asgiref.sync import async_to_sync
 
-from posthog.schema import SignalRemediation
+from products.signals.backend.contracts import SignalRemediation
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team

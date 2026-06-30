@@ -484,6 +484,9 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
+    build:signals-types:
+        cmd: python -m products.signals.backend.build_frontend_types && pnpm --filter=@posthog/frontend exec oxfmt src/generated/signals.ts
+        description: Generate frontend signal types from backend Pydantic contracts (no-serializer path)
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
@@ -542,6 +545,7 @@ build:
         steps:
             - build:openapi-schema
             - build:widget-types
+            - build:signals-types
             - build:openapi-types
             - build:openapi-mcp-types
             - build:openapi-mcp

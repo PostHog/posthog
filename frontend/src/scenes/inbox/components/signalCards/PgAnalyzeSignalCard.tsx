@@ -7,7 +7,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { safeHttpUrl } from 'scenes/inbox/utils/reportPresentation'
 
-import type { PgAnalyzeIssueReference, PgAnalyzeIssueSignalExtra } from '~/queries/schema/schema-signals'
+import type { PgAnalyzeIssueReference, PgAnalyzeIssueSignalExtra } from '~/generated/signals'
 
 import { ExternalSignalCard } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'

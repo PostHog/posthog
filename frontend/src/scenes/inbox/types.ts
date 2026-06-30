@@ -1,11 +1,6 @@
-// Canonical definitions live in schema-signals.ts (synced between TS and Python).
+// Canonical definitions are generated from the backend signal contracts into ~/generated/signals.
 // Re-exported here so existing consumers keep working.
-import {
-    EnrichedReviewer,
-    RelevantCommit,
-    SignalSourceProduct,
-    SignalSourceType,
-} from '~/queries/schema/schema-signals'
+import { EnrichedReviewer, RelevantCommit, SignalSourceProduct, SignalSourceType } from '~/generated/signals'
 import type { UserBasicType } from '~/types'
 
 export type { EnrichedReviewer, RelevantCommit }

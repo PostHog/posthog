@@ -17,7 +17,7 @@ from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from posthog.schema import ReplayVisionScannerFindingSignalInput
+from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 
 from posthog.models import Organization, Team
 from posthog.models.user import User

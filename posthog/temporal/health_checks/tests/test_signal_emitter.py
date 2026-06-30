@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HealthCheckSignalExtra, Priority, SignalRemediation
+from posthog.schema import Priority
 
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
@@ -17,6 +17,8 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
+
+from products.signals.backend.contracts import HealthCheckSignalExtra, SignalRemediation
 
 
 class _SignalCheck(HealthCheck):

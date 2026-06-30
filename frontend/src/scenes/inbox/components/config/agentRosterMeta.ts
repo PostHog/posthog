@@ -1,4 +1,4 @@
-import { SignalSourceProduct } from '~/queries/schema/schema-signals'
+import { SignalSourceProduct } from '~/generated/signals'
 
 import { DataWarehouseSource } from '../../signalSourcesLogic'
 

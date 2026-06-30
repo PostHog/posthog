@@ -17,7 +17,7 @@ import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
-import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/queries/schema/schema-signals'
+import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/generated/signals'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'

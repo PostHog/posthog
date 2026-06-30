@@ -1,7 +1,7 @@
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import type { ZendeskTicketSignalExtra } from '~/queries/schema/schema-signals'
+import type { ZendeskTicketSignalExtra } from '~/generated/signals'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'

@@ -4,7 +4,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import type { LinearIssueSignalExtra } from '~/queries/schema/schema-signals'
+import type { LinearIssueSignalExtra } from '~/generated/signals'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'

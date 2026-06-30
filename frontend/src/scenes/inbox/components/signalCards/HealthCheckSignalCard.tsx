@@ -6,7 +6,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type { HealthCheckSeverity, HealthCheckSignalExtra } from '~/queries/schema/schema-signals'
+import type { HealthCheckSeverity, HealthCheckSignalExtra } from '~/generated/signals'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'

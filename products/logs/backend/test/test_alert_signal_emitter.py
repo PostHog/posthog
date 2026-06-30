@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import LogsAlertStateChangeSignalExtra
+from products.signals.backend.contracts import LogsAlertStateChangeSignalExtra
 
 from posthog.models import Team
 

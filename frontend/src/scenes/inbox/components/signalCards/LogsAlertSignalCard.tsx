@@ -4,7 +4,7 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type { LogsAlertStateChangeSignalExtra } from '~/queries/schema/schema-signals'
+import type { LogsAlertStateChangeSignalExtra } from '~/generated/signals'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'

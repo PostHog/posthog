@@ -7,7 +7,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import type { ErrorTrackingSignalExtra } from '~/queries/schema/schema-signals'
+import type { ErrorTrackingSignalExtra } from '~/generated/signals'
 
 import { ErrorTrackingIssueListRow } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList'
 

@@ -3,7 +3,7 @@ import { IconLock } from '@posthog/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import type { GithubIssueSignalExtra } from '~/queries/schema/schema-signals'
+import type { GithubIssueSignalExtra } from '~/generated/signals'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'

@@ -7,7 +7,7 @@ import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
-import type { ConversationsTicketSignalExtra } from '~/queries/schema/schema-signals'
+import type { ConversationsTicketSignalExtra } from '~/generated/signals'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'

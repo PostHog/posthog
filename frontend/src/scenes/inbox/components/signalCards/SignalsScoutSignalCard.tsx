@@ -9,7 +9,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
-import type { SignalsScoutEvidenceEntry, SignalsScoutSignalExtra } from '~/queries/schema/schema-signals'
+import type { SignalsScoutEvidenceEntry, SignalsScoutSignalExtra } from '~/generated/signals'
 
 import { INBOX_SOURCE_OPTIONS } from '../../filterOptions'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'

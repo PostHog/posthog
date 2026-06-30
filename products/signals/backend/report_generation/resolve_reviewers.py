@@ -14,7 +14,7 @@ from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
-from posthog.schema import RelevantCommit
+from products.signals.backend.contracts import RelevantCommit
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership

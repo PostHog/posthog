@@ -8,7 +8,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import type { LlmEvalReportSignalExtra, LlmEvalSignalExtra } from '~/queries/schema/schema-signals'
+import type { LlmEvalReportSignalExtra, LlmEvalSignalExtra } from '~/generated/signals'
 
 import { LLMProviderIcon } from 'products/ai_observability/frontend/LLMProviderIcon'
 import { normalizeLLMProvider } from 'products/ai_observability/frontend/settings/llmProviderKeysLogic'

@@ -8,7 +8,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import type { EndpointExecutionFailedSignalExtra } from '~/queries/schema/schema-signals'
+import type { EndpointExecutionFailedSignalExtra } from '~/generated/signals'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
