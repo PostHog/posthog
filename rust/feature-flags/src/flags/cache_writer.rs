@@ -42,6 +42,17 @@ pub fn make_cache_config(
     config
 }
 
+/// What a successful persist wrote, surfaced so callers can log it. Both fields
+/// are computed on the write path anyway (`set_with_etag` returns the etag; the
+/// size is the serialized JSON length), so capturing them is free.
+pub struct PersistOutcome {
+    /// ETag stamped on the entry — `FlagDefinitionsCache` keys on `(team_id, etag)`,
+    /// so this identifies the cache version the request path will read.
+    pub etag: String,
+    /// Serialized cache size in bytes.
+    pub size_bytes: usize,
+}
+
 /// Persist a freshly built flags cache for `team_id` with the given TTL.
 ///
 /// Uses `set_with_etag` (not `set`): `set()` unconditionally DELs the `:etag` key
@@ -56,11 +67,12 @@ pub async fn persist_flags_cache(
     team_id: TeamId,
     cache: &HypercacheFlagsWrapper,
     ttl_seconds: u64,
-) -> Result<(), HyperCacheError> {
+) -> Result<PersistOutcome, HyperCacheError> {
     let key = KeyType::int(team_id);
     let json = serde_json::to_string(cache)?;
-    writer.set_with_etag(&key, &json, ttl_seconds).await?;
-    Ok(())
+    let size_bytes = json.len();
+    let etag = writer.set_with_etag(&key, &json, ttl_seconds).await?;
+    Ok(PersistOutcome { etag, size_bytes })
 }
 
 /// Assemble the hypercache writer the flags binaries use: an S3 client plus the
