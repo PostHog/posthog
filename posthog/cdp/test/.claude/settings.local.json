@@ -1,6 +1,0 @@
-{
-  "enabledMcpjsonServers": [
-    "phrocs",
-    "posthog-local"
-  ]
-}
