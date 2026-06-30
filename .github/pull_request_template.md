@@ -1,23 +1,3 @@
-<!-- Authoring rules (agents: read, humans: probably don't read).
-- Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
-  ✅ feat(insights): add retention graph export
-  ❌ feat: Added retention export.   (capitalized, period, no scope)
-- Description: high-level rationale, not a step-by-step replay.
-- Public OSS repo: no internal customers, incidents, or operational metrics.
-- Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
-- When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
-- If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
-- Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.
-- Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
-- Agent-authored PRs always require human review — do not self-merge or auto-approve.
-- Do NOT claim manual testing you haven't done.
-- GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
-- Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Spare use of inline code. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Limit the use of the colon and semicolon.
-- Write from a first person perspective of the author of a human-driven PR. Although if something was done by an agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
-- If written by agent, put in a plain paragraph before "## Problem" just saying "_Claude/Codex/etc.-written:_" to set the context for readers.
-- For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
--->
-
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
@@ -67,4 +47,24 @@
      This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
      Don't duplicate info already present in preceding sections.
      DO NOT INCLUDE sensitive data that may have been shared in an agent session.
+-->
+
+<!-- Overall PR authoring rules for agents:
+- Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
+  ✅ feat(insights): add retention graph export
+  ❌ feat: Added retention export.   (capitalized, period, no scope)
+- Description: high-level rationale, not a step-by-step replay.
+- Public OSS repo: no internal customers, incidents, or operational metrics.
+- Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
+- When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
+- If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
+- Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.
+- Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
+- Agent-authored PRs always require human review — do not self-merge or auto-approve.
+- Do NOT claim manual testing you haven't done.
+- GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
+- Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Spare use of inline code. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Limit the use of the colon and semicolon.
+- Write from a first person perspective of the author of a human-driven PR. Although if something was done by an agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
+- If written by agent, put in a plain paragraph before "## Problem" just saying "_Claude/Codex/etc.-written:_" to set the context for readers.
+- For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
 -->
