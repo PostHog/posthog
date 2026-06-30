@@ -69,7 +69,7 @@ def _select_model_name(model_names: list[str]) -> str:
 def _model_specific_embeddings_table_name(model_name: str) -> str:
     for table in EMBEDDING_TABLES:
         if table.model_name == model_name:
-            return f"document_embeddings_{model_name.replace('-', '_')}"
+            return f"document_embeddings_{table.normalized_model_name}"
     raise ValueError(f"Invalid embedding model: {model_name}")
 
 
