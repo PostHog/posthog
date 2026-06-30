@@ -114,71 +114,68 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
-        # Keep this transaction short: persist DB changes only. The post-commit work
-        # (schedule_materialization → Temporal RPCs + DataWarehouseModelPath updates,
-        # and orphan revert_materialization) runs outside the atomic block so row
-        # locks on posthog_datawarehousesavedquery aren't held across synchronous
-        # Temporal RPCs.
-        with transaction.atomic():
-            # Serialize concurrent sync_views calls for the same team+kind to prevent
-            # deadlocks when multiple data source schemas complete simultaneously and
-            # each tries to update the same set of saved queries.
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
-                    [f"{self.team_id}_sync_views_{self.kind}"],
-                )
-
-            for view in expected_views:
-                # Get the one from the DB or create a new one if doesn't exist yet
-                saved_query = DataWarehouseSavedQuery.objects.filter(
-                    name=view.name, team=self.team, managed_viewset=self
-                ).first()
-                if saved_query:
-                    created = False
-                else:
-                    saved_query = DataWarehouseSavedQuery(
-                        name=view.name,
-                        team=self.team,
-                        managed_viewset=self,
-                        origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
-                    )
-                    created = True
-
-                # Do NOT use get_columns because it runs the query, and these are possibly heavy
-                saved_query.query = view.query
-                saved_query.columns = view.columns
-                saved_query.external_tables = external_tables_by_view[view.name]
-                saved_query.is_materialized = True
-                saved_query.sync_frequency_interval = timedelta(hours=12)
-
-                saved_query.save()
-                saved_queries_to_schedule.append(saved_query)
-
-                if created:
-                    views_created += 1
-                else:
-                    views_updated += 1
-
-            orphaned_views_to_revert = list(
-                self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
-            )
-
-        # Managed views get their own DAG (Revenue Analytics runs on a single 12h schedule), kept
-        # separate from the team's Default DAG so each DAG has exactly one sync frequency. Maintained
-        # on every sync — create, update, and resync. saved_queries_to_schedule is in expected_views
-        # order (dependencies first), so edges resolve in a single pass.
+        # Serialize concurrent sync_views calls for this team+kind under a SINGLE session-level
+        # advisory lock held across BOTH phases below: the short DB-write transaction and the DAG
+        # sync. Using one consistent lock scope is the whole point — the two phases previously used
+        # the SAME key under DIFFERENT scopes (a transaction-scoped pg_advisory_xact_lock for the
+        # writes plus a session-scoped pg_advisory_lock for the DAG sync). On the pooled connection
+        # this sync runs on, holding two same-key advisory locks of different scopes let the scopes
+        # interleave across shared connections and produced multi-process lock-ordering deadlocks.
+        # The lock is acquired here (after the expensive get_s3_tables precompute) and released in
+        # the finally so it never leaks, even on a pooled connection.
         #
-        # Serialize concurrent sync_views for this team+kind with a SESSION-level advisory lock so two
-        # calls can't race on node/edge placement (one call's edge delete-and-recreate wiping
-        # another's). Deliberately NOT wrapped in a transaction: sync_saved_query_to_dag parses HogQL
-        # (builds a Database context + resolves view dependencies), and holding a Postgres transaction
-        # open across that is what starves the data-modeling connection pool. Each call commits in
-        # autocommit and is idempotent; the lock is released in a finally so it never leaks.
+        # Phase 1 (transaction): persist DB changes only — kept short so row locks on
+        # posthog_datawarehousesavedquery aren't held across the DAG sync or the post-commit work.
+        #
+        # Phase 2 (DAG sync, autocommit): managed views get their own DAG (Revenue Analytics runs on
+        # a single 12h schedule), kept separate from the team's Default DAG so each DAG has exactly
+        # one sync frequency. sync_saved_query_to_dag parses HogQL (builds a Database context +
+        # resolves view dependencies), so it deliberately runs OUTSIDE any open transaction — holding
+        # one across it starves the data-modeling connection pool. saved_queries_to_schedule is in
+        # expected_views order (dependencies first), so edges resolve in a single pass.
+        #
+        # The post-commit work (schedule_materialization → Temporal RPCs + DataWarehouseModelPath
+        # updates, and orphan revert_materialization) runs after the lock is released.
         lock_key = f"{self.team_id}_sync_views_{self.kind}"
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_lock(hashtext(%s)::bigint)", [lock_key])
         try:
+            with transaction.atomic():
+                for view in expected_views:
+                    # Get the one from the DB or create a new one if doesn't exist yet
+                    saved_query = DataWarehouseSavedQuery.objects.filter(
+                        name=view.name, team=self.team, managed_viewset=self
+                    ).first()
+                    if saved_query:
+                        created = False
+                    else:
+                        saved_query = DataWarehouseSavedQuery(
+                            name=view.name,
+                            team=self.team,
+                            managed_viewset=self,
+                            origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                        )
+                        created = True
+
+                    # Do NOT use get_columns because it runs the query, and these are possibly heavy
+                    saved_query.query = view.query
+                    saved_query.columns = view.columns
+                    saved_query.external_tables = external_tables_by_view[view.name]
+                    saved_query.is_materialized = True
+                    saved_query.sync_frequency_interval = timedelta(hours=12)
+
+                    saved_query.save()
+                    saved_queries_to_schedule.append(saved_query)
+
+                    if created:
+                        views_created += 1
+                    else:
+                        views_updated += 1
+
+                orphaned_views_to_revert = list(
+                    self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
+                )
+
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
             for saved_query in saved_queries_to_schedule:
                 try:
