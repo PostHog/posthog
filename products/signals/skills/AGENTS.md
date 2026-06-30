@@ -121,6 +121,19 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-observability-gaps/` — the odd one out. Watches for _structural
   gaps_ between events being captured and existing insight / dashboard / alert
   coverage, and emits P3 _recommendations_ rather than P0–P2 _anomalies_.
+- `signals-scout-insight-alerts/` — digest + triage layer over the team's own
+  configured insight alerts (threshold / detector alerts on insights). Doesn't
+  re-detect anomalies — the user already set the thresholds — it reads each alert's
+  recent firing history (`alerts-list` to triage all alerts cheaply, `alert-get` to
+  deep-read the firing checks of the few candidates) and surfaces the recent firings a
+  human most likely missed. Its discriminator is missed-ness × materiality ×
+  persistence, weighting hardest toward firings the standard notification path stayed
+  silent on (no subscribers, suppressed by the investigation agent, or an alert
+  silently Errored and no longer evaluating); skips snoozed / disabled / flapping /
+  already-notified-and-resolved. Complements `observability-gaps` (which recommends
+  _creating_ alerts) and `anomaly-detection` (which scores insights the team _views_,
+  whether or not they're alerted) — this one owns the firings of alerts that already
+  exist.
 - `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
   violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
   post-deploy page-scoped regressions, suspicious third-party domains).
