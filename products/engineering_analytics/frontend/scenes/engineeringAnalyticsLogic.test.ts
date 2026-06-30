@@ -23,6 +23,7 @@ import type {
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     DEFAULT_FILTERS,
     DEFAULT_QUARANTINE_FILTERS,
@@ -326,17 +327,19 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
-    it('reloads workflow health when the date range changes', async () => {
+    it('reloads workflow health when the shared date range changes', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
+        const filters = engineeringAnalyticsFiltersLogic()
+        filters.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
-        logic.actions.setWorkflowDateRange('-90d', null)
+        filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
 
-        logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
+        filters.actions.setDateRange('2026-01-01', '2026-03-01')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
@@ -344,8 +347,10 @@ describe('engineeringAnalyticsLogic', () => {
     it('filters workflow health by branch server-side, only reloading on a real change', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
+        const filters = engineeringAnalyticsFiltersLogic()
+        filters.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
         // Typing only stages the value — no reload until applied.
         logic.actions.setBranchFilter('main')
@@ -357,7 +362,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.applyBranchFilter()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(logic.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
 
         // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
         mockWorkflowHealth.mockClear()
@@ -366,7 +371,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).not.toHaveBeenCalled()
 
         // The applied branch persists across a date-range reload.
-        logic.actions.setWorkflowDateRange('-90d', null)
+        filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
 
@@ -423,7 +428,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.sourceId).toBe('src-newer')
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h', source_id: 'src-newer' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
