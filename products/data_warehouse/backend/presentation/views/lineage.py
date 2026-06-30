@@ -132,8 +132,6 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         "name": table.name if table else external_table,
                     }
 
-    # The v2 backend updates DataModelingJob but not DataWarehouseSavedQuery.last_run_at, so prefer
-    # the latest job's timestamp — one query for the whole DAG, matching the saved query serializer.
     view_names = [name for name, data in node_data.items() if data["type"] == "view"]
     latest_runs = dict(
         DataModelingJob.objects.filter(team_id=team_id, saved_query__name__in=view_names)
