@@ -570,8 +570,10 @@ def _apply_remote_config_team_rate_override(throttle, view) -> None:
         try:
             custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
             if custom_rate:
+                num_requests, duration = throttle.parse_rate(custom_rate)
                 throttle.rate = custom_rate
-                throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
+                throttle.num_requests = num_requests
+                throttle.duration = duration
         except Exception:
             logger.exception("Error getting team-specific rate limit for team %s", team_id)
 
