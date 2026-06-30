@@ -252,6 +252,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
+        # Warehouse-table sources deliver the synced row under event.properties, so input templates
+        # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
+        self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = None
