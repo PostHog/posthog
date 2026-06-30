@@ -9,6 +9,9 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    // @shadcn/react ships ESM-only; @posthog/quill-primitives chat components re-export its
+    // message-scroller, pulling it into frontend test module graphs via the quill barrel.
+    '@shadcn/react',
     '@react-hook',
     '@medv',
     'monaco-editor',
