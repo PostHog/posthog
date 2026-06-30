@@ -250,7 +250,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_when_recent(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # 30 seconds difference - well within the 1 minute threshold
         frontend_refresh = "2020-01-10T11:59:00Z"
@@ -261,7 +261,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_when_stale(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         frontend_refresh = "2020-01-10T10:00:00Z"
         backend_refresh = datetime(2020, 1, 10, 11, 30, tzinfo=ZoneInfo("UTC"))
@@ -272,7 +272,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # 61 seconds difference - just over the 1 minute (60 second) threshold
         frontend_refresh = "2020-01-10T11:58:00Z"
@@ -284,7 +284,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # Exactly 60 seconds - at the threshold (not over), should NOT trigger warning
         frontend_refresh = "2020-01-10T11:58:00Z"
@@ -295,7 +295,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_handles_none_values(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         self.assertIsNone(data_service.check_data_freshness(None, None))
         self.assertIsNone(data_service.check_data_freshness("2020-01-10T10:00:00Z", None))
@@ -347,7 +347,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertEqual(context.experiment_id, experiment.id)
@@ -386,7 +386,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         ]
         await experiment.asave(update_fields=["metrics"])
 
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
         context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertFalse(pending_calculation)
@@ -464,7 +464,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertEqual(len(context.primary_metrics_results), 1)
@@ -559,7 +559,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
         # 1 inline primary + 1 saved primary = 2
