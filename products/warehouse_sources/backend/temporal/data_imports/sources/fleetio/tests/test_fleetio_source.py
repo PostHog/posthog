@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import FleetioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.settings import ENDPOINTS
@@ -23,13 +25,17 @@ class TestFleetioSource:
 
     def test_config_fields(self) -> None:
         config = self.source.get_source_config
-        fields = {f.name: f for f in config.fields}
+        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "account_token"}
         # The API key is the secret; the account token is an account identifier, not a password.
         assert fields["api_key"].required is True
         assert fields["api_key"].secret is True
         assert fields["account_token"].required is True
         assert fields["account_token"].secret is False
+
+    def test_connection_host_fields_includes_account_token(self) -> None:
+        # Changing the targeted Fleetio account must force the API key to be re-entered.
+        assert self.source.connection_host_fields == ["account_token"]
 
     def test_docs_url_matches_doc_filename(self) -> None:
         assert self.source.get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/fleetio"
@@ -110,7 +116,7 @@ class TestFleetioSource:
         inputs.db_incremental_field_last_value = "2026-01-01"
         inputs.incremental_field = "updated_at"
 
-        result = self.source.source_for_pipeline(config, manager, inputs)
+        result: Any = self.source.source_for_pipeline(config, manager, inputs)
 
         assert result == "response"
         assert captured["api_key"] == "my-key"

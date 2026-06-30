@@ -43,6 +43,14 @@ class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
         return ExternalDataSourceType.FLEETIO
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `account_token` selects which Fleetio account the stored API key is sent to. Editing it on
+        # an existing source must force the key to be re-entered — otherwise an editor could retarget
+        # the preserved key at another Fleetio account, exposing it across a tenant boundary the user
+        # never approved.
+        return ["account_token"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FLEETIO,

@@ -195,6 +195,29 @@ class TestGetRows:
         # more pages remain — the final page (next_cursor=None) saves nothing.
         assert manager.saved == [FleetioResumeConfig(start_cursor="CUR2")]
 
+    def test_saves_state_once_per_page_even_when_yielding_mid_page(self, monkeypatch: Any) -> None:
+        # Multiple yields within a single page (chunk_size=1, two records) must save the cursor only
+        # once, AFTER the whole page is batched — saving on the first mid-page yield would advance the
+        # cursor past the page's remaining records and skip them on resume.
+        real_batcher = fleetio.Batcher
+        monkeypatch.setattr(
+            fleetio,
+            "Batcher",
+            lambda **kwargs: real_batcher(
+                logger=kwargs["logger"], chunk_size=1, chunk_size_bytes=kwargs["chunk_size_bytes"]
+            ),
+        )
+        base = "https://secure.fleetio.com/api/v1/vehicles?per_page=100&sort%5Bcreated_at%5D=asc"
+        page2 = base + "&start_cursor=CUR2"
+        pages = {
+            base: {"records": [{"id": 1}, {"id": 2}], "next_cursor": "CUR2"},
+            page2: {"records": [{"id": 3}], "next_cursor": None},
+        }
+        manager = _FakeResumableManager()
+        rows, _ = self._collect(manager, monkeypatch, pages)
+        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert manager.saved == [FleetioResumeConfig(start_cursor="CUR2")]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code,expected", [(200, True), (401, False), (403, False)])
@@ -228,11 +251,11 @@ class TestFetchPage:
         # Call the undecorated body (bypassing tenacity) to assert the error carries Retry-After.
         session = self._session_returning(429, headers={"Retry-After": "12"})
         with pytest.raises(FleetioRateLimitError) as exc:
-            fleetio._fetch_page.__wrapped__(session, "https://x", {}, MagicMock())
+            fleetio._fetch_page.__wrapped__(session, "https://x", {}, MagicMock())  # type: ignore[attr-defined]
         assert exc.value.retry_after == 12.0
 
     def test_non_dict_response_is_treated_as_retryable(self) -> None:
         # A bare list means the version pin was ignored (legacy response) — fail loudly, don't truncate.
         session = self._session_returning(200, json_body=[{"id": 1}])
         with pytest.raises(fleetio.FleetioRetryableError):
-            fleetio._fetch_page.__wrapped__(session, "https://x", {}, MagicMock())
+            fleetio._fetch_page.__wrapped__(session, "https://x", {}, MagicMock())  # type: ignore[attr-defined]

@@ -170,7 +170,11 @@ def validate_credentials(api_key: str, account_token: str) -> bool:
     # one 200 confirms both headers are genuine.
     url = _build_url(f"{FLEETIO_BASE_URL}/vehicles", {"per_page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, account_token), timeout=10)
+        # Redact both credentials in logged URLs and captured samples. `Account-Token` is a
+        # connector-specific header name the generic auth scrubbers don't recognise, so value-based
+        # redaction is required to keep it out of HTTP telemetry.
+        session = make_tracked_session(redact_values=(api_key, account_token))
+        response = session.get(url, headers=_get_headers(api_key, account_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -189,8 +193,10 @@ def get_rows(
     config = FLEETIO_ENDPOINTS[endpoint]
     headers = _get_headers(api_key, account_token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Redact both
+    # credentials in logged URLs and captured samples — `Account-Token` is a connector-specific
+    # header name the generic auth scrubbers don't recognise.
+    session = make_tracked_session(redact_values=(api_key, account_token))
 
     base_params = _build_base_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -211,15 +217,20 @@ def get_rows(
         records = data.get("records", [])
         next_cursor = data.get("next_cursor")
 
+        yielded_this_page = False
         for item in records:
             batcher.batch(item)
 
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-                # page rather than skipping it — merge dedupes on the primary key.
-                if next_cursor:
-                    resumable_source_manager.save_state(FleetioResumeConfig(start_cursor=next_cursor))
+                yielded_this_page = True
+
+        # Save state once, AFTER every record on this page has been batched, so a mid-page yield (the
+        # 100 MB byte-size limit) can't advance the cursor past records we haven't seen yet. A crash
+        # then re-fetches the whole page rather than skipping its tail — merge dedupes on the primary
+        # key. Only save when we yielded data and more pages remain.
+        if yielded_this_page and next_cursor:
+            resumable_source_manager.save_state(FleetioResumeConfig(start_cursor=next_cursor))
 
         if not next_cursor:
             break
