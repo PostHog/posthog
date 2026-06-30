@@ -476,6 +476,7 @@ export interface AssistantTrendsFilter {
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -559,6 +560,60 @@ export interface AssistantTrendsFilter {
      * @default false
      */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+
+    /**
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
+     * @default true
+     */
+    metricShowChange?: boolean
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when
+     * the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.
+     */
+    metricChangeIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when
+     * the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.
+     */
+    metricChangeDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Color the sparkline under the big number by whether
+     * the metric increased or decreased over the period (using the increase/decrease line colors).
+     * @default false
+     */
+    metricColorByDirection?: boolean
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a
+     * "lower is better" metric.
+     */
+    metricLineIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a
+     * "lower is better" metric.
+     */
+    metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -1372,6 +1427,101 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
+ * Drills into a funnel insight to list the persons behind one step — either those who converted
+ * through it or those who dropped off at it. Returned rows are `distinct_id`, `email`, `name`, and
+ * optionally matched session recordings.
+ *
+ * Pair this with `query-funnel`: run the funnel query first to read the per-step counts, then call
+ * this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and
+ * the mode must match the source funnel's `funnelsFilter.funnelVizType`:
+ *
+ * 1. **Step mode** (source `funnelVizType: "steps"`, the default): use `funnelStep` to pick a step.
+ *    A **positive** value lists actors who converted **through** that step; a **negative** value lists
+ *    actors who **dropped off** at it. Steps are 1-based, so `funnelStep: 2` = converted through step 2,
+ *    `funnelStep: -2` = dropped off at step 2. (You cannot drop off at step 1, so the smallest negative
+ *    value is `-2`.) Add `funnelStepBreakdown` to scope to one breakdown series.
+ *
+ * 2. **Trends-dropoff mode** (source `funnelVizType: "trends"`): use `funnelTrendsDropOff` together with
+ *    `funnelTrendsEntrancePeriodStart` to list the persons behind one point of a funnel-trends
+ *    (conversion-over-time) chart.
+ *
+ * The funnel's `time_to_convert` viz type has no persons drilldown — do not use this tool with it.
+ */
+export interface AssistantFunnelsActorsQuery {
+    kind: NodeKind.FunnelsActorsQuery
+
+    /** The source funnel insight query whose step (or trends point) we are drilling into. */
+    source: AssistantFunnelsQuery
+
+    /**
+     * Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into.
+     * **Positive** lists actors who converted through that step; **negative** lists actors who dropped
+     * off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest
+     * negative value is `-2` (no one can drop off at the entry step).
+     */
+    funnelStep?: integer
+
+    /**
+     * Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from
+     * the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the
+     * baseline (non-breakdown) series.
+     */
+    funnelStepBreakdown?: string[]
+
+    /**
+     * Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who
+     * dropped off; when `false`, list those who converted. Use together with
+     * `funnelTrendsEntrancePeriodStart`.
+     */
+    funnelTrendsDropOff?: boolean
+
+    /**
+     * Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string
+     * (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about.
+     * Use together with `funnelTrendsDropOff`.
+     */
+    funnelTrendsEntrancePeriodStart?: string
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**

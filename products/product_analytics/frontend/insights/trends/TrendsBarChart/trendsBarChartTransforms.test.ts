@@ -41,7 +41,7 @@ describe('buildTrendsBarTimeSeries', () => {
         }
     )
 
-    // The inlined hex dimming must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
+    // The shared dimHexColor must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
     // a non-hex color is passed through unchanged (the one intentional divergence from hexToRGBA).
     it.each([
         { base: '#ff0000', expected: hexToRGBA('#ff0000', 0.5) },

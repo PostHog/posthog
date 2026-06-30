@@ -179,9 +179,25 @@ class SlackThreadHandler:
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
-    def post_pr_opened_sandbox_cleaned(self, pr_url: str, task_url: str | None) -> None:
-        """Post final PR message after sandbox cleanup."""
-        header = "*Pull request opened* :rocket:"
+    def post_pr_opened(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = None,
+    ) -> None:
+        """Post the single per-run "PR opened" card.
+
+        Used at every lifecycle moment a run surfaces a PR for the first
+        time — mid-run announcement, post-sandbox cleanup, terminal
+        completion. The activity-level dedupe in
+        ``_post_pr_opened_notification_once`` ensures this fires once per
+        ``pr_url`` per run regardless of which moment got there first.
+
+        ``reply_target_slack_user_id`` is the resolved actor — typically the
+        most recent thread participant. ``None`` produces an untagged message.
+        """
+        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
+        header = f"{mention_prefix}*Pull request opened* :rocket:"
 
         buttons: list[dict[str, Any]] = [
             {
@@ -200,7 +216,7 @@ class SlackThreadHandler:
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Open in PostHog Code",
+                        "text": "Open in PostHog",
                         "emoji": True,
                     },
                     "url": task_url,
@@ -214,59 +230,6 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_pr_opened(
-        self,
-        pr_url: str,
-        task_url: str | None,
-        reply_target_slack_user_id: str | None = None,
-    ) -> None:
-        """Post PR opened message with action buttons.
-
-        ``reply_target_slack_user_id`` is the resolved actor — typically the
-        most recent thread participant. ``None`` produces an untagged message.
-        """
-        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        header = f"{mention_prefix}Pull request opened."
-
-        buttons: list[dict[str, Any]] = [
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "View PR",
-                    "emoji": True,
-                },
-                "url": pr_url,
-            },
-        ]
-        if task_url:
-            buttons.append(
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Open in PostHog Code",
-                        "emoji": True,
-                    },
-                    "url": task_url,
-                }
-            )
-
-        blocks: list[dict[str, Any]] = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": buttons},
-        ]
-
-        try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=header,
-                blocks=blocks,
-            )
-        except Exception as e:
-            logger.warning("slack_post_pr_opened_failed", error=str(e))
-
     def post_thread_message(self, text: str) -> None:
         """Post a plain message in the existing thread."""
         try:
@@ -278,41 +241,36 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
 
-    def post_completion(self, pr_url: str | None, task_url: str | None) -> None:
-        """Post completion message with PR link."""
-        if pr_url:
-            header = "*Pull Request Created* :rocket:"
-        else:
-            header = "*Task Completed* :hedgehog:"
+    def post_completion(self, task_url: str | None) -> None:
+        """Post the no-PR completion message.
+
+        Runs that produce a PR surface it via ``post_pr_opened`` (routed
+        through ``_post_pr_opened_notification_once`` for once-per-URL
+        semantics). This card is the "task finished without opening a PR"
+        terminal state.
+        """
+        header = "*Task Completed* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
         ]
-
-        buttons: list[dict[str, Any]] = []
-        if pr_url:
-            buttons.append(
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "View PR", "emoji": True},
-                    "url": pr_url,
-                }
-            )
         if task_url:
-            buttons.append(
+            blocks.append(
                 {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Open in PostHog Code",
-                        "emoji": True,
-                    },
-                    "url": task_url,
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Open in PostHog",
+                                "emoji": True,
+                            },
+                            "url": task_url,
+                        }
+                    ],
                 }
             )
-
-        if buttons:
-            blocks.append({"type": "actions", "elements": buttons})
 
         self._delete_progress_and_post(header, blocks)
 
@@ -335,7 +293,7 @@ class SlackThreadHandler:
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "See details in PostHog Code",
+                                "text": "See details in PostHog",
                                 "emoji": True,
                             },
                             "url": task_url,
@@ -362,7 +320,7 @@ class SlackThreadHandler:
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "Open in PostHog Code",
+                                "text": "Open in PostHog",
                                 "emoji": True,
                             },
                             "url": task_url,

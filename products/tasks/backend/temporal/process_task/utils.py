@@ -15,7 +15,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -128,6 +128,29 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
 )
 CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 
+# Canonical list of Codex models. The runtime technically accepts any
+# `gpt-*` identifier passed through, but only models on this list are
+# considered tested and surfaced in pickers. Extend when a new Codex model
+# ships.
+CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5")
+
+
+def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
+    """Return the canonical model identifiers the given runtime adapter exposes.
+
+    Empty tuple if the adapter is unknown. Mirrors `get_supported_reasoning_efforts`
+    in spirit — small pure helper that callers can rely on when composing
+    runtime/model picker UIs at the consumer layer.
+    """
+    if runtime_adapter is None:
+        return ()
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if adapter_value == RuntimeAdapter.CLAUDE.value:
+        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
+    if adapter_value == RuntimeAdapter.CODEX.value:
+        return CODEX_MODELS
+    return ()
+
 
 def get_provider_for_runtime_adapter(
     runtime_adapter: RuntimeAdapter | str | None,
@@ -185,6 +208,7 @@ class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
+    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -211,6 +235,9 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
 
 
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 # Minimum interval between MCP token refreshes pushed to a live sandbox. The
@@ -311,13 +338,18 @@ def get_user_mcp_server_configs(
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
-    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
-    API callers, missing origin) is treated as PostHog Code. The MCP server
-    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
-    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
+    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
+    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
+    `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
+    in sync with `POSTHOG_CODE_CONSUMER` in
+    `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
         return "slack"
+    if interaction_origin == "posthog_ai":
+        return "posthog_ai"
     return "posthog-code"
 
 
@@ -327,8 +359,13 @@ def get_sandbox_ph_mcp_configs(
     *,
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
+    task_id: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
+
+    `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
+    PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
+    handles its own task id.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -347,6 +384,8 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
+    if task_id:
+        headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
 
@@ -515,12 +554,6 @@ def user_github_integration_is_usable(user_github_integration: UserGitHubIntegra
     )
 
 
-# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
-# The server-side identity flow should be preferred going forward.
-GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
-
-
 def _github_user_token_cache_key(run_id: str) -> str:
     return f"task-run-github-user-token:{run_id}"
 
@@ -676,12 +709,13 @@ def build_sandbox_environment_variables(
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
     """
-    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 
     env_vars: dict[str, str] = {}
 
     if sandbox_environment and sandbox_environment.environment_variables:
-        env_vars.update(sandbox_environment.environment_variables)
+        safe_vars, _ = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+        env_vars.update(safe_vars)
 
     if github_token:
         env_vars["GITHUB_TOKEN"] = github_token

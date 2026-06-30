@@ -18,12 +18,12 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
-from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
+from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
-from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -51,7 +51,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -59,12 +62,37 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
-from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
+from products.slack_app.backend.services.slack_app_home import (
+    ACTION_EDIT_PERSONAL,
+    ACTION_EDIT_WORKSPACE,
+    ACTION_RESET_PERSONAL,
+    ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_TASKS_FILTER_REPO,
+    ACTION_TASKS_FILTER_STATUS,
+    ACTION_TASKS_PAGE_NEXT,
+    ACTION_TASKS_PAGE_PREV,
+    ACTION_TASKS_REFRESH,
+    ACTION_UNLINK_ACCOUNT,
+    EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
+    MODAL_ACTION_MODEL,
+    MODAL_ACTION_RUNTIME_ADAPTER,
+    handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
+    handle_app_home_opened as _handle_app_home_opened,
+    handle_app_home_view_submission as _handle_app_home_view_submission,
+)
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
     persist_slack_user_info,
+)
+from products.slack_app.backend.services.slack_user_oauth import (
+    build_invite_url,
+    find_linked_posthog_user,
+    post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
@@ -77,6 +105,7 @@ HANDLED_EVENT_TYPES = [
     "member_joined_channel",
     "assistant_thread_started",
     "assistant_thread_context_changed",
+    "app_home_opened",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -157,7 +186,10 @@ def _clear_pending_repo_picker(*, integration_id: int, channel: str, thread_ts: 
 @dataclass
 class SlackUserContext:
     user: User
-    slack_email: str
+    # `None` on the linked-user path: the OAuth link binds slack_user_id to a
+    # PostHog user without ever consulting Slack's email, so no value is
+    # available. The email-matching path still always populates this.
+    slack_email: str | None
 
 
 @dataclass
@@ -263,13 +295,56 @@ def resolve_slack_user(
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
-        slack_user_info = get_slack_user_info(slack, integration, slack_user_id)
-        slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
-        if not slack_email:
-            fresh_user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
-            if fresh_user_info:
-                persist_slack_user_info(integration, slack_user_id, fresh_user_info)
-                slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
+        slack_team_id = integration.integration_id
+
+        # Linked-user path: when the user has bound their Slack identity to a
+        # PostHog account via the OAuth link flow, we resolve directly without
+        # paying for users.info / email matching. Falls through to the email
+        # path on miss so this stays additive — a workspace with no links
+        # behaves exactly like before.
+        #
+        # The link lookup runs FIRST (two cheap indexed queries) and the flag
+        # check only fires when a row is found, and on the email-mismatch
+        # failure branch below to decide whether to offer the invite button.
+        # Both checks are local-evaluation only (`only_evaluate_locally=True`),
+        # so calling twice on the rare both-branches path is essentially free.
+        linked_user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+            candidate_org_ids={integration.team.organization_id},
+        )
+
+        if linked_user is not None and slack_oauth_link_enabled(integration, slack_team_id):
+            user_permissions = UserPermissions(user=linked_user, team=integration.team)
+            if user_permissions.current_team.effective_membership_level is None:
+                logger.warning(
+                    "slack_app_linked_user_no_team_access",
+                    user_id=linked_user.id,
+                    team_id=integration.team_id,
+                    slack_user_id=slack_user_id,
+                )
+                if post_feedback:
+                    _post_slack_user_feedback(
+                        slack,
+                        channel,
+                        slack_user_id,
+                        thread_ts,
+                        (
+                            "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                            "Please ask an admin of your PostHog organization to grant you access."
+                        ),
+                    )
+                return None
+            return SlackUserContext(user=linked_user, slack_email=None)
+
+        slack_email = get_slack_email_for_user(integration, slack_user_id)
+        if settings.DEBUG:
+            # Local dev: match the seeded test fixture user regardless of what
+            # Slack returns. Applied here rather than in the shared helper so
+            # other callers (e.g. `resolve_posthog_user_from_event` from the
+            # channel-approval path) can still drive the helper with stubbed
+            # Slack responses in tests.
+            slack_email = "test@posthog.com"
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -288,10 +363,6 @@ def resolve_slack_user(
                 )
             return None
 
-        if settings.DEBUG:
-            # When running locally - match the local user
-            slack_email = "test@posthog.com"
-
         # Trust model: Slack signature validation proves the payload is authentic.
         # The email comes from Slack's `users.info` API via `users:read.email` scope, not from
         # user-supplied input. Slack verifies emails at workspace sign-up, and admins control
@@ -306,6 +377,15 @@ def resolve_slack_user(
         if not membership or not membership.user:
             organization_name = integration.team.organization.name
             if post_feedback:
+                # Two messages by design, with distinct audiences:
+                #
+                #   * The text reply goes into the thread (`prefer_thread_message=True`)
+                #     so other channel members can see why the bot stayed silent on
+                #     this mention. Without it, the channel reads as if the mention
+                #     was simply ignored.
+                #   * The invite-button message is ephemeral — only the affected
+                #     user sees the recovery affordance. Posting the button into
+                #     the public thread would be noise for everyone else.
                 _post_slack_user_feedback(
                     slack,
                     channel,
@@ -317,6 +397,22 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
+                if slack_oauth_link_enabled(integration, slack_team_id):
+                    invite_url = build_invite_url(
+                        slack_user_id=slack_user_id,
+                        slack_team_id=slack_team_id,
+                        posthog_team_id=integration.team_id,
+                        channel=channel,
+                        thread_ts=thread_ts,
+                    )
+                    post_link_invite_message(
+                        slack_client=slack.client,
+                        channel=channel,
+                        slack_user_id=slack_user_id,
+                        thread_ts=thread_ts,
+                        slack_email=slack_email,
+                        invite_url=invite_url,
+                    )
             return None
 
         posthog_user = membership.user
@@ -745,144 +841,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
-
-
-def _flatten_block_text(node: Any) -> list[str]:
-    """Best-effort plain-text extraction from a Slack block-kit subtree.
-
-    Slack alert posts (subscriptions, log alerts, hog-function destinations) often
-    put the substantive content in `blocks` while the top-level `text` field is a
-    short fallback (or empty). Walking the block tree lets us surface that content
-    to the agent. Always wrap call sites in try/except — Slack block schemas evolve.
-    """
-    if node is None:
-        return []
-    if isinstance(node, str):
-        stripped = node.strip()
-        return [stripped] if stripped else []
-    if isinstance(node, list):
-        out: list[str] = []
-        for item in node:
-            out.extend(_flatten_block_text(item))
-        return out
-    if isinstance(node, dict):
-        # `context` blocks can carry useful labels — recurse into `elements` only.
-        if node.get("type") == "context":
-            return _flatten_block_text(node.get("elements"))
-        # Skip interactive/decorative blocks that carry no information for the agent.
-        if node.get("type") in ("actions", "divider", "image"):
-            return []
-        out = []
-        for key in ("text", "fields", "elements", "title", "pretext", "fallback"):
-            if key in node:
-                out.extend(_flatten_block_text(node[key]))
-        return out
-    return []
-
-
-def _extract_message_text(msg: dict) -> str:
-    # Always include `text` and `blocks`/`attachments`: PostHog's own alert templates put
-    # the headline in `text` and the values/details in blocks. Dedup so a string repeated
-    # across both (e.g. text == header block) shows up once.
-    pieces: list[str] = []
-    text = (msg.get("text") or "").strip()
-    if text:
-        pieces.append(text)
-
-    blocks = msg.get("blocks") or []
-    attachments = msg.get("attachments") or []
-    try:
-        pieces.extend(_flatten_block_text(blocks))
-    except Exception:
-        logger.warning("slack_thread_block_flatten_failed", exc_info=True)
-    try:
-        pieces.extend(_flatten_block_text(attachments))
-    except Exception:
-        logger.warning("slack_thread_attachment_flatten_failed", exc_info=True)
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for piece in pieces:
-        if piece and piece not in seen:
-            seen.add(piece)
-            deduped.append(piece)
-    return "\n".join(deduped)
-
-
-def _resolve_bot_author_label(msg: dict) -> str:
-    bot_profile = msg.get("bot_profile") or {}
-    return bot_profile.get("name") or msg.get("username") or "Bot"
-
-
-def _collect_thread_messages(
-    slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
-) -> list[dict[str, str]]:
-    """Fetch thread messages, strip bot mentions, and resolve user display names."""
-    client = slack.client
-    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
-    raw_messages: list[dict] = thread_response.get("messages", [])
-
-    user_cache: dict[str, str] = {}
-
-    def resolve_user(uid: str) -> str:
-        if uid not in user_cache:
-            try:
-                user_info = get_slack_user_info(slack, integration, uid)
-                profile = user_info.get("user", {}).get("profile", {})
-                user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
-            except Exception:
-                user_cache[uid] = "Unknown"
-        return user_cache[uid]
-
-    messages = []
-    for index, msg in enumerate(raw_messages):
-        # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
-        # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
-        # always the originating message (e.g. a PostHog alert) that's the actual context
-        # for the task. Filtering it by bot_id breaks workspaces where the alerting Slack
-        # app and the `@PostHog` code app share an installation identity.
-        if index > 0 and our_bot_id and msg.get("bot_id") == our_bot_id:
-            continue
-
-        user_id = msg.get("user")
-        if user_id:
-            username = resolve_user(user_id)
-        elif msg.get("bot_id"):
-            username = _resolve_bot_author_label(msg)
-        else:
-            username = "Unknown"
-
-        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg))
-        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
-        # context, since `app_mention` events surface only the initiator's ts.
-        messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
-
-    return messages
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1092,102 +1052,6 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     return True
 
 
-def classify_task_needs_repo(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-) -> bool:
-    """Classify whether a Slack conversation requires code repository access.
-
-    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
-    False if it does not (analytics, data queries, PostHog config).
-    Defaults to True on error (conservative — falls back to picker).
-    """
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-    normalized = f"{conversation}\nLatest message: {event_text}".lower()
-
-    product_debug_terms = (
-        "automation",
-        "destination",
-        "slack destination",
-        "posthog ai feedback",
-        "feature flag",
-        "experiment",
-        "survey",
-        "dashboard",
-        "insight",
-        "session replay",
-        "recording",
-        "mcp",
-        "webhook",
-    )
-    explicit_code_patterns = (
-        r"\brepository\b",
-        r"\brepo\b",
-        r"\bpull request\b",
-        r"\bopen a pr\b",
-        r"\bcreate a pr\b",
-        r"\bcommit\b",
-        r"\bbranch\b",
-        r"\bmodify code\b",
-        r"\bchange code\b",
-        r"\bwrite code\b",
-        r"\bimplement\b",
-        r"\.py\b",
-        r"\.ts\b",
-        r"\.tsx\b",
-        r"\.js\b",
-        r"\bserializer\b",
-        r"\bviewset\b",
-        r"\bmigration\b",
-    )
-
-    if any(term in normalized for term in product_debug_terms) and not any(
-        re.search(pattern, normalized) for pattern in explicit_code_patterns
-    ):
-        logger.info("classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
-        return False
-
-    prompt = (
-        "You are a task classifier. Given a Slack conversation, determine whether the task "
-        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
-        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
-        "querying data, PostHog configuration, general knowledge questions, planning, or "
-        "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
-        "Return needs_repo=false for tasks that are primarily about debugging or investigating "
-        "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
-        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
-        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
-        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
-        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
-        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
-        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
-        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
-        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
-        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
-        "there's no good match.\n\n"
-        f"Conversation:\n{conversation}\n\n"
-        f"Latest message: {event_text}\n\n"
-        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
-    )
-    try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        parsed = json.loads(content)
-        return bool(parsed.get("needs_repo", True))
-    except Exception:
-        logger.exception("classify_task_needs_repo_failed")
-        return True
-
-
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1344,7 +1208,7 @@ def _notify_missing_slack_scopes(
     if not channel or not thread_ts or not slack_user_id:
         return
 
-    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    settings_url = f"{settings.SITE_URL}/integrations/slack"
     text = (
         ":warning: PostHog can't reply because the Slack integration is missing required "
         f"permissions: `{', '.join(sorted(missing))}`.\n"
@@ -1355,25 +1219,72 @@ def _notify_missing_slack_scopes(
 
 
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
-    """Best-effort lookup of the Slack user's email via ``users.info``,
-    cache-first then a fresh hit on miss. Returns ``None`` when Slack doesn't
-    expose an email for the user (profile email hidden) or the lookup fails.
+    """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
+    a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
+    user (profile email hidden) or the lookup fails.
+
+    Every termination path emits a distinct structured log so a silent ``None`` can
+    still be diagnosed from logs alone — historically the failure modes collapsed
+    onto a downstream ``user_not_found`` warning that hid the actual cause.
+
+    Auth-class ``SlackApiError`` outcomes flip the shared ``slack_auth`` cache to
+    ``ok=false`` so the resolver demotes this install on subsequent mentions
+    rather than pinning every one to a dead token. The success path deliberately
+    does NOT write ``ok=true``: the cache lives in the resolver's ``auth.test``
+    layer, and a DB-cache hit (``SlackUserProfileCache``) proves nothing about
+    the live token. Letting the resolver own the positive verdict keeps the
+    cache truthful.
     """
+    from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES, write_auth_state_broken
+
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
+        if slack_email:
+            return slack_email
+
+        fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+        if not fresh:
+            logger.warning(
+                "slack_app_resolve_user_email_empty_response",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+            )
+            return None
+
+        persist_slack_user_info(probe_integration, slack_user_id, fresh)
+        slack_email = fresh.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
-            if fresh:
-                persist_slack_user_info(probe_integration, slack_user_id, fresh)
-                slack_email = fresh.get("user", {}).get("profile", {}).get("email")
-        return slack_email or None
+            logger.warning(
+                "slack_app_resolve_user_email_missing_in_profile",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+                ok=fresh.get("ok"),
+            )
+            return None
+        return slack_email
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        token_broken = isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES
+        if token_broken and isinstance(error_code, str):
+            write_auth_state_broken(probe_integration.id, error_code)
+        logger.warning(
+            "slack_app_resolve_user_email_failed",
+            integration_id=probe_integration.id,
+            slack_user_id=slack_user_id,
+            error_code=error_code,
+            token_broken=token_broken,
+            exc_info=True,
+        )
+        return None
     except Exception:
         logger.warning(
             "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
+            error_code=None,
+            token_broken=False,
             exc_info=True,
         )
         return None
@@ -1396,12 +1307,26 @@ def resolve_posthog_user_from_event(
     ``slack_email`` may be passed by callers that already have it (e.g.
     ``resolve_user_and_integrations``) so we don't repeat the cache lookup.
     """
+    org_ids = {c.team.organization_id for c in candidate_integrations}
+    if not org_ids:
+        return None
+
+    # Linked-user path: short-circuit the email match when the user has bound
+    # their Slack identity to a PostHog account. The cheap indexed lookup
+    # runs first; the feature-flag gate only fires when a row is found so
+    # workspaces with no linked users don't pay for the flag evaluation.
+    slack_team_id = probe_integration.integration_id
+    linked_user = find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=org_ids,
+    )
+    if linked_user is not None and slack_oauth_link_enabled(probe_integration, slack_team_id):
+        return linked_user
+
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
     if not slack_email:
-        return None
-    org_ids = {c.team.organization_id for c in candidate_integrations}
-    if not org_ids:
         return None
     try:
         membership = (
@@ -1471,9 +1396,29 @@ def _post_user_resolution_failure_reply(
     text = user_resolution_failure_reply(failure_reason, slack_email=slack_email)
     if text is None:
         return
-    _post_slack_user_feedback(
-        SlackIntegration(probe), channel, slack_user_id, thread_ts, text, prefer_thread_message=True
-    )
+    slack_client = SlackIntegration(probe)
+    # The text reply lands in the thread so the rest of the channel knows why
+    # the bot stayed silent. The invite button is a separate ephemeral, visible
+    # only to the affected user — both messages have distinct audiences and
+    # neither is redundant. Only `user_not_found` is link-recoverable;
+    # `no_team_access` means the user *is* known but lacks project access.
+    _post_slack_user_feedback(slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+    if failure_reason == "user_not_found" and slack_oauth_link_enabled(probe, probe.integration_id):
+        invite_url = build_invite_url(
+            slack_user_id=slack_user_id,
+            slack_team_id=probe.integration_id,
+            posthog_team_id=probe.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        post_link_invite_message(
+            slack_client=slack_client.client,
+            channel=channel,
+            slack_user_id=slack_user_id,
+            thread_ts=thread_ts,
+            slack_email=slack_email,
+            invite_url=invite_url,
+        )
 
 
 def _start_posthog_code_workflow(
@@ -1770,6 +1715,16 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    # App Home tab: published per-user when they open the Home tab. Always
+    # handled locally — `views.publish` just renders a snapshot of the user's
+    # AI preferences against the integration row, no cross-region state.
+    if event_type == "app_home_opened":
+        try:
+            _handle_app_home_opened(event, slack_team_id)
+        except Exception:
+            logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+        return ROUTE_HANDLED_LOCALLY
 
     # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run
     # against their project. A ``message`` is a DM iff ``channel_type == "im"`` — channel ``message``
@@ -2152,6 +2107,10 @@ def _route_member_joined_channel(
         # We only care about our own bot joining a channel. Every other join
         # (humans, third-party bots) is ignored silently — Slack fires this
         # event for every channel-membership change, so the volume is high.
+        return ROUTE_HANDLED_LOCALLY
+
+    # The onboarding flow has its own messaging for the inbox channel — skip the generic welcome here.
+    if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
     if not _claim_channel_onboarding(slack_team_id, channel_id):
@@ -2618,6 +2577,45 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
+_AI_PREFERENCES_ACTION_IDS = frozenset(
+    {
+        ACTION_EDIT_PERSONAL,
+        ACTION_EDIT_WORKSPACE,
+        ACTION_RESET_PERSONAL,
+        ACTION_RESET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_REFRESH,
+        ACTION_UNLINK_ACCOUNT,
+        MODAL_ACTION_RUNTIME_ADAPTER,
+        MODAL_ACTION_MODEL,
+    }
+)
+_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
+
+
+def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
+    """Return True if this payload is a Slack App Home AI-settings interaction.
+
+    AI-settings buttons (Edit/Reset on the Home tab, runtime/model dispatch
+    re-renders inside the modal) and modal submissions carry no per-row hint —
+    the picker is workspace-scoped, not tied to a specific task or repo. The
+    cross-region router uses this to claim locality based on the workspace
+    integration alone rather than dropping the click.
+    """
+    if payload_type == "view_submission":
+        return payload.get("view", {}).get("callback_id", "") in _AI_PREFERENCES_CALLBACK_IDS
+    if payload_type == "block_actions":
+        for action in payload.get("actions", []) or ():
+            if action.get("action_id", "") in _AI_PREFERENCES_ACTION_IDS:
+                return True
+    return False
+
+
 def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     """Extract integration_id and mentioning user id from block_id for fallback handling."""
     block_id = payload.get("block_id", "")
@@ -2916,19 +2914,9 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
-    """Remove the original ephemeral prompt via the interactivity ``response_url``.
-
-    Every click outcome is recorded as a public threaded message — the
-    ephemeral prompt has done its job by then and only the public message
-    should remain. Failures are logged but never raised: a click handler
-    that can't reach Slack still finished its DB work.
-    """
-    if not response_url:
-        return
-    try:
-        requests.post(response_url, json={"delete_original": True}, timeout=3)
-    except Exception:
-        logger.warning("slack_app_channel_approval_response_url_failed", exc_info=True)
+    """Remove the original ephemeral prompt via the interactivity ``response_url`` once its public
+    threaded outcome has been posted."""
+    inbox_interactivity.post_response_url(response_url, {"delete_original": True})
 
 
 def _post_channel_approval_outcome(
@@ -3180,7 +3168,8 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
 
     slack_user_id = payload.get("user", {}).get("id", "")
     # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
-    if _is_org_member(integration, slack_user_id) is None:
+    org_member = _is_org_member(integration, slack_user_id)
+    if org_member is None:
         logger.warning(
             "signals_dismiss_report_not_org_member",
             integration_id=integration.id,
@@ -3188,7 +3177,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    suppressed = dismiss_report_from_slack(report_team_id, str(report_id), slack_user_id=slack_user_id)
+    suppressed = dismiss_report_from_slack(
+        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
+    )
 
     _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
     return HttpResponse(status=200)
@@ -3277,6 +3268,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     dismiss_integration_id = _extract_dismiss_hints(payload)
+    inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -3307,6 +3299,24 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and inbox_integration_id:
+        # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
+        # is gated only on owning the integration locally.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=inbox_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and _is_ai_preferences_interactivity(payload, payload_type):
+        # App Home AI-settings actions (Edit/Reset/Save) and the modal
+        # re-render dispatched_actions carry no per-row hint — the button is
+        # tied to the workspace, not a specific picker context. Claim locality
+        # based on the workspace integration alone; if we own *any* Integration
+        # for this Slack team, the click is ours to handle.
+        local = Integration.objects.filter(
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3382,20 +3392,34 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_suggestion":
         return _handle_repo_picker_options(payload)
 
+    if payload_type == "view_submission":
+        return _handle_app_home_view_submission(payload)
+
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
-            if action.get("action_id") == "posthog_code_repo_select":
+            action_id = action.get("action_id")
+            if action_id == "posthog_code_repo_select":
                 return _handle_repo_picker_submit(payload)
-            if action.get("action_id") == "posthog_code_repo_none":
+            if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action.get("action_id") == "posthog_code_terminate_task":
+            if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
-            if action.get("action_id") == CHANNEL_APPROVAL_ACTION_APPROVE:
+            if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
-            if action.get("action_id") == CHANNEL_APPROVAL_ACTION_DENY:
+            if action_id == CHANNEL_APPROVAL_ACTION_DENY:
                 return _handle_channel_approval_deny(payload)
-            if action.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID:
+            if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action_id == onboarding.INBOX_CREATE_ACTION_ID:
+                return inbox_interactivity.handle_inbox_create(payload)
+            if action_id == onboarding.INBOX_JOIN_ACTION_ID:
+                return inbox_interactivity.handle_inbox_join(payload)
+            if action_id == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+                return inbox_interactivity.handle_inbox_sources(payload)
+            if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+                return inbox_interactivity.handle_inbox_ai_approval(payload)
+            if action_id in _AI_PREFERENCES_ACTION_IDS:
+                return _handle_ai_preferences_block_action(payload, action)
 
     return HttpResponse(status=200)

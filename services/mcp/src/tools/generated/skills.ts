@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
+    LlmSkillsMarketplaceInstallCommandCreateBody,
     LlmSkillsNameArchiveCreateParams,
     LlmSkillsNameDuplicateCreateBody,
     LlmSkillsNameDuplicateCreateParams,
@@ -235,11 +236,39 @@ const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkill
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,
             query: {
+                category: params.category,
                 created_by_id: params.created_by_id,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const SkillStoreInstallCommandSchema = LlmSkillsMarketplaceInstallCommandCreateBody.extend({
+    rotate: LlmSkillsMarketplaceInstallCommandCreateBody.shape['rotate'].describe(
+        "Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine): it rolls the caller's existing credential, invalidating their previous token. Leave false (default) to reuse the existing credential — the first call always mints one regardless."
+    ),
+})
+
+const skillStoreInstallCommand = (): ToolBase<
+    typeof SkillStoreInstallCommandSchema,
+    Schemas.LLMSkillMarketplaceCommand
+> => ({
+    name: 'skill-store-install-command',
+    schema: SkillStoreInstallCommandSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillStoreInstallCommandSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rotate !== undefined) {
+            body['rotate'] = params.rotate
+        }
+        const result = await context.api.request<Schemas.LLMSkillMarketplaceCommand>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/marketplace/install-command/`,
+            body,
         })
         return result
     },
@@ -304,5 +333,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'skill-file-rename': skillFileRename,
     'skill-get': skillGet,
     'skill-list': skillList,
+    'skill-store-install-command': skillStoreInstallCommand,
     'skill-update': skillUpdate,
 }

@@ -199,345 +199,27 @@ export const AgentRevisionStateEnumApi = {
     Archived: 'archived',
 } as const
 
-export type AgentRevisionApiSpecReasoning =
-    (typeof AgentRevisionApiSpecReasoning)[keyof typeof AgentRevisionApiSpecReasoning]
-
-export const AgentRevisionApiSpecReasoning = {
-    Minimal: 'minimal',
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-} as const
-
-export type AgentRevisionApiSpecFrameworkPromptOmitItem =
-    (typeof AgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof AgentRevisionApiSpecFrameworkPromptOmitItem]
-
-export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
-    MetaToolGuidance: 'meta_tool_guidance',
-    StateContract: 'state_contract',
-    ToolFailureGuidance: 'tool_failure_guidance',
-    ApprovalGuidance: 'approval_guidance',
-    ReasoningHint: 'reasoning_hint',
-} as const
-
-export type AgentRevisionApiSpecTriggersItem =
-    | {
-          type: 'slack'
-          config: {
-              channel_id?: string
-              mention_only: boolean
-              auto_resume_threads: boolean
-              allow_workspace_participants: boolean
-              ack_reaction?: string
-              allow_direct_messages: boolean
-              trusted_workspaces: string[] | '*'
-          }
-      }
-    | {
-          type: 'webhook'
-          config: {
-              path: string
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'cron'
-          config: {
-              /** @minLength 1 */
-              name: string
-              /** @minLength 1 */
-              schedule: string
-              timezone?: string
-              /**
-               * @minLength 1
-               * @maxLength 4096
-               */
-              prompt: string
-              external_key?: string
-              catch_up?: 'all' | 'most_recent' | 'skip'
-              /**
-               * @minimum 1
-               * @maximum 604800
-               */
-              max_catch_up_age_seconds?: number
-          }
-      }
-    | {
-          type: 'chat'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'mcp'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-
-export type AgentRevisionApiSpecToolsItem =
-    | {
-          kind: 'native'
-          id: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-    | {
-          kind: 'custom'
-          id: string
-          path: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-    | {
-          kind: 'custom_template'
-          from_template: string
-          alias: string
-          /** @minimum 0 */
-          version?: number
-      }
-    | {
-          kind: 'client'
-          /** @minLength 1 */
-          id: string
-          /** @minLength 1 */
-          description: string
-          args_schema?: { [key: string]: unknown }
-          required?: boolean
-          /**
-           * @minimum 1
-           * @maximum 600000
-           */
-          timeout_ms?: number
-          interactive?: boolean
-      }
-
-export type AgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
-}
-
-export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
-
-export type AgentRevisionApiSpecMcpsItemToolsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-
-export type AgentRevisionApiSpecMcpsItem = {
-    /** @minLength 1 */
-    id: string
-    url: string
-    auth?: AgentRevisionApiSpecMcpsItemAuth
-    secrets?: string[]
-    headers?: AgentRevisionApiSpecMcpsItemHeaders
-    tools?: AgentRevisionApiSpecMcpsItemToolsItem[]
-}
-
-export type AgentRevisionApiSpecSkillsItem = {
-    id: string
-    path: string
-    description?: string
-    from_template?: string
-    alias?: string
-    /** @minimum 0 */
+/**
+ * One reference to a versioned skill in the llma-skill store, pinned into
+ * this agent's bundle at freeze.
+ */
+export interface SkillRefApi {
+    /**
+     * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+     * @maxLength 64
+     */
+    from_template: string
+    /**
+     * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
+     * @maxLength 64
+     * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+     */
+    alias: string
+    /**
+     * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+     * @minimum 1
+     */
     version?: number
-}
-
-export type AgentRevisionApiSpecSecretsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          /**
-           * @minItems 1
-           * @items.minLength 1
-           */
-          allowed_hosts: string[]
-      }
-
-export type AgentRevisionApiSpecLimits = {
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_turns: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_tool_calls: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_wall_seconds: number
-    /**
-     * @maximum 200000
-     * @exclusiveMinimum 0
-     */
-    max_output_tokens?: number
-    /**
-     * @maximum 16384
-     * @exclusiveMinimum 0
-     */
-    max_memory_mb: number
-    /**
-     * @maximum 8
-     * @exclusiveMinimum 0
-     */
-    max_cpu_cores: number
-}
-
-export type AgentRevisionApiSpecFrameworkPrompt = {
-    omit: AgentRevisionApiSpecFrameworkPromptOmitItem[]
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    version_pin?: number
-}
-
-export type AgentRevisionApiSpecResume = {
-    enabled: boolean
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_completed_age_ms: number
-}
-
-export type AgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
-    triggers: AgentRevisionApiSpecTriggersItem[]
-    tools: AgentRevisionApiSpecToolsItem[]
-    mcps: AgentRevisionApiSpecMcpsItem[]
-    skills: AgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
-    secrets: AgentRevisionApiSpecSecretsItem[]
-    limits: AgentRevisionApiSpecLimits
-    entrypoint: string
-    reasoning?: AgentRevisionApiSpecReasoning
-    framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
-    resume?: AgentRevisionApiSpecResume
 }
 
 /**
@@ -556,10 +238,13 @@ export interface AgentRevisionApi {
     /** @nullable */
     parent_revision?: string | null
     readonly state: AgentRevisionStateEnumApi
+    /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256: string | null
-    spec?: AgentRevisionApiSpec
+    spec?: unknown
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id: number | null
     /**
@@ -580,347 +265,6 @@ export interface PaginatedAgentRevisionListApi {
     results: AgentRevisionApi[]
 }
 
-export type PatchedAgentRevisionApiSpecTriggersItem =
-    | {
-          type: 'slack'
-          config: {
-              channel_id?: string
-              mention_only: boolean
-              auto_resume_threads: boolean
-              allow_workspace_participants: boolean
-              ack_reaction?: string
-              allow_direct_messages: boolean
-              trusted_workspaces: string[] | '*'
-          }
-      }
-    | {
-          type: 'webhook'
-          config: {
-              path: string
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'cron'
-          config: {
-              /** @minLength 1 */
-              name: string
-              /** @minLength 1 */
-              schedule: string
-              timezone?: string
-              /**
-               * @minLength 1
-               * @maxLength 4096
-               */
-              prompt: string
-              external_key?: string
-              catch_up?: 'all' | 'most_recent' | 'skip'
-              /**
-               * @minimum 1
-               * @maximum 604800
-               */
-              max_catch_up_age_seconds?: number
-          }
-      }
-    | {
-          type: 'chat'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'mcp'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-
-export type PatchedAgentRevisionApiSpecToolsItem =
-    | {
-          kind: 'native'
-          id: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-    | {
-          kind: 'custom'
-          id: string
-          path: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-    | {
-          kind: 'custom_template'
-          from_template: string
-          alias: string
-          /** @minimum 0 */
-          version?: number
-      }
-    | {
-          kind: 'client'
-          /** @minLength 1 */
-          id: string
-          /** @minLength 1 */
-          description: string
-          args_schema?: { [key: string]: unknown }
-          required?: boolean
-          /**
-           * @minimum 1
-           * @maximum 600000
-           */
-          timeout_ms?: number
-          interactive?: boolean
-      }
-
-export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
-}
-
-export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
-
-export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          requires_approval?: boolean
-          approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-              allow_agent_approver?: boolean
-          }
-      }
-
-export type PatchedAgentRevisionApiSpecMcpsItem = {
-    /** @minLength 1 */
-    id: string
-    url: string
-    auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
-    secrets?: string[]
-    headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders
-    tools?: PatchedAgentRevisionApiSpecMcpsItemToolsItem[]
-}
-
-export type PatchedAgentRevisionApiSpecSkillsItem = {
-    id: string
-    path: string
-    description?: string
-    from_template?: string
-    alias?: string
-    /** @minimum 0 */
-    version?: number
-}
-
-export type PatchedAgentRevisionApiSpecSecretsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          /**
-           * @minItems 1
-           * @items.minLength 1
-           */
-          allowed_hosts: string[]
-      }
-
-export type PatchedAgentRevisionApiSpecLimits = {
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_turns: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_tool_calls: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_wall_seconds: number
-    /**
-     * @maximum 200000
-     * @exclusiveMinimum 0
-     */
-    max_output_tokens?: number
-    /**
-     * @maximum 16384
-     * @exclusiveMinimum 0
-     */
-    max_memory_mb: number
-    /**
-     * @maximum 8
-     * @exclusiveMinimum 0
-     */
-    max_cpu_cores: number
-}
-
-export type PatchedAgentRevisionApiSpecReasoning =
-    (typeof PatchedAgentRevisionApiSpecReasoning)[keyof typeof PatchedAgentRevisionApiSpecReasoning]
-
-export const PatchedAgentRevisionApiSpecReasoning = {
-    Minimal: 'minimal',
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-} as const
-
-export type PatchedAgentRevisionApiSpecFrameworkPromptOmitItem =
-    (typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem]
-
-export const PatchedAgentRevisionApiSpecFrameworkPromptOmitItem = {
-    MetaToolGuidance: 'meta_tool_guidance',
-    StateContract: 'state_contract',
-    ToolFailureGuidance: 'tool_failure_guidance',
-    ApprovalGuidance: 'approval_guidance',
-    ReasoningHint: 'reasoning_hint',
-} as const
-
-export type PatchedAgentRevisionApiSpecFrameworkPrompt = {
-    omit: PatchedAgentRevisionApiSpecFrameworkPromptOmitItem[]
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    version_pin?: number
-}
-
-export type PatchedAgentRevisionApiSpecResume = {
-    enabled: boolean
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_completed_age_ms: number
-}
-
-export type PatchedAgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
-    triggers: PatchedAgentRevisionApiSpecTriggersItem[]
-    tools: PatchedAgentRevisionApiSpecToolsItem[]
-    mcps: PatchedAgentRevisionApiSpecMcpsItem[]
-    skills: PatchedAgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
-    secrets: PatchedAgentRevisionApiSpecSecretsItem[]
-    limits: PatchedAgentRevisionApiSpecLimits
-    entrypoint: string
-    reasoning?: PatchedAgentRevisionApiSpecReasoning
-    framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
-    resume?: PatchedAgentRevisionApiSpecResume
-}
-
 /**
  * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
  * @nullable
@@ -937,10 +281,13 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     parent_revision?: string | null
     readonly state?: AgentRevisionStateEnumApi
+    /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256?: string | null
-    spec?: PatchedAgentRevisionApiSpec
+    spec?: unknown
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id?: number | null
     /**
@@ -961,17 +308,6 @@ export interface WriteAgentMdRequestApi {
 
 export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
-/**
- * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
- * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
- */
-export interface WriteSkillRequestApi {
-    /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-    description: string
-    /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-    body: string
-}
-
 export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }
 
 /**
@@ -985,11 +321,11 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
- * payload.
+ * payload. Skills are not authored here: they come from the llma-skill store
+ * via `skill_refs` and are materialized into the bundle at freeze.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
-    skills?: WriteSkillRequestApi[]
     tools?: WriteToolRequestApi[]
     spec: WriteTypedBundleRequestApiSpec
 }
@@ -1022,6 +358,48 @@ export interface AgentRevisionCronFireResponseApi {
     idempotency_key: string
     /** The request id the firing used (echoed back, or freshly minted). */
     request_id: string
+}
+
+export interface AgentRevisionEnvKeysResponseApi {
+    /** Names of env variables currently set on the revision. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentRevisionEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
+}
+
+/**
+ * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+ */
+export interface SetSkillRefsRequestApi {
+    /** The complete set of store-skill references for this draft; replaces any existing references. */
+    skill_refs: SkillRefApi[]
 }
 
 export interface AgentRevisionSlackManifestResponseApi {
@@ -1057,7 +435,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 
@@ -1176,7 +554,7 @@ export type AgentApprovalRequestApiDecidedArgs = { [key: string]: unknown } | nu
 export type AgentApprovalRequestApiAssistantMessage = { [key: string]: unknown }
 
 /**
- * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+ * Resolved approval policy (type: principal|agent, allow_edit) at request time.
  */
 export type AgentApprovalRequestApiApproverScope = { [key: string]: unknown }
 
@@ -1212,7 +590,7 @@ export interface AgentApprovalRequestApi {
     decided_args: AgentApprovalRequestApiDecidedArgs
     /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
     assistant_message: AgentApprovalRequestApiAssistantMessage
-    /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+    /** Resolved approval policy (type: principal|agent, allow_edit) at request time. */
     approver_scope: AgentApprovalRequestApiApproverScope
     /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
      *
@@ -1292,26 +670,22 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
-export interface AgentApplicationEnvKeysResponseApi {
-    /** Names of env variables currently set on the application. Values are never returned. */
-    keys: string[]
-}
-
-export interface AgentApplicationEnvKeyStatusApi {
-    key: string
-    /** True if the key is present in the env block. The value itself is never returned. */
-    is_set: boolean
-}
-
 /**
- * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
+ * non-live revision. The meaningful shape depends on the `rest` path segment:
  *
- * The view merges `{KEY: value}` into the existing encrypted env block
- * without touching other keys, so callers can set or rotate one secret
- * without needing to read the whole block back.
+ * - `run` — `{ message }`: the user message that starts a new session.
+ * - `send` — `{ session_id, message }`: append a message to a running session.
+ * - `cancel` / `listen` — no body.
+ *
+ * Documents `message` / `session_id` so the generated MCP tool exposes them;
+ * any extra keys are still forwarded as-is to ingress.
  */
-export interface SetEnvKeyRequestApi {
-    value: string
+export interface PreviewProxyInvokeRequestApi {
+    /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
+    message?: string
+    /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
+    session_id?: string
 }
 
 export interface AgentApplicationPreviewTokenResponseApi {
@@ -1394,7 +768,7 @@ export const AgentSessionStateEnumApi = {
 } as const
 
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentSessionSummaryApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1409,7 +783,7 @@ export interface AgentSessionSummaryApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentSessionSummaryApiTriggerMetadata
@@ -1432,7 +806,7 @@ export interface AgentApplicationSessionsListResponseApi {
 }
 
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentApplicationSessionsRetrieveResponseApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1525,7 +899,7 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentApplicationSessionsRetrieveResponseApiTriggerMetadata
@@ -1556,18 +930,6 @@ export interface AgentApplicationSessionLogsResponseApi {
     results: LogEntryApi[]
 }
 
-export type SetEnvRequestApiEnv = { [key: string]: string }
-
-/**
- * Body shape for AgentApplicationViewSet.set_env.
- *
- * `env` is a JSON object of string→string. The view encrypts it via the
- * same Fernet schedule the worker uses to decrypt.
- */
-export interface SetEnvRequestApi {
-    env: SetEnvRequestApiEnv
-}
-
 export interface AgentAggregateStatsApi {
     /** Sessions currently in a live state (queued / running). */
     liveCount: number
@@ -1586,8 +948,39 @@ export interface AgentAggregateStatsApi {
     pendingApprovalsCount: number
 }
 
+export interface AgentUserConnectionApi {
+    id: string
+    provider: string
+    scopes: string[]
+    /** active | revoked */
+    state: string
+    /** @nullable */
+    subject?: string | null
+    /** @nullable */
+    access_expires_at?: string | null
+    created_at: string
+    updated_at: string
+    /** @nullable */
+    revoked_at?: string | null
+}
+
+export interface AgentUserWithConnectionsApi {
+    id: string
+    /** Edge-identity kind: slack | jwt | posthog | service | … */
+    principal_kind: string
+    principal_id: string
+    metadata?: unknown
+    created_at: string
+    connections: AgentUserConnectionApi[]
+}
+
+export interface AgentUsersListApi {
+    count: number
+    results: AgentUserWithConnectionsApi[]
+}
+
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentFleetLiveSessionSummaryApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1603,7 +996,7 @@ export interface AgentFleetLiveSessionSummaryApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentFleetLiveSessionSummaryApiTriggerMetadata
@@ -1783,6 +1176,13 @@ export type AgentApplicationsPreviewTokenParams = {
     revision_id: string
 }
 
+export type AgentApplicationsPreviewTokenMintParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
 export type AgentApplicationsSessionsListParams = {
     /**
      * ISO datetime — return sessions with created_at >= this.
@@ -1848,6 +1248,13 @@ export type AgentApplicationsStatsParams = {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string
+}
+
+export type AgentApplicationsSpecSchemaParams = {
+    /**
+     * Return only this top-level slice of the spec schema to save tokens — one of `models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, `limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema.
+     */
+    section?: string
 }
 
 export type AgentFleetApprovalsListParams = {

@@ -394,6 +394,14 @@ class PostgresPrinter(BasePrinter):
         # Team ID filtering is not required for Postgres queries
         pass
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        # Access control is not implemented for Postgres dialect yet
+        return None
+
     def _print_identifier(self, name: str) -> str:
         if len(name) > 63 and "__" in name:
             name = self._truncate_identifier(name)
@@ -420,7 +428,12 @@ class PostgresPrinter(BasePrinter):
         return candidate
 
     def _json_property_args(self, chain):
-        return [self._print_escaped_string(name) for name in chain]
+        # Parameterize JSON property keys via ``context.add_value`` so psycopg binds them
+        # safely. Inlining them through ``_print_escaped_string`` would emit ClickHouse-style
+        # ``\'`` escapes, which Postgres/DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection. Same reasoning as
+        # ``visit_constant`` above.
+        return [self.context.add_value(name) for name in chain]
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):

@@ -3,7 +3,7 @@ Aggregate trace span statistics grouped by `(service_name, name)` over a date wi
 Returns one row per `(service_name, name)` pair with the following metrics:
 
 - `count` — number of spans matched
-- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds (1 second = 1,000,000,000 ns)
+- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano`, `p99_duration_nano`, `p999_duration_nano` — duration stats in nanoseconds (1 second = 1,000,000,000 ns). `p999_duration_nano` is the 99.9th percentile and is only meaningful for `(service, name)` groups with enough spans; on low-volume operations it collapses to the max
 - `error_count` — spans with OTel status code `Error` (status_code = 2)
 
 Rows are ordered by `total_duration_nano` DESC and capped at 5000.
@@ -11,7 +11,7 @@ Rows are ordered by `total_duration_nano` DESC and capped at 5000.
 Use to answer:
 
 - "Which services/operations consume the most time?"
-- "What's the p95 latency of `GET /users`?"
+- "What's the p95 or p99 latency of `GET /users`?"
 - "How many errors did the checkout service emit in the last day?"
 - "Did `POST /orders` get slower this week vs last week?" (with `compareFilter`)
 

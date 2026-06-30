@@ -1,38 +1,16 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
+import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmGenerationSentimentLazyLoaderLogicType } from './llmGenerationSentimentLazyLoaderLogicType'
-import type { GenerationSentiment } from './llmSentimentLazyLoaderLogic'
+import { fetchStoredGenerationSentiments, type GenerationSentimentLookup } from './sentimentQueries'
+import type { GenerationSentiment } from './sentimentResults'
 import { runWithConcurrency } from './utils'
 
-export interface GenerationSentimentDateRange {
-    dateFrom?: string | null
-    dateTo?: string | null
-}
-
-interface BatchGenerationSentimentResponse {
-    results: Record<string, GenerationSentiment | { error: string }>
-}
-
-function isValidGenerationSentiment(value: unknown): value is GenerationSentiment {
-    return !!value && typeof value === 'object' && 'label' in value && !('error' in value)
-}
-
-const BATCH_MAX_SIZE = 5
-// Mirrors llmSentimentLazyLoaderLogic: capping in-flight requests per flush
-// keeps sentiment from starving sibling lazy loaders on list pages with many
-// rows, given the browser's per-origin connection limit (~6).
+const BATCH_MAX_SIZE = 100
 const MAX_CONCURRENT_BATCHES = 2
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-    return chunks
-}
+const BATCH_TIMER_DISPOSABLE_KEY = 'generationSentimentBatchTimer'
 
 export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'llmGenerationSentimentLazyLoaderLogic']),
@@ -42,83 +20,78 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
     }),
 
     actions({
-        ensureGenerationSentimentLoaded: (generationId: string, dateRange?: GenerationSentimentDateRange) => ({
-            generationId,
-            dateRange,
-        }),
+        ensureGenerationSentimentLoaded: (lookup: GenerationSentimentLookup) => ({ lookup }),
         loadGenerationSentimentBatchSuccess: (
             results: Record<string, GenerationSentiment | null>,
-            requestedGenerationIds: string[]
-        ) => ({
-            results,
-            requestedGenerationIds,
-        }),
-        loadGenerationSentimentBatchFailure: (requestedGenerationIds: string[]) => ({ requestedGenerationIds }),
-        clearLoadingGeneration: (generationId: string) => ({ generationId }),
+            requestedKeys: string[]
+        ) => ({ results, requestedKeys }),
+        loadGenerationSentimentBatchFailure: (requestedKeys: string[]) => ({ requestedKeys }),
+        clearLoadingGeneration: (key: string) => ({ key }),
     }),
 
     reducers({
-        sentimentByGenerationId: [
+        sentimentByGenerationKey: [
             {} as Record<string, GenerationSentiment | null>,
             {
-                loadGenerationSentimentBatchSuccess: (state, { results, requestedGenerationIds }) => {
-                    const newState = { ...state }
+                loadGenerationSentimentBatchSuccess: (state, { results, requestedKeys }) => {
+                    const next = { ...state }
 
-                    for (const generationId of requestedGenerationIds) {
-                        newState[generationId] = results[generationId] ?? null
+                    for (const key of requestedKeys) {
+                        next[key] = results[key] ?? null
                     }
 
-                    return newState
+                    return next
                 },
-                loadGenerationSentimentBatchFailure: (state, { requestedGenerationIds }) => {
-                    const newState = { ...state }
+                loadGenerationSentimentBatchFailure: (state, { requestedKeys }) => {
+                    const next = { ...state }
 
-                    for (const generationId of requestedGenerationIds) {
-                        newState[generationId] = null
+                    for (const key of requestedKeys) {
+                        next[key] = null
                     }
 
-                    return newState
+                    return next
                 },
             },
         ],
 
-        loadingGenerationIds: [
+        loadingGenerationKeys: [
             new Set<string>(),
             {
-                ensureGenerationSentimentLoaded: (state, { generationId }) => {
-                    if (state.has(generationId)) {
+                ensureGenerationSentimentLoaded: (state, { lookup }) => {
+                    if (state.has(lookup.key)) {
                         return state
                     }
 
-                    const newSet = new Set(state)
-                    newSet.add(generationId)
-                    return newSet
+                    const next = new Set(state)
+                    next.add(lookup.key)
+                    return next
                 },
-                loadGenerationSentimentBatchSuccess: (state, { requestedGenerationIds }) => {
-                    const newSet = new Set(state)
+                loadGenerationSentimentBatchSuccess: (state, { requestedKeys }) => {
+                    const next = new Set(state)
 
-                    for (const id of requestedGenerationIds) {
-                        newSet.delete(id)
+                    for (const key of requestedKeys) {
+                        next.delete(key)
                     }
 
-                    return newSet
+                    return next
                 },
-                loadGenerationSentimentBatchFailure: (state, { requestedGenerationIds }) => {
-                    const newSet = new Set(state)
+                loadGenerationSentimentBatchFailure: (state, { requestedKeys }) => {
+                    const next = new Set(state)
 
-                    for (const id of requestedGenerationIds) {
-                        newSet.delete(id)
+                    for (const key of requestedKeys) {
+                        next.delete(key)
                     }
 
-                    return newSet
+                    return next
                 },
-                clearLoadingGeneration: (state, { generationId }) => {
-                    if (!state.has(generationId)) {
+                clearLoadingGeneration: (state, { key }) => {
+                    if (!state.has(key)) {
                         return state
                     }
-                    const newSet = new Set(state)
-                    newSet.delete(generationId)
-                    return newSet
+
+                    const next = new Set(state)
+                    next.delete(key)
+                    return next
                 },
             },
         ],
@@ -126,85 +99,63 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
 
     selectors({
         isGenerationLoading: [
-            (s) => [s.loadingGenerationIds],
-            (loadingGenerationIds): ((generationId: string) => boolean) => {
-                return (generationId: string) => loadingGenerationIds.has(generationId)
+            (s) => [s.loadingGenerationKeys],
+            (loadingGenerationKeys): ((key: string) => boolean) => {
+                return (key: string) => loadingGenerationKeys.has(key)
             },
         ],
         getGenerationSentiment: [
-            (s) => [s.sentimentByGenerationId],
-            (sentimentByGenerationId): ((generationId: string) => GenerationSentiment | null | undefined) => {
-                return (generationId: string) => sentimentByGenerationId[generationId]
+            (s) => [s.sentimentByGenerationKey],
+            (sentimentByGenerationKey): ((key: string) => GenerationSentiment | null | undefined) => {
+                return (key: string) => sentimentByGenerationKey[key]
             },
         ],
     }),
 
-    listeners(({ values, actions }) => {
-        let pendingGenerationIds = new Set<string>()
-        let batchTimer: ReturnType<typeof setTimeout> | null = null
-        let pendingDateRange: GenerationSentimentDateRange | undefined
-
+    listeners(({ values, actions, cache }) => {
         return {
-            ensureGenerationSentimentLoaded: ({ generationId, dateRange }) => {
-                if (values.sentimentByGenerationId[generationId] !== undefined) {
-                    actions.clearLoadingGeneration(generationId)
+            ensureGenerationSentimentLoaded: ({ lookup }) => {
+                if (values.sentimentByGenerationKey[lookup.key] !== undefined) {
+                    actions.clearLoadingGeneration(lookup.key)
                     return
                 }
 
-                pendingGenerationIds.add(generationId)
-                if (dateRange) {
-                    pendingDateRange = dateRange
-                }
+                const pendingLookups = (cache.pendingLookups ??= new Map<string, GenerationSentimentLookup>()) as Map<
+                    string,
+                    GenerationSentimentLookup
+                >
+                pendingLookups.set(lookup.key, lookup)
 
-                if (batchTimer) {
-                    return
-                }
+                cache.disposables.add(() => {
+                    const batchTimer = setTimeout(() => {
+                        cache.disposables.dispose(BATCH_TIMER_DISPOSABLE_KEY)
+                        void (async () => {
+                            const pendingLookups = cache.pendingLookups as Map<string, GenerationSentimentLookup>
+                            const allLookups = Array.from(pendingLookups.values())
+                            cache.pendingLookups = new Map<string, GenerationSentimentLookup>()
 
-                batchTimer = setTimeout(async () => {
-                    const allIds = Array.from(pendingGenerationIds)
-                    const dateRangeForBatch = pendingDateRange
-                    pendingGenerationIds = new Set()
-                    pendingDateRange = undefined
-                    batchTimer = null
-
-                    if (allIds.length === 0) {
-                        return
-                    }
-
-                    const teamId = values.currentTeamId
-
-                    if (!teamId) {
-                        return
-                    }
-
-                    const chunks = chunk(allIds, BATCH_MAX_SIZE)
-
-                    await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
-                        try {
-                            // nosemgrep: prefer-codegen-api
-                            const response = await api.create<BatchGenerationSentimentResponse>(
-                                `api/environments/${teamId}/llm_analytics/sentiment/`,
-                                {
-                                    ids: batch,
-                                    analysis_level: 'generation',
-                                    date_from: dateRangeForBatch?.dateFrom || undefined,
-                                    date_to: dateRangeForBatch?.dateTo || undefined,
-                                }
-                            )
-
-                            const results: Record<string, GenerationSentiment | null> = {}
-
-                            for (const generationId of batch) {
-                                const raw = response.results[generationId]
-                                results[generationId] = isValidGenerationSentiment(raw) ? raw : null
+                            if (!values.currentTeamId || allLookups.length === 0) {
+                                actions.loadGenerationSentimentBatchFailure(allLookups.map((lookup) => lookup.key))
+                                return
                             }
 
-                            actions.loadGenerationSentimentBatchSuccess(results, batch)
-                        } catch {
-                            actions.loadGenerationSentimentBatchFailure(batch)
-                        }
-                    })
-                }, 0)
+                            const chunks = chunk(allLookups, BATCH_MAX_SIZE)
+
+                            await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
+                                const requestedKeys = batch.map((lookup) => lookup.key)
+
+                                try {
+                                    const results = await fetchStoredGenerationSentiments(batch)
+                                    actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)
+                                } catch {
+                                    actions.loadGenerationSentimentBatchFailure(requestedKeys)
+                                }
+                            })
+                        })()
+                    }, 0)
+
+                    return () => clearTimeout(batchTimer)
+                }, BATCH_TIMER_DISPOSABLE_KEY)
             },
         }
     }),

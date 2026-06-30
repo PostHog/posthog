@@ -232,6 +232,11 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -335,6 +340,14 @@ export interface PatchedOrganizationMemberApi {
     readonly last_login?: string
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
 }
 
 export interface OrganizationPersonalAPIKeyOwnerApi {
@@ -784,14 +797,6 @@ export interface PatchedCommentApi {
     readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
 }
 
 export interface PinnedSceneTabApi {

@@ -14,6 +14,7 @@ import uuid
 from datetime import timedelta
 from typing import Literal, Union, cast
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -51,22 +52,29 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
-from posthog.ducklake.common import get_duckgres_server_for_organization
+from posthog.ducklake.common import is_dev_mode
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
     ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
-    ENDPOINT_DUCKLAKE_FALLBACK_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -77,6 +85,7 @@ from products.endpoints.backend.metrics import (
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.services.pagination import EndpointPagination
 from products.endpoints.backend.services.strategies import EndpointQueryStrategy, strategy_for
+from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
 
 from common.hogvm.python.utils import HogVMException
 
@@ -84,7 +93,48 @@ logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
-ExecutionType = Literal["materialized", "materialized_fallback", "inline", "ducklake", "ducklake_fallback"]
+ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
+
+# Deterministic, customer-caused ClickHouse cost guardrails → stable client `code` + remediation.
+# Kept out of status="error" so they don't page on-call; surfaced as an actionable 400.
+_QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
+    ClickHouseQueryTimeOut: (
+        "query_timeout",
+        "This query exceeded the execution time limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint for dedicated compute.",
+    ),
+    ClickHouseQueryMemoryLimitExceeded: (
+        "query_memory_limit",
+        "This query exceeded the memory limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint.",
+    ),
+    ClickHouseQuerySizeExceeded: (
+        "query_too_large",
+        # No materialize hint: it re-parses the same SQL, so it can't shrink an oversized query.
+        "The query text is too large to execute. Simplify the query.",
+    ),
+    ClickHouseEstimatedQueryExecutionTimeTooLong: (
+        "query_estimated_too_slow",
+        "This query is estimated to run too long. Reduce its scope by narrowing the time range "
+        "or materialize the endpoint.",
+    ),
+}
+
+# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
+# re-raised past the materialized/ducklake inline fallback.
+_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
+
+
+def _is_query_guardrail_error(error: BaseException) -> bool:
+    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
+    # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
+    for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
+        if isinstance(error, exc_type):
+            return code_and_detail
+    raise error
 
 
 def _emit_endpoint_failure_signal(
@@ -337,38 +387,68 @@ class EndpointExecutionService(PydanticModelMixin):
 
         return True
 
-    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        if version is None:
-            return False
-        if version.query.get("kind") != "HogQLQuery":
-            return False
-
-        ff_result = posthoganalytics.feature_enabled(
-            "endpoints-ducklake-execution",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        logger.info(
-            "Ducklake FF evaluation",
-            endpoint_name=endpoint.name,
-            ff_result=ff_result,
-        )
-        if not ff_result:
+    def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
+        if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        server = get_duckgres_server_for_organization(str(self.team.organization_id))
-        if server is None:
-            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team.pk)
-        return server is not None
+        # is_dev_mode() is also true under the test suite (USE_LOCAL_SETUP = TEST or ...); never shadow
+        # there — it builds a userless HogQL database and runs eagerly under Celery, breaking unrelated runs.
+        if is_dev_mode() and not settings.TEST:
+            return True
+
+        return bool(
+            posthoganalytics.feature_enabled(
+                "endpoints-ducklake-shadow-execution",
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
+    def _maybe_shadow_ducklake(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
+        *,
+        execution_type: ExecutionType,
+        clickhouse_ms: float,
+        clickhouse_cached: bool,
+        clickhouse_row_count: int | None,
+        limit: int | None,
+        offset: int | None,
+    ) -> None:
+        """Fire-and-forget DuckLake shadow for timing comparison; never affects the response."""
+        # Only shadow what ClickHouse actually executed: an inline, non-cached run. Cache hits
+        # and materialized reads have no comparable DuckLake query and would amplify cost.
+        if execution_type != "inline" or clickhouse_cached:
+            return
+        if not self._should_shadow_ducklake(endpoint, version):
+            return
+        try:
+            shadow_compare_ducklake_execution.delay(
+                team_id=self.team.pk,
+                endpoint_id=str(endpoint.id),
+                version_id=str(version.id),
+                variables=data.variables,
+                execution_type=execution_type,
+                clickhouse_cached=clickhouse_cached,
+                clickhouse_ms=clickhouse_ms,
+                clickhouse_row_count=clickhouse_row_count,
+                limit=limit,
+                offset=offset,
+            )
+        except Exception:
+            logger.warning("Failed to dispatch DuckLake shadow comparison", endpoint_name=endpoint.name)
 
     # ------------------------------------------------------------------
     # Top-level entry point
@@ -399,12 +479,15 @@ class EndpointExecutionService(PydanticModelMixin):
             self.log_rejected_run(endpoint, self.format_validation_detail(exc.detail))
             raise
 
+        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
+
         report_user_action(
             cast("User | SyntheticUser", self.request.user),
             "endpoint executed",
             {
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
+                "is_materialized": use_materialized,
                 "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
@@ -418,9 +501,6 @@ class EndpointExecutionService(PydanticModelMixin):
             analytics_props=get_request_analytics_properties(self.request),
         )
 
-        # Check if we should use materialization for this version
-        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
-
         debug = data.debug or False
         execution_type: ExecutionType = "materialized" if use_materialized else "inline"
         query_kind_metric = query_kind_label(version_obj.query)
@@ -429,7 +509,9 @@ class EndpointExecutionService(PydanticModelMixin):
         error_label: str | None = None
         _start_time = time.monotonic()
         _duration = 0.0
+        _ch_query_ms = 0.0
 
+        _ch_query_start = time.monotonic()
         try:
             result: Response | None = None
             if use_materialized:
@@ -445,18 +527,6 @@ class EndpointExecutionService(PydanticModelMixin):
                     # series drift self-heal on the next materialization run.
                     execution_type = "materialized_fallback"
                     result = None
-            elif self._should_use_ducklake(endpoint, version_obj):
-                try:
-                    result = self._execute_ducklake_endpoint(endpoint, version_obj.query.copy(), debug=debug)
-                    execution_type = "ducklake"
-                except Exception:
-                    logger.warning(
-                        "DuckLake execution failed, falling back to inline",
-                        endpoint_name=endpoint.name,
-                    )
-                    ENDPOINT_DUCKLAKE_FALLBACK_TOTAL.inc()
-                    execution_type = "ducklake_fallback"
-                    result = None
 
             if result is None:
                 result = self._execute_inline_endpoint(
@@ -468,6 +538,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     limit=limit,
                     offset=offset,
                 )
+            # Query-only wall-clock, to compare fairly with the DuckLake shadow.
+            _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             execution_status = "user_error"
@@ -477,7 +549,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
                 code_name=getattr(e, "code_name", None),
             )
-            raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except HogVMException:
             execution_status = "user_error"
             error_label = "HogVMException"
@@ -497,6 +569,17 @@ class EndpointExecutionService(PydanticModelMixin):
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
+            execution_status = "query_performance"
+            error_label = type(e).__name__
+            code, detail = _query_performance_code_and_detail(e)
+            logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
+            raise EndpointQueryTooExpensive(detail, code=code)
+        except ClickHouseAtCapacity:
+            execution_status = "capacity"
+            error_label = "ClickHouseAtCapacity"
+            logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
+            raise EndpointAtCapacity()
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -510,7 +593,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
-            if execution_status in ("error", "user_error"):
+            if execution_status in ("error", "user_error", "query_performance", "capacity"):
                 log_endpoint_execution(
                     team_id=self.team.pk,
                     endpoint_id=str(endpoint.id),
@@ -541,6 +624,18 @@ class EndpointExecutionService(PydanticModelMixin):
         )
         self._track_last_executed(endpoint, version_obj)
 
+        self._maybe_shadow_ducklake(
+            endpoint,
+            data,
+            version_obj,
+            execution_type=execution_type,
+            clickhouse_ms=_ch_query_ms,
+            clickhouse_cached=cache_outcome == "hit",
+            clickhouse_row_count=result_row_count,
+            limit=limit,
+            offset=offset,
+        )
+
         if isinstance(result.data, dict):
             result.data["name"] = endpoint.name
             result.data["execution_id"] = execution_id
@@ -556,12 +651,10 @@ class EndpointExecutionService(PydanticModelMixin):
         result_row_count: int | None = None
         try:
             if isinstance(result.data, dict):
-                # DuckLake bypasses the query result cache entirely — don't claim hit/miss for it.
-                if execution_type != "ducklake":
-                    cache_outcome = "hit" if bool(result.data.get("is_cached")) else "miss"
-                    ENDPOINT_CACHE_RESULT_TOTAL.labels(
-                        execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
-                    ).inc()
+                cache_outcome = "hit" if bool(result.data.get("is_cached")) else "miss"
+                ENDPOINT_CACHE_RESULT_TOTAL.labels(
+                    execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
+                ).inc()
 
                 results_value = result.data.get("results")
                 if isinstance(results_value, list):
@@ -707,6 +800,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e):
+                raise
             logger.exception(
                 "Materialized endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -812,6 +908,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e):
+                raise
             logger.exception(
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -835,48 +934,6 @@ class EndpointExecutionService(PydanticModelMixin):
                 query_kind=query_kind,
                 executed_sql=query.get("query") if query_kind == "HogQLQuery" else None,
                 endpoint_columns=version.columns,
-            )
-            raise
-
-    def _execute_ducklake_endpoint(
-        self,
-        endpoint: Endpoint,
-        query: dict,
-        debug: bool = False,
-    ) -> Response:
-        from posthog.ducklake.client import execute_ducklake_query
-
-        try:
-            result = execute_ducklake_query(
-                self.team.pk,
-                query=HogQLQuery(query=query["query"]),
-                organization_id=str(self.team.organization_id),
-            )
-            response_data: dict = {
-                "results": result.results,
-                "columns": result.columns,
-                "types": result.types,
-                "hasMore": False,
-                "backend": "ducklake",
-            }
-            if debug:
-                response_data["query"] = query.get("query")
-                response_data["hogql"] = result.hogql
-                response_data["ducklake_sql"] = result.sql
-            return Response(response_data, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.exception(
-                "DuckLake endpoint execution failed",
-                endpoint_name=endpoint.name,
-            )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "ducklake": True,
-                    "endpoint_name": endpoint.name,
-                },
             )
             raise
 

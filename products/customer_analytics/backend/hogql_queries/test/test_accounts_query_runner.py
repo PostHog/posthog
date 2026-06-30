@@ -16,7 +16,8 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.models import CustomPropertyValue
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
@@ -448,106 +449,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
 
-    FRONTEND_DEFAULT_SELECT = [
-        "name",
-        "accounts.tags.names AS tag_names",
-        "accounts.notebooks.count AS notebook_count",
-        "csm",
-        "account_executive",
-        "account_owner",
-    ]
-
-    def test_default_render_defers_tags_and_notebooks(self):
-        runner = AccountsQueryRunner(query=AccountsQuery(select=self.FRONTEND_DEFAULT_SELECT), team=self.team)
-        self.assertEqual({d.column_name for d in runner._deferred_columns}, {"tag_names", "notebook_count"})
-        # Deferred columns are pulled out of the paginated main query…
-        self.assertNotIn("tag_names", runner._main_column_names)
-        self.assertNotIn("notebook_count", runner._main_column_names)
-        # …but the full column set/order is still advertised to the frontend.
-        self.assertEqual(
-            runner.columns,
-            ["name", "tag_names", "notebook_count", "csm", "account_executive", "account_owner"],
-        )
-
-    def test_deferred_tags_and_notebooks_values_are_enriched(self):
-        billing_tag = Tag.objects.create(name="billing", team=self.team)
-        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
-        tagged = create_account(team_id=self.team.id, name="Tagged")
-        tagged.tagged_items.create(tag=billing_tag)
-        tagged.tagged_items.create(tag=urgent_tag)
-        self._link_notebooks(tagged, 2)
-        bare = create_account(team_id=self.team.id, name="Bare")
-
-        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
-        runner, response = self._run_query(select=select)
-        name_idx = runner.columns.index("name")
-        tags_idx = runner.columns.index("tag_names")
-        nb_idx = runner.columns.index("notebook_count")
-        by_id = {row[name_idx]["id"]: row for row in response.results}
-
-        self.assertEqual(by_id[str(tagged.id)][tags_idx], ["billing", "urgent"])
-        self.assertEqual(by_id[str(tagged.id)][nb_idx], 2)
-        # No junction rows → defaults matching the prior inline LEFT JOIN render.
-        self.assertEqual(by_id[str(bare.id)][tags_idx], [])
-        self.assertEqual(by_id[str(bare.id)][nb_idx], 0)
-
-    def test_deferred_columns_keep_full_column_order(self):
-        acct = create_account(team_id=self.team.id, name="A", external_id="ext")
-        select = [
-            "accounts.tags.names AS tag_names",
-            "name",
-            "external_id",
-            "accounts.notebooks.count AS notebook_count",
-        ]
-        runner, response = self._run_query(select=select)
-        self.assertEqual(runner.columns, ["tag_names", "name", "external_id", "notebook_count"])
-        row = response.results[0]
-        self.assertEqual(row[0], [])
-        self.assertEqual(row[1]["id"], str(acct.id))
-        self.assertEqual(row[2], "ext")
-        self.assertEqual(row[3], 0)
-
-    def test_deferred_columns_types_align_with_columns(self):
-        create_account(team_id=self.team.id, name="A")
-        runner, response = self._run_query(select=self.FRONTEND_DEFAULT_SELECT)
-        self.assertEqual(len(response.types), len(runner.columns))
-
-    def test_deferred_columns_with_empty_result_set(self):
-        create_account(team_id=self.team.id, name="Acme")
-        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
-        _, response = self._run_query(select=select, search="nonexistent_substring_xyz")
-        self.assertEqual(response.results, [])
-
-    def test_deferred_tags_respect_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization)
-        other_tag = Tag.objects.create(name="secret", team=other_team)
-        other_account = create_account(team_id=other_team.id, name="Other")
-        other_account.tagged_items.create(tag=other_tag)
-
-        local_tag = Tag.objects.create(name="billing", team=self.team)
-        local_account = create_account(team_id=self.team.id, name="Mine")
-        local_account.tagged_items.create(tag=local_tag)
-
-        select = ["name", "accounts.tags.names AS tag_names"]
-        runner, response = self._run_query(select=select)
-        name_idx = runner.columns.index("name")
-        tags_idx = runner.columns.index("tag_names")
-        by_id = {row[name_idx]["id"]: row for row in response.results}
-        self.assertEqual(set(by_id), {str(local_account.id)})
-        self.assertEqual(by_id[str(local_account.id)][tags_idx], ["billing"])
-
-    def test_sorted_lazy_join_column_is_not_deferred(self):
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["name", "accounts.notebooks.count AS notebook_count"],
-                orderBy=["notebook_count DESC"],
-            ),
-            team=self.team,
-            user=self.user,
-        )
-        self.assertEqual(runner._deferred_columns, [])
-        self.assertIn("notebook_count", runner._main_column_names)
-
     def test_metrics_mode_returns_aggregations_and_no_rows(self):
         create_account(team_id=self.team.id, name="A")
         create_account(team_id=self.team.id, name="B")
@@ -605,6 +506,47 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
         )
         self.assertEqual(names, ["Match"])
+
+    def test_custom_property_value_round_trips_through_a_selected_alias(self):
+        account = create_account(team_id=self.team.id, name="A")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=definition, value_str="enterprise"
+        )
+        other = create_account(team_id=self.team.id, name="No value")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(select=["id", f"accounts.custom_properties.values.`{definition.id}` AS cp_x"]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        id_idx, value_idx = runner.columns.index("id"), runner.columns.index("cp_x")
+        values_by_id = {str(row[id_idx]): row[value_idx] for row in response.results}
+
+        self.assertEqual(values_by_id[str(account.id)], "enterprise")
+        # An account with no value for the definition aggregates to NULL/empty.
+        self.assertFalse(values_by_id[str(other.id)])
+
+    def test_numeric_custom_property_aggregates_in_metrics_mode(self):
+        # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        for account_name, seats in [("A", 10.0), ("B", 30.0)]:
+            account = create_account(team_id=self.team.id, name=account_name)
+            CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=account, definition=definition, value_num=seats
+            )
+        create_account(team_id=self.team.id, name="No value")
+
+        expr = f"toFloatOrNull(accounts.custom_properties.values.`{definition.id}`)"
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(metrics=[f"sum({expr})", f"avg({expr})"], select=[]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        # Sum ignores the null (no-value) account; avg averages only the two present values.
+        self.assertEqual(response.metricsResults, [40.0, 20.0])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

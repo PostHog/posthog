@@ -3,17 +3,18 @@ import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
-import { defaultConfig } from '~/config/config'
-import { CyclotronInputType } from '~/schema/cyclotron'
-import { GeoIPService, GeoIp } from '~/utils/geoip'
+import { defaultConfig } from '~/common/config/config'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -197,8 +198,10 @@ export class TemplateTester {
                 sesEndpoint: config.SES_ENDPOINT,
             },
             undefined as any,
+            undefined as any,
             config.ENCRYPTION_SALT_KEYS,
-            config.SITE_URL
+            config.SITE_URL,
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         return new HogExecutorService(
@@ -208,7 +211,6 @@ export class TemplateTester {
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
                 selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: undefined as any, siteUrl: config.SITE_URL },
@@ -407,6 +409,7 @@ export const createAdDestinationPayload = (
                 gclid: 'google-id',
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
+                msclkid: 'microsoft-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

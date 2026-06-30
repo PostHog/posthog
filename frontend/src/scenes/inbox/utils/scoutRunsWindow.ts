@@ -1,8 +1,9 @@
 // Ported from PostHog Code desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
-// configs; no I/O. The runs the cloud API returns are already the newest-first,
-// 100-row-capped window the desktop assembled by hand, so the cursor-pagination
-// loop is dropped here – but the same window framing and labels are preserved.
+// configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
+// `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
+// `date_to` cursor (same as desktop), and these helpers frame all numbers as
+// "the recent window" with a "truncated" suffix when that walk hits its page cap.
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -29,6 +30,23 @@ export const SCOUT_RUNS_WINDOW_SPAN = ((): string => {
 export function scoutRunsWindowLabel(complete: boolean): string {
     const base = `last ${SCOUT_RUNS_WINDOW_SPAN}`
     return complete ? base : `${base} · truncated`
+}
+
+// Fleet-wide findings views fetch/tally only the most recent N emitted runs, to bound the per-run
+// fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
+export const MAX_FLEET_EMITTED_RUNS = 120
+
+/** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
+export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] {
+    return (
+        runs
+            .filter((run) => (run.emitted_count ?? 0) > 0)
+            .slice()
+            // "Most recently emitted" — a run can complete (and emit) later than one created after it, so
+            // order by completion, falling back to creation. Matches `emittedFindingsSummary`'s `latestAt`.
+            .sort((a, b) => (b.completed_at ?? b.created_at ?? '').localeCompare(a.completed_at ?? a.created_at ?? ''))
+            .slice(0, MAX_FLEET_EMITTED_RUNS)
+    )
 }
 
 // ── Origin classification ────────────────────────────────────────────────────
@@ -148,12 +166,62 @@ export function isRunStuck(run: SignalScoutRunSummary, now: Date): boolean {
     return duration !== null && duration >= STUCK_THRESHOLD_SECONDS
 }
 
-export type ScoutRunOutcome = 'emitted' | 'quiet' | 'error' | 'timed_out' | 'running' | 'stuck' | 'queued' | 'unknown'
+// ── Report channel (emit_report / edit_report) ───────────────────────────────
+// A second emit channel: instead of a weak `emit_signal` finding (which drives `emitted_count`), an
+// opted-in scout authors a full inbox report directly (`emitted_report_ids`) or edits an existing one
+// (`edited_report_ids`). This activity is invisible to `emitted_count`, so it's tracked separately here
+// and folded into the run-outcome model so a report-authoring run never reads as "quiet".
+
+/** The reports a single run touched via the report channel — authored (emit_report) and edited (edit_report). */
+export function runReportActivity(run: SignalScoutRunSummary): { authored: string[]; edited: string[] } {
+    return { authored: run.emitted_report_ids ?? [], edited: run.edited_report_ids ?? [] }
+}
+
+/** Whether a run produced any report-channel output (authored or edited at least one report). */
+export function runTouchedReports(run: SignalScoutRunSummary): boolean {
+    const { authored, edited } = runReportActivity(run)
+    return authored.length > 0 || edited.length > 0
+}
+
+/** Whether a completed run produced any output at all — a weak finding OR report-channel activity. */
+export function runProducedOutput(run: SignalScoutRunSummary): boolean {
+    return (run.emitted_count ?? 0) > 0 || runTouchedReports(run)
+}
+
+/** A short label for a run's report-channel activity, e.g. "1 report authored · 2 reports edited", or
+ * null when the run touched no report. */
+export function scoutReportActivityLabel(run: SignalScoutRunSummary): string | null {
+    const { authored, edited } = runReportActivity(run)
+    const parts: string[] = []
+    if (authored.length > 0) {
+        parts.push(`${pluralize(authored.length, 'report')} authored`)
+    }
+    if (edited.length > 0) {
+        parts.push(`${pluralize(edited.length, 'report')} edited`)
+    }
+    return parts.length > 0 ? parts.join(' · ') : null
+}
+
+export type ScoutRunOutcome =
+    | 'emitted'
+    | 'reported'
+    | 'quiet'
+    | 'error'
+    | 'timed_out'
+    | 'running'
+    | 'stuck'
+    | 'queued'
+    | 'unknown'
 
 export function deriveRunOutcome(run: SignalScoutRunSummary, now: Date): ScoutRunOutcome {
     const status = normalizeRunStatus(run.status)
     if (status === 'completed') {
-        return (run.emitted_count ?? 0) > 0 ? 'emitted' : 'quiet'
+        if ((run.emitted_count ?? 0) > 0) {
+            return 'emitted'
+        }
+        // A run that emitted no finding but authored/edited a report is not quiet — it produced output
+        // through the report channel.
+        return runTouchedReports(run) ? 'reported' : 'quiet'
     }
     if (status === 'failed') {
         return deriveRunFailureKind(run, now) === 'timed_out' ? 'timed_out' : 'error'
@@ -167,12 +235,40 @@ export function deriveRunOutcome(run: SignalScoutRunSummary, now: Date): ScoutRu
     return 'unknown'
 }
 
+/** The run-history filter chips on the scout detail surface. */
+export type ScoutRunFilter = 'all' | 'emitted' | 'quiet' | 'failed'
+
+/**
+ * Whether a run belongs under a given filter chip. Emitted/Quiet split completed runs by whether they
+ * produced any output — a weak finding OR report-channel activity (authored/edited a report); Failed is
+ * any failed/cancelled run. There is no server-side `status` filter yet (api gap 1), so the detail view
+ * filters its window client-side.
+ */
+export function runMatchesFilter(run: SignalScoutRunSummary, filter: ScoutRunFilter): boolean {
+    const status = normalizeRunStatus(run.status)
+    switch (filter) {
+        case 'all':
+            return true
+        case 'emitted':
+            return runProducedOutput(run)
+        case 'quiet':
+            return status === 'completed' && !runProducedOutput(run)
+        case 'failed':
+            return status === 'failed'
+    }
+}
+
 export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): string {
     switch (deriveRunOutcome(run, now)) {
         case 'emitted': {
             const count = run.emitted_count ?? 0
             return `${pluralize(count, 'signal')} emitted`
         }
+        case 'reported':
+            // `reported` is only produced when the run touched a report, so the label is always present.
+            // The `?? ''` is an unreachable type guard (the helper is `string | null`) — keeps the string
+            // return without an unsafe `as` cast; never rendered.
+            return scoutReportActivityLabel(run) ?? ''
         case 'quiet':
             return '0 signals emitted'
         case 'error':
@@ -197,6 +293,11 @@ export interface ScoutRollup {
     completedCount: number
     failedCount: number
     emittedCount: number
+    /** Distinct reports authored via `emit_report` across the window (a report authored once, even if
+     * later edited, counts here). Deduped across runs since the same report can recur run-to-run. */
+    authoredReportIds: Set<string>
+    /** Distinct reports edited via `edit_report` across the window, deduped across runs. */
+    editedReportIds: Set<string>
     latestRun: SignalScoutRunSummary | null
     runningRun: SignalScoutRunSummary | null
     /** This scout's runs in the window, oldest first (timeline order). */
@@ -209,6 +310,8 @@ function emptyRollup(): ScoutRollup {
         completedCount: 0,
         failedCount: 0,
         emittedCount: 0,
+        authoredReportIds: new Set(),
+        editedReportIds: new Set(),
         latestRun: null,
         runningRun: null,
         runs: [],
@@ -237,6 +340,12 @@ export function computeScoutRollups(runs: SignalScoutRunSummary[]): Map<string, 
             rollup.failedCount += 1
         }
         rollup.emittedCount += run.emitted_count ?? 0
+        for (const reportId of run.emitted_report_ids ?? []) {
+            rollup.authoredReportIds.add(reportId)
+        }
+        for (const reportId of run.edited_report_ids ?? []) {
+            rollup.editedReportIds.add(reportId)
+        }
         rollup.runs.push(run)
         const startedAt = run.started_at ? new Date(run.started_at).getTime() : 0
         const latestStartedAt = rollup.latestRun?.started_at ? new Date(rollup.latestRun.started_at).getTime() : -1
@@ -266,7 +375,8 @@ export interface FleetSummary {
     emittedCount: number
     /** Completed / (completed + failed) over the window, or null when no finished runs. */
     successRate: number | null
-    /** Share of runs in the window that emitted at least one signal, or null when no runs. */
+    /** Share of runs in the window that produced output — a signal OR report-channel activity — or null
+     * when no runs. Mirrors the per-scout "Emitted" filter so the two surfaces agree. */
     emitRate: number | null
 }
 
@@ -286,7 +396,9 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         failedCount += rollup.failedCount
         runCount += rollup.runCount
         for (const run of rollup.runs) {
-            if ((run.emitted_count ?? 0) > 0) {
+            // Output = a weak finding OR report-channel activity, consistent with `runMatchesFilter('emitted')`
+            // so the fleet emit rate and the per-scout "Emitted" chip never disagree about the same runs.
+            if (runProducedOutput(run)) {
                 emittedRunCount += 1
             }
         }
@@ -363,7 +475,7 @@ export function sortConfigsForDisplay(configs: SignalScoutConfig[]): SignalScout
 
 export const SCOUT_AUTHOR_PROMPT = `I'd like to make a new scout for this PostHog project.
 
-Use the authoring-signals-scouts skill from the PostHog MCP to guide creating a new signals scout.
+Use the authoring-scouts skill from the PostHog MCP to guide creating a new signals scout.
 
 First, take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value.
 
@@ -373,7 +485,7 @@ If the skill is unavailable, fall back to the signals-scout MCP tools directly (
 
 export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
+Use the exploring-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
 
 - The fleet: which scouts exist, enabled vs disabled, and their cadences
 - Recent run health: success rate, failures and timeouts, anything stuck
@@ -385,7 +497,7 @@ Lead with a short overall verdict, then per-scout notes only where something is 
 
 export const SCOUT_RECENT_SIGNALS_PROMPT = `What signals have my scouts emitted recently?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
+Use the exploring-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
 
 - What each signal says, in plain language
 - Which scout emitted it, when, and its severity/confidence where available
@@ -397,7 +509,7 @@ Group by scout, newest first. Close with a short note on overall signal quality 
 export function buildScoutCheckinPrompt(skillName: string, displayName: string): string {
     return `How is my ${displayName} scout performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
+Use the exploring-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
 
 - Its config: enabled, cadence, dry-run posture
 - Recent run history: successes, failures, timeouts, durations

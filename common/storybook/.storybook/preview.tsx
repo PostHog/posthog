@@ -1,6 +1,6 @@
 import '~/styles'
 
-import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -10,6 +10,7 @@ import { worker } from '~/mocks/browser'
 import { defaultMocks } from '~/mocks/handlers'
 
 import { getStorybookAppContext } from './app-context'
+import { withChartCanvasSnapshot } from './decorators/withChartCanvasSnapshot'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
@@ -95,11 +96,15 @@ export const decorators: Meta['decorators'] = [
     withTheme,
     // Set the page URL
     withPageUrl,
+    // Suppress quill-charts canvas painting for snapshot stories that opt in via testOptions.skipCanvasDraw
+    withChartCanvasSnapshot,
 ]
 
 const preview: Preview = {
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
+        // We don't want axe-core tests in visual review
+        a11y: { test: 'off' },
         controls: {
             matchers: {
                 color: /(background|color)$/i,

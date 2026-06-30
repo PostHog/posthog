@@ -1,0 +1,349 @@
+{
+    "models": { "mode": "auto", "level": "high" },
+    "reasoning": "high",
+    "triggers": [
+        {
+            "type": "chat",
+            "config": {
+                "allow_restart": true
+            },
+            "auth": {
+                "modes": [
+                    {
+                        "type": "posthog",
+                        "scopes": ["agents:read", "agents:write", "agent_session:read"],
+                        "audience": "organization"
+                    },
+                    {
+                        "type": "posthog_internal"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "mcp",
+            "config": {
+                "allow_restart": true
+            },
+            "auth": {
+                "modes": [
+                    {
+                        "type": "posthog",
+                        "audience": "organization"
+                    },
+                    {
+                        "type": "posthog_internal"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "auto_resume_threads": true,
+                "allow_workspace_participants": false,
+                "allow_direct_messages": true,
+                "trusted_workspaces": "*",
+                "ack_reaction": "eyes"
+            }
+        }
+    ],
+    "tools": [
+        {
+            "kind": "native",
+            "id": "@posthog/memory-search"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-read"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-write"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/web-search"
+        },
+        {
+            "kind": "client",
+            "id": "focus_tab",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "tab": {
+                        "enum": ["overview", "configuration", "connections", "sessions", "memory"]
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Target agent slug. Always required \u2014 `focus_*` calls never silently fall back to the user's current page."
+                    }
+                },
+                "required": ["tab", "slug"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_file",
+            "description": "Open one bundle file in the configuration panel. Use BEFORE reading the file. Path is bundle-relative, e.g. 'agent.md' or 'skills/research.md'. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Target agent slug. Always required \u2014 `focus_*` calls never silently fall back to the user's current page."
+                    }
+                },
+                "required": ["path", "slug"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_revision",
+            "description": "Open one revision in the configuration panel. Use BEFORE inspecting / diffing a revision. Pass the full revision UUID. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "revisionId": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Target agent slug. Always required \u2014 `focus_*` calls never silently fall back to the user's current page."
+                    }
+                },
+                "required": ["revisionId", "slug"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_session",
+            "description": "Open one session in the sessions panel. Use BEFORE fetching its conversation / event log. Pass the full session UUID \u2014 do NOT call without one. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Target agent slug. Always required \u2014 `focus_*` calls never silently fall back to the user's current page."
+                    }
+                },
+                "required": ["sessionId", "slug"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_spec_section",
+            "description": "Jump to one section of the agent's spec in the configuration panel: triggers, tools, skills, secrets, limits. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "enum": ["triggers", "tools", "skills", "secrets", "limits"]
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Target agent slug. Always required \u2014 `focus_*` calls never silently fall back to the user's current page."
+                    }
+                },
+                "required": ["section", "slug"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "toast",
+            "description": "Surface a short status notification in the host UI. Use sparingly \u2014 for long-running work the user should know about, or for state changes outside their current view. Don't toast for things that fit naturally in chat.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "enum": ["info", "warn", "error"]
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "required": ["message"]
+            }
+        },
+        {
+            "kind": "client",
+            "id": "get_context",
+            "description": "Returns the user's current view in the host app \u2014 page, agent, session id, URL, follow-mode state, client identification, and the user's current project (`project_id` + `project_name`/`org`). Call when you need the project to act in for a `@posthog/*` tool, to resolve deictic references like 'this agent' or 'this session', or after the user has navigated and your prior context envelope is stale. Free \u2014 no side effects.",
+            "args_schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "set_secret",
+            "interactive": true,
+            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately \u2014 that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history \u2014 `purpose` is the only string you see. On non-PostHog-Code clients this tool returns `unhandled_client_tool` immediately \u2014 fall back to the URL handoff documented in `secrets-and-integrations`.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_slug": {
+                        "type": "string",
+                        "description": "The agent whose env block gets the secret. Required \u2014 do not infer from page context."
+                    },
+                    "secret": {
+                        "type": "string",
+                        "description": "Env variable name, e.g. ANTHROPIC_KEY. Should match a name in the agent's spec.secrets[]; the API also accepts unlisted names but the agent won't read them at runtime."
+                    },
+                    "mode": {
+                        "enum": ["set", "rotate"],
+                        "description": "Whether the key is being created (`set`) or replaced (`rotate`). Drives copy in the inline form; default `set`."
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "One-line explanation shown above the input so the user knows why you need this. Avoid mentioning the value itself."
+                    }
+                },
+                "required": ["agent_slug", "secret"]
+            }
+        },
+        {
+            "kind": "client",
+            "id": "connect_mcp",
+            "interactive": true,
+            "description": "Punch out to the user to connect an MCP server to an agent, then reference it from the agent's spec. INTERACTIVE: returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the result. End your turn after a brief acknowledgement. The session parks; the user reviews the PREFILLED connect form (you supply `name`/`url`) and completes the auth themselves — OAuth consent or an API key. You NEVER see tokens or secrets. On a fresh turn you receive a wake message `{call_id, ok, result|error}`: on success `{connected:true, connection_id, mcp_id, url}` (the agent's spec now has an `mcps[]` entry with `connection: connection_id` — one shared credential for every asker of that agent), or `user_cancelled`. Match by `call_id`. Use this whenever the user wants the agent to use a third-party MCP server (e.g. incident.io, Linear). Prefill `url` with the server's MCP endpoint when you know it. Only offered where the client can render the form (declared in the session's `supported_client_tools`, e.g. PostHog Code); on other surfaces it isn't exposed.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_slug": {
+                        "type": "string",
+                        "description": "The agent the connection is attached to. Required — do not infer from page context."
+                    },
+                    "revision_id": {
+                        "type": "string",
+                        "description": "Draft revision to write the mcps[] entry to. Optional — falls back to the revision the user is viewing in the agent-config page."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Prefilled server name shown in the form, e.g. 'incident.io'. The user can edit it."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Prefilled MCP server URL, e.g. 'https://mcp.incident.io/mcp'. The user can edit it."
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "One-line reason shown above the form so the user knows why you're connecting this server."
+                    }
+                },
+                "required": ["agent_slug"]
+            }
+        }
+    ],
+    "mcps": [
+        {
+            "kind": "principal",
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "auth": {
+                "provider": "posthog"
+            },
+            "default_tool_approval": "deny",
+            "tools": [
+                { "name": "agent-applications-list", "level": "allow" },
+                { "name": "agent-applications-retrieve", "level": "allow" },
+                { "name": "agent-applications-create", "level": "allow" },
+                { "name": "agent-applications-partial-update", "level": "allow" },
+                { "name": "agent-applications-revisions-list", "level": "allow" },
+                { "name": "agent-applications-revisions-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-create", "level": "allow" },
+                { "name": "agent-applications-revisions-new-draft-create", "level": "allow" },
+                { "name": "agent-applications-revisions-clone-from-create", "level": "allow" },
+                { "name": "agent-applications-revisions-partial-update", "level": "allow" },
+                { "name": "agent-applications-revisions-agent-md-update", "level": "allow" },
+                { "name": "agent-applications-revisions-skill-refs-update", "level": "allow" },
+                { "name": "skill-list", "level": "allow" },
+                { "name": "skill-get", "level": "allow" },
+                { "name": "skill-create", "level": "allow" },
+                { "name": "skill-update", "level": "allow" },
+                { "name": "skill-file-create", "level": "allow" },
+                { "name": "skill-file-delete", "level": "allow" },
+                { "name": "skill-file-rename", "level": "allow" },
+                { "name": "mcp-connections-list", "level": "allow" },
+                { "name": "mcp-connection-tools-list", "level": "allow" },
+                { "name": "agent-applications-revisions-tools-update", "level": "allow" },
+                { "name": "agent-applications-revisions-tools-destroy", "level": "allow" },
+                { "name": "agent-applications-revisions-spec-update", "level": "allow" },
+                { "name": "agent-applications-revisions-bundle-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-validate-create", "level": "allow" },
+                { "name": "agent-applications-revisions-freeze-create", "level": "allow" },
+                { "name": "agent-applications-revisions-system-prompt", "level": "allow" },
+                { "name": "agent-applications-revisions-manifest-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-slack-manifest", "level": "allow" },
+                { "name": "agent-applications-sessions-list", "level": "allow" },
+                { "name": "agent-applications-sessions-retrieve", "level": "allow" },
+                { "name": "agent-applications-session-logs", "level": "allow" },
+                { "name": "agent-applications-env-keys-list", "level": "allow" },
+                { "name": "agent-applications-env-keys-get", "level": "allow" },
+                { "name": "agent-native-tools-list", "level": "allow" },
+                { "name": "agent-resolve-resource", "level": "allow" },
+                { "name": "agent-applications-models", "level": "allow" },
+                { "name": "agent-applications-spec-schema", "level": "allow" },
+                { "name": "execute-sql", "level": "allow" },
+                { "name": "insight-query", "level": "allow" },
+                { "name": "get-llm-total-costs-for-project", "level": "allow" },
+                { "name": "projects-get", "level": "allow" },
+                { "name": "switch-project", "level": "allow" },
+                {
+                    "name": "agent-applications-revisions-promote-create",
+                    "level": "approve",
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                },
+                {
+                    "name": "agent-applications-revisions-archive-create",
+                    "level": "approve",
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                },
+                {
+                    "name": "agent-applications-destroy",
+                    "level": "approve",
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                }
+            ]
+        }
+    ],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": [
+                "openid",
+                "profile",
+                "email",
+                "user:read",
+                "agents:read",
+                "agents:write",
+                "query:read",
+                "insight:read"
+            ]
+        }
+    ],
+    "secrets": [],
+    "limits": {
+        "max_turns": 80,
+        "max_tool_calls": 300,
+        "max_wall_seconds": 1800
+    },
+    "resume": {
+        "enabled": true,
+        "max_completed_age_ms": 604800000
+    }
+}

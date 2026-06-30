@@ -148,6 +148,23 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SITE_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
+    def test_task_id_adds_attribution_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, task_id="task-uuid-123")
+            assert configs[0].headers == [
+                *self._expected_headers(),
+                {"name": "X-PostHog-Task-Id", "value": "task-uuid-123"},
+            ]
+
+    def test_no_task_id_omits_attribution_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert all(h["name"] != "X-PostHog-Task-Id" for h in configs[0].headers)
+
     @parameterized.expand(
         [
             (None, "posthog-code"),
@@ -155,6 +172,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("posthog-code", "posthog-code"),
             ("some-other-origin", "posthog-code"),
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
         ]
     )
     def test_consumer_header_reflects_interaction_origin(
@@ -245,6 +263,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     @parameterized.expand(
         [
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
             ("posthog_code", "posthog-code"),
             (None, "posthog-code"),
         ]

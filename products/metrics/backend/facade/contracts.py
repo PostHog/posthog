@@ -24,6 +24,10 @@ from dataclasses import dataclass
 
 from .enums import AttributeScope, FilterOp, MetricAggregation
 
+# Each clause runs its own ClickHouse query on the shared logs cluster, so
+# the clause count per request is hard-capped.
+MAX_CLAUSES_PER_QUERY = 10
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
@@ -87,6 +91,8 @@ class MetricQueryRequest:
     def __post_init__(self) -> None:
         if not self.clauses:
             raise ValueError("at least one clause is required")
+        if len(self.clauses) > MAX_CLAUSES_PER_QUERY:
+            raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
         names = [c.name for c in self.clauses]
@@ -151,3 +157,22 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+
+
+@dataclass(frozen=True, slots=True)
+class MetricEventSample:
+    """A single raw metric emission: one `metric_samples` row enriched with its
+    `metric_series` labels. Backs the Samples view and the metric->trace pivot.
+    Distinct from `MetricSeries`, which is aggregated at query time.
+    """
+
+    timestamp: str  # ISO 8601
+    metric_name: str
+    metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
+    value: float
+    unit: str
+    service_name: str
+    trace_id: str
+    span_id: str
+    attributes: dict[str, str]
+    resource_attributes: dict[str, str]

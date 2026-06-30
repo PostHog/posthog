@@ -6,20 +6,17 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.event_usage import groups
 
-from products.error_tracking.backend.models import ErrorTrackingGroupingRule, ErrorTrackingIssueFingerprintV2
-from products.error_tracking.backend.presentation.views.utils import (
-    RuleReorderingMixin,
-    generate_byte_code,
-    has_filter_values,
-)
+from products.error_tracking.backend.facade import api as error_tracking_api
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +32,7 @@ class ErrorTrackingGroupingRuleFiltersField(serializers.JSONField):
         except PydanticValidationError as err:
             logger.warning("Invalid grouping rule filters payload", exc_info=err)
             raise serializers.ValidationError("Invalid filters payload.") from err
-        if not has_filter_values(value):
+        if not error_tracking_api.has_filter_values(value):
             raise serializers.ValidationError("Filters must contain at least one filter value.")
         return value
 
@@ -102,24 +99,16 @@ class ErrorTrackingGroupingRuleUpdateRequestSerializer(serializers.Serializer):
     )
 
 
-class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
+class ErrorTrackingGroupingRuleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    filters = serializers.JSONField()
     assignee = serializers.SerializerMethodField()
+    description = serializers.CharField(allow_null=True, allow_blank=True)
     issue = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ErrorTrackingGroupingRule
-        fields = [
-            "id",
-            "filters",
-            "assignee",
-            "description",
-            "issue",
-            "order_key",
-            "disabled_data",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["team_id", "created_at", "updated_at"]
+    order_key = serializers.IntegerField()
+    disabled_data = serializers.JSONField(allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
 
     @extend_schema_field(
         {
@@ -132,21 +121,17 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         }
     )
     def get_assignee(self, obj):
-        if obj.user_id:
-            return {"type": "user", "id": obj.user_id}
-        elif obj.role_id:
-            return {"type": "role", "id": obj.role_id}
-        return None
+        if obj.assignee is None:
+            return None
+        return {"type": obj.assignee.type, "id": obj.assignee.id}
 
     @extend_schema_field(
         serializers.DictField(child=serializers.CharField(), allow_null=True, help_text="Issue linked to this rule")
     )
     def get_issue(self, obj) -> Optional[dict]:
-        issue_map = self.context.get("issue_map", {})
-        issue = issue_map.get(str(obj.id))
-        if issue:
-            return {"id": str(issue.id), "name": issue.name}
-        return None
+        if obj.issue is None:
+            return None
+        return {"id": str(obj.issue.id), "name": obj.issue.name}
 
 
 @extend_schema_serializer(many=False)
@@ -154,108 +139,84 @@ class ErrorTrackingGroupingRuleListResponseSerializer(serializers.Serializer):
     results = ErrorTrackingGroupingRuleSerializer(many=True)
 
 
-def _build_issue_map(team_id: int, rule_ids: list[str]) -> dict:
-    """Build a mapping of rule_id -> ErrorTrackingIssue for grouping rules."""
-    if not rule_ids:
-        return {}
-    fingerprints = (
-        ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
-        .filter(
-            team_id=team_id,
-            fingerprint__in=[f"custom-rule:{rid}" for rid in rule_ids],
-        )
-        .only("fingerprint", "issue_id", "issue__id", "issue__name")
-    )
-    return {fp.fingerprint.removeprefix("custom-rule:"): fp.issue for fp in fingerprints}
-
-
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
+    # The list endpoint returns all rules unpaginated ({"results": [...]}); without this the
+    # default paginator makes the schema advertise limit/offset params the view doesn't honor.
     pagination_class = None
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
 
     @extend_schema(responses={200: OpenApiResponse(response=ErrorTrackingGroupingRuleListResponseSerializer)})
     def list(self, request, *args, **kwargs) -> Response:
-        queryset = list(self.filter_queryset(self.get_queryset()))
-        rule_ids = [str(r.id) for r in queryset]
-        issue_map = _build_issue_map(self.team.id, rule_ids)
-        context = {**self.get_serializer_context(), "issue_map": issue_map}
-        serializer = self.get_serializer(queryset, many=True, context=context)
-        return Response({"results": serializer.data})
+        rules = error_tracking_api.list_grouping_rules(self.team.id)
+        return Response({"results": self.get_serializer(rules, many=True).data})
 
-    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
-        grouping_rule = self.get_object()
-        json_filters = request.validated_data.get("filters")
+    def retrieve(self, request, *args, pk=None, **kwargs) -> Response:
+        rule = error_tracking_api.get_grouping_rule(self.team.id, pk)
+        if rule is None:
+            raise NotFound()
+        return Response(self.get_serializer(rule).data)
 
-        if json_filters:
-            parsed_filters = PropertyGroupFilterValue(**json_filters)
-            grouping_rule.filters = json_filters
-            grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-
-        grouping_rule.disabled_data = None
-        grouping_rule.save()
-
+    def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
+        try:
+            rule = error_tracking_api.update_grouping_rule(
+                self.team.id, pk, filters=request.validated_data.get("filters")
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
+        if rule is None:
+            raise NotFound()
         posthoganalytics.capture(
             "error_tracking_grouping_rule_edited",
             groups=groups(self.team.organization, self.team),
         )
-
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @validated_request(
         request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
         responses={204: None},
     )
-    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        return self._apply_rule_update(request)
+    def update(self, request: ValidatedRequest, *args, pk=None, **kwargs) -> Response:
+        return self._apply_rule_update(request, pk)
 
     @validated_request(
         request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
         responses={204: None},
     )
-    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        return self._apply_rule_update(request)
+    def partial_update(self, request: ValidatedRequest, *args, pk=None, **kwargs) -> Response:
+        return self._apply_rule_update(request, pk)
 
-    def destroy(self, request, *args, **kwargs) -> Response:
-        response = super().destroy(request, *args, **kwargs)
-
+    def destroy(self, request, *args, pk=None, **kwargs) -> Response:
+        if not error_tracking_api.delete_grouping_rule(self.team.id, pk):
+            raise NotFound()
         posthoganalytics.capture(
             "error_tracking_grouping_rule_deleted",
             groups=groups(self.team.organization, self.team),
         )
-
-        return response
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @validated_request(
         request_serializer=ErrorTrackingGroupingRuleCreateRequestSerializer,
         responses={201: OpenApiResponse(response=ErrorTrackingGroupingRuleSerializer)},
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        json_filters = request.validated_data["filters"]
-        assignee = request.validated_data.get("assignee")
-        description = request.validated_data.get("description")
-
-        parsed_filters = PropertyGroupFilterValue(**json_filters)
-        bytecode = generate_byte_code(self.team, parsed_filters)
-
-        grouping_rule = ErrorTrackingGroupingRule.objects.create(
-            team=self.team,
-            filters=json_filters,
-            bytecode=bytecode,
-            order_key=0,
-            user_id=None if (not assignee or assignee["type"] != "user") else assignee["id"],
-            role_id=None if (not assignee or assignee["type"] != "role") else assignee["id"],
-            description=description,
-        )
-
+        try:
+            rule = error_tracking_api.create_grouping_rule(
+                self.team.id,
+                filters=request.validated_data["filters"],
+                assignee=request.validated_data.get("assignee"),
+                description=request.validated_data.get("description"),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_grouping_rule_created",
             groups=groups(self.team.organization, self.team),
         )
+        return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
-        serializer = ErrorTrackingGroupingRuleSerializer(grouping_rule)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self, request, **kwargs) -> Response:
+        orders: dict[str, int] = request.data.get("orders", {})
+        error_tracking_api.reorder_grouping_rules(self.team.id, orders)
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

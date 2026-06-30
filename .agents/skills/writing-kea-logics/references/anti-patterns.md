@@ -278,11 +278,6 @@ Use `urls.foo(id)` so renames in one place propagate everywhere.
 The classic: `setQuery` updates URL → URL change fires `setQuery` again → infinite
 loop. See [routing.md](routing.md) for guard patterns.
 
-### Plain `urlToAction` on a scene root logic
-
-Scene roots own the URL. Use `tabAwareUrlToAction` so inactive tabs don't hijack
-navigation. See [making-scenes-tab-aware](../../making-scenes-tab-aware/SKILL.md).
-
 ### Mutating `window.location` directly
 
 ```ts

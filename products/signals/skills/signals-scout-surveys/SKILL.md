@@ -1,18 +1,18 @@
 ---
 name: signals-scout-surveys
 description: >
-  Focused Signals scout for PostHog projects running surveys. Watches active surveys for
-  score regressions (NPS / CSAT / rating drops), response-volume drops, abandonment
-  spikes, and targeting drift, AND aggregates open-text responses into recurring themes
-  the team should know about (clusters of complaints, praise, feature requests). Emits
-  findings only when a theme or anomaly clears the confidence bar; otherwise writes
-  durable memory and closes out empty. Self-contained peer in the signals-scout-* fleet
-  — no dependencies on other skills.
+  Signals scout for PostHog surveys. Watches active surveys for score regressions,
+  response-volume drops, abandonment spikes, and targeting drift, and aggregates open-text
+  responses into recurring themes — filing each as a report in the inbox.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP tool family plus the surveys and analytics tools listed in the
-  body's MCP tools section.
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
+  read-only analytics plus signal_scout_internal:write (for scratchpad) +
+  signal_scout_report:write (for emit-report/edit-report, granted because this scout authors
+  reports directly via the report channel). Assumes the signals-scout MCP tool family plus the
+  surveys and analytics tools listed in the body's MCP tools section.
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: surveys
@@ -34,8 +34,15 @@ the response count is small (5–10 converging responses can outweigh a 1000-eve
 analytics signal). Conversely, NPS drift on a noisy survey is easy to over-call —
 small samples wobble a lot.
 
-When in doubt, write a memory entry instead of emitting. Surveys are personal data; the
-panic radius for a wrong "users hate feature X" finding is high.
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the research, so you own each report 1:1
+end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
+correspondingly high — file a report only for a validated theme or regression you'd stand
+behind as a standalone inbox item a human will act on. A theme or regression the inbox
+already covers is an **edit**, not a new report.
+
+When in doubt, write a memory entry instead of filing a report. Surveys are personal data; the
+panic radius for a wrong "users hate feature X" report is high.
 
 ## Quick close-out: are surveys even active?
 
@@ -56,13 +63,17 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-Three cheap reads cold-start a run:
+Four cheap reads cold-start a run:
 
 - `signals-scout-scratchpad-search` (`text=survey` or `text=nps`) — durable team steering.
-  Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` key prefixes, plus the
-  team's known active survey IDs, primary NPS / CSAT survey, healthy response baselines,
-  and known themes already raised.
+  Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key
+  prefixes, plus the team's known active survey IDs, primary NPS / CSAT survey, healthy
+  response baselines, known themes already raised, which report covers a theme, and who owns it.
 - `signals-scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
+- `inbox-reports-list` (filter by `search`=survey name/theme, `source_product`, `ordering=-updated_at`)
+  — the reports already in the inbox. A theme or regression you've reported before is an
+  **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before
+  authoring.
 - `signals-scout-project-profile-get` — `top_events` for `survey shown` /
   `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced
   in the profile inventory; see "When you hit a gap" below).
@@ -103,15 +114,15 @@ by name, and prefer `surveys-get-all {"search": "..."}` over a blind page walk.
 
 ### Profile shape — what's loud today?
 
-| Pattern                                                                                         | What it usually means                                                        |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `survey-stats` shows `dismissed / shown` ratio sharply above the trailing baseline              | Targeting / fatigue regression — the survey is wearing out                   |
-| `survey-stats` shows `sent / shown` (response rate) cratering on a previously-converting survey | Question changed, UX regression, or audience shift                           |
-| Open-text responses cluster around a single recent product change                               | Highest-value finding — qualitative confirmation of a user impact            |
-| Rating score drops materially against the survey's own trailing baseline                        | Emit-worthy if the drop clears the tiered bar (see Score regression section) |
-| Survey running > 90 days with steadily declining responses                                      | Stale survey — recommendation to retire / refresh, not an anomaly            |
-| `survey shown` count diverges sharply from prior baseline (up or down)                          | Targeting drift — feature flag / cohort condition changed upstream           |
-| Recent activity-log entries near the inflection point of a score drop                           | Connect the qualitative to a deploy — emit with timing as evidence           |
+| Pattern                                                                                         | What it usually means                                                          |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `survey-stats` shows `dismissed / shown` ratio sharply above the trailing baseline              | Targeting / fatigue regression — the survey is wearing out                     |
+| `survey-stats` shows `sent / shown` (response rate) cratering on a previously-converting survey | Question changed, UX regression, or audience shift                             |
+| Open-text responses cluster around a single recent product change                               | Highest-value finding — qualitative confirmation of a user impact              |
+| Rating score drops materially against the survey's own trailing baseline                        | Report-worthy if the drop clears the tiered bar (see Score regression section) |
+| Survey running > 90 days with steadily declining responses                                      | Stale survey — recommendation to retire / refresh, not an anomaly              |
+| `survey shown` count diverges sharply from prior baseline (up or down)                          | Targeting drift — feature flag / cohort condition changed upstream             |
+| Recent activity-log entries near the inflection point of a score drop                           | Connect the qualitative to a deploy — file with timing as evidence             |
 
 ### Explore
 
@@ -222,21 +233,21 @@ Read the responses. Look for:
 - **Sentiment polarity** — separate complaints from praise from feature requests.
   Don't combine them into a single "users said things" finding.
 - **Specificity** — "it's slow" is too generic; "the dashboard list page is slow when
-  I have > 10 dashboards" is concrete. The latter is emit-worthy.
+  I have > 10 dashboards" is concrete. The latter is report-worthy.
 
-Theme is emit-worthy when:
+Theme is report-worthy when:
 
 - ≥ 5 distinct respondents converge on the same theme within 14 days, OR
 - ≥ 3 distinct respondents converge AND the theme matches a recent activity-log entry
   (deploy, flag flip, new feature) within the same window — strong qualitative
   confirmation of an impact.
 
-When you emit, quote 2–3 representative responses verbatim in the evidence (no PII;
+When you file a report, quote 2–3 representative responses verbatim in the evidence (no PII;
 truncate at sentence level if a response is long). Name the theme as a concrete claim
 ("Users report the dashboard list is slow with > 10 dashboards"), not a vague summary
 ("Users have feedback about dashboards").
 
-Don't emit when:
+Don't file a report when:
 
 - Responses are mostly NPS rating-only with no text — there's no theme to find.
 - Themes are evenly split (some users complaining, others praising the same feature) —
@@ -266,14 +277,14 @@ not a targeting source the team controls, and changes to it are usually
 expected.)
 
 Memory-worthy unless the survey is load-bearing (e.g. NPS the team reports on
-publicly) — then emit so the team knows the sample frame changed.
+publicly) — then file a report so the team knows the sample frame changed.
 
 #### Stale or abandoned surveys
 
 A survey created > 90 days ago with steadily declining response volume and no
 `updated_at` activity is probably forgotten. P3 recommendation, not an anomaly:
 suggest the team retire it, refresh the question, or rotate the audience. Don't
-re-emit if a memory entry already flagged it.
+re-file if a memory entry already flagged it.
 
 #### Theme correlated with recent change
 
@@ -303,7 +314,7 @@ Filter open-text and rating queries by `$survey_iteration` to compare cleanly:
 AND JSONExtractString(properties, '$survey_iteration') = '<n>'
 ```
 
-When emitting on a recurring survey, name the iteration explicitly in the
+When filing a report on a recurring survey, name the iteration explicitly in the
 evidence ("iteration 3 of `nps-q1-2026`, last 14d") so the team reads it against
 the right baseline.
 
@@ -311,7 +322,8 @@ the right baseline.
 
 Memory is a continuous activity. Write a scratchpad entry whenever you observe something
 a future surveys run should know. Encode the "category" in the key prefix — `pattern:`,
-`noise:`, `addressed:`, `dedupe:` — so future runs find it with a single `text=` search:
+`noise:`, `addressed:`, `dedupe:`, `report:`, `reviewer:` — so future runs find it with a
+single `text=` search:
 
 - key `pattern:surveys:active-inventory` — _"Active surveys: `nps-q1-2026` (id `abc`,
   NPS 0–10), `feedback-modal` (id `def`, open text), `csat-after-purchase` (id `ghi`,
@@ -323,38 +335,62 @@ a future surveys run should know. Encode the "category" in the key prefix — `p
   has 70% dismiss rate — that's expected behavior for this trigger, not a regression."_
 - key `addressed:surveys:theme-checkout-step-2-2026-05-04` — _"Theme
   `checkout-step-2-confusion` raised in run on 2026-04-30; team acknowledged, fix shipped
-  2026-05-04. Don't re-emit unless theme reappears post-2026-05-04."_
+  2026-05-04. Don't re-file unless theme reappears post-2026-05-04."_
 - key `addressed:surveys:csat-old-stale` — _"Survey `csat-old` last got responses
   2026-02; appears abandoned but the team still has it active. P3 recommendation already
   filed; don't re-recommend."_
+- key `report:surveys:theme-checkout-step-2` — _"Authored report `019f0a96-…` for the
+  checkout-step-2 confusion theme on 2026-06-30. Edit it (append_note) if the theme grows or
+  recurs rather than filing a new one."_
+- key `reviewer:surveys:nps-q1-2026` — _"`nps-q1-2026` owned by `alice` (GitHub login) —
+  route its reports there."_
 
 By run #5 you'll know the team's active surveys, healthy response volumes, score
-baselines, which dismiss rates are structural, and which themes have already been
-raised — so when a real theme or regression appears, the finding lands with the right
-context already attached.
+baselines, which dismiss rates are structural, which themes have already been raised, which
+report covers a theme, and who owns it — so when a real theme or regression appears, the
+report lands with the right context already attached.
 
 ### Decide
 
-For each candidate finding:
+Search the inbox before you author — a report covering this theme / survey / regression may
+already exist (`inbox-reports-list` with `ordering=-updated_at`, then `inbox-reports-retrieve`
+the closest matches). Then, for each candidate finding:
 
-- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: confidence ≥ 0.85, with concrete survey ids,
-  question ids, response counts, score deltas, and (for themes) 2–3 verbatim quotes
-  in the evidence. Sample-size matters here more than other domains — a finding on
-  10 responses needs to be tighter than one on 200.
-- **Remember** if below the bar but worth carrying forward (a theme with only 3
-  respondents that might grow, a score wobble that didn't yet hold for two weeks).
-- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
-  key prefix already covers it.
+- **Edit** the existing report via `signals-scout-edit-report` when the inbox already covers
+  the theme or survey. A theme that's growing, a regression that's deepening, a later
+  iteration's responses confirming an earlier read: `append_note` with the fresh response
+  counts, score deltas, and time range (or rewrite the title/summary on a report you authored).
+  This is the default when a match exists; don't mint a near-duplicate.
+- **Author** a fresh report via `signals-scout-emit-report` when nothing in the inbox covers
+  it. The natural fits are a single validated theme (≥ 5 converging respondents, with 2–3
+  verbatim quotes — no PII) or one survey's score / response-rate / abandonment regression that
+  clears the tiered bar, with concrete survey ids, question ids, response counts, and score
+  deltas as evidence (the bar is confidence ≥ 0.85; sample-size matters more here than other
+  domains — a report on 10 responses needs to be tighter than one on 200). A survey finding is
+  an investigation, not a one-line code fix, so default to `requires_human_input`. **Always set
+  `suggested_reviewers`** — resolve the owning person with `signals-scout-members-list` (each
+  member carries a resolved `github_login`; cache it under a `reviewer:surveys:<survey>` key).
+  It's how the report reaches a human; left empty, the report is assigned to nobody and is
+  likely missed. After authoring, write a `report:surveys:<theme-or-survey>` scratchpad entry
+  with the `report_id` so the next run edits it instead of duplicating. The harness prompt
+  carries the full report-channel contract (field schema, safety × actionability status
+  mapping, reviewer routing, the non-idempotency caveat, and the edit rules) — this section
+  only adds the surveys-specific framing.
+- **Remember** via `signals-scout-scratchpad-remember` if below the bar but worth carrying
+  forward (a theme with only 3 respondents that might grow, a score wobble that didn't yet hold
+  for two weeks), or to record what you ruled out and why.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:` key
+  prefix, or an existing inbox report, already covers it.
 
-Cross-check `inbox-reports-list` before emitting — if the same theme is already in the
-inbox from a prior run or another source, refresh the scratchpad rather than re-emit.
+If a prior run already covered the theme, default to edit-or-skip + scratchpad refresh rather
+than a fresh report. The same theme twice in the inbox degrades signal-to-noise more than
+missing one finding for one tick.
 
 ### Close out
 
 **Summarize the run** — one paragraph: which surveys, what themes / anomalies you found,
-what you emitted, what you remembered, what you ruled out. The harness writes that
-summary to the run row as searchable prose; future runs read it via
+what reports you authored or edited, what you remembered, what you ruled out. The harness
+writes that summary to the run row as searchable prose; future runs read it via
 `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry —
 the run summary already serves that role.
 
@@ -367,7 +403,7 @@ the run summary already serves that role.
 - **Themes evenly split between positive and negative** — they cancel each other; no
   single direction to surface.
 - **Theme matching an `addressed:` scratchpad entry** — the team already saw it and
-  acted; re-emitting wastes inbox space.
+  acted; re-filing wastes inbox space.
 - **One-off rant or off-topic response** — a single user typing "AAAA" or
   quoting song lyrics isn't signal. Themes need ≥ 3 distinct respondents.
 - **Internal test / placeholder responses** — `TEST`, `TEST FEEDBACK DELETE!`,
@@ -379,10 +415,10 @@ length(response) > 5 AND lower(response) NOT IN ('test', 'qwe', 'asdf')`
   catches most of it.
 - **Survey paused or in draft** — not user-facing right now; check
   `archived` / status / `start_date` before treating zero responses as a regression.
-- **PII or sensitive content in responses** — never emit verbatim PII. Quote the
+- **PII or sensitive content in responses** — never put verbatim PII in a report. Quote the
   themed claim, not the raw text, if responses contain personal data.
 
-When in doubt, write a memory entry instead of emitting.
+When in doubt, write a memory entry instead of filing a report.
 
 ## MCP tools
 
@@ -413,12 +449,20 @@ Direct calls (read-only):
 - `query-trends` — confirm `survey shown` / `survey sent` volume trends with weekly
   comparisons. Cheaper than a full SQL aggregation when you just need the shape.
 - `activity-log-list` — correlate themes / score drops with recent product changes.
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating (`ordering=-updated_at`).
+- `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
+  `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, to
+  route `suggested_reviewers` to a survey's owner (null `github_login` → can't route, try the
+  next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
 
 Harness-level:
 
 - `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
+- `signals-scout-emit-report` / `signals-scout-edit-report` / `signals-scout-scratchpad-remember`
+  — author a report / edit an existing one / remember.
 
 ### When you hit a gap
 
@@ -447,8 +491,8 @@ the next review via `text=mcp-gap`.
   close out empty.
 - A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
   prefix → skip.
-- You've validated some hypotheses and emitted what's solid → close out, even if
-  there's more you could look at. Themes especially — fewer, sharper findings beat
+- You've validated some hypotheses and filed (or edited) reports for what's solid → close
+  out, even if there's more you could look at. Themes especially — fewer, sharper reports beat
   a long list of weak clusters.
 
 "Looked but found nothing meaningful" is a real outcome.

@@ -68,6 +68,12 @@ HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     labelnames=["namespace", "reason"],
 )
 
+HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER = Counter(
+    "posthog_hypercache_write_skipped_unchanged",
+    "Content-propagation writes skipped because the ETag was unchanged, avoiding a redundant rewrite",
+    labelnames=["namespace", "value"],
+)
+
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
     "posthog_hypercache_sync_duration_seconds",
     "Time taken to sync hypercache in seconds",
@@ -412,20 +418,27 @@ class HyperCache:
         key: KeyType,
         ttl: Optional[int] = None,
         should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
+        data: dict | None = None,
     ) -> bool:
+        """
+        Load (or accept a pre-built) value, write it to all tiers, and emit sync metrics.
+
+        Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
+        value is loaded via ``load_fn``.
+        """
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
         success = False
         size: int | None = None
         try:
-            data = self.load_fn(key)
-            if should_skip_write is not None and isinstance(data, dict) and should_skip_write(key, data):
+            value = self.load_fn(key) if data is None else data
+            if should_skip_write is not None and isinstance(value, dict) and should_skip_write(key, value):
                 # A caller-supplied predicate vetoed persisting this freshly loaded
                 # value (e.g. it would overwrite good data with a degraded one). Keep
                 # the existing entry; the predicate owns its own metric/logging.
                 return False
-            size = self.set_cache_value(key, data, ttl=ttl)
+            size = self.set_cache_value(key, value, ttl=ttl)
             success = True
             return True
         except HyperCacheDependencyUnavailable:
@@ -448,14 +461,36 @@ class HyperCache:
             emit_cache_sync_metrics(result, self.namespace, self.value, duration=duration, size=size)
 
     def set_cache_value(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        skip_if_unchanged: bool = False,
     ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
 
         Returns None for None/missing values.
+
+        When ``skip_if_unchanged`` is set, an ETag-enabled dict payload whose ETag matches
+        the stored one is not rewritten (the counter records the skip; the serialized size
+        is still returned). Skipping does not re-stamp expiry, so the cache must own an
+        independent refresh path that does. ``expiry_sorted_set_key`` is the structural marker
+        for that path (the refresh task reads the set to find expiring entries), so a refresh-less
+        cache that opts into skipping raises rather than silently letting entries expire.
         """
-        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        if skip_if_unchanged and not self.expiry_sorted_set_key:
+            raise ValueError(
+                "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
+                "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
+            )
+        json_data: str | None = None
+        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+            json_data = json.dumps(data, sort_keys=True)
+            if self._compute_etag(json_data) == self.get_etag(key):
+                HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+                return len(json_data)
+        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
         self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
@@ -467,18 +502,29 @@ class HyperCache:
         key: KeyType,
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
+        track_expiry: bool = False,
     ) -> int | None:
         """
-        Write only to the configured cache backend (self.cache_client), skipping S3
-        and expiry tracking.
+        Write only to the configured cache backend (self.cache_client), skipping S3.
 
-        Use this for backfills where S3 is known to already hold fresh data
-        (e.g. populated by the normal sync() path) and the only cold tier is the
-        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
-        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Use this for backfills and TTL refreshes where S3 already holds fresh data
+        (e.g. via the normal sync() path) and the only cold tier is the cache backend.
+        In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is the dedicated flags
+        Redis; in dev/test it's whatever the alias resolves to.
+
+        When track_expiry=True the expiry sorted-set entry is re-stamped too, keeping a
+        redis-only refresh visible to the refresh task. Requires a Team key (the identifier
+        derives from it without a DB lookup); raises ValueError otherwise rather than
+        silently skipping the stamp.
+
         Returns the serialized size in bytes, or None for None/missing values.
         """
-        return self._set_cache_value_redis(key, data, ttl=ttl)
+        if track_expiry and not isinstance(key, Team):
+            raise ValueError("set_cache_value_redis_only(track_expiry=True) requires a Team key")
+        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        if track_expiry and isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
+        return size
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """Test helper alias for delete_cache_entry."""
@@ -517,12 +563,19 @@ class HyperCache:
             capture_exception(e)
 
     def _set_cache_value_redis(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        json_data: str | None = None,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
 
         Returns None for None/missing values, otherwise returns len(json_data).
+
+        Pass ``json_data`` to reuse an already-serialized payload (a caller that hashed it
+        for an ETag comparison) instead of re-running ``json.dumps`` over a large value.
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
@@ -536,7 +589,8 @@ class HyperCache:
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
-            json_data = json.dumps(data, sort_keys=True)
+            if json_data is None:
+                json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
                 # Write data and ETag via pipeline (single Redis round trip)

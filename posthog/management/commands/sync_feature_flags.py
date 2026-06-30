@@ -22,13 +22,13 @@ INACTIVE_FLAGS = [
     "halloween-override",
     "christmas-override",
     "control_support_login",
+    "auth-flow-variant",
     "person-property-incident-annotation-jan-2026",
     "replay-exclude-from-hide-recordings-menu",
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
     "read-only-mode",
-    "mcp-hints",
 ]
 
 

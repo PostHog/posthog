@@ -43,7 +43,7 @@ describe('buildSystemPrompt', () => {
         await bundle.write('rev1', 'skills/research/SKILL.md', 'Be thorough.')
         await bundle.write('rev1', 'skills/cite/SKILL.md', 'Cite sources.')
         const spec = AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             skills: [
                 { id: 'research', path: 'skills/research/SKILL.md', description: 'How to research a question' },
                 { id: 'cite', path: 'skills/cite/SKILL.md', description: 'Citation formatting' },
@@ -65,7 +65,7 @@ describe('buildSystemPrompt', () => {
     it('skills without a description fall back to a placeholder in the index', async () => {
         await bundle.write('rev1', 'agent.md', 'top')
         const spec = AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             skills: [{ id: 'mystery', path: 'skills/mystery/SKILL.md' }],
         })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -74,20 +74,20 @@ describe('buildSystemPrompt', () => {
 
     it('emits no skills section when spec.skills is empty', async () => {
         await bundle.write('rev1', 'agent.md', 'top')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
         expect(prompt).not.toContain('Available skills')
     })
 
-    it('falls back when entrypoint missing', async () => {
+    it('falls back when agent.md missing', async () => {
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
-        expect(prompt).toMatch(/missing entrypoint/)
+        expect(prompt).toMatch(/missing agent\.md/)
     })
 
     it('injects the framework preamble before agent.md', async () => {
         await bundle.write('rev1', 'agent.md', 'I am the agent author content.')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
 
         // Preamble lands first so the author's instructions appear
@@ -101,7 +101,7 @@ describe('buildSystemPrompt', () => {
 
     it('framework preamble covers all default sections', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
 
         // §3.1 — meta-tool decision rules. Each of the two meta tools is
@@ -132,7 +132,7 @@ describe('buildSystemPrompt', () => {
     it('spec.framework_prompt.omit suppresses specific sections', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
         const spec = AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             framework_prompt: { omit: ['tool_failure_guidance', 'approval_guidance'] },
         })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -147,14 +147,14 @@ describe('buildSystemPrompt', () => {
 
     it('omits the unavailable-MCPs section when no failures are passed', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
         expect(prompt).not.toContain('Unavailable capabilities')
     })
 
     it('lists unavailable MCPs with the category hint, no raw error strings', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
             unavailableMcps: [
                 { id: 'posthog', category: 'auth' },
@@ -172,28 +172,64 @@ describe('buildSystemPrompt', () => {
         expect(prompt).toMatch(/do NOT paste raw error messages/)
     })
 
+    it('renders a dead shared connection under "Disconnected integrations" — admin reconnect, not a retry', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            unavailableMcps: [{ id: 'incident', category: 'connection_dead' }],
+        })
+        expect(prompt).toContain('Disconnected integrations')
+        expect(prompt).toContain('`incident`')
+        // Persistent + admin-owned: the asker can't fix a shared credential, so
+        // the model must NOT imply a retry or a self-service reconnect.
+        expect(prompt).toMatch(/administrator|admin|owner/i)
+        expect(prompt).toMatch(/reconnect/i)
+        expect(prompt).not.toMatch(/temporarily unavailable/i)
+        // A dead connection is neither the asker's to connect nor a transient outage.
+        expect(prompt).not.toContain('Connect required')
+        expect(prompt).not.toContain('Unavailable capabilities')
+        // Still never leak raw transport detail.
+        expect(prompt).not.toMatch(/Bearer|http/)
+    })
+
+    it('renders a link-required MCP under "Connect required" with the URL, not as "unavailable"', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            unavailableMcps: [
+                { id: 'posthog', category: 'auth', authorizeUrl: 'https://app.posthog.test/oauth/authorize/?x=1' },
+            ],
+        })
+        expect(prompt).toContain('Connect required')
+        // Rendered as a markdown link (not a bare URL) so the model relays a clickable link.
+        expect(prompt).toContain('`posthog`: [Connect posthog](https://app.posthog.test/oauth/authorize/?x=1)')
+        expect(prompt).toMatch(/markdown link/)
+        // A linkable failure must NOT land in the dead-end "Unavailable" block.
+        expect(prompt).not.toContain('Unavailable capabilities')
+    })
+
     it('reasoning hint only fires for high / xhigh', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
 
         // No spec.reasoning → no hint.
-        const noneSpec = AgentSpecSchema.parse({ model: 'x' })
+        const noneSpec = AgentSpecSchema.parse({ model: 'test/x' })
         const nonePrompt = await buildSystemPrompt(makeRev(noneSpec), bundle)
         expect(nonePrompt).not.toMatch(/Reasoning budget/)
 
         // spec.reasoning: 'low' → no hint (normal model behaviour).
-        const lowSpec = AgentSpecSchema.parse({ model: 'x', reasoning: 'low' })
+        const lowSpec = AgentSpecSchema.parse({ model: 'test/x', reasoning: 'low' })
         const lowPrompt = await buildSystemPrompt(makeRev(lowSpec), bundle)
         expect(lowPrompt).not.toMatch(/Reasoning budget/)
 
         // spec.reasoning: 'high' → hint injected.
-        const highSpec = AgentSpecSchema.parse({ model: 'x', reasoning: 'high' })
+        const highSpec = AgentSpecSchema.parse({ model: 'test/x', reasoning: 'high' })
         const highPrompt = await buildSystemPrompt(makeRev(highSpec), bundle)
         expect(highPrompt).toMatch(/Reasoning budget/)
         expect(highPrompt).toMatch(/extended reasoning/i)
 
         // Omit still wins over the hint.
         const omittedSpec = AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             reasoning: 'high',
             framework_prompt: { omit: ['reasoning_hint'] },
         })
@@ -203,7 +239,7 @@ describe('buildSystemPrompt', () => {
 
     it('adds the Slack reply-relay note only when slackReplyRelay is set', async () => {
         await bundle.write('rev1', 'agent.md', 'You are a helpful agent.')
-        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
 
         const off = await buildSystemPrompt(makeRev(spec), bundle)
         expect(off).not.toMatch(/Responding in Slack/)

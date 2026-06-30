@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import OperationalError
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -55,16 +56,25 @@ from posthog.scopes import (
     downgrade_scopes_to_read_only,
     effective_ceiling,
     get_oauth_scopes_supported,
+    get_scope_descriptions,
     narrow_scopes_to_ceiling,
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+# Extended access-token TTL for clients that rarely re-authorize: dynamically
+# registered (DCR/CIMD) clients that don't reliably refresh, and first-party
+# PostHog apps. Safe to extend because these tokens stay opaque and DB-backed:
+# every request revalidates the token against the DB, so revoking an app's
+# sessions deletes its token rows and takes effect immediately regardless of TTL.
+EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 
 # Clients for which we must NOT issue refresh tokens. The token response will omit
@@ -90,6 +100,23 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
+
+
+# Substrings identifying transient database failures that OAuth clients should retry.
+# PgBouncer (port 6543) kills queries waiting too long for a backend connection with
+# `query_wait_timeout`, and surfaces dropped/reset backend connections as connection
+# failures. Both are retryable rather than permanent, so map them to a 503 instead of
+# letting them escape as an unhandled 500.
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def _is_transient_db_error(error: Exception) -> bool:
+    message = str(error)
+    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
 
 
 def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
@@ -263,6 +290,12 @@ class OAuthValidator(OAuth2Validator):
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
         return False
 
+    def _is_first_party_client(self, request) -> bool:
+        """Check if the client is a first-party PostHog application."""
+        if hasattr(request, "client") and request.client:
+            return bool(getattr(request.client, "is_first_party", False))
+        return False
+
     def _should_skip_refresh_token(self, request) -> bool:
         # No refresh tokens for impersonation-minted tokens.
         if self._get_impersonator_id(request) is not None:
@@ -397,8 +430,10 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
-        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+        """Enforce the per-application scope ceiling from the app's grantable set.
 
+        The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
+        using the required/optional split can request its optional scopes too.
         Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
         and the hand-rolled provisioning mint paths share one implementation. The
         only `/authorize`-specific bit kept here is mutating `request.scopes` when
@@ -406,7 +441,7 @@ class OAuthValidator(OAuth2Validator):
         from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
         PostHog Code CLI) but not on the provisioning paths — see the flag.
         """
-        app_scopes = getattr(client, "scopes", None) or []
+        app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
@@ -418,8 +453,8 @@ class OAuthValidator(OAuth2Validator):
 
         DOT's refresh grant copies the prior access token's scopes verbatim and never
         re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
-        keep refreshing into the old, broader set. Intersecting with `application.scopes`
-        means a narrowed app drops the removed scopes on the next refresh.
+        keep refreshing into the old, broader set. Intersecting with the app's
+        `ceiling_scopes` means a narrowed app drops the removed scopes on the next refresh.
 
         Always-allowed scopes (OIDC, introspection) pass through, mirroring
         `validate_scopes`. Resolution when the app has a ceiling:
@@ -431,7 +466,9 @@ class OAuthValidator(OAuth2Validator):
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
 
-        An empty `application.scopes` (no ceiling) is a no-op.
+        An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
+        required floor — a token consented below a later-declared required set keeps
+        its narrower scopes rather than silently widening on refresh.
         """
         original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
         # DOT's base returns the stored scope as a space-delimited string; oauthlib
@@ -444,7 +481,7 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
-        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
@@ -473,14 +510,17 @@ class OAuthValidator(OAuth2Validator):
     def _get_token_expires_in(self, request) -> int:
         """
         Returns access token expiry in seconds.
-        Dynamically registered (DCR/CIMD) clients get extended TTL since they
-        don't reliably refresh. Impersonation-minted tokens are capped to the
-        impersonation idle timeout so they can't outlive the admin's session.
+
+        Dynamically registered (DCR/CIMD) clients get an extended TTL since they
+        don't reliably refresh; first-party PostHog apps get the same extended TTL.
+        Impersonation-minted tokens are capped to the impersonation idle timeout so
+        they can't outlive the admin's session. That check comes first so an
+        impersonated first-party app can't inherit the longer window.
         """
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
-        if self._is_dynamic_client(request):
-            return 60 * 60 * 24 * 7  # 7 days
+        if self._is_dynamic_client(request) or self._is_first_party_client(request):
+            return EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
     def save_bearer_token(self, token, request, *args, **kwargs):
@@ -502,7 +542,8 @@ class OAuthValidator(OAuth2Validator):
         logger.info(
             "oauth_save_bearer_token",
             client_id_prefix=str(client_id)[:8] if client_id else "unknown",
-            is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
+            is_dynamic_client=self._is_dynamic_client(request),
+            is_first_party=self._is_first_party_client(request),
             expires_in=expires_in,
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
@@ -934,8 +975,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        # Check for auto-approval
-        if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
+        # Check for auto-approval. Skipped when the request omits a required scope:
+        # auto-approving would mint a grant below the app's required floor, so fall
+        # through to the consent screen, which displays and grants the full required set.
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        if request.query_params.get(
+            "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
+        ) == "auto" and required_resource_scopes <= set(scope_str.split()):
             try:
                 tokens = OAuthAccessToken.objects.filter(
                     user=request.user, application=application, expires__gt=timezone.now()
@@ -968,6 +1014,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "client_id": application.client_id,
                     "is_verified": application.is_verified,
                     "logo_uri": application.logo_uri,
+                    "required_scopes": application.required_scopes,
+                    # The read-only form of a `*` grant, computed from the same ceiling
+                    # resolution `validate_scopes` enforces — the frontend's scope list
+                    # drifts from the server's (both over- and under-granting otherwise).
+                    "wildcard_read_scopes": sorted(
+                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                    ),
                 }
             },
         )
@@ -1006,6 +1059,29 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             scopes = downgrade_scopes_to_read_only(scopes)
 
         if serializer.validated_data["allow"]:
+            # Required scopes can't be deselected at consent. Compare against the same
+            # read-only downgrade applied to the grant, so impersonation doesn't 400.
+            # Filtered to resource scopes to mirror the consent UI, which only renders
+            # and force-includes `object:action` rows (identity scopes always pass).
+            required = {scope for scope in application.required_scopes if ":" in scope}
+            if is_read_only_impersonation(request):
+                required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
+            missing_required = required - set(scopes.split())
+            if missing_required:
+                logger.warning(
+                    "oauth_authorize_missing_required_scopes",
+                    client_id=serializer.validated_data["client_id"],
+                    missing=sorted(missing_required),
+                )
+                return Response(
+                    {
+                        "error": "invalid_scope",
+                        "error_description": "The grant is missing scopes the application requires: "
+                        + ", ".join(sorted(missing_required)),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             if block := _impersonation_ai_processing_block(
                 request,
                 access_level=serializer.validated_data.get("access_level"),
@@ -1070,7 +1146,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             requested_scope = self.request.query_params.get("scope") or ""
             rejected_scopes = scopes_outside_ceiling(
                 requested_scope.split(),
-                application.scopes or [],
+                application.ceiling_scopes,
                 allow_wildcard_under_empty_ceiling=True,
             )
             posthoganalytics.capture(
@@ -1214,10 +1290,10 @@ class OAuthTokenView(TokenView):
                 status=400,
             )
         except OperationalError as e:
-            # PgBouncer kills queries that wait too long for a backend connection with
-            # `query_wait_timeout`. The resulting OperationalError otherwise bubbles up
-            # as an unhandled 500 — translate it into a retryable response.
-            if "query_wait_timeout" not in str(e):
+            # Transient database failures (PgBouncer `query_wait_timeout`, dropped/reset
+            # backend connections during client authentication) otherwise bubble up as an
+            # unhandled 500 — translate them into a retryable response.
+            if not _is_transient_db_error(e):
                 raise
             logger.warning(
                 "oauth_token_db_pool_pressure",
@@ -1460,7 +1536,22 @@ class OAuthUserInfoView(UserInfoView):
     pass
 
 
-class OAuthAuthorizationServerMetadataView(APIView):
+class _PublicMetadataView(APIView):
+    """Shared base for the unauthenticated OAuth discovery documents.
+
+    Pins the base URL to SITE_URL rather than the request Host header so a spoofed
+    Host on a permissive-ALLOWED_HOSTS instance cannot steer these discovery
+    documents to an attacker-controlled origin.
+    """
+
+    permission_classes: list = []
+    authentication_classes: list = []
+
+    def base_url(self) -> str:
+        return absolute_uri().rstrip("/")
+
+
+class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
     """
     OAuth 2.0 Authorization Server Metadata (RFC 8414).
 
@@ -1471,12 +1562,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
     is specifically for OAuth-only clients that need DCR support.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Build base URL from request
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        base_url = self.base_url()
 
         all_scopes = get_oauth_scopes_supported()
 
@@ -1501,15 +1588,90 @@ class OAuthAuthorizationServerMetadataView(APIView):
                 "refresh_token",
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
+            "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
             "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",
             # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
             "client_id_metadata_document_supported": True,
+            # auth.md agent registration profile (https://workos.com/auth-md).
+            # Only flows that actually exist are advertised: ID-JAG identity
+            # assertions at the identity endpoint. The user-claimed device flow
+            # (claim_endpoint) and revocation receiver (events_endpoint) are not
+            # built yet, so they are deliberately omitted rather than advertised.
+            "agent_auth": {
+                "skill": f"{base_url}/auth.md",
+                "identity_endpoint": f"{base_url}/oauth/token/",
+                "identity_types_supported": ["identity_assertion"],
+                "identity_assertion": {
+                    "assertion_types_supported": ["urn:ietf:params:oauth:token-type:id-jag"],
+                },
+            },
         }
 
         if region_info := get_region_info():
             metadata.update(region_info)
 
         return JsonResponse(metadata)
+
+
+class OAuthProtectedResourceMetadataView(_PublicMetadataView):
+    """
+    OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    PostHog already points agents at this document via the
+    `WWW-Authenticate: Bearer resource_metadata=...` header on 401 responses
+    (see posthog/exceptions.py). This serves the document it promises, letting
+    a client that hit a 401 discover which authorization server issues tokens
+    for this API, which scopes exist, and how to present the token.
+    """
+
+    def get(self, request, *args, **kwargs):
+        base_url = self.base_url()
+
+        metadata = {
+            # Required by RFC 9728
+            "resource": base_url,
+            # The same PostHog instance is its own authorization server
+            "authorization_servers": [base_url],
+            "scopes_supported": get_oauth_scopes_supported(),
+            "bearer_methods_supported": ["header"],
+            "resource_documentation": "https://posthog.com/docs/api",
+        }
+
+        return JsonResponse(metadata)
+
+
+# OIDC scopes have no entry in get_scope_descriptions(), which only covers obj:action scopes.
+_OIDC_SCOPE_DESCRIPTIONS = {
+    "openid": "Sign in and read your user identifier",
+    "profile": "Read your basic profile",
+    "email": "Read your email address",
+}
+
+
+class OAuthClientManifestView(_PublicMetadataView):
+    """
+    auth.md agent-registration manifest (https://workos.com/auth-md).
+
+    A Markdown document agents read to learn how to register and authenticate
+    against PostHog without a human-driven signup. Served at /auth.md, the
+    location the authorization server metadata's `agent_auth.skill` points at.
+    """
+
+    def get(self, request, *args, **kwargs):
+        base_url = self.base_url()
+
+        descriptions = get_scope_descriptions()
+        scopes = [
+            (scope, descriptions[scope] if scope in descriptions else _OIDC_SCOPE_DESCRIPTIONS.get(scope, scope))
+            for scope in get_oauth_scopes_supported()
+        ]
+
+        return render(
+            request,
+            "auth_md.md",
+            {"base_url": base_url, "scopes": scopes},
+            content_type="text/markdown; charset=utf-8",
+        )

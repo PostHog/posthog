@@ -1,9 +1,14 @@
 import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
 
-import { config as defaultConfig } from '../config'
-import { type Logger, createLogger } from '../logger'
-import { RasterizationProgress, RasterizeRecordingInput, RecordingResult } from '../types'
-import { elapsed } from '../utils'
+import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
+import {
+    RasterizationProgress,
+    RasterizeRecordingInput,
+    RecordingResult,
+} from '~/session-replay/recording-rasterizer/types'
+import { elapsed } from '~/session-replay/recording-rasterizer/utils'
+
 import { BlockProxy } from './block-proxy'
 import { BrowserPool } from './browser-pool'
 import { capturePlayback } from './capture'

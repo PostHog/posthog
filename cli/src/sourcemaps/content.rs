@@ -267,6 +267,14 @@ impl MinifiedSourceFile {
         Ok(Some(urlencoding::decode(&found)?.into_owned()))
     }
 
+    pub fn remove_sourcemap_reference(&mut self) -> bool {
+        let Some(range) = trailing_sourcemap_reference_range(&self.inner.content) else {
+            return false;
+        };
+        self.inner.content.replace_range(range, "");
+        true
+    }
+
     fn get_comment_value(&self, patterns: &[&str]) -> Option<String> {
         for line in self.inner.content.lines().rev() {
             if let Some(val) = patterns
@@ -330,6 +338,31 @@ impl MinifiedSourceFile {
     }
 }
 
+fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
+    let mut line_start = 0;
+    let mut lines = Vec::new();
+    for line in content.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        lines.push((line_start, line_end, line));
+        line_start = line_end;
+    }
+
+    for (line_start, line_end, line) in lines.into_iter().rev() {
+        let trimmed_line = line.trim();
+        if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
+            continue;
+        }
+        if trimmed_line.starts_with("//# sourceMappingURL=")
+            || trimmed_line.starts_with("//@ sourceMappingURL=")
+        {
+            return Some(line_start..line_end);
+        }
+        return None;
+    }
+
+    None
+}
+
 impl TryInto<SymbolSetUpload> for SourceMapFile {
     type Error = anyhow::Error;
 
@@ -364,6 +397,12 @@ mod tests {
 
     fn content_from(value: Value) -> SourceMapContent {
         serde_json::from_value(value).expect("Failed to build SourceMapContent")
+    }
+
+    fn minified_source(content: &str) -> MinifiedSourceFile {
+        MinifiedSourceFile {
+            inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
+        }
     }
 
     #[test]
@@ -486,5 +525,40 @@ mod tests {
             ],
         }));
         assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_standard_comment() {
+        let mut source = minified_source("console.log(1);\n//# sourceMappingURL=chunk.js.map\n");
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_legacy_comment() {
+        let mut source = minified_source("console.log(1);\r\n//@ sourceMappingURL=chunk.js.map");
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\r\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_comment_with_injected_chunk_id() {
+        let mut source = minified_source(
+            "console.log(1);\n//# sourceMappingURL=chunk.js.map\n\n//# chunkId=00000",
+        );
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n\n//# chunkId=00000");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_leaves_non_trailing_comment() {
+        let original = "console.log(1);\n//# sourceMappingURL=chunk.js.map\nconsole.log(2);\n";
+        let mut source = minified_source(original);
+
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
     }
 }

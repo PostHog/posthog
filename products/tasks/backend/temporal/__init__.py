@@ -1,4 +1,5 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
 from .code_workstreams.activities.list_active_teams import list_active_code_teams
 from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
 from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
@@ -14,6 +15,7 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
+    await_agent_server_ready,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -25,11 +27,14 @@ from .process_task.activities import (
     get_sandbox_for_repository,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
+    launch_agent_server,
+    mark_repo_ready,
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
     refresh_sandbox_credentials,
     relay_sandbox_events,
+    run_wizard,
     send_followup_to_sandbox,
     start_agent_server,
     track_workflow_event,
@@ -59,11 +64,15 @@ ACTIVITIES = [
     checkout_branch_in_sandbox,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
+    run_wizard,
     forward_pending_user_message,
     relay_sandbox_events,
     create_resume_snapshot,
     send_followup_to_sandbox,
     start_agent_server,
+    launch_agent_server,
+    await_agent_server_ready,
+    mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,
     emit_progress_activity,
@@ -82,6 +91,7 @@ ACTIVITIES = [
     snapshot_cleanup_sandbox,
     list_active_code_teams,
     load_team_pr_urls,
+    discover_branch_prs,
     poll_team_pull_requests,
     rebuild_team_workstreams,
 ]

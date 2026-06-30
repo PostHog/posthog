@@ -79,6 +79,17 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
     return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
 }
 
+/**
+ * Variants for an experiment, read flag-first. The linked feature flag is the source of truth;
+ * `parameters.feature_flag_variants` is a legacy mirror that only matters while creating an
+ * experiment, before its flag exists. Saved experiments always resolve from the flag.
+ */
+export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
+    return (
+        experiment?.feature_flag?.filters?.multivariate?.variants ?? experiment?.parameters?.feature_flag_variants ?? []
+    )
+}
+
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
@@ -709,7 +720,11 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  *
  * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
  */
-export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
+    if (!experiment) {
+        return false
+    }
+    const { metrics, metrics_secondary, saved_metrics } = experiment
     // saved_metrics has a different structure and so we need to check for it separately
     if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true

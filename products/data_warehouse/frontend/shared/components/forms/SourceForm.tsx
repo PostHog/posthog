@@ -22,6 +22,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
@@ -31,11 +32,18 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CDC_SOURCE_TYPES } from '../../cdc'
+import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
+import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
+import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
+
+// Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
+const NO_OP_SET_VALUE = (): void => undefined
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -304,6 +312,13 @@ export const sourceFieldToElement = (
         return <GitHubRepositorySelector key={field.name} />
     }
 
+    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
+        // Special case — once the user picks an OAuth integration the selector swaps the
+        // text input for a dropdown populated from the Search Console API. Avoids the
+        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
+        return <GoogleSearchConsoleSiteSelector key={field.name} />
+    }
+
     return (
         <LemonField
             key={field.name}
@@ -452,13 +467,24 @@ function CDCPrerequisitesCheck(): JSX.Element {
     )
 }
 
-function CDCConfigSection(): JSX.Element {
+function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
 
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
+                {sourceName === 'Supabase' && (
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">Supabase CDC needs the direct connection + IPv4 add-on</p>
+                        <p className="text-xs m-0">
+                            Logical replication doesn't work through the Supabase pooler. Use the{' '}
+                            <strong>direct host</strong> (<code>db.&lt;ref&gt;.supabase.co</code>) and enable Supabase's{' '}
+                            <strong>IPv4 add-on</strong> (Project settings → Add-ons) so PostHog can reach it. The
+                            pooler host is fine for standard syncs but won't work for CDC.
+                        </p>
+                    </LemonBanner>
+                )}
                 <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
                         <div
@@ -675,11 +701,30 @@ export function SourceFormComponent({
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const setSourceConnectionDetailsValue =
         setSourceConnectionDetailsValueOverride ??
         (sourceWizardLogicProps
             ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
             : undefined)
+
+    // The Custom REST source can open on an AI "draft from docs" intro screen (rendered by
+    // CustomSourceManifestBuilder, gated on the AI builder flag). While that intro is up, the rest of
+    // the source form — description, table prefix — is just noise, so hide it until the user moves on
+    // to the builder. `showBuilder` lives on the (singleton) builder logic; mount it here with the
+    // same props the child uses so the single instance initializes consistently regardless of mount
+    // order (notably: an existing source opens straight in the builder, not the intro).
+    const customManifestSetValue = setSourceConfigValue ?? setSourceConnectionDetailsValue
+    const { showBuilder: customManifestShowBuilder } = useValues(
+        customSourceManifestBuilderLogic({
+            initialManifestJson: jobInputs?.manifest_json,
+            setValue: customManifestSetValue ?? NO_OP_SET_VALUE,
+        })
+    )
+    const customAiIntroActive =
+        sourceConfig.name === 'Custom' &&
+        isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization) &&
+        !customManifestShowBuilder
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
@@ -758,7 +803,7 @@ export function SourceFormComponent({
                     }}
                 </LemonField>
             )}
-            {shouldShowDescription && (
+            {shouldShowDescription && !customAiIntroActive && (
                 <LemonField
                     name="description"
                     label="Description (optional)"
@@ -810,10 +855,10 @@ export function SourceFormComponent({
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                sourceConfig.name === 'Postgres' &&
+                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
-            {showPrefix && !isDirectQuerySource && (
+                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
+            {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"
@@ -833,9 +878,10 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const cleanedPrefix = value ? value.trim() : ''
                         const sourceType = sourceConfig.name.toLowerCase()
-                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
+                        const tableName = (
+                            cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`
+                        ).toLowerCase()
                         return (
                             <>
                                 <LemonInput

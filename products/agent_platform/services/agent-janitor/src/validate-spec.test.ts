@@ -5,6 +5,7 @@ import {
     AgentRevision,
     AgentSpecSchema,
     buildTestBundleStore,
+    type CatalogModel,
     newTestPrefix,
     S3BundleStore,
     wipeTestPrefix,
@@ -46,12 +47,13 @@ function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevisi
         bundle_uri: 'mem://',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({
-            model: 'anthropic/claude-haiku-4-5',
+            models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
             triggers: [
                 { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
             ],
             ...spec,
         }),
+        encrypted_env: null,
     }
 }
 
@@ -65,22 +67,45 @@ describe('validateRevisionBundle', () => {
         expect(report.resolved_natives).toEqual([])
     })
 
+    it('flags a manual model the gateway does not serve; passes one it does', async () => {
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        const catalog: CatalogModel[] = [
+            {
+                canonical: 'anthropic/claude-haiku-4.5',
+                id: 'claude-haiku-4-5-20251001',
+                aliases: ['claude-haiku-4-5'],
+                owned_by: 'anthropic',
+                context_window: 200_000,
+                pricing: { prompt: 0.000001, completion: 0.000005 },
+            },
+        ]
+        const bad = mkRev({ models: { mode: 'manual', models: [{ model: 'openai/gpt-nope' }] } })
+        const badReport = await validateRevisionBundle(bad, bundles, catalog)
+        expect(badReport.ok).toBe(false)
+        expect(badReport.errors).toContainEqual(
+            expect.objectContaining({ code: 'invalid_model', pointer: 'spec.models.models[0].model' })
+        )
+        // the default rev's haiku model resolves against this catalog
+        const good = await validateRevisionBundle(mkRev(), bundles, catalog)
+        expect(good.errors.filter((e) => e.code === 'invalid_model')).toEqual([])
+    })
+
+    it('fails open on the model check when no catalog is supplied', async () => {
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        const rev = mkRev({ models: { mode: 'manual', models: [{ model: 'made/up' }] } })
+        const report = await validateRevisionBundle(rev, bundles)
+        expect(report.errors.filter((e) => e.code === 'invalid_model')).toEqual([])
+    })
+
     it('reports missing_entrypoint when agent.md is absent', async () => {
         const bundles = makeBundles()
         const report = await validateRevisionBundle(mkRev(), bundles)
         expect(report.ok).toBe(false)
         expect(report.errors).toEqual([
-            { code: 'missing_entrypoint', message: expect.stringContaining('agent.md'), pointer: 'spec.entrypoint' },
+            { code: 'missing_entrypoint', message: expect.stringContaining('agent.md'), pointer: 'agent.md' },
         ])
-    })
-
-    it('honors a custom spec.entrypoint', async () => {
-        const bundles = makeBundles()
-        await bundles.write('rev1', 'prompts/main.md', 'hi')
-        const ok = await validateRevisionBundle(mkRev({ entrypoint: 'prompts/main.md' }), bundles)
-        expect(ok.ok).toBe(true)
-        const miss = await validateRevisionBundle(mkRev({ entrypoint: 'prompts/other.md' }), bundles)
-        expect(miss.errors[0].code).toBe('missing_entrypoint')
     })
 
     it('catches unknown native tool ids and resolves valid ones', async () => {
@@ -239,7 +264,7 @@ describe('validateRevisionBundle', () => {
             expect(report.errors).toEqual([
                 {
                     code: 'secret_no_host_binding',
-                    pointer: 'spec.entrypoint',
+                    pointer: 'agent.md',
                     message: expect.stringContaining('SLACK_BOT_TOKEN'),
                 },
             ])
@@ -326,6 +351,8 @@ describe('validateRevisionBundle', () => {
                     secrets: ['GITHUB_TOKEN'],
                     mcps: [
                         {
+                            kind: 'agent',
+                            default_tool_approval: 'allow',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -351,7 +378,15 @@ describe('validateRevisionBundle', () => {
             const report = await validateRevisionBundle(
                 mkRev({
                     secrets: ['TENANT'],
-                    mcps: [{ id: 'tenant', url: 'https://${TENANT}.example.com/mcp', secrets: ['TENANT'] }],
+                    mcps: [
+                        {
+                            kind: 'agent',
+                            default_tool_approval: 'allow',
+                            id: 'tenant',
+                            url: 'https://${TENANT}.example.com/mcp',
+                            secrets: ['TENANT'],
+                        },
+                    ],
                 }),
                 bundles
             )
@@ -372,6 +407,8 @@ describe('validateRevisionBundle', () => {
                     secrets: [{ name: 'GITHUB_TOKEN', allowed_hosts: ['api.githubcopilot.com'] }],
                     mcps: [
                         {
+                            kind: 'agent',
+                            default_tool_approval: 'allow',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -390,11 +427,110 @@ describe('validateRevisionBundle', () => {
             const report = await validateRevisionBundle(
                 mkRev({
                     secrets: ['GITHUB_TOKEN'],
-                    mcps: [{ id: 'github', url: 'https://api.githubcopilot.com/mcp', secrets: ['GITHUB_TOKEN'] }],
+                    mcps: [
+                        {
+                            kind: 'agent',
+                            default_tool_approval: 'allow',
+                            id: 'github',
+                            url: 'https://api.githubcopilot.com/mcp',
+                            secrets: ['GITHUB_TOKEN'],
+                        },
+                    ],
                 }),
                 bundles
             )
             expect(report.ok).toBe(true)
+        })
+    })
+
+    describe('required client tool + non-chat trigger', () => {
+        const chatAuth = { type: 'public' as const, acknowledge_public_exposure: true as const }
+        const requiredClientTool = {
+            kind: 'client' as const,
+            id: 'connect_mcp',
+            description: 'connect an mcp',
+            args_schema: { type: 'object' },
+            required: true,
+        }
+        const optionalClientTool = {
+            kind: 'client' as const,
+            id: 'focus',
+            description: 'focus a panel',
+            args_schema: { type: 'object' },
+            required: false,
+        }
+
+        it('accepts a required client tool when only chat triggers are configured', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [{ type: 'chat', config: {}, auth: { modes: [chatAuth] } }],
+                    tools: [requiredClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('rejects a required client tool when a webhook trigger is also configured', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'chat', config: {}, auth: { modes: [chatAuth] } },
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [requiredClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(false)
+            expect(report.errors).toEqual([
+                {
+                    code: 'required_client_tool_with_non_chat_trigger',
+                    message: expect.stringContaining('connect_mcp'),
+                    pointer: 'spec.tools[0].required',
+                },
+            ])
+            expect(report.errors[0].message).toContain('webhook')
+        })
+
+        it('accepts a non-required client tool alongside non-chat triggers', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'chat', config: {}, auth: { modes: [chatAuth] } },
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [optionalClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('emits one error per required client tool, listing every non-chat trigger kind', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                        { type: 'mcp', config: {}, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [requiredClientTool, { ...optionalClientTool, required: true }],
+                }),
+                bundles
+            )
+            expect(report.errors).toHaveLength(2)
+            for (const err of report.errors) {
+                expect(err.code).toBe('required_client_tool_with_non_chat_trigger')
+                expect(err.message).toMatch(/webhook.*mcp|mcp.*webhook/)
+            }
         })
     })
 })

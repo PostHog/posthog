@@ -8,6 +8,11 @@ import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from django.conf import settings
+from django.db import models
+
+from posthog.management.migration_analysis.operations import is_unmanaged_model
+
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
 
@@ -114,6 +119,8 @@ class AtomicFalsePolicy(MigrationPolicy):
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
         "DropIndexConcurrently",
+        "SafeAddIndexConcurrently",
+        "SafeRemoveIndexConcurrently",
     }
 
     def check_operation(self, op) -> list[str]:
@@ -278,28 +285,31 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     # encode the idempotency guarantees this policy enforces (indisvalid
     # recovery + IF [NOT] EXISTS + timeout disabling) at the operation
     # level, so they are explicitly exempt from the static SQL check.
-    POSTHOG_SAFE_HELPER_OPS = {"CreateIndexConcurrently", "DropIndexConcurrently"}
+    POSTHOG_SAFE_HELPER_OPS = {
+        "CreateIndexConcurrently",
+        "DropIndexConcurrently",
+        "SafeAddIndexConcurrently",
+        "SafeRemoveIndexConcurrently",
+    }
 
     GUIDANCE = (
-        "Use posthog.migration_helpers.CreateIndexConcurrently (or DropIndexConcurrently),\n"
-        "wrapped in SeparateDatabaseAndState so Django model state still tracks the index:\n"
+        "Use posthog.migration_helpers.SafeAddIndexConcurrently (or\n"
+        "SafeRemoveIndexConcurrently). It takes a model_name + Index like Django's\n"
+        "AddIndexConcurrently, tracks Django state itself (no SeparateDatabaseAndState),\n"
+        "disables lock_timeout/statement_timeout, skips if a valid index already exists,\n"
+        "and rebuilds an invalid leftover from a prior interrupted build:\n"
         "\n"
-        "    from posthog.migration_helpers import CreateIndexConcurrently\n"
+        "    from posthog.migration_helpers import SafeAddIndexConcurrently\n"
         "\n"
-        "    migrations.SeparateDatabaseAndState(\n"
-        "        state_operations=[migrations.AddIndex(...)],\n"
-        "        database_operations=[CreateIndexConcurrently(\n"
-        '            index_name="my_idx",\n'
-        '            table_name="my_table",\n'
-        '            columns="(col)",\n'
-        "        )],\n"
+        "    SafeAddIndexConcurrently(\n"
+        '        model_name="mymodel",\n'
+        '        index=models.Index(fields=["field_name"], name="my_idx"),\n'
         "    )\n"
         "\n"
-        "The helper disables lock_timeout and statement_timeout, drops any invalid leftover\n"
-        "index (recovering from a prior interrupted build), then runs CREATE INDEX\n"
-        "CONCURRENTLY IF NOT EXISTS. Raw RunSQL with `SET lock_timeout = 0;\n"
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is still accepted as a fallback for\n"
-        "exotic cases, but the helper is the recommended form.\n"
+        "If the index doesn't map to a Django Index, use CreateIndexConcurrently\n"
+        "(raw SQL) wrapped in SeparateDatabaseAndState with a matching AddIndex. Raw\n"
+        "RunSQL with `SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`\n"
+        "is still accepted as a last-resort fallback.\n"
         "\n"
         "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#adding-indexes"
     )
@@ -436,6 +446,16 @@ class HotTableAlterPolicy(MigrationPolicy):
         "RemoveConstraint",
         "AddIndex",
         "RemoveIndex",
+        # ADD CONSTRAINT ... NOT VALID still takes a brief ACCESS EXCLUSIVE lock,
+        # so the helper is gated like a plain AddConstraint. (ValidateConstraint
+        # is not listed - VALIDATE takes only SHARE UPDATE EXCLUSIVE.)
+        "AddConstraintNotValid",
+        # AddForeignKeyNotValid(model_name=<hot table>) emits ALTER TABLE posthog_*
+        # ADD CONSTRAINT against the hot *child* itself - same lock hazard. Gating on
+        # model_name catches that; the helper's sanctioned use (a FK *pointing at* a
+        # hot parent) carries the parent in to_table, not model_name, so it stays
+        # unflagged here.
+        "AddForeignKeyNotValid",
     }
     # Op types that carry the target model in `name`
     MODEL_LEVEL_OPS = {
@@ -473,6 +493,14 @@ class HotTableAlterPolicy(MigrationPolicy):
 
         violations = []
         for op in self._descend(migration.operations):
+            # Unmanaged models (managed=False) map external tables - Django emits no DDL and
+            # no FK constraint, so they can't take the hot-table lock this policy gates.
+            if is_unmanaged_model(op, migration):
+                continue
+            fk_table = self._fk_target_hot_table(op)
+            if fk_table:
+                violations.append(self._fk_violation(op, fk_table, label))
+                continue
             table = self._hot_table_target(op, migration.app_label)
             if table:
                 violations.append(self._violation(op, table, label))
@@ -496,7 +524,11 @@ class HotTableAlterPolicy(MigrationPolicy):
                 yield op
 
     def _hot_table_target(self, op, app_label: str) -> str | None:
-        """Return the hot table an operation alters, or None."""
+        """Return the hot table an operation alters directly, or None.
+
+        FK *targets* (a CreateModel/AddField pointing at a hot table) are handled
+        upstream in check_migration via _fk_target_hot_table, not here.
+        """
         op_type = op.__class__.__name__
 
         # The hot models all live in the posthog app; same-named models in
@@ -517,6 +549,63 @@ class HotTableAlterPolicy(MigrationPolicy):
                 if table:
                     return table
 
+        return None
+
+    def _fk_target_hot_table(self, op) -> str | None:
+        """Return the hot table a CreateModel/AddField FK points at, or None.
+
+        Skips FKs declared with db_constraint=False - those emit no FK constraint
+        and take NO lock on the parent, so they're the sanctioned escape hatch.
+
+        AlterField that turns a column into a hot-table FK is the same hazard class
+        but a rarer shape; it's intentionally out of scope here.
+        """
+        op_type = op.__class__.__name__
+        if op_type == "CreateModel":
+            fields = getattr(op, "fields", None) or []
+            for _name, field in fields:
+                table = self._fk_field_hot_table(field)
+                if table:
+                    return table
+        elif op_type == "AddField":
+            table = self._fk_field_hot_table(getattr(op, "field", None))
+            if table:
+                return table
+        return None
+
+    def _fk_field_hot_table(self, field) -> str | None:
+        # A ManyToManyField with an auto-created through table emits FK constraints to the
+        # target, taking the same SHARE ROW EXCLUSIVE lock on the parent. An explicit
+        # `through=` model defines its own FK fields, which get analyzed when that model's
+        # CreateModel runs - skip it here so it isn't double-counted. db_constraint=False on
+        # the M2M propagates to the through FKs, so it's the same escape hatch as a plain FK.
+        if isinstance(field, models.ManyToManyField):
+            if getattr(field.remote_field, "through", None) is not None:
+                return None
+            if getattr(field.remote_field, "db_constraint", True) is False:
+                return None
+            return self._resolve_fk_target_table(field.remote_field.model)
+        if not isinstance(field, models.ForeignKey):
+            return None
+        if getattr(field, "db_constraint", True) is False:
+            return None  # db_constraint=False takes no lock on the parent; the escape hatch
+        return self._resolve_fk_target_table(field.remote_field.model)
+
+    def _resolve_fk_target_table(self, target) -> str | None:
+        """Resolve a FK target to a hot posthog_* table name, or None.
+
+        `field.remote_field.model` is a string label like "posthog.team" in
+        migration state. settings.AUTH_USER_MODEL (the swappable user FK) desugars
+        to that same "posthog.user" string at serialization time, so both the
+        explicit and swappable forms land here as strings.
+        """
+        if target == settings.AUTH_USER_MODEL:
+            target = "posthog.user"
+        if not isinstance(target, str) or "." not in target:
+            return None
+        app, _, model_name = target.rpartition(".")
+        if app.lower() == "posthog" and model_name.lower() in self.HOT_MODELS:
+            return f"posthog_{model_name.lower()}"
         return None
 
     def _hot_table_in_sql(self, sql) -> str | None:
@@ -550,6 +639,35 @@ class HotTableAlterPolicy(MigrationPolicy):
             "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#altering-hot-tables"
         )
 
+    def _fk_violation(self, op, table: str, label: str) -> str:
+        return (
+            f'❌ BLOCKED: {op.__class__.__name__} adds a ForeignKey to "{table}" - this table is read on '
+            "virtually every request. Creating the FK constraint takes a SHARE ROW EXCLUSIVE lock on the "
+            f"referenced parent ({table}), which conflicts with the ROW EXCLUSIVE lock every "
+            "INSERT/UPDATE/DELETE on it holds. Under write traffic the lock request queues, lock_timeout "
+            "cancels it, and each bin/migrate retry repeats the stall. This has blocked deploys.\n"
+            "Two options:\n"
+            "(a) db_constraint=False on the ForeignKey - emits no FK constraint and takes NO lock on the "
+            "parent at all (app-level enforcement only). This is the only truly lock-free path.\n"
+            "(b) For a real database constraint, declare the FK with db_constraint=False, then add it back "
+            "as a DB constraint via posthog.migration_helpers.AddForeignKeyNotValid in a later migration and "
+            "ValidateForeignKey after that. NOT VALID still takes a *brief* SHARE ROW EXCLUSIVE lock on the "
+            "parent for the metadata add (it skips the row scan), so it shrinks the lock window but does not "
+            "eliminate it; VALIDATE then runs lock-free on the parent.\n"
+            f'If this FK genuinely must lock {table} on add, add "{label}" to '
+            "posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt to accept the "
+            "risk, and coordinate the deploy with #team-infrastructure for a low-traffic window.\n"
+            "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#foreign-keys-to-hot-tables"
+        )
+
+
+# DevEx meta-principle for anyone adding a policy here: when a pattern is risky but
+# common, the goal is not to document a clever safe workaround and trust authors to
+# hand-roll it - it's to ship a drop-in helper in posthog/migration_helpers that bakes
+# in the safe behavior, then point this policy's violation message at that helper. A
+# blocked migration with a "use SafeAddIndexConcurrently" / "use AddForeignKeyNotValid"
+# message reaches for one import; a wall of hand-written RunSQL with caveats reopens the
+# incident class. Prefer the helper-plus-pointer over documenting complexity.
 
 # Registry of all PostHog policies
 POSTHOG_POLICIES = [

@@ -3,23 +3,24 @@ import {
     AgentSpecSchema,
     AuthConfigSchema,
     getSecretAllowedHosts,
+    MODEL_POLICY_LEVELS,
+    modelPolicyToList,
     principalsMatch,
     secretHostMatches,
 } from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
-        const parsed = AgentSpecSchema.parse({ model: 'claude-opus-4-7' })
-        expect(parsed.model).toBe('claude-opus-4-7')
+        const parsed = AgentSpecSchema.parse({})
+        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium', optimize_for: 'cost' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
-        expect(parsed.entrypoint).toBe('agent.md')
         expect(parsed.limits.max_turns).toBe(50)
     })
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'claude-opus-4-7',
+            models: { mode: 'auto', level: 'high' },
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -28,12 +29,17 @@ describe('AgentSpecSchema', () => {
                 { kind: 'native', id: '@posthog/query' },
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
-            mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
+            mcps: [
+                {
+                    kind: 'agent',
+                    id: 'posthog',
+                    url: 'https://app.posthog.com/api/mcp',
+                    default_tool_approval: 'allow',
+                },
+            ],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
-            integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
-            entrypoint: 'agent.md',
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)
@@ -42,7 +48,7 @@ describe('AgentSpecSchema', () => {
 
     describe('limits.max_output_tokens', () => {
         it('defaults to undefined (runner picks a reasoning-aware default)', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            const parsed = AgentSpecSchema.parse({})
             expect(parsed.limits.max_output_tokens).toBeUndefined()
         })
 
@@ -69,6 +75,44 @@ describe('AgentSpecSchema', () => {
 
     it('rejects unknown tool kind', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
+    })
+
+    describe('models.manual model id format', () => {
+        // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
+        // freeze fine and then 400 on the very first session.
+        it('rejects a bare model id (no provider prefix)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects an uppercase provider', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'Anthropic/claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects a missing model id (trailing slash)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'anthropic/' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('accepts a canonical `<provider>/<model-id>`', () => {
+            const parsed = AgentSpecSchema.parse({
+                models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
+            })
+            expect(parsed.models).toMatchObject({
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-haiku-4-5' }],
+            })
+        })
     })
 
     describe('cron trigger config', () => {
@@ -252,9 +296,8 @@ describe('AgentSpecSchema', () => {
                 throw new Error('expected native tool')
             }
             expect(t.requires_approval).toBe(false)
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.type).toBe('principal')
             expect(t.approval_policy.allow_edit).toBe(false)
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
             expect(t.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
         })
 
@@ -278,8 +321,7 @@ describe('AgentSpecSchema', () => {
             expect(t.approval_policy.allow_edit).toBe(true)
             expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)
             // unspecified fields still defaulted
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
+            expect(t.approval_policy.type).toBe('principal')
         })
 
         it('rejects ttl_ms below 1 minute', () => {
@@ -314,26 +356,9 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
-        it('rejects empty approvers list', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    tools: [
-                        {
-                            kind: 'native',
-                            id: '@posthog/team-delete',
-                            requires_approval: true,
-                            approval_policy: { approvers: [] },
-                        },
-                    ],
-                })
-            ).toThrow()
-        })
-
-        it('parses session_principal as an approver scope', () => {
-            // PR 7 widened the v0 enum from `['team_admins']` to add
-            // `['session_principal']` so the concierge can route gated
-            // calls back to the session owner via the per-asker fast path.
+        it('back-compat: an unmappable legacy approvers list falls back to the default principal type', () => {
+            // An empty (or unrecognised) legacy `approvers` derives no `type`, so
+            // it lands on the `principal` default rather than throwing.
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 tools: [
@@ -341,7 +366,7 @@ describe('AgentSpecSchema', () => {
                         kind: 'native',
                         id: '@posthog/team-delete',
                         requires_approval: true,
-                        approval_policy: { approvers: ['session_principal'] },
+                        approval_policy: { approvers: [] },
                     },
                 ],
             })
@@ -349,10 +374,58 @@ describe('AgentSpecSchema', () => {
             if (t.kind === 'client') {
                 throw new Error('expected native tool')
             }
-            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+            expect(t.approval_policy.type).toBe('principal')
         })
 
-        it('rejects approver scopes not yet supported in v0', () => {
+        it('parses an explicit agent type', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { type: 'agent' },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe('agent')
+        })
+
+        it.each([
+            { approvers: ['session_principal'], type: 'principal' },
+            { approvers: ['team_admins'], type: 'agent' },
+        ])('back-compat: maps legacy approvers $approvers to type $type', ({ approvers, type }) => {
+            // Specs frozen before the principal/agent split carry `approvers[]`
+            // (+ `allow_agent_approver`); the preprocess derives `type` and drops
+            // the legacy keys so old revisions keep validating.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers, allow_agent_approver: false, ttl_ms: 900_000 },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe(type)
+            expect(t.approval_policy.ttl_ms).toBe(900_000)
+            // Legacy keys are gone from the parsed shape.
+            expect('approvers' in t.approval_policy).toBe(false)
+            expect('allow_agent_approver' in t.approval_policy).toBe(false)
+        })
+
+        it('rejects an invalid approval type', () => {
             expect(() =>
                 AgentSpecSchema.parse({
                     model: 'x',
@@ -361,7 +434,7 @@ describe('AgentSpecSchema', () => {
                             kind: 'native',
                             id: '@posthog/team-delete',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_owner'] },
+                            approval_policy: { type: 'session_owner' },
                         },
                     ],
                 })
@@ -370,89 +443,71 @@ describe('AgentSpecSchema', () => {
     })
 
     describe('mcps[] runtime refs', () => {
-        it('parses an external MCP with bare-string tools[] (passthrough, no gating)', () => {
-            // Bare strings in tools[] are the post-PR-7 equivalent of the
-            // old allowlist[]: gates inclusion, no approval policy.
+        it('parses tools[] level overrides on a connection default', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
-                        auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
-                        tools: ['create-issue', 'list-issues'],
+                        default_tool_approval: 'approve',
+                        tools: [
+                            { name: 'create-issue', level: 'allow' },
+                            { name: 'delete-issue', level: 'deny' },
+                        ],
                     },
                 ],
             })
             const m = spec.mcps[0]
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
-            expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
-            expect(m.tools).toEqual(['create-issue', 'list-issues'])
+            expect(m.default_tool_approval).toBe('approve')
+            expect(m.tools).toEqual([
+                { name: 'create-issue', level: 'allow' },
+                { name: 'delete-issue', level: 'deny' },
+            ])
         })
 
-        it('parses object-form tools[] entries with approval gating', () => {
+        it('parses a per-tool approval_policy override (who approves + ttl)', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'posthog',
                         url: 'https://app.posthog.com/api/mcp',
+                        default_tool_approval: 'allow',
                         tools: [
-                            'agent-applications-list',
                             {
                                 name: 'agent-applications-revisions-promote-create',
-                                requires_approval: true,
-                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                                level: 'approve',
+                                // Route this one tool's approval to the agent's owning team.
+                                approval_policy: { type: 'agent', ttl_ms: 900_000 },
                             },
                         ],
                     },
                 ],
             })
-            const m = spec.mcps[0]
-            expect(m.tools?.[0]).toBe('agent-applications-list')
-            const gated = m.tools?.[1]
-            if (typeof gated === 'string' || gated === undefined) {
-                throw new Error('expected object-form tool entry')
+            const entry = spec.mcps[0].tools?.[0]
+            if (entry === undefined) {
+                throw new Error('expected a tool entry')
             }
-            expect(gated.name).toBe('agent-applications-revisions-promote-create')
-            expect(gated.requires_approval).toBe(true)
-            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
-            expect(gated.approval_policy.ttl_ms).toBe(900_000)
+            expect(entry.level).toBe('approve')
+            expect(entry.approval_policy?.type).toBe('agent')
+            expect(entry.approval_policy?.ttl_ms).toBe(900_000)
             // Unspecified fields fall through to the approval-policy defaults.
-            expect(gated.approval_policy.allow_edit).toBe(false)
-        })
-
-        it('object-form tools[] entries default requires_approval to false', () => {
-            // Object form without explicit gating means "include this tool
-            // with no approval gate" — same effective behaviour as the
-            // bare-string form, just expressed as an object. Useful when an
-            // author wants the object slot reserved for a future config knob
-            // (e.g. description override) without flipping the gate on.
-            const spec = AgentSpecSchema.parse({
-                model: 'x',
-                mcps: [
-                    {
-                        id: 'linear',
-                        url: 'https://mcp.linear.app/sse',
-                        tools: [{ name: 'create-issue' }],
-                    },
-                ],
-            })
-            const m = spec.mcps[0]
-            const entry = m.tools?.[0]
-            if (typeof entry === 'string' || entry === undefined) {
-                throw new Error('expected object-form tool entry')
-            }
-            expect(entry.requires_approval).toBe(false)
+            expect(entry.approval_policy?.allow_edit).toBe(false)
         })
 
         it('defaults secrets to [] and tools to undefined when omitted on external', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
-                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse' }],
+                mcps: [
+                    { kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', default_tool_approval: 'allow' },
+                ],
             })
             const m = spec.mcps[0]
             expect(m.secrets).toEqual([])
@@ -469,9 +524,11 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'github',
                         url: 'https://api.githubcopilot.com/mcp',
                         secrets: ['GITHUB_TOKEN'],
+                        default_tool_approval: 'allow',
                         headers: {
                             Authorization: 'Bearer ${GITHUB_TOKEN}',
                             'X-GitHub-Api-Version': '2022-11-28',
@@ -486,36 +543,30 @@ describe('AgentSpecSchema', () => {
             })
         })
 
+        const validBase = {
+            kind: 'agent',
+            id: 'linear',
+            url: 'https://mcp.linear.app/sse',
+            default_tool_approval: 'allow',
+        }
         it.each([
-            { label: 'missing id', mcp: { url: 'https://mcp.linear.app/sse' } },
-            { label: 'empty id', mcp: { id: '', url: 'https://mcp.linear.app/sse' } },
-            { label: 'non-URL endpoint', mcp: { id: 'linear', url: 'not-a-url' } },
+            { label: 'missing id', mcp: { ...validBase, id: undefined } },
+            { label: 'empty id', mcp: { ...validBase, id: '' } },
+            { label: 'non-URL endpoint', mcp: { ...validBase, url: 'not-a-url' } },
+            { label: 'missing kind', mcp: { ...validBase, kind: undefined } },
+            { label: 'bad kind', mcp: { ...validBase, kind: 'shared' } },
+            { label: 'missing default_tool_approval', mcp: { ...validBase, default_tool_approval: undefined } },
+            { label: 'bad default_tool_approval', mcp: { ...validBase, default_tool_approval: 'ask' } },
+            { label: 'a tool entry with an empty name', mcp: { ...validBase, tools: [{ name: '', level: 'allow' }] } },
+            { label: 'a tool entry with a bad level', mcp: { ...validBase, tools: [{ name: 'x', level: 'maybe' }] } },
             {
-                label: 'tools entry with empty name string',
-                mcp: { id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
-            },
-            {
-                label: 'tools object with empty name',
+                label: 'duplicate tool names',
                 mcp: {
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: [{ name: '' }],
-                },
-            },
-            {
-                label: 'duplicate bare-string entries',
-                mcp: {
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: ['create-issue', 'create-issue'],
-                },
-            },
-            {
-                label: 'a bare-string entry duplicating an object entry name',
-                mcp: {
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: ['create-issue', { name: 'create-issue', requires_approval: true }],
+                    ...validBase,
+                    tools: [
+                        { name: 'create-issue', level: 'allow' },
+                        { name: 'create-issue', level: 'deny' },
+                    ],
                 },
             },
         ])('rejects an external entry with $label', ({ mcp }) => {
@@ -533,8 +584,10 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
+                        default_tool_approval: 'allow',
                         allowlist: ['create-issue'],
                     },
                 ],
@@ -542,6 +595,158 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.tools).toBeUndefined()
             expect((m as unknown as { allowlist?: string[] }).allowlist).toBeUndefined()
+        })
+    })
+
+    describe('mcps[] per-agent tool-permission model', () => {
+        it('parses a connection-backed MCP (shared credential via mcp_store install id)', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        kind: 'agent',
+                        id: 'incident',
+                        url: 'https://mcp.incident.io/mcp',
+                        connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                        default_tool_approval: 'approve',
+                        tools: [{ name: 'create-incident', level: 'approve' }],
+                    },
+                ],
+            })
+            expect(spec.mcps[0].connection).toBe('019e7fb7-f4c0-75e2-9055-7c29a5cbb999')
+        })
+
+        it('parses a connection-wide default level, per-tool level overrides, and an entry approval_policy', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        kind: 'agent',
+                        id: 'incident',
+                        url: 'https://mcp.incident.io/mcp',
+                        connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                        default_tool_approval: 'approve',
+                        approval_policy: { type: 'agent', ttl_ms: 900_000 },
+                        tools: [
+                            { name: 'list-incidents', level: 'allow' },
+                            { name: 'delete-incident', level: 'deny' },
+                        ],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.default_tool_approval).toBe('approve')
+            expect(m.approval_policy?.type).toBe('agent')
+            expect(m.approval_policy?.ttl_ms).toBe(900_000)
+            const allow = m.tools?.[0]
+            const deny = m.tools?.[1]
+            if (typeof allow === 'string' || allow === undefined || typeof deny === 'string' || deny === undefined) {
+                throw new Error('expected object-form tool entries')
+            }
+            expect(allow.level).toBe('allow')
+            expect(deny.level).toBe('deny')
+        })
+
+        it.each([
+            {
+                label: 'a bad connection-wide default_tool_approval',
+                mcp: {
+                    kind: 'agent',
+                    id: 'incident',
+                    url: 'https://mcp.incident.io/mcp',
+                    default_tool_approval: 'ask',
+                },
+            },
+            {
+                label: 'a bad per-tool level override',
+                mcp: {
+                    kind: 'agent',
+                    id: 'incident',
+                    url: 'https://mcp.incident.io/mcp',
+                    default_tool_approval: 'allow',
+                    tools: [{ name: 'x', level: 'maybe' }],
+                },
+            },
+        ])('rejects $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ mcps: [mcp] })).toThrow()
+        })
+    })
+
+    describe('mcps[].id (runtime tool-name prefix)', () => {
+        it.each(['github__main', 'a__b', 'prod__incident'])(
+            'rejects an id containing the `__` prefix separator: %s',
+            (id) => {
+                // The runtime exposes `<id>__<remoteName>` and the per-tool
+                // approval lookup splits on the FIRST `__`. An id that itself
+                // contains `__` misroutes the split, so the approval gate
+                // silently never fires — even with default_tool_approval set.
+                expect(() =>
+                    AgentSpecSchema.parse({
+                        mcps: [{ kind: 'agent', id, url: 'https://m.dev/mcp', default_tool_approval: 'approve' }],
+                    })
+                ).toThrow()
+            }
+        )
+
+        it('accepts a normal id (single underscores and hyphens are fine)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    mcps: [
+                        {
+                            kind: 'agent',
+                            id: 'github-main_v2',
+                            url: 'https://m.dev/mcp',
+                            default_tool_approval: 'allow',
+                        },
+                    ],
+                })
+            ).not.toThrow()
+        })
+    })
+
+    describe('mcps[].kind (required credential model)', () => {
+        it('parses a principal-kind MCP wired to a per-asker identity provider', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        kind: 'principal',
+                        id: 'posthog',
+                        url: 'https://app.posthog.com/api/mcp',
+                        default_tool_approval: 'allow',
+                        auth: { provider: 'posthog' },
+                    },
+                ],
+            })
+            expect(spec.mcps[0].kind).toBe('principal')
+            expect(spec.mcps[0].auth?.provider).toBe('posthog')
+        })
+
+        it.each([
+            {
+                label: 'a principal kind without auth.provider',
+                mcp: { kind: 'principal', id: 'x', url: 'https://m.dev/mcp', default_tool_approval: 'allow' },
+            },
+            {
+                label: 'a principal kind that also pins a connection',
+                mcp: {
+                    kind: 'principal',
+                    id: 'x',
+                    url: 'https://m.dev/mcp',
+                    default_tool_approval: 'allow',
+                    connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                    auth: { provider: 'posthog' },
+                },
+            },
+            {
+                label: 'an agent kind that sets auth.provider',
+                mcp: {
+                    kind: 'agent',
+                    id: 'x',
+                    url: 'https://m.dev/mcp',
+                    default_tool_approval: 'allow',
+                    auth: { provider: 'posthog' },
+                },
+            },
+        ])('rejects $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ mcps: [mcp] })).toThrow()
         })
     })
 
@@ -727,5 +932,104 @@ describe('AgentSpecSchema', () => {
         ])('%s', (_label, stored, incoming, expected) => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
         })
+    })
+
+    describe('identity_providers[] binding', () => {
+        it('accepts the per-asker `principal` binding (defaulting when omitted)', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog' }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('principal')
+        })
+
+        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                })
+            ).toThrow()
+        })
+    })
+})
+
+describe('modelPolicyToList', () => {
+    it('expands an auto level to its priority list, order preserved, no reasoning by default', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'low' } })
+        expect(modelPolicyToList(spec)).toEqual(
+            MODEL_POLICY_LEVELS.low.map((model) => ({ model, reasoning: undefined }))
+        )
+    })
+
+    it('defaults to the auto/medium list when models is omitted', () => {
+        const spec = AgentSpecSchema.parse({})
+        expect(modelPolicyToList(spec).map((e) => e.model)).toEqual([...MODEL_POLICY_LEVELS.medium])
+    })
+
+    it('auto: policy.reasoning applies to every resolved entry', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', reasoning: 'high' } })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'high')).toBe(true)
+    })
+
+    it('auto: falls back to spec.reasoning when the policy declares none', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' }, reasoning: 'low' })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'low')).toBe(true)
+    })
+
+    it('auto: policy.reasoning wins over spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'auto', level: 'medium', reasoning: 'xhigh' },
+            reasoning: 'low',
+        })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'xhigh')).toBe(true)
+    })
+
+    it('manual: passes the explicit list through in order, per-entry reasoning preserved', () => {
+        const spec = AgentSpecSchema.parse({
+            models: {
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-opus-4-7', reasoning: 'high' }, { model: 'openai/gpt-5' }],
+            },
+        })
+        expect(modelPolicyToList(spec)).toEqual([
+            { model: 'anthropic/claude-opus-4-7', reasoning: 'high' },
+            { model: 'openai/gpt-5', reasoning: undefined },
+        ])
+    })
+
+    it('manual: an entry without its own reasoning inherits spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] },
+            reasoning: 'medium',
+        })
+        expect(modelPolicyToList(spec)).toEqual([{ model: 'openai/gpt-5', reasoning: 'medium' }])
+    })
+})
+
+describe('models.optimize_for', () => {
+    it('defaults to cost on an auto policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost on a manual policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost when models is omitted entirely', () => {
+        expect(AgentSpecSchema.parse({}).models.optimize_for).toBe('cost')
+    })
+
+    it.each(['cost', 'availability'] as const)('accepts optimize_for: %s', (mode) => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: mode } })
+        expect(spec.models.optimize_for).toBe(mode)
+    })
+
+    it('rejects an unknown optimize_for', () => {
+        expect(() =>
+            AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
+        ).toThrow()
     })
 })
