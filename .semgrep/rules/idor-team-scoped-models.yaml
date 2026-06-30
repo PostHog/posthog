@@ -120,6 +120,7 @@ rules:
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -389,6 +390,7 @@ rules:
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2

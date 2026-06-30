@@ -316,6 +316,11 @@ impl RateLimitingStage {
             return (bypassed, outcomes);
         }
 
+        // Rules disabled mid-batch (broken bytecode) are skipped for the rest of the batch: the
+        // per-team `rules_by_team` snapshot isn't refreshed after disable(), so without this a
+        // broken rule would be re-disabled (and the cache re-invalidated) once per matching event.
+        let mut disabled_rules: HashSet<Uuid> = HashSet::new();
+
         for (idx, item) in items.iter().enumerate() {
             let Ok(props) = item else { continue };
             let Some(rules) = rules_by_team.get(&props.team_id) else {
@@ -326,6 +331,9 @@ impl RateLimitingStage {
                 Err(_) => continue,
             };
             for rule in rules {
+                if disabled_rules.contains(&rule.id) {
+                    continue;
+                }
                 match rule.try_match(&props_json) {
                     Ok(false) => continue,
                     Ok(true) => {
@@ -345,6 +353,7 @@ impl RateLimitingStage {
                     // Any other error means the rule is broken: disable it so it stops erroring
                     // on every event, and treat this event as not bypassed (normal rate limiting).
                     Err(err) => {
+                        disabled_rules.insert(rule.id);
                         if let Err(e) = rule
                             .disable(&self.ctx.posthog_pool, err.to_string(), props_json.clone())
                             .await
