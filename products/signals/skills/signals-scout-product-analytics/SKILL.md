@@ -3,13 +3,18 @@ name: signals-scout-product-analytics
 description: >
   Signals scout for core product-analytics flows — funnels, retention, lifecycle, stickiness,
   and paths. Watches the team's saved flows for a derived-rate regression (conversion or
-  retention sliding) while entrants hold.
+  retention sliding) while entrants hold, and files it as a report in the inbox.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes the
-  signals-scout MCP family plus the product-analytics query tools listed in the body's MCP
-  tools section (query-funnel, query-retention, query-lifecycle, query-stickiness, query-paths,
-  query-trends, insight-get, execute-sql, read-data-schema).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
+  read-only analytics plus signal_scout_internal:write (for scratchpad) +
+  signal_scout_report:write (for emit-report/edit-report, granted because this scout authors
+  reports directly via the report channel). Assumes the signals-scout MCP family plus the
+  product-analytics query tools listed in the body's MCP tools section (query-funnel,
+  query-retention, query-lifecycle, query-stickiness, query-paths, query-trends, insight-get,
+  execute-sql, read-data-schema).
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: product_analytics
@@ -24,6 +29,13 @@ a lifecycle mix tilting toward dormant. You answer the question a PM asks in a w
 "is our activation funnel still converting, is week-1 retention holding?" — proactively,
 every run, instead of waiting for a human to open the chart.
 
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the research, so you own each report 1:1
+end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
+correspondingly high — file a report only for a localized, validated regression you'd stand
+behind as a standalone inbox item a human will act on. A flow that's still sliding (or
+recovering then relapsing) that the inbox already covers is an **edit**, not a new report.
+
 **The discriminator: a derived-rate regression with a steady denominator.** A flow's signal
 is the **conversion rate / retention rate / composition share**, not its raw counts. The move
 is real only when that rate deviates from the flow's own trailing, seasonality-matched
@@ -33,7 +45,7 @@ capture/volume problem, not yours — hand it off (see Disqualifiers). Internali
 **rate moved, denominator didn't.**
 
 **What you do NOT do** (these are other scouts' territory — stay off them to avoid noise and
-re-emitting their findings):
+re-reporting their findings):
 
 - Raw event-count bursts/drops/flat-lines on saved time-series insights → `anomaly-detection`.
 - Recommending a funnel / insight / alert the team _hasn't built yet_ → `observability-gaps`.
@@ -67,17 +79,22 @@ coverage compounds across runs instead of restarting cold.
 
 ### Get oriented
 
-Three cheap reads cold-start every run:
+Cheap reads cold-start every run:
 
 - `signals-scout-scratchpad-search` (`text=product_analytics`, high `limit`, then `text=flow`)
-  — your watchlist, per-flow baselines, and what you've ruled out. The default limit is 20;
-  pass a high limit so overdue flows don't fall out of the round-robin. This is what makes you
-  cheaper each run.
+  — your watchlist, per-flow baselines, what you've ruled out, which report covers a flow
+  (`report:` keys), and who owns it (`reviewer:` keys). The default limit is 20; pass a high
+  limit so overdue flows don't fall out of the round-robin. This is what makes you cheaper each
+  run.
 - `signals-scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) scored
   and ruled out. Don't re-score a flow a recent run already covered.
 - `signals-scout-project-profile-get` — `products_in_use`, `product_intents` (the
   `activated_at` milestones name the activation events worth a funnel), `top_events` for
   volume context, `recent_dashboards` for what's in active use.
+- `inbox-reports-list` (filter by `search`=flow name/event, `source_product`, `ordering=-updated_at`)
+  — the reports already in the inbox. A regression on a flow you've reported before is an
+  **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before
+  authoring.
 
 ### Build / refresh the watchlist of flows
 
@@ -145,33 +162,60 @@ a future run finds it with one `text=` search:
   cheaply instead of recomputing the full baseline.
 - `dedupe:product_analytics:flow:<short_id>:<date>` — a regression already surfaced, with the
   condition that should re-escalate it (a further drop, or recovery + relapse).
+- `report:product_analytics:flow:<short_id>` — the `report_id` of a report you authored for
+  this flow's regression, so the next run edits it (append_note with the fresh window) instead
+  of duplicating.
+- `reviewer:product_analytics:<area>` — a resolved owner (bare lowercase GitHub login) for a
+  flow / product area, so reports route to a human faster.
 
 ### Decide
 
-Classify each candidate against prior runs and the scratchpad (net-new / material-update /
-already-covered / addressed-or-noise), then:
+Search the inbox before you author — a report covering this flow's regression may already
+exist (`inbox-reports-list` with `ordering=-updated_at`, then `inbox-reports-retrieve` the
+closest matches). Classify each candidate against prior runs and the scratchpad (net-new /
+material-update / already-covered / addressed-or-noise), then:
 
-- **Emit** via `signals-scout-emit-signal` when it clears the bar. A **strong finding** here:
-  the rate dropped clearly below the flow's seasonality-matched baseline (robust z ≥ ~3, or a
-  conversion-point drop beyond the baseline band), the **entrant denominator held** (quantify
-  both — "step-2 conversion 62%→48% while step-1 entrants steady at ~5.2k/day"), the move is
-  broad across segments (not one known cohort), it's not explained by a running experiment or a
-  flow-definition edit, and confidence ≥ 0.8. Put the flow `short_id`, the latest-window rate,
-  the baseline band, the per-step/per-cohort numbers, the entrant volumes, and the time window
-  in the evidence. **Severity:** P2 for a confirmed broad regression on a human-saved flow; P3
-  for a single-segment or suggestive move, and for anything on an `inferred` flow. Cross-check
-  `inbox-reports-list` first — if `anomaly-detection` already owns a related metric move, emit
-  only if your behavioral-rate angle is materially new.
+- **Edit** the existing report via `signals-scout-edit-report` when the inbox already covers
+  the flow. A regression is rarely brand-new — a funnel that's still sliding, a retention
+  cliff that deepened, a flow that recovered then relapsed: `append_note` with the fresh
+  window's rate, baseline band, and entrant volumes (or rewrite the title/summary on a report
+  you authored). This is the default when a match exists; don't mint a near-duplicate. **A
+  persistent regression is one report across weeks:** when a new complete window confirms the
+  flow is still below baseline (or has deepened), that's a _re-escalation_ — `append_note` the
+  fresh week onto the report your `report:product_analytics:flow:<short_id>` pointer names and
+  advance the `dedupe:…:<week>` gate; do **not** author a fresh report per week. The same flow
+  moving twice is one report, not two.
+- **Author** a fresh report via `signals-scout-emit-report` when nothing in the inbox covers
+  it (or a known regression has new evidence that changes the verdict). A **strong finding**
+  here: the rate dropped clearly below the flow's seasonality-matched baseline (robust z ≥ ~3,
+  or a conversion-point drop beyond the baseline band), the **entrant denominator held**
+  (quantify both — "step-2 conversion 62%→48% while step-1 entrants steady at ~5.2k/day"), the
+  move is broad across segments (not one known cohort), it's not explained by a running
+  experiment or a flow-definition edit, and confidence ≥ 0.8. Put the flow `short_id`, the
+  latest-window rate, the baseline band, the per-step/per-cohort numbers, the entrant volumes,
+  and the time window in the `evidence`. A behavioral regression is an investigation, not a
+  one-line code fix, so default to `requires_human_input` (P2 for a confirmed broad regression
+  on a human-saved flow; P3 for a single-segment or suggestive move, and for anything on an
+  `inferred` flow). **Always set `suggested_reviewers`** — resolve the owning person's GitHub
+  login with `org-member-get-github-login` (cache it under a `reviewer:product_analytics:<area>`
+  key). It's how the report reaches a human; left empty, the report is assigned to nobody and
+  is likely missed. After authoring, write a `report:product_analytics:flow:<short_id>`
+  scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The
+  full report channel — field schema, safety × actionability status mapping, reviewer routing,
+  dedupe (it is **not** idempotent), and the edit rules — lives in
+  [`references/report.md`](references/report.md).
 - **Remember** if suggestive but below the bar (confidence < 0.65), or to refresh a baseline.
-- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
+- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report,
+  already covers it.
 
-Dedupe keys: `funnel_regression:<short_id>`, `retention_regression:<short_id>`,
-`lifecycle_shift:<short_id>`, or `insight:<short_id>`.
+If `anomaly-detection` already owns a related metric move in the inbox, author only if your
+behavioral-rate angle is materially new; otherwise edit-or-skip. The same fact twice in the
+inbox degrades signal-to-noise more than missing one finding for one tick.
 
 ### Close out
 
-One paragraph: which flows you scored, what you added, what regressions you emitted, what you
-ruled out and why. The harness saves this as the run summary; future runs read it via
+One paragraph: which flows you scored, what you added, which reports you authored or edited,
+what you ruled out and why. The harness saves this as the run summary; future runs read it via
 `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry.
 "Scored the due flows, all conversions within baseline" is a real outcome.
 
@@ -180,10 +224,10 @@ ruled out and why. The harness saves this as the run summary; future runs read i
 - **Denominator collapsed too.** If the entrants/cohort size dropped alongside the rate, the
   flow isn't _converting_ worse — fewer people entered. That's a capture or upstream-volume
   issue (→ `anomaly-detection` for the volume drop, `session-replay`/`error-tracking` if
-  capture broke). Note it, hand off, don't emit it as a conversion regression.
+  capture broke). Note it, hand off, don't file it as a conversion regression.
 - **A running experiment explains it.** If a live experiment targets the flow's flag, a
   conversion shift in the exposed population is the experiment doing its job. Check
-  `product_intents` / running experiments; only emit if the move is outside the experiment's
+  `product_intents` / running experiments; only author if the move is outside the experiment's
   exposed users or the experiment can't account for the magnitude. Experiment _validity_ is
   the `experiments` scout's job, not yours.
 - **Flow-definition change, not behavior.** If someone edited the funnel's steps, the
@@ -199,8 +243,8 @@ ruled out and why. The harness saves this as the run summary; future runs read i
 - **Known launches / migrations / backfills** the team already knows about — if a `noise:` /
   `addressed:` entry names it, skip.
 
-When in doubt, refresh the baseline memory instead of emitting. A false conversion-regression
-alarm erodes trust fast.
+When in doubt, refresh the baseline memory instead of filing a report. A false
+conversion-regression alarm erodes trust fast.
 
 ## MCP tools
 
@@ -216,19 +260,27 @@ Direct (read-only):
 - `insights-list` / `execute-sql` over `system.insights` — find saved funnel/retention/
   lifecycle/stickiness insights (`query::text ILIKE '%FunnelsQuery%'` etc.) and their recency.
 - `read-data-schema` — confirm events/properties before any SQL or inferred funnel.
-- `inbox-reports-list` — check whether the move is already reported before emitting.
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating (`ordering=-updated_at`).
+- `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
+  `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
+- `org-members-list` / `org-member-get-github-login` — resolve a flow / product-area owner to
+  a bare GitHub login for `suggested_reviewers` (returns null when unlinked → try the next owner).
 
-Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
-`signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe);
-`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`,
-`signals-scout-scratchpad-forget` (emit + memory).
+Harness-level:
+
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
+  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
+- `signals-scout-emit-report` / `signals-scout-edit-report` / `signals-scout-scratchpad-remember`
+  / `signals-scout-scratchpad-forget` — author a report / edit an existing one / remember.
 
 ## When to stop
 
 - No flow worth watching (quick close-out) → close out empty.
 - You've scored the due watchlist flows and added a couple of new ones → close out, even if
   more remain. Each run advances the watchlist.
-- A candidate matches a `noise:` / `addressed:` / `dedupe:` entry → skip.
+- A candidate matches a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox
+  report → edit-or-skip.
 
 Fewer, well-calibrated, denominator-checked regressions beat a flood of seasonal or
 volume-driven false positives.
