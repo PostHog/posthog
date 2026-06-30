@@ -106,16 +106,16 @@ The scratchpad has no tags or TTLs — entries are durable per-team prose keyed 
 string, and re-using a key rewrites the entry in place. Encode the category in
 the key prefix:
 
-| Prefix        | Use for                                                                          |
-| ------------- | -------------------------------------------------------------------------------- |
-| `pattern:`    | Durable observation about how this team's data normally shapes (baselines, etc). |
-| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).          |
-| `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                  |
-| `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.               |
+| Prefix        | Use for                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `pattern:`    | Durable observation about how this team's data normally shapes (baselines, etc).                                                     |
+| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).                                                              |
+| `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                                                                      |
+| `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.                                                                   |
 | `report:`     | Records the `report_id` of a report you authored, keyed `report:<domain>:<entity>`, so the next run edits it instead of duplicating. |
-| `reviewer:`   | Caches a resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so reports route to a human faster. |
-| `allowlist:`  | Vetted entities the scout should never re-surface.                               |
-| `not-in-use:` | Close-out memo for "product not in use on this team".                            |
+| `reviewer:`   | Caches a resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so reports route to a human faster.         |
+| `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                   |
+| `not-in-use:` | Close-out memo for "product not in use on this team".                                                                                |
 
 Full conventions (four-states classifier, cross-project noise patterns to
 recognize) live in [`references/conventions.md`](references/conventions.md).
