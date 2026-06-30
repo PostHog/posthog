@@ -55,9 +55,7 @@ export function NotificationGroupRow({
                 <div className="shrink-0 mt-0.5">{getNotificationIcon(group.representative.notification_type)}</div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-1">
-                        <span className={`text-xs leading-snug ${allRead ? 'text-secondary' : 'font-semibold'}`}>
-                            {group.representative.title}
-                        </span>
+                        <span className="text-xs leading-snug font-semibold">{group.representative.title}</span>
                         <div className="flex items-center gap-1 shrink-0">
                             <span className="text-[10px] text-muted bg-fill-highlight-100 px-1.5 py-px rounded">
                                 {group.count}
@@ -88,7 +86,7 @@ export function NotificationGroupRow({
                             </button>
                         </div>
                     </div>
-                    <div className="text-xs text-secondary mt-0.5 line-clamp-1">
+                    <div className="text-xs text-secondary mt-2 line-clamp-1">
                         {group.count} notifications · latest {dayjs(group.last_seen).fromNow()}
                     </div>
                 </div>

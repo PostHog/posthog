@@ -73,7 +73,7 @@ export function NotificationsPanel(): JSX.Element {
                     </div>
                 ) : filteredGroups.length > 0 ? (
                     <>
-                        <div className="flex flex-col gap-px">
+                        <div className="flex flex-col gap-1">
                             {filteredGroups.map((group: NotificationGroup) => (
                                 <NotificationGroupRow
                                     key={group.group_key}
