@@ -35,20 +35,18 @@ describe('sourceCatalogLogic', () => {
         unmountAvailableSources()
     })
 
-    it('prefills the source request with the current search term', () => {
+    it.each([
+        { search: '  Podium  ', expectedText: 'Podium' },
+        { search: '', expectedText: '' },
+    ])('seeds the source request text from "$search"', ({ search, expectedText }) => {
         const logic = sourceCatalogLogic()
-        logic.actions.setSearch('  Podium  ')
+        if (search) {
+            logic.actions.setSearch(search)
+        }
         logic.actions.showSourceRequest()
 
         expect(logic.values.sourceRequestModalOpen).toBe(true)
-        expect(logic.values.sourceRequestText).toEqual('Podium')
-    })
-
-    it('opens the source request empty when there is no search term', () => {
-        const logic = sourceCatalogLogic()
-        logic.actions.showSourceRequest()
-
-        expect(logic.values.sourceRequestText).toEqual('')
+        expect(logic.values.sourceRequestText).toEqual(expectedText)
     })
 
     it('clears the request text when the modal is closed', () => {
