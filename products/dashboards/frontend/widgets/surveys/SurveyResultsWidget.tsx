@@ -319,7 +319,18 @@ export function SurveyResultsWidget({
             <div className="flex flex-col gap-3 p-2" data-attr="survey-results-widget-body">
                 <div className="flex items-center justify-between gap-2">
                     {/* The survey name already shows in the tile filter bar, so link out rather than repeat it. */}
-                    <Link to={urls.survey(survey.id)} target="_blank" className="text-sm font-medium">
+                    <Link
+                        to={urls.survey(survey.id)}
+                        target="_blank"
+                        className="text-sm font-medium"
+                        onClick={() =>
+                            posthog.capture('dashboard widget open survey clicked', {
+                                widget_type: 'survey_results',
+                                tile_id: tileId,
+                                survey_id: survey.id,
+                            })
+                        }
+                    >
                         See more
                     </Link>
                     <LemonTag type={tag.type}>{tag.label}</LemonTag>

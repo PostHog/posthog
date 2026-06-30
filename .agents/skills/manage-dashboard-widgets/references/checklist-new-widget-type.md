@@ -228,3 +228,25 @@ Platform analytics (`dashboard widget added`, `dashboard tile added`) measure wi
 - Only the "product is empty" branch needs it — not the "no entity selected for this tile" picker state.
 
 Shipped examples: `widgets/experiments/ExperimentResultsWidget.tsx` + `ExperimentsListWidget.tsx` (`dashboard widget create experiment clicked`), `widgets/surveys/SurveyResultsWidget.tsx` (`dashboard widget create survey clicked`). Related cross-product nudges: `WidgetAvailabilitySetupPrompt.tsx` fires `dashboard widget cross product activated` when a setup gate is satisfied.
+
+### Click-through (open the entity)
+
+Capture when a user follows a widget link _into_ the product — the other half of the funnel after placement. Detail (results) widgets fire `dashboard widget open <product> clicked` on the body's "See more" link, with `widget_type`, `tile_id`, and the entity id:
+
+```tsx
+<Link
+  to={urls.survey(survey.id)}
+  target="_blank"
+  onClick={() =>
+    posthog.capture('dashboard widget open survey clicked', {
+      widget_type: 'survey_results',
+      tile_id: tileId,
+      survey_id: survey.id,
+    })
+  }
+>
+  See more
+</Link>
+```
+
+Shipped examples: `SurveyResultsWidget.tsx` (`dashboard widget open survey clicked`), `ExperimentResultsWidget.tsx` (`dashboard widget open experiment clicked`).
