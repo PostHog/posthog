@@ -197,6 +197,7 @@ class TestOAuth2Auth(SimpleTestCase):
             expiry_date_format="%Y-%m-%dT%H:%M:%SZ",
         )
         _apply_auth(auth)
+        assert auth.token_expiry is not None
         assert auth.token_expiry > datetime.now(UTC) + timedelta(minutes=50)
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
@@ -208,6 +209,7 @@ class TestOAuth2Auth(SimpleTestCase):
         )
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         _apply_auth(auth)
+        assert auth.token_expiry is not None
         assert auth.token_expiry > datetime.now(UTC) + timedelta(minutes=100)
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
@@ -217,6 +219,7 @@ class TestOAuth2Auth(SimpleTestCase):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         _apply_auth(auth)
         now = datetime.now(UTC)
+        assert auth.token_expiry is not None
         assert now + timedelta(minutes=50) < auth.token_expiry < now + timedelta(minutes=70)
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
