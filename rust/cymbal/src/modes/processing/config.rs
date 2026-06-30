@@ -46,6 +46,18 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
     pub cyclotron_kafka_tls: Option<bool>,
 
+    // Optional override for the brokers used to produce `clickhouse_app_metrics2`. When set,
+    // cymbal opens a dedicated producer pointed at this host list (the warpstream-ingestion VC,
+    // where ClickHouse consumes app_metrics2). When unset, app metrics go through the primary
+    // `kafka` producer — which only carries that topic where the cluster has it (e.g. local dev).
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_HOSTS")]
+    pub app_metrics_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the app-metrics producer. When unset, it inherits `KAFKA_TLS`
+    // from the primary kafka config.
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_TLS")]
+    pub app_metrics_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 

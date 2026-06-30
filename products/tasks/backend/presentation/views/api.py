@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -742,6 +743,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
         return task_id
 
     def _user_id(self) -> int | None:
@@ -1559,7 +1564,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
 
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_session_log_content(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 

@@ -65,7 +65,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
-    calculate_product_activation,
+    cached_product_intents_for_team,
+    enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
 from posthog.models.team.event_retention import should_enforce_events_retention
@@ -169,7 +170,7 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
     capture_team_config_diff(team, "revenue_analytics_config", old_config, new_config, context=context)
 
     if "events" in validated_data:
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -901,7 +902,7 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj: Project) -> dict[str, bool]:
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_set = set(
@@ -930,7 +931,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_workflows_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
-        team = project.teams.get(pk=project.pk)
+        team = project.passthrough_team
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
@@ -940,7 +941,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.teams.get(pk=project.pk)
+        team = project.passthrough_team
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
@@ -960,12 +961,13 @@ class ProjectBackwardCompatSerializer(
         }
     )
     def get_product_intents(self, obj):
-        project = obj
-        team = project.passthrough_team
-        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
-        return ProductIntent.objects.filter(team=team).values(
-            "product_type", "created_at", "onboarding_completed_at", "updated_at"
-        )
+        # Mirror TeamSerializer.get_product_intents: debounce-then-enqueue rather than
+        # .delay() on every render, and read intents from a per-team cache. The old
+        # unconditional .delay() did a broker round-trip on every retrieve and would
+        # 500 the endpoint when the broker was unavailable.
+        team = obj.passthrough_team
+        enqueue_product_activation_calc_debounced(team.id)
+        return cached_product_intents_for_team(team.id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))

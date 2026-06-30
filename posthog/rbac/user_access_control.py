@@ -316,6 +316,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name in ("visionaction", "visionactionrun"):
+        return "vision_action"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -393,6 +395,13 @@ class UserAccessControl:
         return list(
             AccessControl.objects.select_related("team").filter(self._filter_options({"team_id": self._team.id}))
         )
+
+    @property
+    def user(self) -> User:
+        """The principal this access control was built for. Callers that run HogQL on a user's behalf
+        need it: warehouse/system table ACL is honored only when a real user reaches the database build
+        (a userless build fails closed), so forwarding just the access control isn't enough."""
+        return self._user
 
     @property
     def rbac_supported(self) -> bool:
