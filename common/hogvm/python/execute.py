@@ -1,4 +1,5 @@
 import time
+import operator
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -45,6 +46,13 @@ class BytecodeResult:
     result: Any
     bytecodes: dict[str, Any]
     stdout: list[str]
+
+
+def _compare_values(left: Any, right: Any, comparison: Callable[[Any, Any], bool]) -> bool:
+    try:
+        return comparison(left, right)
+    except TypeError as e:
+        raise HogVMException(str(e)) from e
 
 
 def execute_bytecode(
@@ -253,16 +261,16 @@ def execute_bytecode(
                 push_stack(var1 != var2)
             case Operation.GT:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 > var2)
+                push_stack(_compare_values(var1, var2, operator.gt))
             case Operation.GT_EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 >= var2)
+                push_stack(_compare_values(var1, var2, operator.ge))
             case Operation.LT:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 < var2)
+                push_stack(_compare_values(var1, var2, operator.lt))
             case Operation.LT_EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 <= var2)
+                push_stack(_compare_values(var1, var2, operator.le))
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:

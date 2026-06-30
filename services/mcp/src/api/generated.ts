@@ -30552,7 +30552,7 @@ export namespace Schemas {
       by_run: RunCost[];
       /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
       jobs_available: boolean;
-      /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+      /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
       billable_minutes: number;
       /**
          * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
