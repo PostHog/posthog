@@ -3,7 +3,6 @@ import hmac
 import json
 import time
 import base64
-import socket
 import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -3449,30 +3448,23 @@ class DatabricksIntegration:
     def validate_host(server_hostname: str):
         """Validate the Databricks host.
 
-        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
-        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
-        test here)
+        We check the value is a bare hostname (not a full URL) and that it passes our shared SSRF
+        guard (rejects unresolvable hosts, internal IPs, cloud-metadata hosts, and internal domain
+        patterns). This is a quick check (testing connectivity to a SQL warehouse requires a
+        warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here).
         """
         # we expect a hostname, not a full URL
         if server_hostname.startswith("http"):
             raise DatabricksIntegrationError(
                 f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
             )
-        # TCP connectivity check
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3.0)
-            # we only support https
-            port = 443
-            sock.connect((server_hostname, port))
-            sock.close()
-        except OSError:
+
+        # Databricks is always https, so reuse the shared URL allowlist as the SSRF guard.
+        allowed, _reason = is_url_allowed(f"https://{server_hostname}")
+        if not allowed:
             raise DatabricksIntegrationError(
-                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
-            )
-        except Exception:
-            raise DatabricksIntegrationError(
-                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+                f"Databricks integration error: could not validate hostname '{server_hostname}'"
             )
 
 
