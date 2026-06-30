@@ -98,6 +98,16 @@ describe('SqlPieGraph', () => {
         expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 
+    it('honors the legacy top-level showPieTotal toggle on charts saved before `pie`', async () => {
+        // Pre-PR insights stored the toggle as `chartSettings.showPieTotal`. It must still parse and
+        // drive the total, otherwise those saved insights regress (validation + missing total).
+        render(<SqlPieGraph {...baseProps({ showPieTotal: false }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
     it('shows slice values as shares of the total when displaying percentages', async () => {
         render(
             <SqlPieGraph

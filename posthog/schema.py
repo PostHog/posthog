@@ -13502,6 +13502,10 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
+    showPieTotal: bool | None = Field(
+        default=None,
+        description=("Deprecated: use `pie.showTotal`. Kept so pre-existing pie-chart insights still validate."),
+    )
     showTotalRow: bool | None = None
     showValuesOnSeries: bool | None = None
     showXAxisBorder: bool | None = None

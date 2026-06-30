@@ -12587,6 +12587,10 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "description": "Deprecated: use `pie.showTotal`. Kept so pre-existing pie-chart insights still validate.",
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },

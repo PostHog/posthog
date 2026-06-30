@@ -1240,6 +1240,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showValuesOnSeries?: boolean
+    /** Deprecated: use `pie.showTotal`. Kept so pre-existing pie-chart insights still validate. */
+    showPieTotal?: boolean
     showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
