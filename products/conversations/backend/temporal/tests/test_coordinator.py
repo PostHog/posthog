@@ -358,7 +358,7 @@ class TestCollectEligibleStatus:
             channel_source="widget",
             status=ticket_status,
         )
-        settled_at = timezone.now() - timedelta(minutes=10)
+        settled_at = timezone.now() - timedelta(minutes=3)
         TicketModel.objects.filter(id=ticket.id).update(
             created_at=settled_at,
             last_message_at=settled_at,
