@@ -177,12 +177,17 @@ report for the same flow.
 `emit-report` is **not idempotent** — a retried call authors a _second_ report. There is no
 server-side dedup key. The dedup story is two-sided and you own it:
 
-1. **Before authoring**, `inbox-reports-list` for a prior report on the same flow (filter by
-   `search` / `status` / `source_product`). Pass `ordering=-updated_at` — the default ordering buckets
-   by your own reviewer-match and status first, so without it the most recent duplicate can sort below
-   older rows and you'd miss it. Found one? `edit-report` it instead of authoring a new one.
-2. **After authoring**, write a `report:product_analytics:flow:<short_id>` scratchpad entry recording
-   the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
+1. **The scratchpad pointer is the reliable dedup key.** After authoring, write a
+   `report:product_analytics:flow:<short_id>` entry recording the `report_id`; the next run
+   `inbox-reports-retrieve`s it directly — no search guess. This is the path that actually holds up.
+2. **A keyword `inbox-reports-list` search is a noisy fallback** — use it only when no pointer exists.
+   On a busy project a broad term (e.g. `search=funnel`) returns hundreds of unrelated reports
+   (error-tracking funnel bugs, other scouts' funnel reports), and your flow's report can sit far down
+   the list (or be `failed`/stale and not float up). Search the flow's _specific_ distinguishing terms
+   (its name, the activation/step events, the `short_id`), pass `ordering=-updated_at` (the default
+   ordering buckets by your own reviewer-match and status first, so the most recent duplicate can
+   otherwise sort below older rows), and still confirm a hit with `inbox-reports-retrieve` before
+   treating it as the same flow. Found one? `edit-report` it instead of authoring a new one.
 
 **Never retry an `emit-report` / `edit-report` call that may have succeeded** — a transport error
 after the write commits, retried, double-files. If unsure whether a call landed, `inbox-reports-list`

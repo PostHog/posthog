@@ -170,10 +170,13 @@ a future run finds it with one `text=` search:
 
 ### Decide
 
-Search the inbox before you author — a report covering this flow's regression may already
-exist (`inbox-reports-list` with `ordering=-updated_at`, then `inbox-reports-retrieve` the
-closest matches). Classify each candidate against prior runs and the scratchpad (net-new /
-material-update / already-covered / addressed-or-noise), then:
+Before you author, check whether this flow already has a report — the
+`report:product_analytics:flow:<short_id>` scratchpad pointer is the reliable path: it holds the
+`report_id`, so `inbox-reports-retrieve` it directly. Only with no pointer fall back to an
+`inbox-reports-list` search (`ordering=-updated_at`), and search the flow's _specific_ terms (its
+name, the step events, the `short_id`) — a broad word like `funnel` returns hundreds of unrelated
+reports on a busy project and buries yours. Classify each candidate against prior runs and the
+scratchpad (net-new / material-update / already-covered / addressed-or-noise), then:
 
 - **Edit** the existing report via `signals-scout-edit-report` when the inbox already covers
   the flow. A regression is rarely brand-new — a funnel that's still sliding, a retention
