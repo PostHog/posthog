@@ -431,6 +431,25 @@ impl Job {
             .await
             .context(format!("Fetching part chunk {next_part:?}"))?;
 
+        // Streaming sources only discover the total decompressed size once the
+        // read reaches EOF (it is `None` beforehand). Re-query right after the
+        // fetch so this iteration sees the now-known size: `is_last_chunk` is
+        // evaluated correctly and `PartState.total_size` is persisted now, so the
+        // part reads as done next iteration instead of taking one extra empty
+        // `get_chunk`/commit. Mirrors the lock order (state -> model) above.
+        if next_part.total_size.is_none() {
+            if let Some(actual_size) = self.source.size(&key).await? {
+                next_part.total_size = Some(actual_size);
+
+                let mut model = self.model.lock().await;
+                if let Some(model_state) = &mut model.state {
+                    if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
+                        model_part.total_size = Some(actual_size);
+                    }
+                }
+            }
+        }
+
         let is_last_chunk = match next_part.total_size {
             Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
             None => false,

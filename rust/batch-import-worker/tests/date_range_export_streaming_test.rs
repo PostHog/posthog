@@ -209,6 +209,41 @@ async fn test_streaming_resumes_from_offset_after_restart() {
 }
 
 #[tokio::test]
+async fn test_size_known_immediately_after_eof_read() {
+    // Precondition the job loop relies on to terminate a part in a single pass:
+    // once a get_chunk reaches EOF, size() must report the total on the SAME pass
+    // (no extra read), so the part reads as done without a trailing empty
+    // get_chunk/commit at the boundary.
+    let server = MockServer::start();
+    let mut body = String::new();
+    for i in 0..2000 {
+        body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+    }
+    let gz = gzip_bytes(body.as_bytes());
+    let _mock = server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/export");
+        then.status(200).body(gz);
+    });
+
+    let staging = TempDir::new().unwrap();
+    let source = build_source(server.url("/export"), staging.path());
+    source.prepare_for_job().await.unwrap();
+    let keys = source.keys().await.unwrap();
+    let key = &keys[0];
+    source.prepare_key(key).await.unwrap();
+
+    // Unknown until the stream is read.
+    assert_eq!(source.size(key).await.unwrap(), None);
+
+    // A single large read consumes the whole stream and hits EOF.
+    let chunk = source.get_chunk(key, 0, 1024 * 1024).await.unwrap();
+    assert_eq!(chunk.len(), body.len());
+
+    // Size is known on this same pass, before any further read.
+    assert_eq!(source.size(key).await.unwrap(), Some(body.len() as u64));
+}
+
+#[tokio::test]
 async fn test_streaming_does_not_materialize_decompressed_file() {
     let server = MockServer::start();
     // Highly compressible: ~4 MiB decompressed from a few KiB compressed.
