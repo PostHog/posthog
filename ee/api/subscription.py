@@ -1164,7 +1164,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        if not _subscription_is_ai_prompt(subscription.id, self.team_id):
+        if not subscription.prompt:  # get_object() is already team-scoped; AI subs are prompt-backed
             return Response(
                 {"detail": "Only AI prompt subscriptions have a query plan to re-plan."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1207,7 +1207,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        if not _subscription_is_ai_prompt(subscription.id, self.team_id):
+        if not subscription.prompt:  # get_object() is already team-scoped; AI subs are prompt-backed
             return Response(
                 {"detail": "Only AI prompt subscriptions can be previewed."},
                 status=status.HTTP_400_BAD_REQUEST,
