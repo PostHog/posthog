@@ -173,6 +173,57 @@ def test_usage_report_run_state_sticky_timestamps_use_terminal_only_jobs() -> No
     )
 
 
+def test_usage_report_run_state_dry_runs_do_not_update_last_success_timestamp() -> None:
+    registries: list[CollectorRegistry] = []
+    job_names: list[str] = []
+    context = UsageReportRunContext(
+        run_id="run-123",
+        source="manual",
+        execution_location="toolbox",
+        execution_mode="direct",
+        run_scope="all_orgs",
+        requested_date="2026-06-29",
+        period_start=datetime(2026, 6, 29),
+        period_end=datetime(2026, 6, 30),
+        region="US",
+        celery_task_id=None,
+        celery_retries=None,
+        dry_run=True,
+    )
+
+    def collect_registry(job_name: str) -> AbstractContextManager[CollectorRegistry]:
+        job_names.append(job_name)
+        return _collect_usage_report_registry(registries)
+
+    with patch("posthog.tasks.usage_report_observability.pushed_metrics_registry", side_effect=collect_registry):
+        _push_usage_report_run_state(
+            UsageReportRunStateSnapshot(
+                context=context,
+                stage="terminal",
+                terminal_status="completed",
+                stage_timestamp=1_790_000_000,
+            )
+        )
+
+    assert job_names == [
+        "legacy_usage_report_run_state_us_manual_toolbox_direct_all_orgs",
+        "legacy_usage_report_run_terminal_timestamp_us_manual_toolbox_direct_all_orgs",
+    ]
+    assert (
+        registries[1].get_sample_value(
+            "posthog_legacy_usage_report_last_terminal_timestamp_seconds",
+            {
+                "region": "US",
+                "source": "manual",
+                "execution_location": "toolbox",
+                "execution_mode": "direct",
+                "run_scope": "all_orgs",
+            },
+        )
+        == 1_790_000_000
+    )
+
+
 def test_usage_report_run_state_job_name_distinguishes_filtered_runs() -> None:
     registries: list[CollectorRegistry] = []
     context = UsageReportRunContext(

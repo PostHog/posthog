@@ -2871,13 +2871,13 @@ def send_all_org_usage_reports(
         execution_mode=execution_mode,
         run_scope="filtered_orgs" if organization_ids is not None else "all_orgs",
         region=get_instance_region() or "unknown",
+        dry_run=dry_run,
     )
     progress = UsageReportRunProgress.for_organizations(organization_ids)
     pha_client: Optional[PostHogClient] = None
     log_context = observer.log_context
 
     entry_properties = {
-        "dry_run": dry_run,
         "skip_capture_event": skip_capture_event,
         **progress.filtering_properties,
     }

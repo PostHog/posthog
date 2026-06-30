@@ -50,6 +50,7 @@ from posthog.models.group.util import create_group
 from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.tasks.tasks import send_org_usage_reports
 from posthog.tasks.usage_report import (
     OrgReport,
     UsageReportCounters,
@@ -432,8 +433,6 @@ def test_send_all_org_usage_reports_keeps_observability_failures_best_effort() -
 
 
 def test_scheduled_usage_report_wrapper_enqueues_scheduled_worker_context() -> None:
-    from posthog.tasks.tasks import send_org_usage_reports
-
     with patch("posthog.tasks.usage_report.send_all_org_usage_reports.delay") as send_reports_mock:
         send_org_usage_reports(organization_ids=["org-id"])
 

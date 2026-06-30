@@ -65,6 +65,7 @@ class UsageReportRunContext:
     celery_task_id: Optional[str]
     celery_retries: Optional[int]
     celery_max_retries: Optional[int] = None
+    dry_run: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -157,6 +158,7 @@ class UsageReportRunObserver:
         execution_mode: Optional[UsageReportExecutionMode],
         run_scope: UsageReportRunScope,
         region: str,
+        dry_run: bool = False,
     ) -> "UsageReportRunObserver":
         celery_metadata = _get_current_usage_report_celery_metadata()
         resolved_execution_mode = execution_mode or ("celery" if celery_metadata.task_id else "direct")
@@ -178,6 +180,7 @@ class UsageReportRunObserver:
             celery_task_id=celery_metadata.task_id,
             celery_retries=celery_metadata.retries,
             celery_max_retries=celery_metadata.max_retries,
+            dry_run=dry_run,
         )
         return cls(context=context)
 
@@ -420,6 +423,7 @@ def _usage_report_run_log_context(context: UsageReportRunContext) -> dict[str, A
         "period_start": context.period_start.isoformat(),
         "period_end": context.period_end.isoformat(),
         "requested_date": context.requested_date,
+        "dry_run": context.dry_run,
         "celery_task_id": context.celery_task_id,
         "celery_retries": context.celery_retries,
         "celery_max_retries": context.celery_max_retries,
@@ -485,7 +489,7 @@ def _push_usage_report_sticky_timestamps(snapshot: UsageReportRunStateSnapshot) 
         )
         last_terminal_timestamp_gauge.labels(**base_labels).set(snapshot.stage_timestamp)
 
-    if snapshot.terminal_status == "completed":
+    if snapshot.terminal_status == "completed" and not snapshot.context.dry_run:
         with pushed_metrics_registry(_usage_report_success_timestamp_job_name(snapshot.context)) as registry:
             last_success_timestamp_gauge = Gauge(
                 "posthog_legacy_usage_report_last_success_timestamp_seconds",
