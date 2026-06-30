@@ -2,8 +2,8 @@
 
 Postgres is the single source of truth for a review (there is no on-disk store), so this one
 command is the entire "clean state" story while iterating: it deletes every `ReviewReportArtefact`
-(findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` / `perspective_result`
-working state the DB-driven resume reads back), every `ReviewReport`, and every
+(findings, verdicts, commit snapshots, and the `chunk_set` / `perspective_result` working state the
+DB-driven resume reads back), every `ReviewReport`, and every
 `ReviewSkillConfig` (per-user perspective enablement + validator selection) — across all teams. Wiping the
 configs resets every user to the default 3 canonical perspectives and canonical validator, re-seeded
 on their next run.
