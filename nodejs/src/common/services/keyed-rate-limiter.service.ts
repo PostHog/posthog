@@ -49,6 +49,24 @@ export type KeyedRateLimit = {
     isRateLimited: boolean
 }
 
+export interface KeyedRateLimitPartialRequest {
+    id: string
+    /** Per-item costs in admission order. The bucket admits the longest fitting prefix. */
+    costs: number[]
+    bucketSize?: number
+    refillRate?: number
+    ttlSeconds?: number
+    /** Override the request timestamp (seconds, may be fractional for sub-second refill). */
+    now?: number
+}
+
+export type KeyedRateLimitPartial = {
+    /** Number of leading items admitted (the rest were dropped). */
+    keptCount: number
+    /** Cost actually debited from the bucket (sum of the admitted prefix). */
+    spent: number
+}
+
 export interface KeyedRateLimiter {
     /**
      * Rate-limit a batch of requests.
@@ -153,6 +171,87 @@ export class KeyedRateLimiterService implements KeyedRateLimiter {
         }
         if (limited > 0) {
             requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'limited' }, limited)
+        }
+        return out
+    }
+
+    /**
+     * Partial-admission rate limiter. Each request carries the per-item costs of a
+     * batch; the bucket admits the longest leading prefix that fits the budget,
+     * debits exactly that, and carries the unspent remainder forward (capped at
+     * bucketSize). Unlike rateLimitMany — which authorizes a single aggregate cost
+     * all-or-nothing and leaves partial admission to the caller — the debit here
+     * always matches what the caller will keep, so accrued budget is neither
+     * destroyed nor double-spent under sustained overload. One Lua call per request.
+     */
+    public async rateLimitPartial(requests: KeyedRateLimitPartialRequest[]): Promise<KeyedRateLimitPartial[]> {
+        if (requests.length === 0) {
+            return []
+        }
+
+        const resolved = requests.map((req) => {
+            const bucketSize = req.bucketSize ?? this.config.bucketSize
+            const refillRate = req.refillRate ?? this.config.refillRate
+            const ttlSeconds = req.ttlSeconds ?? this.config.ttlSeconds
+            if (bucketSize == null || refillRate == null || ttlSeconds == null) {
+                throw new Error(
+                    `KeyedRateLimiterService(${this.config.name}): missing bucketSize/refillRate/ttlSeconds for ${req.id}`
+                )
+            }
+            const now = req.now ?? Math.round(Date.now() / 1000)
+            const totalCost = req.costs.reduce((a, b) => a + b, 0)
+            return { req, bucketSize, refillRate, ttlSeconds, now, totalCost }
+        })
+
+        const res = await this.redis.usePipeline(
+            { name: `keyed-rate-limiter-partial:${this.config.name}`, failOpen: true },
+            (pipeline) => {
+                resolved.forEach((r) => {
+                    pipeline.checkRateLimitPartial(
+                        `${this.keyPrefix}/${r.req.id}`,
+                        r.now,
+                        r.bucketSize,
+                        r.refillRate,
+                        r.ttlSeconds,
+                        r.totalCost,
+                        ...r.req.costs
+                    )
+                })
+            }
+        )
+
+        redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitPartial' }, requests.length)
+
+        if (!res) {
+            if (this.config.failOpen === false) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
+            }
+            // Fail open: admit every item.
+            requestsTotal.inc(
+                { name: this.config.name, method: 'rateLimitPartial', outcome: 'allowed' },
+                requests.length
+            )
+            return resolved.map((r) => ({ keptCount: r.req.costs.length, spent: r.totalCost }))
+        }
+
+        let allowed = 0
+        let limited = 0
+        const out: KeyedRateLimitPartial[] = resolved.map((r, index) => {
+            const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            const keptCount = Number(tokenRes[1]?.[0] ?? r.req.costs.length)
+            const spent = Number(tokenRes[1]?.[1] ?? r.totalCost)
+            if (keptCount < r.req.costs.length) {
+                limited++
+            } else {
+                allowed++
+            }
+            return { keptCount, spent }
+        })
+        if (allowed > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitPartial', outcome: 'allowed' }, allowed)
+        }
+        if (limited > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitPartial', outcome: 'limited' }, limited)
         }
         return out
     }

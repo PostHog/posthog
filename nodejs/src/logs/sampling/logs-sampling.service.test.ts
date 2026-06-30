@@ -52,7 +52,7 @@ function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | 
 }
 
 describe('LogsSamplingService', () => {
-    it('batches rate_limit lines and drops when tokensBefore is below pending count', async () => {
+    it('batches rate_limit lines and drops lines past the admitted prefix', async () => {
         const ruleSet = compileRuleSet([
             {
                 id: 'rl-1',
@@ -72,9 +72,10 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitPartial: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
-                const pipelineResult: [Error | null, any][] = [[null, [2, 0] as const]]
+                // [keptCount, spent]: admit the first 2 of 3 records (records-mode, 1 token each).
+                const pipelineResult: [Error | null, any][] = [[null, [2, 2] as const]]
                 return Promise.resolve(pipelineResult)
             }),
         }
@@ -105,7 +106,7 @@ describe('LogsSamplingService', () => {
             },
         ])
         // 3 rows: 250 bytes, 750 bytes, null (old-producer message).
-        // Token budget of 1 → first row admitted, the other two dropped.
+        // Only the first row is admitted, the other two dropped.
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
             baseLog('a', 'api', 250),
             baseLog('b', 'api', 750),
@@ -115,9 +116,10 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitPartial: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
-                const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
+                // [keptCount, spent]: admit the first record only (records-mode, 1 token each).
+                const pipelineResult: [Error | null, any][] = [[null, [1, 1] as const]]
                 return Promise.resolve(pipelineResult)
             }),
         }
@@ -154,9 +156,10 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitPartial: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
-                const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
+                // [keptCount, spent]: admit the first 2 rows (300+400), drop the 3rd.
+                const pipelineResult: [Error | null, any][] = [[null, [2, 700] as const]]
                 return Promise.resolve(pipelineResult)
             }),
         }
@@ -200,9 +203,10 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitPartial: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
-                const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
+                // [keptCount, spent]: admit the first 2 rows (200 + null→0), drop the 3rd.
+                const pipelineResult: [Error | null, any][] = [[null, [2, 200] as const]]
                 return Promise.resolve(pipelineResult)
             }),
         }

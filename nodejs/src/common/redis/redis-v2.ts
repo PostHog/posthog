@@ -7,12 +7,23 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
+import { defineLuaTokenBucketPartial } from './redis-token-bucket-partial.lua'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'
 
-type WithCheckRateLimit<TV2, TV3, TGuarded> = {
+type WithCheckRateLimit<TV2, TV3, TGuarded, TPartial> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
     checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
+    /** Variadic: (key, now, poolMax, fillRate, expiry, totalCost, ...perRecordCosts). Returns [keptCount, spent]. */
+    checkRateLimitPartial: (
+        key: string,
+        now: number,
+        poolMax: number,
+        fillRate: number,
+        expiry: number,
+        totalCost: number,
+        ...costs: number[]
+    ) => TPartial
     checkGuardedRateLimit: (
         cooldownKey: string,
         counterKey: string,
@@ -29,10 +40,15 @@ type WithCheckRateLimit<TV2, TV3, TGuarded> = {
 }
 
 export type RedisClientPipeline = Pipeline &
-    WithCheckRateLimit<[number, number], [number, number], [number, number, number]>
+    WithCheckRateLimit<[number, number], [number, number], [number, number, number], [number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>, Promise<[number, number, number]>> & {
+    WithCheckRateLimit<
+        Promise<[number, number]>,
+        Promise<[number, number]>,
+        Promise<[number, number, number]>,
+        Promise<[number, number]>
+    > & {
         pipeline: () => RedisClientPipeline
     }
 
@@ -59,6 +75,7 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
                 defineLuaTokenBucketGuarded(client)
+                defineLuaTokenBucketPartial(client)
 
                 return client as RedisClient
             },

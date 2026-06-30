@@ -553,4 +553,69 @@ describe('KeyedRateLimiterService', () => {
             expect(next[0][1].isRateLimited).toBe(true)
         })
     })
+
+    describe('rateLimitPartial (carry-forward + exact debit)', () => {
+        it('admits the whole batch when it fits and debits exactly the total', async () => {
+            const limiter = buildLimiter('partial-fits')
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            const res = await limiter.rateLimitPartial([{ id: 'team-1', costs: [10, 20, 30] }])
+
+            expect(res[0]).toEqual({ keptCount: 3, spent: 60 })
+            expect((await readBucket(`${limiter.getKeyPrefix()}/team-1`)).pool).toBe('40')
+        })
+
+        it('admits only the fitting prefix on overload and carries the unspent budget forward', async () => {
+            // Budget 100, batch [40,40,40]: 40+40 fit, the third (→120) does not.
+            // V2 would never debit (pool stays 100); V3 would floor-drain (pool→~0).
+            // The correct bucket debits exactly 80 and keeps the remaining 20.
+            const limiter = buildLimiter('partial-overload')
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            const res = await limiter.rateLimitPartial([{ id: 'team-1', costs: [40, 40, 40] }])
+
+            expect(res[0]).toEqual({ keptCount: 2, spent: 80 })
+            expect((await readBucket(`${limiter.getKeyPrefix()}/team-1`)).pool).toBe('20')
+        })
+
+        it('eventually admits an item larger than a single refill instead of starving it', async () => {
+            // The exact V3 floor-drain regression: an item costing more than one
+            // refill interval's worth must accumulate budget across calls, not be
+            // wiped every call. bucketSize 100, refillRate 10/s, item cost 25.
+            const limiter = buildLimiter('partial-starve', { bucketSize: 100, refillRate: 10 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            // Drain the initial full bucket.
+            await limiter.rateLimitPartial([{ id: 'team-1', costs: [100] }])
+
+            const keptOverTime: number[] = []
+            for (let i = 0; i < 3; i++) {
+                advanceTime(1000) // +10 tokens each second
+                const res = await limiter.rateLimitPartial([{ id: 'team-1', costs: [25] }])
+                keptOverTime.push(res[0].keptCount)
+            }
+
+            // 10 < 25, 20 < 25, 30 ≥ 25 → admitted on the third try (floor-drain: never).
+            expect(keptOverTime).toEqual([0, 0, 1])
+        })
+
+        it('caps sustained-overload admission at refillRate per interval', async () => {
+            const limiter = buildLimiter('partial-sustained', { bucketSize: 100, refillRate: 10 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            // Drain the initial burst so we measure steady-state refill, not the pool.
+            await limiter.rateLimitPartial([{ id: 'team-1', costs: [100] }])
+
+            const overflowing = Array.from({ length: 50 }, () => 1) // 50 ≫ 10/s refill
+            const keptPerSecond: number[] = []
+            for (let i = 0; i < 5; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitPartial([{ id: 'team-1', costs: overflowing }])
+                keptPerSecond.push(res[0].keptCount)
+            }
+
+            // Exactly refillRate admitted each second — not ~0 (V3) and not ~bucketSize (V2).
+            expect(keptPerSecond).toEqual([10, 10, 10, 10, 10])
+        })
+    })
 })

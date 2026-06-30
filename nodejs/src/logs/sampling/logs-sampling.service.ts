@@ -2,7 +2,7 @@ import { trace } from '@opentelemetry/api'
 import { Counter } from 'prom-client'
 
 import { type RedisV2 } from '~/common/redis/redis-v2'
-import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
+import { KeyedRateLimitPartialRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { type PiiScrubStats } from '~/logs/log-pii-scrub'
@@ -98,10 +98,7 @@ export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
     constructor(redis: RedisV2, ttlSeconds: number) {
-        this.rateLimiter = new KeyedRateLimiterService(
-            { name: 'logs-sampling-rate', ttlSeconds, scriptVersion: 'v3' },
-            redis
-        )
+        this.rateLimiter = new KeyedRateLimiterService({ name: 'logs-sampling-rate', ttlSeconds }, redis)
     }
 
     @instrumented({
@@ -228,9 +225,10 @@ export class LogsSamplingService {
 
     /**
      * Maps a recordIndex -> keep (true) or drop (false) decision per rate_limit rule.
-     * Each rule's pending lines share one Lua call; lines are admitted while their
-     * accumulated cost stays within the pre-batch token budget. Cost is one token
-     * per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
+     * Each rule's pending lines share one Lua call: the bucket admits the longest
+     * leading run of lines whose accumulated cost fits the current token budget,
+     * debits exactly that, and carries the unspent remainder forward. Cost is one
+     * token per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
      * (`costUnit: 'bytes'`); rows missing the field contribute 0.
      */
     private async applyRateLimits(
@@ -245,7 +243,11 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
-        type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
+        // Fractional seconds so sub-second refill accumulates continuously — whole-
+        // second rounding over-refills (a 0.2s gap that rounds across a second
+        // boundary credits a full second) and under-drops.
+        const nowSeconds = Date.now() / 1000
+        type Entry = { indices: number[]; req: KeyedRateLimitPartialRequest }
         const entries: Entry[] = []
 
         for (const [ruleId, indices] of pendingByRule) {
@@ -255,15 +257,14 @@ export class LogsSamplingService {
             }
             const costs =
                 rl.costUnit === 'bytes' ? indices.map((idx) => recordBytes(records[idx]!)) : indices.map(() => 1)
-            const totalCost = costs.reduce((a, b) => a + b, 0)
             entries.push({
                 indices,
-                costs,
                 req: {
                     id: `${teamId}/${ruleId}`,
-                    cost: totalCost,
+                    costs,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
+                    now: nowSeconds,
                 },
             })
         }
@@ -277,20 +278,13 @@ export class LogsSamplingService {
             return keepByIndex
         }
 
-        const results = await this.rateLimiter.rateLimitMany(entries.map((e) => e.req))
+        const results = await this.rateLimiter.rateLimitPartial(entries.map((e) => e.req))
 
         for (let i = 0; i < entries.length; i++) {
-            const { indices, costs } = entries[i]!
-            const tokensBefore = results[i]?.[1].tokensBefore ?? 0
-            const budget = Math.max(0, Math.floor(tokensBefore))
-            let spent = 0
+            const { indices } = entries[i]!
+            const keptCount = results[i]?.keptCount ?? indices.length
             for (let j = 0; j < indices.length; j++) {
-                const next = spent + costs[j]!
-                const admit = next <= budget
-                keepByIndex.set(indices[j]!, admit)
-                if (admit) {
-                    spent = next
-                }
+                keepByIndex.set(indices[j]!, j < keptCount)
             }
         }
 
