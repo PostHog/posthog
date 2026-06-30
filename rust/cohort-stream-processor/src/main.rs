@@ -223,6 +223,8 @@ async fn async_main(config: Config) -> Result<()> {
     if config.durable_restore_enabled {
         dispatcher.enable_durable_restore();
     }
+    // Person-memo config, likewise set before any worker spawns.
+    dispatcher.set_person_memo_config(config.person_memo_config());
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config

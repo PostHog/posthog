@@ -756,6 +756,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-spec-schema": {
+        "description": "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against, so fields with a default are optional on write. Read this BEFORE composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape. Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get the agent spec JSON schema",
+        "title": "Get the agent spec JSON schema",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
@@ -3926,6 +3941,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-update": {
+        "description": "Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — pass only the ones you want to change, but supply at least one. Use this to clarify a report's title or rewrite its summary when you understand the underlying issue better than the auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit a signal report's title or summary",
+        "title": "Edit a signal report's title or summary",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-create": {
         "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
         "category": "Signals",
@@ -4375,7 +4404,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -6584,7 +6613,7 @@
         }
     },
     "signals-scout-edit-report": {
-        "description": "The report channel's edit half: rewrite a report's `title`/`summary` and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Edit an existing report for a run",
@@ -6598,7 +6627,7 @@
         }
     },
     "signals-scout-emit-report": {
-        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Author a full report for a run",
@@ -6623,6 +6652,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "signals-scout-members-list": {
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing",
+        "title": "List project members for reviewer routing",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "signals-scout-project-profile-get": {

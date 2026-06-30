@@ -254,6 +254,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracingView
                               |UploadedMedia
                               |UserInterview
                               |UserInterviewTopic
@@ -518,6 +519,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracingView
                         |UploadedMedia
                         |UserInterview
                         |UserInterviewTopic
