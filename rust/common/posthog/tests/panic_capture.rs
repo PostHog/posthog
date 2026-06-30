@@ -33,9 +33,9 @@ fn is_internal_panic_exception(req: &HttpMockRequest) -> bool {
             .and_then(|v| v.as_str())
             == Some("panic telemetry test")
         && body
-            .pointer("/batch/0/properties/$exception_panic_file")
+            .pointer("/batch/0/properties/$exception_level")
             .and_then(|v| v.as_str())
-            .is_some_and(|file| file.ends_with("panic_capture.rs"))
+            == Some("fatal")
         && body
             .pointer("/batch/0/properties/service")
             .and_then(|v| v.as_str())

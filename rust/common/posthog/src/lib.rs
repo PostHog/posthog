@@ -125,7 +125,7 @@ fn prepare_event_for_capture(
     mut event: posthog_rs::Event,
     context: &ServiceContext,
 ) -> Option<posthog_rs::Event> {
-    if is_panic_exception(&event)
+    if is_fatal_exception(&event)
         && !CAPTURE_WINDOW.allows(clock_window_minutes(), MAX_CAPTURES_PER_MINUTE)
     {
         return None;
@@ -146,8 +146,13 @@ fn prepare_event_for_capture(
     Some(event)
 }
 
-fn is_panic_exception(event: &posthog_rs::Event) -> bool {
-    event.event_name() == "$exception" && event.properties().contains_key("$exception_panic_file")
+fn is_fatal_exception(event: &posthog_rs::Event) -> bool {
+    event.event_name() == "$exception"
+        && event
+            .properties()
+            .get("$exception_level")
+            .and_then(Value::as_str)
+            == Some("fatal")
 }
 
 /// Strip a legacy capture path suffix from a configured PostHog endpoint,
