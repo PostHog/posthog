@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
+    _search_fields_with_transient_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -97,6 +98,13 @@ class TestGoogleAdsValidateConfig:
             "is_mcc_account": {"enabled": True, "mcc_client_id": "123"},
         }
         assert len(self._manager_id_errors(job_inputs)) == 1
+
+    @pytest.mark.parametrize("is_mcc_account", [False, True, None])
+    def test_non_dict_is_mcc_account_does_not_crash(self, is_mcc_account):
+        # API callers may send is_mcc_account as a plain bool instead of the switch-group dict;
+        # validate_config must not crash trying to read `.get("enabled")` off it.
+        job_inputs = {"customer_id": "1234567890", "is_mcc_account": is_mcc_account}
+        assert self._manager_id_errors(job_inputs) == []
 
 
 class TestGoogleAdsNonRetryableErrors:
@@ -776,6 +784,71 @@ class TestSearchTransientRetry:
                 )
 
         # First call raises and propagates immediately — no retry, no backoff.
+        assert service.calls == 1
+        assert sleep.call_count == 0
+
+
+class _FlakyFieldService:
+    """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""
+
+    def __init__(self, pager: object, error: BaseException, fail_times: int):
+        self.pager = pager
+        self.error = error
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def search_google_ads_fields(self, query: str):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        return self.pager
+
+
+class TestSearchFieldsTransientRetry:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
+            _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            # The reported failure: gRPC INTERNAL ("Internal error encountered.") during schema
+            # discovery, arriving both as the gapic wrapper and the raw _InactiveRpcError.
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
+        ],
+    )
+    def test_rides_out_transient_error(self, error):
+        pager = object()
+        service = _FlakyFieldService(pager, error=error, fail_times=2)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            result = _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        assert result is pager
+        # Two transient failures retried, then the pager was returned.
+        assert service.calls == 3
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_persistent_internal_is_reraised_for_temporal_to_retry(self):
+        service = _FlakyFieldService(
+            object(), error=google_api_exceptions.InternalServerError("500 Internal error encountered."), fail_times=99
+        )
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(google_api_exceptions.InternalServerError):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert service.calls == 4
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_non_transient_error_is_not_retried(self):
+        service = _FlakyFieldService(object(), error=ValueError("boom"), fail_times=99)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(ValueError):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
         assert service.calls == 1
         assert sleep.call_count == 0
 
