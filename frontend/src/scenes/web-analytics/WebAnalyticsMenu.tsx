@@ -76,7 +76,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     </ButtonPrimitive>
                 )}
             </ScenePanelActionsSection>
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_DEFAULT_ON] && (
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
                 <>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>

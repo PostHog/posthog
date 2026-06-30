@@ -843,17 +843,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                // Explicit `false` (opt-out) → always sent, even if the flag is later killed, so a
-                // user who turned precompute off stays off. Otherwise (untouched `null` or explicit
-                // `true`) → send `true` while the default-on killswitch flag is set, so enrolled
-                // teams read precompute without a per-user toggle; the backend gate still rejects
-                // non-enrolled teams, so sending `true` for them is a harmless no-op. With the
-                // killswitch off we omit it (fall back to the backend's per-team default) rather
-                // than flipping to `false`, which would wrongly opt an unrestricted team out.
+                // Explicit `false` (opt-out) → always sent, so a user who turned precompute off stays
+                // off even if the flag is later turned off. Otherwise (untouched `null` or explicit
+                // `true`) → send `true` while the precompute flag is on, so enrolled teams read
+                // precompute without a per-user toggle; the backend gate still rejects non-enrolled
+                // teams, so sending `true` for them is a harmless no-op. With the flag off we omit it
+                // (fall back to the backend's per-team default) rather than flipping to `false`,
+                // which would wrongly opt an unrestricted team out.
                 useWebAnalyticsPrecompute:
                     useWebAnalyticsPrecompute === false
                         ? false
-                        : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_DEFAULT_ON]
+                        : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]
                           ? true
                           : undefined,
             }),
