@@ -40,6 +40,19 @@ interface ExecMetricState {
     innerToolName: string | undefined
 }
 
+const EXECUTE_SQL_TOOL_NAME = 'execute-sql'
+
+// The executed HogQL is the one tool argument worth keeping on the event: paired with
+// $mcp_intent it yields (intent, query) rows for offline evals. Other tools' args stay
+// off the event. Returns {} for non-execute-sql so the spread is a no-op.
+function executeSqlEventProps(toolName: string, validatedArgs: unknown): Record<string, unknown> {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+        return {}
+    }
+    const query = (validatedArgs as { query?: unknown }).query
+    return typeof query === 'string' ? { $mcp_query: query } : {}
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
@@ -221,6 +234,7 @@ export class ToolExecutor {
                 {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...executeSqlEventProps(tool.name, validation.data),
                 },
                 intentMeta
             )
@@ -231,7 +245,14 @@ export class ToolExecutor {
             stop({ status: 'error' })
             classifyToolError(error, tool.name)
 
-            void trackToolCall(tool.name, Date.now() - startMs, true, state, undefined, intentMeta)
+            void trackToolCall(
+                tool.name,
+                Date.now() - startMs,
+                true,
+                state,
+                executeSqlEventProps(tool.name, validation.data),
+                intentMeta
+            )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
