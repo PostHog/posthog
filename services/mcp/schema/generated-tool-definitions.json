@@ -756,6 +756,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-spec-schema": {
+        "description": "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against, so fields with a default are optional on write. Read this BEFORE composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape. Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get the agent spec JSON schema",
+        "title": "Get the agent spec JSON schema",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
