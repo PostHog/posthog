@@ -3,7 +3,6 @@ import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/fron
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
-import { BypassRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/bypass_rules/BypassRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
@@ -500,15 +499,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
-                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
-            },
-            {
-                id: 'error-tracking-bypass-rules',
-                title: 'Bypass rules',
-                description: 'Exempt matching exceptions from rate limiting so they are always ingested.',
-                component: <BypassRules />,
-                flag: 'ERROR_TRACKING_RATE_LIMITING_BYPASS',
-                keywords: ['bypass', 'rate', 'limit', 'exempt', 'allow', 'ingestion'],
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
                 id: 'error-tracking-auto-assignment',
