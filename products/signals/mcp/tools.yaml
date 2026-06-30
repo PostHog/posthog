@@ -385,7 +385,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
         title: Run a scout now
         description: >
             Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a

@@ -548,7 +548,7 @@ const signalsScoutConfigRun = (): ToolBase<typeof SignalsScoutConfigRunSchema, u
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return result
     },
 })
 
