@@ -4,7 +4,9 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from posthog.api.person import get_person_name
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -29,10 +31,11 @@ def _serialize_survey_summary(survey: Survey) -> dict[str, Any]:
     }
 
 
-def _serialize_response_row(row: SurveyResponseRow) -> dict[str, Any]:
+def _serialize_response_row(row: SurveyResponseRow, person_display_name: str | None) -> dict[str, Any]:
     return {
         "uuid": row.uuid,
         "distinct_id": row.distinct_id,
+        "person_display_name": person_display_name,
         "session_id": row.session_id,
         "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
         "answers": [
@@ -45,6 +48,19 @@ def _serialize_response_row(row: SurveyResponseRow) -> dict[str, Any]:
             for answer in row.answers
         ],
     }
+
+
+def _resolve_person_display_names(team: Team, rows: list[SurveyResponseRow]) -> dict[str, str]:
+    """Map each row's distinct_id to a human-friendly person display name (email/name).
+
+    Best-effort: distinct_ids without a matched person are simply omitted, and the
+    frontend falls back to the distinct_id itself.
+    """
+    distinct_ids = list({row.distinct_id for row in rows if row.distinct_id})
+    if not distinct_ids:
+        return {}
+    persons_by_distinct_id = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+    return {distinct_id: get_person_name(team, person) for distinct_id, person in persons_by_distinct_id.items()}
 
 
 def _resolve_since(config: dict[str, Any], team: Team) -> datetime | None:
@@ -111,10 +127,12 @@ def run_survey_results_widget(
                 limit=typed_config["limit"],
             )
 
+    display_names = _resolve_person_display_names(team, rows)
+
     return {
         "survey": _serialize_survey_summary(survey),
         "stats": stats_payload.get("stats", {}),
         "rates": stats_payload.get("rates", {}),
-        "responses": [_serialize_response_row(row) for row in rows],
+        "responses": [_serialize_response_row(row, display_names.get(row.distinct_id)) for row in rows],
         "hasMore": has_more,
     }

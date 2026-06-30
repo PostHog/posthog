@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { StackedBar, type StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +30,7 @@ export type SurveyResultsWidgetResponseAnswer = {
 export type SurveyResultsWidgetResponse = {
     uuid: string
     distinct_id: string
+    person_display_name: string | null
     session_id: string | null
     submitted_at: string | null
     answers: SurveyResultsWidgetResponseAnswer[]
@@ -151,9 +153,13 @@ function SurveyResponseRow({ response }: { response: SurveyResultsWidgetResponse
     return (
         <div className="flex flex-col gap-1 rounded border p-2">
             <div className="flex items-center justify-between gap-2 text-xs text-muted">
-                <span className="min-w-0 truncate font-medium text-primary" title={response.distinct_id}>
-                    {response.distinct_id}
-                </span>
+                <PersonDisplay
+                    person={{ distinct_id: response.distinct_id }}
+                    displayName={response.person_display_name ?? undefined}
+                    withIcon
+                    noPopover
+                    className="min-w-0 truncate font-medium text-primary"
+                />
                 {response.submitted_at ? <TZLabel time={response.submitted_at} /> : null}
             </div>
             {response.answers.map((answer) => {

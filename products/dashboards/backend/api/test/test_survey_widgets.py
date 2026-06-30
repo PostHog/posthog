@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -6,11 +7,13 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
+from posthog.test.persons import create_person
 
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.widget_registry import SURVEY_RESULTS_WIDGET_TYPE, validate_widget_config
-from products.dashboards.backend.widgets.survey_results import run_survey_results_widget
+from products.dashboards.backend.widgets.survey_results import _resolve_person_display_names, run_survey_results_widget
 from products.surveys.backend.models import Survey
+from products.surveys.backend.responses.fetch_rows import SurveyResponseRow
 
 
 def _block_survey_for_member(team: Team, survey: Survey, member: User) -> None:
@@ -109,3 +112,21 @@ class TestSurveyResultsWidgetRunner(APIBaseTest):
         result = run_survey_results_widget(self.team, {"surveyId": str(survey.id)}, user=member)
 
         assert result == {"survey": None, "responses": [], "surveyNotFound": True}
+
+    def test_resolves_person_display_names_for_responses(self) -> None:
+        create_person(team=self.team, distinct_ids=["known"], properties={"email": "user@example.test"})
+
+        def _row(distinct_id: str) -> SurveyResponseRow:
+            return SurveyResponseRow(
+                uuid="uuid",
+                distinct_id=distinct_id,
+                session_id=None,
+                submitted_at=datetime.now(UTC),
+                answers=[],
+            )
+
+        display_names = _resolve_person_display_names(self.team, [_row("known"), _row("anonymous")])
+
+        # Matched person resolves to its email; unmatched distinct_id is omitted so the
+        # frontend can fall back to the raw distinct_id.
+        assert display_names == {"known": "user@example.test"}
