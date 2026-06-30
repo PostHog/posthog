@@ -128,13 +128,7 @@ class DashboardExportInsightsField(serializers.Field):
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
-    # Scalar fields whose value defines *what* (and where) gets delivered. A change to any of these
-    # warrants an immediate confirmation delivery on update; schedule/meta edits (frequency, interval,
-    # title, summary_*, …) must not re-fire one. `integration_id` is delivery-relevant because Slack
-    # routing depends on the connected workspace, not just `target_value`. The dashboard_export_insights
-    # M2M is also delivery-relevant but is popped from validated_data and compared separately in update()
-    # (it can't live in this scalar set).
-    DELIVERY_RELEVANT_FIELDS: ClassVar[tuple[str, ...]] = (
+    FIELDS_THAT_TRIGGER_REDELIVERY: ClassVar[tuple[str, ...]] = (
         "target_value",
         "target_type",
         "integration_id",
@@ -530,6 +524,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
+    def _capture_update_delivery_decision(
+        self, instance: Subscription, *, delivery_triggered: bool, re_enabled: bool
+    ) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=self._caller_distinct_id(),
+                event="subscription_update_delivery_decision",
+                properties={
+                    "subscription_id": instance.id,
+                    "team_id": instance.team_id,
+                    "resource_type": instance.resource_type,
+                    "target_type": instance.target_type,
+                    "delivery_triggered": delivery_triggered,
+                    "reason": "re_enabled"
+                    if re_enabled
+                    else ("delivery_field_changed" if delivery_triggered else "no_delivery_relevant_change"),
+                },
+                groups=groups(None, instance.team),
+            )
+        except Exception:
+            # Telemetry must never block the update.
+            capture_exception()
+
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
 
@@ -705,7 +722,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # whether the edit actually changed what gets delivered. Only snapshot the
         # dashboard_export_insights M2M when the payload carries it — that's the only case
         # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
-        old_delivery_values = {field: getattr(instance, field) for field in self.DELIVERY_RELEVANT_FIELDS}
+        old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
         old_export_insight_ids = (
             set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
         )
@@ -763,7 +780,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         delivery_target_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
-        if not is_re_enabling and not delivery_target_changed:
+
+        # The "<kind> subscription updated" event fires from the post_save signal before this decision is
+        # made, so it can't tell an edit that fired a confirmation from one that intentionally skipped.
+        # Emit the decision explicitly so a regression that silently suppressed deliveries stays observable.
+        delivery_triggered = is_re_enabling or delivery_target_changed
+        self._capture_update_delivery_decision(
+            instance, delivery_triggered=delivery_triggered, re_enabled=is_re_enabling
+        )
+        if not delivery_triggered:
             return instance
 
         temporal = sync_connect()
