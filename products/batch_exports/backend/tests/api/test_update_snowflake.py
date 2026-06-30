@@ -4,6 +4,7 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from products.batch_exports.backend.models import BatchExport
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -14,6 +15,56 @@ pytestmark = [
     pytest.mark.django_db,
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
+
+
+def test_patch_snowflake_keypair_export_with_blank_private_key_keeps_stored_key(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Editing a keypair export without retyping the secret must not wipe the stored private key.
+
+    Secret fields are stripped from API responses and shown as "Leave unchanged" in the UI, so the
+    form resubmits them as empty strings. A blank secret on edit must be treated as "leave unchanged"
+    rather than overwriting the saved credential — otherwise the next scheduled run fails to auth.
+    """
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "account": "my-account",
+            "user": "user",
+            "database": "my-db",
+            "warehouse": "COMPUTE_WH",
+            "schema": "public",
+            "table_name": "my_events",
+            "authentication_type": "keypair",
+            "private_key": "SECRET_KEY",
+        },
+    }
+    batch_export_data = {
+        "name": "my-snowflake-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+
+    # Edit an unrelated field while resubmitting the secret blank, exactly as the UI does.
+    edit = {
+        "destination": {
+            "type": "Snowflake",
+            "config": {
+                "table_name": "renamed_events",
+                "private_key": "",
+            },
+        },
+    }
+    response = patch_batch_export(client, team.pk, batch_export["id"], edit)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    stored_config = BatchExport.objects.get(id=batch_export["id"]).destination.config
+    assert stored_config["private_key"] == "SECRET_KEY"
+    assert stored_config["authentication_type"] == "keypair"
+    assert stored_config["table_name"] == "renamed_events"
 
 
 def test_can_patch_snowflake_batch_export_credentials(client: HttpClient, temporal, organization, team, user):

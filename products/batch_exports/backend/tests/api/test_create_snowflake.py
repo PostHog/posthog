@@ -26,6 +26,12 @@ pytestmark = [
             {},
             status.HTTP_400_BAD_REQUEST,
         ),
+        # A blank secret must be rejected the same way as a missing one — an empty string can't authenticate.
+        (
+            "password",
+            {"password": ""},
+            status.HTTP_400_BAD_REQUEST,
+        ),
         # Key pair auth type tests
         (
             "keypair",
@@ -35,6 +41,16 @@ pytestmark = [
         (
             "keypair",
             {},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+        (
+            "keypair",
+            {"private_key": ""},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+        (
+            "keypair",
+            {"private_key": "   "},
             status.HTTP_400_BAD_REQUEST,
         ),
     ],

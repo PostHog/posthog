@@ -98,6 +98,11 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         : { ...batchExportConfig.destination.config }
 
     const config: Record<string, any> = {
+        // Layer destination defaults underneath the stored config so fields the API omits (e.g.
+        // authentication_type on older Snowflake exports) fall back to a sane default, while any value
+        // the export actually has always wins. This keeps a loaded keypair export from rendering as
+        // password auth just because the default would otherwise take over.
+        ...(definition ? definition.defaults() : {}),
         name: batchExportConfig.name,
         destination: destinationType,
         paused: batchExportConfig.paused,

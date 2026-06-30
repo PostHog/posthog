@@ -1116,6 +1116,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "Use 'AwsS3' for AWS S3, or 'S3Compatible' for S3-compatible storage."
             )
 
+        # Snowflake secret fields (`private_key`, `password`, `user`, ...) are stripped from API
+        # responses and shown as "Leave unchanged" in the UI, but the form still resubmits them — as
+        # empty strings — when an export is edited without retyping the secret. On an edit, treat a
+        # blank secret as "keep the stored value" so we never overwrite a saved credential with "".
+        # `config` is mutated in place so the persistence merge in `update()` uses the cleaned config
+        # too. On create there is nothing to preserve, so blank secrets fall through to validation below.
+        # (S3-family exports keep their own explicit empty-input validation below, so they're excluded.)
+        if instance is not None and destination_type == BatchExportDestination.Destination.SNOWFLAKE:
+            for secret_field in BatchExportDestination.secret_fields.get(destination_type, set()):
+                if _is_blank(config.get(secret_field)):
+                    config.pop(secret_field, None)
+
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
@@ -1125,9 +1137,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid destination URL: {url}")
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
-            if config.get("authentication_type") == "password" and merged_config.get("password") is None:
+            # Resolve the effective auth type from the merged config so the requirement still holds when
+            # an edit omits `authentication_type`, and reject blank secrets the same way as missing ones
+            # — an empty string must not satisfy the requirement (it can't authenticate).
+            authentication_type = merged_config.get("authentication_type")
+            if authentication_type == "password" and _is_blank(merged_config.get("password")):
                 raise serializers.ValidationError("Password is required if authentication type is password")
-            if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
+            if authentication_type == "keypair" and _is_blank(merged_config.get("private_key")):
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
 
         if destination_type in S3_FAMILY_TYPES:
@@ -1474,6 +1490,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
             sync_batch_export(batch_export, created=False)
 
         return batch_export
+
+
+def _is_blank(value: typing.Any) -> bool:
+    """Return True if a config value is effectively unset — None or an empty/whitespace-only string."""
+    return value is None or (isinstance(value, str) and value.strip() == "")
 
 
 def recursive_dict_merge(
