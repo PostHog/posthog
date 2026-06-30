@@ -1341,11 +1341,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
         bug_fix_settings_touched = "ai_bug_fix_prs_enabled" in value or "ai_bug_fix_repo" in value
         if bug_fix_settings_touched:
+            # Enabling autonomous bug-fix PRs lets a diagnostic ticket dispatch a coding agent that opens
+            # a PR against the team's GitHub repo, so require org-admin on both update and create. On create
+            # there's no team yet (self.instance is None) — resolve the org from the view, matching the
+            # admin gate in validate_team_attrs. Fail closed if we can't establish an admin principal+org.
             request = self.context.get("request")
-            if request and self.instance:
-                user = request.user
-                if not user_is_conversations_admin(user, self.instance.organization_id):
-                    raise exceptions.PermissionDenied("Only organization admins can manage bug-fix PR settings.")
+            view = self.context.get("view")
+            user = getattr(request, "user", None)
+            organization_id = self.instance.organization_id if self.instance else getattr(view, "organization_id", None)
+            if user is None or organization_id is None or not user_is_conversations_admin(user, organization_id):
+                raise exceptions.PermissionDenied("Only organization admins can manage bug-fix PR settings.")
         if "ai_bug_fix_prs_enabled" in value:
             value["ai_bug_fix_prs_enabled"] = bool(value["ai_bug_fix_prs_enabled"])
         if "ai_bug_fix_repo" in value:
