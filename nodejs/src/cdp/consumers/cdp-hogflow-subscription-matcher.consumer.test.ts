@@ -1257,6 +1257,75 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
     })
 
+    describe('_parseInternalEventsBatch', () => {
+        const rawInternalEvent = (overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: overrides.team_id ?? 1,
+                    event: {
+                        uuid: 'evt-uuid-1',
+                        event: '$workflows_email_opened',
+                        distinct_id: 'distinct-1',
+                        properties: {},
+                        timestamp: '2024-01-01T00:00:00Z',
+                        ...overrides.event,
+                    },
+                    ...(overrides.person !== undefined ? { person: overrides.person } : {}),
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps an internal event to globals keyed on distinct_id', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$workflows_email_opened')
+            expect(globals.event.distinct_id).toBe('distinct-1')
+        })
+
+        it('skips events with no identifiers and no-flow teams, but keeps a person-only event', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                rawInternalEvent({ event: { distinct_id: '' } }), // no distinct_id and no person
+                rawInternalEvent({ team_id: 2 }), // team 2 has no actionable flow
+                rawInternalEvent({ event: { distinct_id: '' }, person: { id: 'person-1', properties: {} } }),
+            ])
+
+            // Only the person-only event for the actionable team survives — matched later by person_id.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).person?.id).toBe('person-1')
+        })
+
+        it('skips an event whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toEqual([])
+        })
+
+        it('drops a malformed message (schema parse failure) without throwing', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                { value: Buffer.from(JSON.stringify({ team_id: 1 })) }, // missing required `event`
+                rawInternalEvent(),
+            ])
+
+            // The bad message is dropped; the valid one still parses.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$workflows_email_opened')
+        })
+    })
+
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
     // it exercises the same wake decision the matcher makes for every events/property/action shape.
     describe('wake matrix: events / property / action combinations', () => {
