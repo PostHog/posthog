@@ -562,6 +562,20 @@ def check_flag_limits_for_team(
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
 
 
+def _apply_remote_config_team_rate_override(throttle, view) -> None:
+    # Raise or lower a specific team's remote_config cap via REMOTE_CONFIG_RATE_LIMITS. On any
+    # lookup/parse failure, leave the default rate in place rather than failing the request.
+    team_id = throttle.safely_get_team_id_from_view(view)
+    if team_id:
+        try:
+            custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+            if custom_rate:
+                throttle.rate = custom_rate
+                throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
+        except Exception:
+            logger.exception("Error getting team-specific rate limit for team %s", team_id)
+
+
 class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
     # PersonalApiKeyRateThrottle would let through.
@@ -569,18 +583,7 @@ class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
-
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
-
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
@@ -591,16 +594,7 @@ class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThr
     rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
