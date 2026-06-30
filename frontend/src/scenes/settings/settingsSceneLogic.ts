@@ -18,6 +18,8 @@ const AI_OBSERVABILITY_SETTINGS_SECTION: SettingSectionId = 'project-ai-observab
 const AI_OBSERVABILITY_BYOK_SETTING: SettingId = 'ai-observability-byok'
 const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
 const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
+const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
+const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
 
 const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
@@ -60,6 +62,25 @@ const canonicalSettingsHashParams = (hashParams: Params): [Params, boolean] => {
     if (nextHashParams.selectedSetting === LEGACY_LLM_ANALYTICS_BYOK_SETTING) {
         nextHashParams.selectedSetting = AI_OBSERVABILITY_BYOK_SETTING
         nextHashParams[AI_OBSERVABILITY_BYOK_SETTING] = null
+        changed = true
+    }
+
+    // The toolbar `#authorized-urls` deep link now points at the Web analytics domains setting.
+    if (hasHashParam(nextHashParams, LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING)) {
+        delete nextHashParams[LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING]
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.setting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.setting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.selectedSetting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.selectedSetting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
         changed = true
     }
 
