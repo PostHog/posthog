@@ -1,4 +1,5 @@
 import { defaultConfig } from '~/common/config/config'
+import { logger } from '~/common/utils/logger'
 
 import { SesWebhookHandler } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -35,6 +36,40 @@ describe('SesWebhookHandler', () => {
             ph_id: [signer.generateShort(baseInvocation)],
         },
     }
+
+    it('does not log recipient addresses or tracking codes', async () => {
+        // Guards the webhook-payload log leak: handleWebhook must log only routing metadata, never
+        // raw bodies/records/envelopes that carry recipient addresses and signed tracking codes.
+        const logged: string[] = []
+        const capture = (...args: unknown[]): void => {
+            logged.push(JSON.stringify(args))
+        }
+        const spies = (['info', 'warn', 'error'] as const).map((level) =>
+            jest.spyOn(logger, level).mockImplementation(capture)
+        )
+        try {
+            const trackingCode = baseMail.headers[0].value
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [{ emailAddress: 'to@example.com' }],
+                        timestamp: '2025-10-03T12:00:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+
+            const all = logged.join('\n')
+            expect(all).not.toContain('to@example.com')
+            expect(all).not.toContain(trackingCode)
+        } finally {
+            spies.forEach((spy) => spy.mockRestore())
+        }
+    })
 
     it('parses a raw Open event', async () => {
         const body = [

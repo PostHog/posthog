@@ -303,6 +303,16 @@ export class SesWebhookHandler {
         }
     }
 
+    // Reduce a URL to its host for logging — avoids leaking the SNS subscription token carried
+    // in the SubscribeURL query string.
+    private safeHost(url: string): string {
+        try {
+            return new URL(url).host
+        } catch {
+            return 'invalid'
+        }
+    }
+
     /**
      * Parse incoming body accounting for SNS raw vs envelope
      */
@@ -412,10 +422,17 @@ export class SesWebhookHandler {
             emailAddresses: string[]
         }[]
     }> {
-        logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
 
-        logger.info('[SesWebhookHandler] parsed', { parsed })
+        // Log only non-sensitive routing metadata. The raw body, parsed envelope, and SES records
+        // carry recipient addresses, subjects, SMTP diagnostics, signed tracking codes, and
+        // subscription tokens — none of which belong in operational logs.
+        logger.info('[SesWebhookHandler] handleWebhook', {
+            mode: parsed.mode,
+            type: 'envelope' in parsed ? parsed.envelope?.Type : undefined,
+            messageId: 'envelope' in parsed ? parsed.envelope?.MessageId : undefined,
+            recordCount: parsed.records?.length ?? 0,
+        })
 
         // When verification is required the message must be a signed SNS envelope. Raw deliveries
         // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
@@ -423,9 +440,8 @@ export class SesWebhookHandler {
             if (!('envelope' in parsed)) {
                 return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
             }
-            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
             const ok = await this.verifySnsSignature(parsed.envelope)
-            logger.info('[SesWebhookHandler] signature verified', { ok })
+            logger.info('[SesWebhookHandler] signature verified', { ok, messageId: parsed.envelope.MessageId })
             if (!ok) {
                 return { status: 403, body: { error: 'Invalid SNS signature' } }
             }
@@ -433,16 +449,15 @@ export class SesWebhookHandler {
 
         // Handle confirmation flow
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
-            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
+            logger.info('[SesWebhookHandler] confirming subscription', { messageId: parsed.envelope.MessageId })
             // Confirm by visiting SubscribeURL (contained in the *message JSON*, not envelope.Message field here)
             // We need to fetch the inner message JSON to get SubscribeURL
             const env = parsed.envelope
             const inner = parseJSON(env.Message) as { SubscribeURL?: string }
-            logger.info('[SesWebhookHandler] confirming subscription', { inner })
             if (inner.SubscribeURL) {
                 if (!this.isValidSnsSubscribeUrl(inner.SubscribeURL)) {
                     logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: inner.SubscribeURL,
+                        host: this.safeHost(inner.SubscribeURL),
                     })
                     return { status: 403, body: { error: 'Invalid SubscribeURL' } }
                 }
@@ -452,7 +467,7 @@ export class SesWebhookHandler {
         }
 
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'UnsubscribeConfirmation') {
-            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
+            logger.info('[SesWebhookHandler] confirming unsubscribe', { messageId: parsed.envelope.MessageId })
             return { status: 200, body: { ok: true } }
         }
 
@@ -483,7 +498,7 @@ export class SesWebhookHandler {
         }[] = []
 
         for (const rec of records) {
-            logger.info('[SesWebhookHandler] processing record', { rec })
+            logger.info('[SesWebhookHandler] processing record', { eventType: rec.eventType })
             // Prefer the custom MIME header (carries the full signed code including distinct_id,
             // unbounded). Fall back to the SES EmailTag for messages sent before the header carrier
             // was added, or where the configuration set hasn't enabled `IncludeOriginalHeaders`.
@@ -498,7 +513,10 @@ export class SesWebhookHandler {
             const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest } = parsedCode || {}
 
             if (!functionId && !invocationId) {
-                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
+                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', {
+                    eventType: rec.eventType,
+                    messageId: rec.mail.messageId,
+                })
                 continue
             }
 
