@@ -4520,6 +4520,7 @@ export interface PreflightStatus {
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
     ai_gateway_url?: string | null
     object_storage: boolean
+    wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
 }
@@ -6897,6 +6898,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
     key: string
     label: string
     choices?: { value: string; label: string }[]

@@ -10,6 +10,13 @@ on:
                 description: 'Specific PR number to cleanup (optional)'
                 type: string
                 required: false
+        secrets:
+            DIGITAL_OCEAN_HOBBY_TOKEN:
+                required: true
+            CLOUDFLARE_API_TOKEN:
+                required: true
+            CLOUDFLARE_ACCOUNT_ID:
+                required: true
     workflow_dispatch:
         inputs:
             pr_number:
