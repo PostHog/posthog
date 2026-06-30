@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Published npm package, pinned to @latest so cloud runs exercise the same build users install.
 WIZARD_PACKAGE = "@posthog/wizard@latest"
+
 # Large repos can take ~45 min to integrate (observed p99.9 of real runs). The Temporal activity's
 # start_to_close_timeout (see workflow._run_wizard_if_configured) must stay above this so the
 # wizard's own timeout is what bounds the run, not the activity wrapper killing it early.

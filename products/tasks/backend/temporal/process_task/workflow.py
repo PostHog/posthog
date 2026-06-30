@@ -254,6 +254,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(CI_FOLLOW_UP_DELAY.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
+    def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
+        """Human-readable summary of what the loop is blocked on, for the Temporal UI.
+
+        The loop blocks on bare `workflow.sleep` timers (CI follow-up, inactivity), which render
+        as unlabeled Timer events — indistinguishable from a hang at a glance. This names the wait.
+        """
+        if warm_idle:
+            return "⏳ Warm sandbox idle — waiting for the first user message."
+
+        timeout_min = max(1, round(inactivity_timeout.total_seconds() / 60))
+        if not ci_follow_up_scheduled:
+            return f"⏳ Waiting for the agent to finish or send an update (inactivity timeout {timeout_min}m)."
+
+        next_check = CI_FOLLOW_UP_DELAY
+        if self._last_active_time:
+            remaining = CI_FOLLOW_UP_DELAY - (workflow.now() - self._last_active_time)
+            if remaining > timedelta(0):
+                next_check = remaining
+        next_min = max(1, round(next_check.total_seconds() / 60))
+        return (
+            f"⏳ Waiting for the agent, or to re-check the PR's CI in ~{next_min}m "
+            f"(CI follow-up {self._ci_repetitions + 1}/{MAX_CI_REPETITIONS}; inactivity timeout {timeout_min}m)."
+        )
+
     async def _wait_for_event(self) -> TaskEvent:
         warm_idle = self._prewarmed and not self._first_user_message_received
 
@@ -279,6 +303,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             inactivity_timeout = max(base_timeout, ci_follow_up_floor)
         else:
             inactivity_timeout = base_timeout
+
+        workflow.set_current_details(
+            self._describe_wait(
+                warm_idle=warm_idle,
+                ci_follow_up_scheduled=ci_follow_up_scheduled,
+                inactivity_timeout=inactivity_timeout,
+            )
+        )
+
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
@@ -487,6 +520,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         follow_up_result = await self._should_run_ci_follow_up()
                         match follow_up_result:
                             case CIFollowUpDecision.FIRE:
+                                workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR:
                                 # No PR will ever appear — stop the CI loop entirely.
