@@ -57,9 +57,21 @@ class TestTemplateInputUsage(BaseTest):
 
         assert usage == {}
 
+    def test_only_value_key_scans_for_a_single_key(self):
+        active = self._create_flow(
+            name="Active flow", status="active", actions=[_account_property_action({"def-a": "1", "def-b": "2"})]
+        )
+
+        usage = get_hog_flows_referencing_template_input_keys(
+            self.team.id, TEMPLATE_ID, "properties", only_value_key="def-a"
+        )
+
+        assert {ref.id for ref in usage["def-a"]} == {str(active.id)}
+        assert "def-b" not in usage
+
     def test_scopes_to_team(self):
-        other_team = self._create_flow(name="ours", status="active", actions=[_account_property_action({"def-a": "1"})])
-        assert other_team  # created for this team
+        flow = self._create_flow(name="ours", status="active", actions=[_account_property_action({"def-a": "1"})])
+        assert flow  # created for self.team
 
         usage = get_hog_flows_referencing_template_input_keys(self.team.id + 1, TEMPLATE_ID, "properties")
 
