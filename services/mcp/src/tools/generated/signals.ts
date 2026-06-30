@@ -13,6 +13,8 @@ import {
     SignalsReportArtefactsRetrieveParams,
     SignalsReportsBulkStateCreateBody,
     SignalsReportsListQueryParams,
+    SignalsReportsPartialUpdateBody,
+    SignalsReportsPartialUpdateParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
@@ -307,6 +309,31 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
+const InboxReportsUpdateSchema = SignalsReportsPartialUpdateParams.omit({ project_id: true }).extend(
+    SignalsReportsPartialUpdateBody.shape
+)
+
+const inboxReportsUpdate = (): ToolBase<typeof InboxReportsUpdateSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
+    name: 'inbox-reports-update',
+    schema: InboxReportsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
@@ -899,6 +926,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
+    'inbox-reports-update': inboxReportsUpdate,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,

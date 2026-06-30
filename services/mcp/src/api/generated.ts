@@ -20111,6 +20111,7 @@ export namespace Schemas {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -20123,6 +20124,7 @@ export namespace Schemas {
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
+      Minimax: 'minimax',
     } as const;
 
     /**
@@ -25257,6 +25259,74 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+    }
+
+    /**
+     * * `running` - running
+     * * `succeeded` - succeeded
+     * * `failed` - failed
+     */
+    export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
+
+
+    export const HogInvocationRerunFilterStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+     */
+    export interface HogInvocationRerunFilter {
+      /** Inclusive lower bound on `scheduled_at` (UTC). */
+      window_start: string;
+      /** Exclusive upper bound on `scheduled_at` (UTC). */
+      window_end: string;
+      /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+      status?: HogInvocationRerunFilterStatusEnum[];
+      /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+      error_kind?: string[];
+      /**
+         * Skip invocations that have already been attempted this many times or more.
+         * @minimum 1
+         * @maximum 255
+         */
+      max_attempts?: number;
+      /**
+         * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+         * @minimum 1
+         * @maximum 10000
+         */
+      max_count?: number;
+      /**
+         * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+    }
+
+    /**
+     * Rerun invocations of a hog function or hog flow from their stored payloads.
+     */
+    export interface HogInvocationRerunRequest {
+      /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+      filter: HogInvocationRerunFilter;
+    }
+
+    /**
+     * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+     * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+     * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+     * Use `rerun_job_id` to look up progress on the wrapper job later.
+     */
+    export interface HogInvocationRerunResponse {
+      /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+      rerun_job_id: string;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      queued_count: number;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      skipped_count: number;
     }
 
     export interface HogInvocationResult {
@@ -32701,6 +32771,8 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `title_change` - Title Change
+     * * `summary_change` - Summary Change
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -32718,6 +32790,8 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      TitleChange: 'title_change',
+      SummaryChange: 'summary_change',
     } as const;
 
     export interface _User {
@@ -33702,7 +33776,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -39932,6 +40007,28 @@ export namespace Schemas {
       content?: unknown;
     }
 
+    /**
+     * Editable human-facing fields on a signal report (PATCH).
+     *
+     * Both fields are optional so a caller can change either independently, but at least one
+     * must be supplied. Every other report field — status, weights, judgments — is owned by the
+     * signals pipeline and is deliberately not writable here.
+     */
+    export interface PatchedSignalReportContentUpdate {
+      /**
+         * New human-facing title for the report. Omit to leave the title unchanged.
+         * @minLength 1
+         * @maxLength 300
+         */
+      title?: string;
+      /**
+         * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      summary?: string;
+    }
+
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -40790,7 +40887,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -53906,6 +54004,24 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingSparklineQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _TracingSparklineQueryBody;
+    }
+
     export interface _TracingTimeseriesQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -56691,6 +56807,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -63226,6 +63343,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',

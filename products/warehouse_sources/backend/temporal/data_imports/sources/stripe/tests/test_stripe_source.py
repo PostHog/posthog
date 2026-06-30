@@ -17,9 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
@@ -304,6 +306,46 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+
+class TestSubscriptionPageSize:
+    def test_build_resources_caps_subscription_page_size(self):
+        # Subscriptions expand discounts at two levels, so a full DEFAULT_LIMIT page can grow past the
+        # size that transfers intact and arrives truncated mid-stream. The endpoint must request a
+        # smaller page than the default to keep each response transferable.
+        resources = stripe_module._build_resources(MagicMock(), logger=None)
+
+        subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
+        assert subscription.params["limit"] == SUBSCRIPTION_PAGE_LIMIT
+        assert SUBSCRIPTION_PAGE_LIMIT < stripe_module.DEFAULT_LIMIT
+
+    def test_get_rows_sends_resource_limit_over_default(self):
+        # A resource's own `limit` must win over DEFAULT_LIMIT in the merged params — otherwise the
+        # reduced subscription page size would be clobbered back up to 100.
+        captured: dict = {}
+
+        def capturing_list(params):
+            captured.update(params)
+            return _FakeStripeList([])
+
+        resource = StripeResource(method=capturing_list, params={"limit": SUBSCRIPTION_PAGE_LIMIT})
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with patch.object(stripe_module, "_build_resources", return_value={SUBSCRIPTION_RESOURCE_NAME: resource}):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=SUBSCRIPTION_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                )
+            )
+
+        assert captured["limit"] == SUBSCRIPTION_PAGE_LIMIT
 
 
 class TestCustomerMightHaveBalanceTransactions:

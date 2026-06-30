@@ -475,7 +475,13 @@ def get_direct_connection_metadata(
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
     except Exception as error:
-        capture_exception(error)
+        # Connection metadata is best-effort — we fall back below regardless. An expected
+        # user/upstream connection failure (unreachable or misconfigured host, refused connection,
+        # bad credentials) is the customer's to fix and is already surfaced by credential
+        # validation, so don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
+        _, is_expected_source_error = _classify_refresh_schemas_error(source_impl, error)
+        if not is_expected_source_error:
+            capture_exception(error)
         return fallback or {}
 
     return metadata if isinstance(metadata, dict) else (fallback or {})
