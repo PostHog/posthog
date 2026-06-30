@@ -73,6 +73,10 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+# Backstop ceiling on the inline preview pipeline. Each generation stage is already individually
+# timeout-bounded; this caps the total wall-clock a single preview request can occupy a worker if a
+# stage stalls, returning a retryable error instead of pinning the worker toward the gateway timeout.
+PREVIEW_PIPELINE_TIMEOUT_SECONDS = 150
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -1206,11 +1210,24 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             )
 
         try:
-            result: AiReportResult = asyncio.run(preview_ai_subscription_report(subscription))
+            # Preview runs the LLM pipeline INLINE (the caller is interactively waiting on the result),
+            # unlike test-delivery which dispatches a Temporal workflow. The overall deadline backstops
+            # the per-stage timeouts so a stalled upstream can't hold the worker indefinitely; the
+            # throttle caps invocation rate. A fully async preview (workflow + poll) is the longer-term
+            # fix if worker occupancy under load becomes a concern.
+            result: AiReportResult = asyncio.run(
+                asyncio.wait_for(preview_ai_subscription_report(subscription), timeout=PREVIEW_PIPELINE_TIMEOUT_SECONDS)
+            )
         except PromptRejectedError as exc:
             # User-fixable input (deleted creator, prompt fails sanitization, malformed stored plan) — a 400
             # tells the owner exactly what to fix rather than surfacing as a 500.
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except TimeoutError as exc:
+            capture_exception(exc)
+            return Response(
+                {"detail": "Preview timed out; please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as exc:
             capture_exception(exc)
             return Response(

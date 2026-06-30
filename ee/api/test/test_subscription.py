@@ -2792,6 +2792,37 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert Subscription.objects.get(pk=sub_id).query_plan is None
 
+    def _grant_query_viewer_only(self) -> None:
+        # Demote to member and grant query "viewer" (read) but NOT "editor": the caller clears the
+        # query-viewer RBAC gate yet must still be blocked from editing query content.
+        self._enable_access_control_feature()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
+        cache.clear()
+
+    def test_query_plan_write_rejected_for_query_viewer_without_editor(self, mock_is_cloud, mock_flag, mock_sync):
+        # A query VIEWER clears the read gate (so the request reaches validate()) but must NOT edit the
+        # plan's HogQL — that needs editor. This exercises the editor branch the "none"-access test above
+        # can't reach (it's rejected one layer earlier at the viewer gate).
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self._grant_query_viewer_only()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"query_plan": self._valid_query_plan()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "query editor access" in response.json()["detail"]
+        assert Subscription.objects.get(pk=sub_id).query_plan is None
+
     @parameterized.expand(
         [
             ("empty_steps", {"overall_intent": "x", "steps": []}),

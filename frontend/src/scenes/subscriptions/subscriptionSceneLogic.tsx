@@ -324,8 +324,8 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
             try {
                 await subscriptionsRePlanCreate(String(getCurrentTeamId()), numericId)
-            } catch (errorObject: any) {
-                const detail = errorObject?.detail
+            } catch (errorObject: unknown) {
+                const detail = (errorObject as { detail?: unknown })?.detail
                 lemonToast.error(typeof detail === 'string' ? detail : 'Could not re-plan subscription')
                 actions.replanSubscriptionFailure()
                 return
