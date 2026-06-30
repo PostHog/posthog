@@ -13,6 +13,7 @@ Consumers that only read fields should use ``facade.api`` (contracts) instead.
 """
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
@@ -58,6 +59,7 @@ __all__ = [
     "PendingSourceCredential",
     "SSHTunnel",
     "WarehouseColumnAnnotation",
+    "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "get_all_schemas_for_source_id",

@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -26,10 +27,11 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Person, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -44,11 +46,34 @@ from posthog.test.persons import create_person
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.clickhouse.materialized_columns.analyze import materialize
+
+
+def _cohort_member_uuids(team_id: int, cohort: Cohort) -> set[str]:
+    """Resolve a cohort's members to their person UUIDs via personhog."""
+    member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort.pk)
+    uuids: set[str] = set()
+    for pid in member_ids:
+        person = get_person_by_id(team_id, pid)
+        if person is not None:
+            uuids.add(str(person.uuid))
+    return uuids
+
+
+def _cohort_member_distinct_ids(team_id: int, cohort: Cohort) -> set[str]:
+    """Resolve a cohort's members to the union of their distinct IDs via personhog."""
+    member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort.pk)
+    distinct_ids: set[str] = set()
+    for pid in member_ids:
+        person = get_person_by_id(team_id, pid)
+        if person is not None:
+            distinct_ids.update(person.distinct_ids)
+    return distinct_ids
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -369,10 +394,7 @@ email@example.org
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertEqual(distinct_ids, {"123", "0"})
 
         # Test CSV update
@@ -398,10 +420,7 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertIn("456", distinct_ids)  # New ID should be included
 
         # Test name-only update without CSV
@@ -416,10 +435,7 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertIn("456", distinct_ids)  # Should still contain 456
 
     def test_static_cohort_create_and_patch_with_query(self):
@@ -484,8 +500,7 @@ email@example.org
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -535,11 +550,8 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 1)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        first_person = people_in_cohort.first()
-        assert first_person is not None
-        self.assertEqual(first_person.uuid, matching_person.uuid)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(matching_person.uuid)})
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -585,8 +597,7 @@ email@example.org
         self.assertEqual(cohort.count, 0)
         self.assertFalse(cohort.is_calculating)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 0)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 0)
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -637,11 +648,8 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 1)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        first_person = people_in_cohort.first()
-        assert first_person is not None
-        self.assertEqual(first_person.uuid, performed.uuid)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(performed.uuid)})
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -703,8 +711,7 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 2)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual({p.uuid for p in people_in_cohort}, {first_match.uuid, second_match.uuid})
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(first_match.uuid), str(second_match.uuid)})
 
     def test_static_cohort_rejects_criteria_edits_after_creation(self):
         cohort = Cohort.objects.create(
@@ -867,11 +874,10 @@ Zero User,0,zero@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 3)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 3)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
         self.assertIn(str(person3.uuid), person_uuids_in_cohort)
@@ -938,11 +944,10 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -988,11 +993,10 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1042,11 +1046,10 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1079,11 +1082,10 @@ Jane Smith,user456,jane@example.com
         self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1117,11 +1119,10 @@ John Doe,{person1.uuid},john@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -2497,6 +2498,35 @@ email@example.org,
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
+
+    def test_cohort_persons_paginate_newest_created_first(self):
+        # Members must paginate by created_at DESC (newest first), matching the legacy PersonQuery order.
+        # `created_at` order is deliberately decorrelated from insertion order (id) so that the
+        # ActorsQuery default (id ASC) produces a different first page than the required order —
+        # otherwise this regression is invisible (get_serialized_people re-sorts each page by
+        # created_at DESC, so a single page always *looks* correctly ordered).
+        created_at_by_label = {"a": "2021-01-02", "b": "2021-01-04", "c": "2021-01-01", "d": "2021-01-03"}
+        uuid_by_label = {}
+        for label in ["a", "b", "c", "d"]:  # insertion order → ascending id
+            with freeze_time(created_at_by_label[label]):
+                person = create_person(team=self.team, distinct_ids=[label], properties={"$os": "Chrome"})
+                uuid_by_label[label] = str(person.uuid)
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        paged_ids: list[str] = []
+        url: Optional[str] = f"/api/cohort/{cohort.pk}/persons?limit=2"
+        while url:
+            page = self.client.get(url).json()
+            paged_ids += [row["id"] for row in page["results"]]
+            url = page["next"]
+
+        expected = [uuid_by_label[label] for label in ["b", "d", "a", "c"]]  # created_at DESC
+        self.assertEqual(paged_ids, expected)
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -6557,11 +6587,10 @@ jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6607,11 +6636,10 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6661,11 +6689,10 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6703,9 +6730,8 @@ Jane Smith,user456,jane@example.com
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        self.assertIn(str(person.uuid), {str(p.uuid) for p in people_in_cohort})
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertIn(str(person.uuid), _cohort_member_uuids(cohort.team_id, cohort))
 
     def test_insert_users_by_email_always_uses_clickhouse(self):
         cohort = Cohort.objects.create(team=self.team, name="ch-only", is_static=True)

@@ -21,6 +21,18 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
 }
 
+// Per-tab question seeded into PostHog AI so the answer is grounded in what the user is looking at.
+export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
+    dashboard:
+        "Summarize how agents are using my MCP server from $mcp_tool_call events — top tools, error rates, and what they're trying to do.",
+    sessions:
+        'What are agents actually trying to do across my MCP sessions? Group the $mcp_intent values on $mcp_tool_call events into themes.',
+    'tool-quality':
+        'Which of my MCP tools are least reliable? Break down $mcp_tool_call error rate and p95 $mcp_duration_ms by $mcp_tool_name.',
+    'intent-clustering':
+        "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_missing_capability and $mcp_intent.",
+}
+
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsDashboard: 'dashboard',
     mcpAnalyticsSessions: 'sessions',

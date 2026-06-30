@@ -89,6 +89,48 @@ sandbox, no PR). Autostart itself still no-ops unless the report is `immediately
 repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational
 report.
 
+## Choosing `suggested_reviewers` — how a report gets assigned to a human
+
+`suggested_reviewers` is **not just a PR gate** — it is the **primary way a report gets routed
+to the right person internally**. The inbox orders by `is_suggested_reviewer`, so a reviewer's
+own reports float to the top of _their_ inbox; a report with the right reviewer reaches that
+human even when **no PR** is involved. **Set it whenever you can name a plausible owner —
+including on informational `requires_human_input` reports**, not only PR-bound ones. A report
+with no reviewer just sits in the shared inbox hoping someone grabs it.
+
+Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`,
+not `@OctoCat`). Internal assignment matches the login against each user's linked GitHub login by
+exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS
+**team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection
+path is more lenient, but the assignment path is not). You rarely know the login outright —
+resolve it, cheapest source first:
+
+1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a sibling run) recorded
+   before — reuse it. Fastest path, and the reason the caching step at the end of this list exists.
+2. **Inbox precedent.** `inbox-reports-list` for a similar/related report on the same surface
+   (same `source_product`, plus a free-text `search` for the area), then `inbox-reports-retrieve`
+   / `inbox-report-artefacts-list` to see who comparable reports were routed to. Reuse that
+   reviewer for the same area — the safest general recipe, available to every scout.
+3. **CODEOWNERS / git** (only if the scout has a repo checkout). `.github/CODEOWNERS` for the
+   owning path, or the last `git log` author for the file. Neither usually hands you a usable
+   login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log`
+   gives a name + email — both must be resolved to an **individual** GitHub login before you write
+   the reviewer (a team slug or an email won't match any user).
+4. **`org-member-get-github-login`** — the canonical login resolver, available to every scout run
+   (it needs only `organization_member:read`, which scout tokens carry). Once you've identified the
+   owning **person** — by name/email via `org-members-list`, or `@me` for the current user — pass
+   their PostHog user UUID to this tool to get their linked GitHub login (it returns null when the
+   member has no GitHub identity linked). This is the one step that actually hands you a usable
+   handle, so prefer it over guessing when steps 1–3 only give you a person rather than a login.
+
+**If you can't resolve a confident login, leave `suggested_reviewers` empty** — the report still
+surfaces for a human to grab. **Never guess a handle**: a wrong login mis-assigns the report (or
+silently fails to assign), which is worse than leaving it open.
+
+**Cache for next time.** After you confidently tie an area to an owner, write a
+`reviewer:<domain>:<area>` scratchpad entry with the bare lowercase login so the next run — and
+sibling scouts — route faster. The fleet's reviewer map should compound over time.
+
 ## `edit_report` — update an existing report
 
 Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass `run_id`

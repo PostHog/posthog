@@ -69,9 +69,12 @@ class WebhookSourceManager:
             try:
                 ls_res = await s3._ls(prefix, detail=True)
                 ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
-                files = [
-                    f"s3://{f['Key']}" for f in ls_values if f["type"] != "directory" and f["Key"].endswith(".parquet")
-                ]
+                entries = [f for f in ls_values if f["type"] != "directory" and f["Key"].endswith(".parquet")]
+                # Read oldest-first (by S3 mtime, Key as a stable tiebreak) so a key's events reach
+                # the loader in arrival order. The leading `is None` flag sends entries without a
+                # LastModified to the end without ever comparing None to a timestamp.
+                entries.sort(key=lambda f: (f.get("LastModified") is None, f.get("LastModified"), f["Key"]))
+                files = [f"s3://{f['Key']}" for f in entries]
 
                 await self._logger.adebug("list_webhook_parquet_files", prefix=prefix, file_count=len(files))
 
@@ -89,6 +92,13 @@ class WebhookSourceManager:
         files = await self._list_webhook_parquet_files()
 
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
+
+        def finalize_batch(tables: list[pa.Table]) -> pa.Table:
+            # Dedupe across the whole concatenated batch, not per file: a yielded batch can span
+            # several S3 files, and the same id (e.g. a run's queued/completed events) can land in
+            # different files. A per-file pass would let both survive into one batch.
+            merged = pa.concat_tables(tables, promote_options="permissive")
+            return table_transformer(merged) if table_transformer else merged
 
         batch_tables: list[pa.Table] = []
         batch_paths: list[str] = []
@@ -112,16 +122,13 @@ class WebhookSourceManager:
 
                 table = self._transform_webhook_table(table)
 
-                if table_transformer:
-                    table = table_transformer(table)
-
                 batch_tables.append(table)
                 batch_paths.append(path)
                 batch_rows += table.num_rows
                 batch_bytes += table.nbytes
 
                 if batch_rows >= batch_row_limit or batch_bytes >= batch_byte_limit:
-                    merged = pa.concat_tables(batch_tables, promote_options="permissive")
+                    merged = finalize_batch(batch_tables)
                     await self._logger.adebug(
                         "webhook_batch_yield",
                         file_count=len(batch_paths),
@@ -140,7 +147,7 @@ class WebhookSourceManager:
 
             # Yield any remaining rows
             if batch_tables:
-                merged = pa.concat_tables(batch_tables, promote_options="permissive")
+                merged = finalize_batch(batch_tables)
                 await self._logger.adebug(
                     "webhook_batch_yield",
                     file_count=len(batch_paths),

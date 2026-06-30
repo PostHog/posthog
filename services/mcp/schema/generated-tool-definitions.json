@@ -756,6 +756,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-spec-schema": {
+        "description": "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against, so fields with a default are optional on write. Read this BEFORE composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape. Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get the agent spec JSON schema",
+        "title": "Get the agent spec JSON schema",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
@@ -2319,12 +2334,54 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-pr-cost": {
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Estimated CI cost of a PR",
+        "title": "Estimated CI cost of a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "engineering-analytics-sources": {
         "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-jobs": {
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Jobs of a workflow run",
+        "title": "Jobs of a workflow run",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-runner-costs": {
+        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Workflow cost by runner tier",
+        "title": "Workflow cost by runner tier",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2747,6 +2804,76 @@
         "summary": "Get experiment details",
         "title": "Get experiment details",
         "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-create": {
+        "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment holdout",
+        "title": "Create experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-destroy": {
+        "description": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment holdout",
+        "title": "Delete experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-list": {
+        "description": "List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via holdout_id.\n\nEach holdout has a name, optional description, and a filters array (the held-out population definition). Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to link an experiment to a holdout.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List experiment holdouts",
+        "title": "List experiment holdouts",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-partial-update": {
+        "description": "Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you don't have the ID.\n\nCAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently re-assigning the held-out population for all of those experiments at once. Confirm with the user before changing filters on a holdout that experiments depend on.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment holdout",
+        "title": "Update experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-retrieve": {
+        "description": "Get a single experiment holdout group by ID, including its name, description, and filters array (the held-out population definition). Use experiment-holdouts-list first if you don't have the ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment holdout details",
+        "title": "Get experiment holdout details",
+        "required_scopes": ["experiment_holdout:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5383,6 +5510,20 @@
             "readOnlyHint": true
         }
     },
+    "org-member-get-github-login": {
+        "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get an organization member's GitHub username.",
+        "title": "Get an organization member's GitHub username.",
+        "required_scopes": ["organization_member:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "org-members-list": {
         "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
         "category": "Platform Features",
@@ -5843,6 +5984,118 @@
         },
         "feature_flag": "mcp-analytics",
         "system_prompt_hint": "MCP client/harness breakdown — calls, error rate, sessions per harness"
+    },
+    "query-mcp-tool-daily-stats": {
+        "description": "Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"how has tool X trended?\" — spotting error spikes, latency regressions, or adoption changes over time.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Daily trend for one MCP tool",
+        "title": "Daily trend for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions"
+    },
+    "query-mcp-tool-descriptions": {
+        "description": "Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a tool registered with more than one description across clients or versions.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Descriptions seen for one MCP tool",
+        "title": "Descriptions seen for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Distinct effective descriptions seen for one MCP tool"
+    },
+    "query-mcp-tool-failures": {
+        "description": "Return the most common error messages for a single MCP tool, each with the resolved client harness it came from. Pass toolName as the raw $mcp_tool_name (the registered tool name) — failures are matched on $exception events, which don't carry the new-SDK effective-tool markers, so unlike the other tool-detail tools this one does NOT resolve the inner tool of a single-exec wrapper call. Also pass a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Top errors for one MCP tool",
+        "title": "Top errors for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's top error messages, by harness (scoped by raw tool name)"
+    },
+    "query-mcp-tool-neighbors": {
+        "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Tools called alongside one MCP tool",
+        "title": "Tools called alongside one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Tools co-occurring before/after one MCP tool in a conversation"
+    },
+    "query-mcp-tool-sample-intents": {
+        "description": "Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"what are agents actually trying to do when they call tool X?\" — qualitative context behind the usage numbers.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Sample intents for one MCP tool",
+        "title": "Sample intents for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Recent sample agent intents for one MCP tool, with harness"
+    },
+    "query-mcp-tool-stats": {
+        "description": "Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95 latency, unique users, unique sessions, and how many calls carried an intent. Pass toolName (the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail UI). Use to answer \"how is tool X doing overall?\" before drilling into failures, users, or neighbours.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Summarise one MCP tool",
+        "title": "Summarise one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's headline stats — calls, errors, p50/p95, users, sessions, intents"
+    },
+    "query-mcp-tool-top-users": {
+        "description": "Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness labels, last-seen time, and the caller's display name and email. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"who uses tool X the most, and how reliably for them?\".",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Top callers of one MCP tool",
+        "title": "Top callers of one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's top callers — calls, error rate, harnesses, person email/name"
     },
     "query-metrics": {
         "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). `service_name` is always available; discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
@@ -6430,11 +6683,25 @@
         }
     },
     "signals-scout-runs-list": {
-        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List recent scout runs",
         "title": "List recent scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-recent-emissions": {
+        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent emitted findings across all scout runs",
+        "title": "List recent emitted findings across all scout runs",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6472,7 +6739,7 @@
         }
     },
     "signals-scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Optionally pass `run_id` to record which run wrote it.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",

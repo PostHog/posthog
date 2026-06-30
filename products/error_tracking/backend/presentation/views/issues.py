@@ -5,7 +5,6 @@ from django.http import JsonResponse
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
-from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -15,6 +14,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 
@@ -186,7 +186,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 UUID(str(pk)),
                 fields=dict(request_serializer.validated_data),
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
@@ -231,7 +231,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 UUID(str(pk)),
                 assignee,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
@@ -276,7 +276,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 status=request.data.get("status"),
                 assignee=request.data.get("assignee", None),
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except issues_facade.InvalidIssueStatusError:
             raise ValidationError("Invalid status")
