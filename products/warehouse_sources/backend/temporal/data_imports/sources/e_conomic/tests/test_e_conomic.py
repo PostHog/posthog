@@ -99,8 +99,10 @@ class TestFetchPage:
     def test_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = _fake_response(status_code)
+        # Bypass the @retry decorator (`.__wrapped__`) so we assert the raise logic without tenacity's
+        # ~15s of real backoff sleeps per case.
         with pytest.raises(EConomicRetryableError):
-            _fetch_page(session, "https://restapi.e-conomic.com/customers", MagicMock())
+            _fetch_page.__wrapped__(session, "https://restapi.e-conomic.com/customers", MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_error_raises_http_error(self, _name: str, status_code: int) -> None:
@@ -171,9 +173,11 @@ class TestGetRows:
 class TestECONomicSourceResponse:
     @parameterized.expand(sorted(ENDPOINTS))
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
+        config = E_CONOMIC_ENDPOINTS[endpoint]
         response = e_conomic_source("app", "grant", endpoint, MagicMock(), _make_manager())
-        assert response.primary_keys == E_CONOMIC_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
+        assert response.primary_keys == config.primary_keys
+        # Only sortable endpoints advertise ascending order; unsortable ones (e.g. payment_terms) don't.
+        assert response.sort_mode == ("asc" if config.sort else None)
 
     def test_booked_invoices_partition_on_stable_date(self) -> None:
         response = e_conomic_source("app", "grant", "invoices_booked", MagicMock(), _make_manager())

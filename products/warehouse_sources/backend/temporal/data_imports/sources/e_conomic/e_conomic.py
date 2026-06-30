@@ -172,8 +172,9 @@ def e_conomic_source(
             incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
-        # We always request `sort=<asc field>`, so rows arrive in ascending order.
-        sort_mode="asc",
+        # Ascending order only holds when we send a sort field; endpoints with no sortable column
+        # (e.g. payment_terms) return rows in an unspecified order, so we don't claim a sort mode.
+        sort_mode="asc" if config.sort else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,

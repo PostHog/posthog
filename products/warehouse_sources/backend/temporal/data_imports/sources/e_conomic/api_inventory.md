@@ -33,26 +33,26 @@ live API (`https://restapi.e-conomic.com`) using e-conomic's public demo agreeme
 
 ## Endpoint matrix
 
-| Schema | Path | Primary key | Sort | Incremental | Notes |
-|---|---|---|---|---|---|
-| `customers` | `/customers` | `customerNumber` | `lastUpdated` | ✅ `lastUpdated` (DateTime) | |
-| `customer_groups` | `/customer-groups` | `customerGroupNumber` | `customerGroupNumber` | full refresh | |
-| `products` | `/products` | `productNumber` | `lastUpdated` | ✅ `lastUpdated` (DateTime) | |
-| `product_groups` | `/product-groups` | `productGroupNumber` | `productGroupNumber` | full refresh | |
-| `suppliers` | `/suppliers` | `supplierNumber` | `supplierNumber` | full refresh | no `lastUpdated` field; filter on it errors |
-| `supplier_groups` | `/supplier-groups` | `supplierGroupNumber` | `supplierGroupNumber` | full refresh | |
-| `accounts` | `/accounts` | `accountNumber` | `accountNumber` | full refresh | chart of accounts |
-| `accounting_years` | `/accounting-years` | `year` | `year` | full refresh | |
-| `journals` | `/journals` | `journalNumber` | `journalNumber` | full refresh | |
-| `currencies` | `/currencies` | `code` | `code` | full refresh | |
-| `payment_terms` | `/payment-terms` | `paymentTermsNumber` | _(none)_ | full refresh | `sort=paymentTermsNumber` → 400; tiny single-page table |
-| `departments` | `/departments` | `departmentNumber` | `departmentNumber` | full refresh | |
-| `departmental_distributions` | `/departmental-distributions` | `departmentalDistributionNumber` | `departmentalDistributionNumber` | full refresh | |
-| `units` | `/units` | `unitNumber` | `unitNumber` | full refresh | |
-| `vat_zones` | `/vat-zones` | `vatZoneNumber` | `vatZoneNumber` | full refresh | |
-| `employees` | `/employees` | `employeeNumber` | `employeeNumber` | full refresh | |
-| `invoices_booked` | `/invoices/booked` | `bookedInvoiceNumber` | `bookedInvoiceNumber` | ✅ `bookedInvoiceNumber` (Integer) | immutable; partition by stable `date` |
-| `invoices_drafts` | `/invoices/drafts` | `draftInvoiceNumber` | `draftInvoiceNumber` | full refresh | has `lastUpdated` filter, but `sort=lastUpdated` → 400 |
+| Schema                       | Path                          | Primary key                      | Sort                             | Incremental                        | Notes                                                   |
+| ---------------------------- | ----------------------------- | -------------------------------- | -------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| `customers`                  | `/customers`                  | `customerNumber`                 | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                         |
+| `customer_groups`            | `/customer-groups`            | `customerGroupNumber`            | `customerGroupNumber`            | full refresh                       |                                                         |
+| `products`                   | `/products`                   | `productNumber`                  | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                         |
+| `product_groups`             | `/product-groups`             | `productGroupNumber`             | `productGroupNumber`             | full refresh                       |                                                         |
+| `suppliers`                  | `/suppliers`                  | `supplierNumber`                 | `supplierNumber`                 | full refresh                       | no `lastUpdated` field; filter on it errors             |
+| `supplier_groups`            | `/supplier-groups`            | `supplierGroupNumber`            | `supplierGroupNumber`            | full refresh                       |                                                         |
+| `accounts`                   | `/accounts`                   | `accountNumber`                  | `accountNumber`                  | full refresh                       | chart of accounts                                       |
+| `accounting_years`           | `/accounting-years`           | `year`                           | `year`                           | full refresh                       |                                                         |
+| `journals`                   | `/journals`                   | `journalNumber`                  | `journalNumber`                  | full refresh                       |                                                         |
+| `currencies`                 | `/currencies`                 | `code`                           | `code`                           | full refresh                       |                                                         |
+| `payment_terms`              | `/payment-terms`              | `paymentTermsNumber`             | _(none)_                         | full refresh                       | `sort=paymentTermsNumber` → 400; tiny single-page table |
+| `departments`                | `/departments`                | `departmentNumber`               | `departmentNumber`               | full refresh                       |                                                         |
+| `departmental_distributions` | `/departmental-distributions` | `departmentalDistributionNumber` | `departmentalDistributionNumber` | full refresh                       |                                                         |
+| `units`                      | `/units`                      | `unitNumber`                     | `unitNumber`                     | full refresh                       |                                                         |
+| `vat_zones`                  | `/vat-zones`                  | `vatZoneNumber`                  | `vatZoneNumber`                  | full refresh                       |                                                         |
+| `employees`                  | `/employees`                  | `employeeNumber`                 | `employeeNumber`                 | full refresh                       |                                                         |
+| `invoices_booked`            | `/invoices/booked`            | `bookedInvoiceNumber`            | `bookedInvoiceNumber`            | ✅ `bookedInvoiceNumber` (Integer) | immutable; partition by stable `date`                   |
+| `invoices_drafts`            | `/invoices/drafts`            | `draftInvoiceNumber`             | `draftInvoiceNumber`             | full refresh                       | has `lastUpdated` filter, but `sort=lastUpdated` → 400  |
 
 ## Throttling
 
