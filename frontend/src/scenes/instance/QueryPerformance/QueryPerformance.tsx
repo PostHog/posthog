@@ -11,6 +11,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -393,6 +394,16 @@ export function QueryPerformance(): JSX.Element {
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
+                                                    <div className="font-mono text-xs text-muted">
+                                                        Read {humanizeBytes(item.read_bytes)} ·{' '}
+                                                        {item.read_rows.toLocaleString()} rows
+                                                        {item.memory_usage
+                                                            ? ` · ${humanizeBytes(item.memory_usage)} peak memory`
+                                                            : ''}
+                                                        {item.exception_code
+                                                            ? ` · exit code ${item.exception_code}`
+                                                            : ''}
+                                                    </div>
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>
@@ -403,13 +414,28 @@ export function QueryPerformance(): JSX.Element {
                                                                 expandable={{
                                                                     expandedRowRender: function ExpandedSubQuery(sub) {
                                                                         return (
-                                                                            <CodeSnippet
-                                                                                language={Language.SQL}
-                                                                                thing="query"
-                                                                                maxLinesWithoutExpansion={10}
-                                                                            >
-                                                                                {sub.query}
-                                                                            </CodeSnippet>
+                                                                            <div className="flex flex-col gap-2 p-2">
+                                                                                <div className="font-mono text-xs text-muted">
+                                                                                    Read {humanizeBytes(sub.read_bytes)}{' '}
+                                                                                    · {sub.read_rows.toLocaleString()}{' '}
+                                                                                    rows
+                                                                                    {sub.memory_usage
+                                                                                        ? ` · ${humanizeBytes(
+                                                                                              sub.memory_usage
+                                                                                          )} peak memory`
+                                                                                        : ''}
+                                                                                    {sub.exception_code
+                                                                                        ? ` · exit code ${sub.exception_code}`
+                                                                                        : ''}
+                                                                                </div>
+                                                                                <CodeSnippet
+                                                                                    language={Language.SQL}
+                                                                                    thing="query"
+                                                                                    maxLinesWithoutExpansion={10}
+                                                                                >
+                                                                                    {sub.query}
+                                                                                </CodeSnippet>
+                                                                            </div>
                                                                         )
                                                                     },
                                                                 }}
