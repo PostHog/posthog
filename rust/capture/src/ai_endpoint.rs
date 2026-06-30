@@ -141,6 +141,8 @@ async fn ai_handler_inner(
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
     debug!("Received request to /i/v0/ai endpoint");
 
+    use crate::v1::gateway_provenance as gp;
+
     // Extract body with timed streaming (same pattern as analytics/recordings handlers)
     // Use 110% of ai_max_sum_of_parts_bytes to account for multipart overhead (matches DefaultBodyLimit layer)
     let body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
@@ -253,18 +255,44 @@ async fn ai_handler_inner(
         }));
     }
 
-    // Step 4: Check quota limiter - drop if over quota
-    // We pass a single-element vec and check if it's filtered out
-    let filtered = state
-        .quota_limiter
-        .check_and_filter(token, vec![event_metadata])
-        .await?;
+    // AI-gateway provenance: a fresh, valid signature on the headers marks the event
+    // trusted. Verify here while distinct_id is known (it's in the signed tuple), so a
+    // verified event can bypass the quota limiter below and get $ai_gateway_verified
+    // stamped before Kafka; anything unverified has the $ai_gateway* namespace stripped
+    // so a forged marker can't reach billing. sig + signed_at + request_id ride in headers.
+    // TODO: gateway_provenance lives under v1/ but is transport-agnostic — relocate to a
+    // shared module now the v0 AI path uses it too.
+    let gw_sig = gp::parse_signature(&headers);
+    let gw_outcome = match (state.ai_gateway_signing_secret.as_deref(), gw_sig.as_ref()) {
+        (Some(secret), Some(sig)) => gp::verify(
+            secret.as_bytes(),
+            token,
+            &event_metadata.distinct_id,
+            sig,
+            state.timesource.current_time(),
+        ),
+        _ => gp::Provenance::Invalid,
+    };
+    let gw_request_id = gw_sig.map(|s| s.request_id).unwrap_or_default();
+    let gw_trusted = gw_outcome == gp::Provenance::Verified && !gw_request_id.is_empty();
 
-    // If the event was filtered out by quota limiter, return billing limit error
-    let event_metadata = filtered
-        .into_iter()
-        .next()
-        .ok_or(CaptureError::BillingLimit)?;
+    // Step 4: Check quota limiter - drop if over quota. Gateway-verified events are
+    // wallet-billed (not AIO), so they bypass it.
+    let event_metadata = if gw_trusted {
+        event_metadata
+    } else {
+        // We pass a single-element vec and check if it's filtered out
+        let filtered = state
+            .quota_limiter
+            .check_and_filter(token, vec![event_metadata])
+            .await?;
+
+        // If the event was filtered out by quota limiter, return billing limit error
+        filtered
+            .into_iter()
+            .next()
+            .ok_or(CaptureError::BillingLimit)?
+    };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
@@ -348,6 +376,36 @@ async fn ai_handler_inner(
             .and_then(|p| p.as_object_mut())
         {
             insert_blob_urls_into_properties(&uploaded, properties);
+        }
+    }
+
+    // AI-gateway provenance: stamp the trusted marker (overwriting client values) on a
+    // verified event, else strip the whole $ai_gateway* namespace so a forged marker
+    // can't reach billing. The metric only fires when a gateway prop was actually
+    // present, so ordinary $ai_* events stay silent.
+    if let Some(properties) = parsed
+        .event
+        .as_object_mut()
+        .and_then(|o| o.get_mut("properties"))
+        .and_then(|p| p.as_object_mut())
+    {
+        if gw_trusted {
+            gp::stamp_verified(properties, &gw_request_id);
+            counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+        } else {
+            let before = properties.len();
+            let forged = properties.contains_key(gp::VERIFIED_PROPERTY);
+            gp::strip_gateway(properties);
+            if properties.len() != before {
+                let reason = if forged {
+                    "forged"
+                } else if gw_outcome == gp::Provenance::Stale {
+                    "stale"
+                } else {
+                    "stripped"
+                };
+                counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
+            }
         }
     }
 
