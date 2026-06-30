@@ -5171,6 +5171,8 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Postgresql: 'postgresql',
+      AwsS3: 'aws-s3',
+      S3Compatible: 's3-compatible',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -50312,6 +50314,70 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+     */
+    export interface SuggestTagsRequest {
+      /**
+         * The classifier's instruction prompt — the single dimension to categorize sessions by.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * @maxItems 200
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Whether the classifier assigns multiple tags per session. */
+      multi_label?: boolean;
+      /** Whether the classifier may emit tags outside the fixed vocabulary. */
+      allow_freeform_tags?: boolean;
+      /**
+         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
+    }
+
+    /**
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt
+     */
+    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
+
+
+    export const TagSuggestionSourceEnum = {
+      Observed: 'observed',
+      Product: 'product',
+      Prompt: 'prompt',
+    } as const;
+
+    /**
+     * One grounded tag suggestion.
+     */
+    export interface TagSuggestion {
+      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+      tag: string;
+      /** One sentence explaining the specific evidence this tag is grounded in. */
+      rationale: string;
+      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+       *
+       * * `observed` - observed
+       * * `product` - product
+       * * `prompt` - prompt */
+      source: TagSuggestionSourceEnum;
+    }
+
+    /**
+     * Grounded tag suggestions for the classifier config editor.
+     */
+    export interface SuggestTagsResponse {
+      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+      suggestions: TagSuggestion[];
     }
 
     /**

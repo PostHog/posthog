@@ -18,8 +18,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.account_aggregates import (
+    _account_custom_property_values,
     _account_resource_notebooks,
     _account_tagged_items,
+    account_custom_properties_lazy_join,
     account_notebooks_lazy_join,
     account_tags_lazy_join,
 )
@@ -270,6 +272,7 @@ accounts: PostgresTable = PostgresTable(
         ),
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
+        "custom_properties": account_custom_properties_lazy_join,
     },
 )
 
@@ -2007,6 +2010,9 @@ class SystemTables(TableNode):
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=_account_resource_notebooks, hidden=True
+        ),
+        "_account_custom_property_values": TableNode(
+            name="_account_custom_property_values", table=_account_custom_property_values, hidden=True
         ),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),

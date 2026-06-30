@@ -520,12 +520,13 @@ class BuildkiteSourceConfig(config.Config):
 
 @config.config
 class BunnySourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config
 class BuzzsproutSourceConfig(config.Config):
-    pass
+    api_token: str
+    podcast_id: str
 
 
 @config.config
