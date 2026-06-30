@@ -209,28 +209,13 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     # Each setup builds a subscription and returns (sub_id, patch_payload) for the parameterized
     # delivery test below. Cases vary only in fixtures and payload; the fire/no-fire assertion is shared.
-    def _setup_frequency_edit(self) -> tuple[int, dict]:
-        return self._create_subscription(invite_message=None).json()["id"], {"frequency": "daily"}
+    # Reusable builders for the inline case factories below. Anything a lambda can't express (multi-row
+    # ORM setup, the verbose dashboard POST, tile side effects) lives here; the per-case payload stays inline.
+    def _basic_sub(self) -> int:
+        return self._create_subscription(invite_message=None).json()["id"]
 
-    def _setup_interval_edit(self) -> tuple[int, dict]:
-        return self._create_subscription(invite_message=None).json()["id"], {"interval": 3}
-
-    def _setup_title_edit(self) -> tuple[int, dict]:
-        return self._create_subscription(invite_message=None).json()["id"], {"title": "Renamed"}
-
-    def _setup_target_value_edit(self) -> tuple[int, dict]:
-        sub_id = self._create_subscription(invite_message=None).json()["id"]
-        return sub_id, {"target_value": "test@posthog.com,extra@posthog.com"}
-
-    def _setup_target_type_change(self) -> tuple[int, dict]:
-        # Switching channel routes delivery elsewhere — needs a Slack integration to land on.
-        integration = Integration.objects.create(team=self.team, kind="slack", config={})
-        sub_id = self._create_subscription(invite_message=None).json()["id"]
-        return sub_id, {"target_type": "slack", "target_value": "#general", "integration_id": integration.id}
-
-    def _setup_re_enable(self) -> tuple[int, dict]:
-        # disabled → enabled: no delivery field changes, but the re-enable carve-out must still fire.
-        subscription = Subscription.objects.create(
+    def _disabled_email_sub(self) -> int:
+        return Subscription.objects.create(
             team=self.team,
             target_type="email",
             target_value="vasco@posthog.com",
@@ -239,36 +224,18 @@ class TestSubscriptionTemporal(APILicensedTest):
             insight=self.insight,
             title="t",
             enabled=False,
-        )
-        return subscription.id, {"enabled": True}
+        ).id
 
-    def _setup_integration_swap(self) -> tuple[int, dict]:
-        # Slack routing depends on the connected workspace, not just target_value — swapping the
-        # integration while target_type/target_value stay the same must still fire.
-        old_integration = Integration.objects.create(team=self.team, kind="slack", config={})
-        new_integration = Integration.objects.create(team=self.team, kind="slack", config={})
-        subscription = Subscription.objects.create(
-            team=self.team,
-            target_type="slack",
-            target_value="#general",
-            integration=old_integration,
-            frequency="daily",
-            start_date=timezone.now(),
-            insight=self.insight,
-            title="t",
-        )
-        return subscription.id, {"integration_id": new_integration.id}
-
-    def _setup_dashboard_export_change(self) -> tuple[int, dict]:
-        # Changing which insights a dashboard subscription exports is delivery-relevant (the M2M branch).
-        self.dashboard.tiles.create(insight=self.insight)
-        other_insight = Insight.objects.create(team=self.team, name="other")
-        self.dashboard.tiles.create(insight=other_insight)
-        sub_id = self.client.post(
+    def _dashboard_sub(self, tile_insights: list[Insight], export_insights: list[Insight]) -> int:
+        # Dashboard subscriptions can only export insights that are dashboard tiles, so add a tile per
+        # insight before posting. export_insights is the initial selection a case then patches.
+        for insight in tile_insights:
+            self.dashboard.tiles.create(insight=insight)
+        return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             {
                 "dashboard": self.dashboard.id,
-                "dashboard_export_insights": [self.insight.id],
+                "dashboard_export_insights": [insight.id for insight in export_insights],
                 "target_type": "email",
                 "target_value": "test@posthog.com",
                 "frequency": "weekly",
@@ -277,48 +244,74 @@ class TestSubscriptionTemporal(APILicensedTest):
                 "title": "Dash",
             },
         ).json()["id"]
-        return sub_id, {"dashboard_export_insights": [self.insight.id, other_insight.id]}
 
-    def _setup_dashboard_export_resubmit_same(self) -> tuple[int, dict]:
-        # Re-submitting the identical export set (alongside a meta edit) is not a change — must short-circuit.
-        self.dashboard.tiles.create(insight=self.insight)
-        sub_id = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            {
-                "dashboard": self.dashboard.id,
-                "dashboard_export_insights": [self.insight.id],
-                "target_type": "email",
-                "target_value": "test@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "start_date": "2022-01-01T00:00:00",
-                "title": "Dash",
-            },
-        ).json()["id"]
-        return sub_id, {"dashboard_export_insights": [self.insight.id], "title": "Renamed"}
-
+    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). The inline factory
+    # keeps each case's setup next to its expected outcome.
     @parameterized.expand(
         [
-            # Schedule/meta-only edits must NOT re-fire a delivery — guards against an enabled
-            # subscription emitting a full delivery on every frequency/title tweak.
-            ("frequency", _setup_frequency_edit, False),
-            ("interval", _setup_interval_edit, False),
-            ("title", _setup_title_edit, False),
+            # Schedule/meta-only edits must NOT re-fire a delivery.
+            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
+            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False),
+            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False),
             # Delivery-relevant edits MUST fire a confirmation — what (or where) gets delivered changed,
             # or the subscription was re-enabled.
-            ("target_value", _setup_target_value_edit, True),
-            ("target_type", _setup_target_type_change, True),
-            ("re_enable", _setup_re_enable, True),
-            ("integration_swap", _setup_integration_swap, True),
-            ("dashboard_export_change", _setup_dashboard_export_change, True),
+            ("target_value", lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}), True),
+            (
+                "target_type",  # switching channel routes delivery elsewhere — needs a Slack integration
+                lambda t: (
+                    t._basic_sub(),
+                    {
+                        "target_type": "slack",
+                        "target_value": "#general",
+                        "integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id,
+                    },
+                ),
+                True,
+            ),
+            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True),
+            (
+                "integration_swap",  # Slack routing depends on the workspace, not just target_value
+                lambda t: (
+                    Subscription.objects.create(
+                        team=t.team,
+                        target_type="slack",
+                        target_value="#general",
+                        integration=Integration.objects.create(team=t.team, kind="slack", config={}),
+                        frequency="daily",
+                        start_date=timezone.now(),
+                        insight=t.insight,
+                        title="t",
+                    ).id,
+                    {"integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id},
+                ),
+                True,
+            ),
+            (
+                "dashboard_export_change",  # changing the exported insight set hits the M2M branch
+                lambda t: (
+                    t._dashboard_sub(
+                        [t.insight, (other := Insight.objects.create(team=t.team, name="other"))],
+                        [t.insight],
+                    ),
+                    {"dashboard_export_insights": [t.insight.id, other.id]},
+                ),
+                True,
+            ),
             # ...except re-submitting the identical export set, which changes nothing.
-            ("dashboard_export_resubmit_same", _setup_dashboard_export_resubmit_same, False),
+            (
+                "dashboard_export_resubmit_same",
+                lambda t: (
+                    t._dashboard_sub([t.insight], [t.insight]),
+                    {"dashboard_export_insights": [t.insight.id], "title": "Renamed"},
+                ),
+                False,
+            ),
         ]
     )
     def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
-        self, _name: str, setup: Callable[["TestSubscriptionTemporal"], tuple[int, dict]], should_fire: bool
+        self, _name: str, build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]], should_fire: bool
     ):
-        sub_id, patch_payload = setup(self)
+        sub_id, patch_payload = build(self)
         self.mock_temporal_client.start_workflow.reset_mock()
 
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
@@ -351,21 +344,31 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("delivery_field_changed", _setup_target_value_edit, True, "delivery_field_changed"),
-            ("meta_only_edit", _setup_frequency_edit, False, "no_delivery_relevant_change"),
-            ("re_enable", _setup_re_enable, True, "re_enabled"),
+            (
+                "delivery_field_changed",
+                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
+                True,
+                "delivery_field_changed",
+            ),
+            (
+                "meta_only_edit",
+                lambda t: (t._basic_sub(), {"frequency": "daily"}),
+                False,
+                "no_delivery_relevant_change",
+            ),
+            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
         ]
     )
     def test_update_emits_delivery_decision_event(
         self,
         _name: str,
-        setup: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
+        build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
         expected_triggered: bool,
         expected_reason: str,
     ):
         # The decision must be observable so a regression that silently suppresses deliveries is caught
         # — the "<kind> subscription updated" event fires pre-decision and can't carry this signal.
-        sub_id, patch_payload = setup(self)
+        sub_id, patch_payload = build(self)
         with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
             response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
             assert response.status_code == status.HTTP_200_OK, response.content
