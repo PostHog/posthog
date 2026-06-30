@@ -9,7 +9,8 @@ at a time, so it never re-extracts from the source and never materialises an ove
 The rewrite is a pure map (recompute `_ph_partition_key` per row under a finer scheme) into a sibling
 temp table, followed by a crash-safe swap. The live table is never mutated until a fully-built temp
 table exists, and temp stays the source of truth until the swap is verified — so a worker death at any
-point loses at most wasted compute, never data. See README.md "Repartitioning".
+point loses at most wasted compute, never data. See the "Repartitioning" section in
+`products/warehouse_sources/backend/temporal/data_imports/README.md`.
 """
 
 from __future__ import annotations
