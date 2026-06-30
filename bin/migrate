@@ -216,13 +216,26 @@ fi
 if [ -n "$CLICKHOUSE_PID" ]; then
     wait $CLICKHOUSE_PID
     CLICKHOUSE_WAIT_STATUS=$?
-    
+
     CH_STATUS=$(cat $CLICKHOUSE_STATUS)
     rm -f $CLICKHOUSE_STATUS
-    
+
     if [ "$CH_STATUS" != "0" ] || [ $CLICKHOUSE_WAIT_STATUS -ne 0 ]; then
         echo "Error in ClickHouse migrations, exiting."
         exit 1
+    fi
+fi
+
+# Temporal worker schedules. Skipped on hobby deploys (no Temporal cluster) and
+# on local dev (DEBUG=1, matching the persons-migration gate above).
+if run_scope "temporal-schedules"; then
+    if [ "${DEPLOYMENT:-}" != "hobby" ] && [ "${DEBUG:-0}" != "1" ]; then
+        echo "Scheduling Temporal worker workflows..."
+        python manage.py schedule_temporal_workflows
+        if [ $? -ne 0 ]; then
+            echo "Error in schedule_temporal_workflows, exiting."
+            exit 1
+        fi
     fi
 fi
 
