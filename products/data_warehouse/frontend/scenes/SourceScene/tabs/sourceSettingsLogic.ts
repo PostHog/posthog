@@ -695,8 +695,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                     fileReader.readAsText(sanitizedPayload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch {
-                                lemonToast.error('The uploaded file is not valid — it must be a readable JSON file.')
+                            } catch (e: any) {
+                                posthog.captureException(e)
+                                lemonToast.error(
+                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
+                                )
                                 return
                             }
                         }
