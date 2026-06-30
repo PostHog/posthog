@@ -128,12 +128,7 @@ def _post_pr_opened_notification_once(
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
     if _is_pr_opened_notified(task_run, pr_url):
-        # Don't repost the PR card, but still clear any progress marker that
-        # may have lingered in the thread — every PR-bearing branch in
-        # ``post_slack_update`` used to do this explicitly on the dedupe path
-        # before collapsing into this helper. Same Slack-side effect as the
-        # ``post_pr_opened`` call below, which goes through
-        # ``_delete_progress_and_post``.
+        # Skip the repost but still clear any lingering progress marker.
         handler.delete_progress()
         return
 
