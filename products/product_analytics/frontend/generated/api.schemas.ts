@@ -7104,7 +7104,6 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
-    /** Deprecated: use `pie.showTotal`. Kept so pre-existing pie-chart insights still validate. */
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null
     showValuesOnSeries?: boolean | null
