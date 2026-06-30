@@ -170,7 +170,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as SubscriptionPreviewResponseApi | null,
             {
                 clearPreview: () => null,
-                previewSubscription: async (_, breakpoint) => {
+                previewSubscription: async (_: void, breakpoint) => {
                     const numericId = parseInt(props.id, 10)
                     if (!Number.isFinite(numericId)) {
                         return null
