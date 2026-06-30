@@ -577,7 +577,8 @@ class CaptainDataSourceConfig(config.Config):
 
 @config.config
 class CareQualityCommissionSourceConfig(config.Config):
-    pass
+    api_key: str
+    partner_code: str | None = None
 
 
 @config.config
