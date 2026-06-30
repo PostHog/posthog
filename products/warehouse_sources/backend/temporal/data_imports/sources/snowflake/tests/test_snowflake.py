@@ -338,6 +338,18 @@ class TestConnect:
                 pass
             assert mock_connect.call_args.kwargs["schema"] == "SALES"
 
+    def test_bounds_network_timeout(self, impl):
+        # Without a bounded `network_timeout` the connector retries a stalled request forever, so the
+        # threaded sync activity hangs until Temporal cancels it mid socket-read (a noisy WantReadError
+        # / "Cancelled"). Keep a finite bound so the stall becomes a fast, retryable error instead.
+        with patch("snowflake.connector.connect") as mock_connect:
+            mock_connect.return_value.__enter__.return_value = MagicMock()
+            with impl.connect(_make_config()):
+                pass
+            network_timeout = mock_connect.call_args.kwargs["network_timeout"]
+            assert isinstance(network_timeout, int)
+            assert network_timeout > 0
+
 
 class TestSourceRequiresSsl:
     def test_handles_config_without_ssh_tunnel(self):
