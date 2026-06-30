@@ -96,7 +96,7 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
-import { lookupMcpToolApproval } from './mcp-tool-lookup'
+import { lookupMcpToolApproval, resolveApprovedExecutor } from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
 /** The model id that served the most recent assistant turn, if any. Seeds the
@@ -1163,7 +1163,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 // dispatch (tracked follow-up).
                                 const d = await dispatchApprovedResult({
                                     approvals: deps.approvals,
-                                    realExecute: realExecute.get(row.tool_name),
+                                    // A proxy-routed row is keyed `<prefix>__<remoteName>` (the gate
+                                    // re-keyed onto the underlying tool) but its executor is the
+                                    // connection's `call_tool`, whose args are the row's stored args.
+                                    // resolveApprovedExecutor falls back to it so the approved call
+                                    // actually replays instead of erroring "unknown tool".
+                                    realExecute: resolveApprovedExecutor(row.tool_name, realExecute, mcpProxyCallTools),
                                     row,
                                 })
                                 // Secure the wake before observability so a failing

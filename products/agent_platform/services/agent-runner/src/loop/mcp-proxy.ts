@@ -1,10 +1,13 @@
 /**
- * Harness-mediated proxy for a large MCP connection: expose two helpers and keep
- * the full catalog in memory instead of inlining every tool's schema.
- *   - `<prefix>__explore_tools` — list/search tools, or fetch one tool's schema.
- *   - `<prefix>__call_tool`     — invoke a tool by its raw remote name.
- * `exposed` is the deny/allowlist-filtered catalog; names outside it are
- * unreachable. The driver gates `call_tool` on the underlying tool (driver.ts).
+ * Harness-mediated proxy for a large MCP connection: expose three helpers and
+ * keep the full catalog in memory instead of inlining every tool's schema.
+ *   - `<prefix>__explore_tools`   — list/search tools (names + descriptions).
+ *   - `<prefix>__get_tool_schema` — fetch one tool's full input schema.
+ *   - `<prefix>__call_tool`       — invoke a tool by its raw remote name.
+ * Splitting search from schema-fetch (vs one overloaded tool) makes the
+ * find → read-schema → call flow legible, so the model reads args instead of
+ * guessing them. `exposed` is the deny/allowlist-filtered catalog; names outside
+ * it are unreachable. The driver gates `call_tool` on the underlying tool (driver.ts).
  */
 
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
@@ -12,8 +15,14 @@ import type { TSchema } from '@earendil-works/pi-ai'
 
 import type { ToolResultDetails } from './build-agent-tools'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { PROXY_CALL_TOOL, PROXY_EXPLORE_TOOL, PROXY_GET_SCHEMA_TOOL } from './mcp-tool-lookup'
 
 const EXPLORE_RESULT_CAP = 50
+
+/** Cap for inlining a tool's input schema into a call_tool error. Small schemas
+ *  ride along so the model can fix args in one retry; a large one would balloon
+ *  the error, so we name explore_tools instead. ~500 tokens. */
+const MAX_ERROR_SCHEMA_CHARS = 2_000
 
 export interface McpProxyTools {
     tools: AgentTool<TSchema, ToolResultDetails>[]
@@ -24,49 +33,44 @@ export interface McpProxyTools {
 export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): McpProxyTools {
     const prefix = client.prefix
     const byName = new Map<string, RemoteMcpTool>(exposed.map((t) => [t.name, t]))
-    const exploreName = `${prefix}__explore_tools`
-    const callToolName = `${prefix}__call_tool`
+    const exploreName = `${prefix}__${PROXY_EXPLORE_TOOL}`
+    const getSchemaName = `${prefix}__${PROXY_GET_SCHEMA_TOOL}`
+    const callToolName = `${prefix}__${PROXY_CALL_TOOL}`
 
     const surfaceNote =
         `This server exposes ${exposed.length} tools on demand rather than inline. ` +
-        `Use ${exploreName} to find a tool (and fetch its input schema), then ${callToolName} to invoke it.`
+        `Use ${exploreName} to find a tool, ${getSchemaName} to read its input schema, ` +
+        `then ${callToolName} to invoke it.`
 
     const exploreTool: AgentTool<TSchema, ToolResultDetails> = {
         name: exploreName,
         label: exploreName,
         description:
-            `Explore the ${exposed.length} tools this MCP server exposes. ${surfaceNote} ` +
-            'Pass `query` to search names + descriptions (case-insensitive substring; omit to list all) — ' +
-            'returns names + descriptions only, no schemas, to stay cheap. ' +
-            "Pass `tool_name` instead to fetch that one tool's full input schema before calling it.",
+            `Find tools this MCP server exposes (${exposed.length} total). ${surfaceNote} ` +
+            'Pass `query` to search names + descriptions (case-insensitive; multiple terms all must match; ' +
+            'omit to list all). Returns names + descriptions only, no schemas — ' +
+            `call ${getSchemaName} for a tool's arguments before invoking it.`,
         parameters: {
             type: 'object',
             properties: {
                 query: {
                     type: 'string',
-                    description: 'Substring to match against tool names + descriptions (case-insensitive).',
-                },
-                tool_name: {
-                    type: 'string',
-                    description: 'Raw remote tool name to fetch the full input schema for.',
+                    description: 'Terms to match against tool names + descriptions (case-insensitive; all must match).',
                 },
             },
         } as unknown as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const a = (args ?? {}) as { query?: unknown; tool_name?: unknown }
-            if (typeof a.tool_name === 'string' && a.tool_name.length > 0) {
-                const remote = byName.get(a.tool_name)
-                if (!remote) {
-                    throw new Error(`unknown_tool: ${a.tool_name}`)
-                }
-                const output = { name: remote.name, description: remote.description, input_schema: remote.inputSchema }
-                return { content: [{ type: 'text', text: JSON.stringify(output) }], details: { output } }
-            }
-            const needle = typeof a.query === 'string' ? a.query.trim().toLowerCase() : ''
-            const matches = needle
-                ? exposed.filter(
-                      (t) => t.name.toLowerCase().includes(needle) || t.description.toLowerCase().includes(needle)
-                  )
+            const a = (args ?? {}) as { query?: unknown }
+            // Tokenized AND-match: every whitespace-separated term must appear in
+            // the name or description. A literal whole-string match made natural
+            // multi-word queries ("agent-applications retrieve") return nothing,
+            // since tool names are hyphenated — forcing a wasted re-query.
+            const tokens = typeof a.query === 'string' ? a.query.trim().toLowerCase().split(/\s+/).filter(Boolean) : []
+            const matches = tokens.length
+                ? exposed.filter((t) => {
+                      const hay = `${t.name} ${t.description}`.toLowerCase()
+                      return tokens.every((tok) => hay.includes(tok))
+                  })
                 : exposed
             const results = matches
                 .slice(0, EXPLORE_RESULT_CAP)
@@ -76,12 +80,39 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
         },
     }
 
+    const getSchemaTool: AgentTool<TSchema, ToolResultDetails> = {
+        name: getSchemaName,
+        label: getSchemaName,
+        description:
+            `Get one tool's full input schema (its exact argument names + types) before calling it with ${callToolName}. ` +
+            `Find tool names via ${exploreName}. Always read the schema here rather than guessing arguments.`,
+        parameters: {
+            type: 'object',
+            properties: {
+                tool_name: { type: 'string', description: 'Raw remote tool name to fetch the input schema for.' },
+            },
+            required: ['tool_name'],
+        } as unknown as TSchema,
+        execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            const a = (args ?? {}) as { tool_name?: unknown }
+            const toolName = typeof a.tool_name === 'string' ? a.tool_name : ''
+            const remote = byName.get(toolName)
+            if (!remote) {
+                throw new Error(`unknown_tool: ${toolName}`)
+            }
+            const output = { name: remote.name, description: remote.description, input_schema: remote.inputSchema }
+            return { content: [{ type: 'text', text: JSON.stringify(output) }], details: { output } }
+        },
+    }
+
     const callTool: AgentTool<TSchema, ToolResultDetails> = {
         name: callToolName,
         label: callToolName,
         description:
             `Invoke a tool exposed by this MCP server. ${surfaceNote} ` +
-            "Pass the raw tool name and its arguments (per explore_tools' input_schema).",
+            'Pass the raw tool name and its `arguments`. The argument names + types are NOT shown here — if you ' +
+            `have not already read this tool's schema via ${getSchemaName} this session, do that FIRST and match ` +
+            'it exactly. Never invent argument names.',
         parameters: {
             type: 'object',
             properties: {
@@ -103,11 +134,22 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
                 const firstText = (result.content as Array<{ type: string; text?: string }>).find(
                     (c) => c.type === 'text' && typeof c.text === 'string'
                 )
-                throw new Error(firstText?.text ?? `mcp_tool_error: ${prefix}__${toolName}`)
+                const base = firstText?.text ?? `mcp_tool_error: ${prefix}__${toolName}`
+                // Point the model at the tool's input schema so a wrong-args
+                // failure becomes a guided retry, not another guess (call_tool's
+                // own `arguments` param carries no per-tool shape). Inline a small
+                // schema for a one-shot fix; for a large one just name
+                // explore_tools so the error can't balloon.
+                const schema = JSON.stringify(byName.get(toolName)?.inputSchema ?? {})
+                const hint =
+                    schema.length <= MAX_ERROR_SCHEMA_CHARS
+                        ? `Input schema for ${toolName}: ${schema}`
+                        : `Call ${getSchemaName}({ tool_name: "${toolName}" }) for its full input schema.`
+                throw new Error(`${base}\n${hint}`)
             }
             return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
         },
     }
 
-    return { tools: [exploreTool, callTool], callToolName }
+    return { tools: [exploreTool, getSchemaTool, callTool], callToolName }
 }

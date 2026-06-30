@@ -1,6 +1,6 @@
 import { AgentSpec, AgentSpecSchema, McpRef } from '@posthog/agent-shared'
 
-import { effectiveToolLevel, lookupMcpToolApproval } from './mcp-tool-lookup'
+import { effectiveToolLevel, lookupMcpToolApproval, resolveApprovedExecutor } from './mcp-tool-lookup'
 
 /**
  * Tests pass spec shapes in zod-input form (defaults omitted, partial
@@ -231,5 +231,47 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
             mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'deny' }],
         })
         expect(lookupMcpToolApproval('demo__echo', spec)).toBeNull()
+    })
+
+    it('never gates the proxy meta-tools (explore_tools / call_tool), even under an approve default', () => {
+        // `explore_tools` is read-only catalog browsing; `call_tool` is gated
+        // DYNAMICALLY by the driver on the underlying tool, not here. With a
+        // bare `effectiveToolLevel` lookup both would inherit `approve` and the
+        // catalog-enumeration helper would block on a human — defeating the
+        // proxy's "schemas on demand" design.
+        const spec = buildSpec({
+            mcps: [{ kind: 'agent', id: 'big', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
+        })
+        expect(lookupMcpToolApproval('big__explore_tools', spec)).toBeNull()
+        expect(lookupMcpToolApproval('big__get_tool_schema', spec)).toBeNull()
+        expect(lookupMcpToolApproval('big__call_tool', spec)).toBeNull()
+    })
+})
+
+describe('resolveApprovedExecutor (resume dispatch)', () => {
+    // The driver builds `realExecute` from the live tool surface; for a proxied
+    // connection that's only `<prefix>__call_tool` + `<prefix>__explore_tools`,
+    // NOT the per-remote names the approval gate keys on.
+    const execs = new Map<string, string>([
+        ['@posthog/query', 'native-exec'],
+        ['posthog__call_tool', 'call-tool-exec'],
+        ['posthog__explore_tools', 'explore-exec'],
+    ])
+    const proxyCallTools = new Map<string, unknown>([['posthog__call_tool', {}]])
+
+    it('resolves a native/inline tool by its exact name', () => {
+        expect(resolveApprovedExecutor('@posthog/query', execs, proxyCallTools)).toBe('native-exec')
+    })
+
+    it('resolves a proxy-routed row (<prefix>__<remote>) to the connection call_tool executor', () => {
+        // The bug: a plain lookup misses the row's re-keyed name, dropping the
+        // approved call. The fallback recovers the call_tool executor (whose
+        // args are the row's stored call_tool args).
+        expect(execs.get('posthog__get-insights')).toBeUndefined() // <- what the driver used to do
+        expect(resolveApprovedExecutor('posthog__get-insights', execs, proxyCallTools)).toBe('call-tool-exec')
+    })
+
+    it('returns undefined for an unknown tool with no proxied prefix', () => {
+        expect(resolveApprovedExecutor('linear__create-issue', execs, proxyCallTools)).toBeUndefined()
     })
 })

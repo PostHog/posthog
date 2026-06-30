@@ -17,6 +17,17 @@ import { AgentSpec, ApprovalPolicy, DEFAULT_APPROVAL_POLICY, McpRef, ToolApprova
 const PREFIX_SEPARATOR = '__'
 
 /**
+ * Synthetic proxy helper tools (`mcp-proxy.ts` exposes `<prefix>__explore_tools`,
+ * `<prefix>__get_tool_schema`, `<prefix>__call_tool` for large connections).
+ * Used by name here to keep the two files in sync without a cycle
+ * (mcp-tool-lookup is a leaf; mcp-proxy imports these).
+ */
+export const PROXY_EXPLORE_TOOL = 'explore_tools'
+export const PROXY_GET_SCHEMA_TOOL = 'get_tool_schema'
+export const PROXY_CALL_TOOL = 'call_tool'
+const PROXY_META_TOOLS: ReadonlySet<string> = new Set([PROXY_EXPLORE_TOOL, PROXY_GET_SCHEMA_TOOL, PROXY_CALL_TOOL])
+
+/**
  * Effective approval level for a remote tool: its `tools[].level` override ??
  * the connection's `default_tool_approval`.
  *
@@ -60,6 +71,13 @@ export function lookupMcpToolApproval(exposedName: string, spec: AgentSpec): Mcp
     }
     const prefix = exposedName.slice(0, sep)
     const remoteName = exposedName.slice(sep + PREFIX_SEPARATOR.length)
+    // The proxy meta-tools are never gated by per-tool policy: `explore_tools`
+    // is read-only catalog browsing, and `call_tool` is gated dynamically by the
+    // driver on the UNDERLYING tool (re-keyed to `<prefix>__<remoteName>`), not
+    // on the helper itself.
+    if (PROXY_META_TOOLS.has(remoteName)) {
+        return null
+    }
     const ref = findMcpRefByPrefix(spec.mcps, prefix)
     if (!ref) {
         return null
@@ -89,4 +107,38 @@ function findMcpRefByPrefix(mcps: ReadonlyArray<McpRef>, prefix: string): McpRef
         }
     }
     return null
+}
+
+/**
+ * Resolve the executor for an APPROVED row on resume. Native / custom /
+ * inline-MCP tools are keyed by their exposed name directly. A proxy-routed row
+ * is keyed by `<prefix>__<remoteName>` (the gate re-keyed onto the underlying
+ * tool at call time), but its executor is the connection's `call_tool` — and the
+ * row's stored args ARE the `call_tool` args (`{ tool_name, arguments }`), so
+ * dispatching through it replays the original call. Without this fallback,
+ * `executors.get(row.tool_name)` misses every proxy-routed row and the
+ * human-approved call is dropped with a synthetic "unknown tool" error.
+ */
+export function resolveApprovedExecutor<T>(
+    toolName: string,
+    executors: ReadonlyMap<string, T>,
+    proxyCallTools: ReadonlyMap<string, unknown>
+): T | undefined {
+    const direct = executors.get(toolName)
+    if (direct !== undefined) {
+        return direct
+    }
+    const key = proxyCallToolKey(toolName, proxyCallTools)
+    return key ? executors.get(key) : undefined
+}
+
+/** The `<prefix>__call_tool` key for a proxy-routed `<prefix>__<remoteName>`
+ *  name, or null when the prefix has no proxied connection. */
+function proxyCallToolKey(toolName: string, proxyCallTools: ReadonlyMap<string, unknown>): string | null {
+    const sep = toolName.indexOf(PREFIX_SEPARATOR)
+    if (sep <= 0) {
+        return null
+    }
+    const callToolName = `${toolName.slice(0, sep)}${PREFIX_SEPARATOR}${PROXY_CALL_TOOL}`
+    return proxyCallTools.has(callToolName) ? callToolName : null
 }

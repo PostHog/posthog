@@ -148,7 +148,7 @@ function byLabel(
 }
 
 describe('mcp proxy exposure', () => {
-    it('proxies a large connection: two helper tools, no inline tools, populates mcpProxyCallTools', async () => {
+    it('proxies a large connection: three helper tools, no inline tools, populates mcpProxyCallTools', async () => {
         const rev = makeRev(
             [],
             [
@@ -165,11 +165,12 @@ describe('mcp proxy exposure', () => {
         const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
 
         const labels = built.tools.map((t) => t.label)
-        // Exactly the two proxy helpers — none of the 60 inline tools.
+        // Exactly the three proxy helpers — none of the 60 inline tools.
         expect(labels).toContain('posthog__explore_tools')
+        expect(labels).toContain('posthog__get_tool_schema')
         expect(labels).toContain('posthog__call_tool')
         expect(labels).not.toContain('posthog__tool-0')
-        expect(labels.filter((l) => l.startsWith('posthog__'))).toHaveLength(2)
+        expect(labels.filter((l) => l.startsWith('posthog__'))).toHaveLength(3)
 
         // The dispatcher is recorded so the driver can install its dynamic gate.
         expect([...built.mcpProxyCallTools.keys()]).toEqual(['posthog__call_tool'])
@@ -199,11 +200,12 @@ describe('mcp proxy exposure', () => {
         expect(labels).toContain('linear__create-issue')
         expect(labels).toContain('linear__list-issues')
         expect(labels).not.toContain('linear__explore_tools')
+        expect(labels).not.toContain('linear__get_tool_schema')
         expect(labels).not.toContain('linear__call_tool')
         expect(built.mcpProxyCallTools.size).toBe(0)
     })
 
-    describe('explore_tools', () => {
+    describe('explore_tools + get_tool_schema', () => {
         async function buildProxy(): Promise<{
             built: Awaited<ReturnType<typeof buildAgentTools>>
             mcp: ReturnType<typeof makeFakeMcp>
@@ -241,6 +243,17 @@ describe('mcp proxy exposure', () => {
             expect(out.tools[0]).not.toHaveProperty('input_schema')
         })
 
+        it('matches a multi-word query when every term appears (not a literal whole-string substring)', async () => {
+            // Real footgun: a natural query like "insights project" used to be
+            // matched as one literal substring and returned 0, forcing a re-query.
+            // Tokenized AND-match finds the tool.
+            const { built } = await buildProxy()
+            const res = await byLabel(built, 'posthog__explore_tools').execute('c1', { query: 'insights project' })
+            const out = res.details.output as { total: number; tools: Array<{ name: string }> }
+            expect(out.total).toBe(1)
+            expect(out.tools[0].name).toBe('get-insights')
+        })
+
         it('caps a broad match at 50 while reporting the true total', async () => {
             const { built } = await buildProxy()
             // "tool" matches all 60 `tool-N` entries.
@@ -251,9 +264,9 @@ describe('mcp proxy exposure', () => {
             expect(out.tools).toHaveLength(50)
         })
 
-        it('returns one tool full input schema when tool_name is given', async () => {
+        it('get_tool_schema returns one tool full input schema', async () => {
             const { built } = await buildProxy()
-            const res = await byLabel(built, 'posthog__explore_tools').execute('c1', { tool_name: 'get-insights' })
+            const res = await byLabel(built, 'posthog__get_tool_schema').execute('c1', { tool_name: 'get-insights' })
             expect(res.details.output).toEqual({
                 name: 'get-insights',
                 description: 'Fetch insights for a project.',
@@ -265,11 +278,20 @@ describe('mcp proxy exposure', () => {
             })
         })
 
-        it('throws on an unknown tool_name', async () => {
+        it('get_tool_schema throws on an unknown tool_name', async () => {
             const { built } = await buildProxy()
-            await expect(byLabel(built, 'posthog__explore_tools').execute('c1', { tool_name: 'nope' })).rejects.toThrow(
-                /unknown_tool: nope/
-            )
+            await expect(
+                byLabel(built, 'posthog__get_tool_schema').execute('c1', { tool_name: 'nope' })
+            ).rejects.toThrow(/unknown_tool: nope/)
+        })
+
+        it('explore_tools ignores tool_name (schema fetch moved to get_tool_schema) and lists instead', async () => {
+            // Defensive: a stray tool_name on explore_tools must not 0-out the
+            // list — it's a search tool now, so it returns the catalog.
+            const { built } = await buildProxy()
+            const res = await byLabel(built, 'posthog__explore_tools').execute('c1', { tool_name: 'get-insights' })
+            const out = res.details.output as { total: number }
+            expect(out.total).toBeGreaterThan(0)
         })
     })
 
@@ -361,6 +383,95 @@ describe('mcp proxy exposure', () => {
             await expect(
                 byLabel(built, 'posthog__call_tool').execute('c1', { tool_name: 'tool-5', arguments: {} })
             ).rejects.toThrow('remote_blew_up')
+        })
+
+        it('appends the tool input_schema to a call_tool error so the retry is schema-informed', async () => {
+            // In proxy mode the model only sees call_tool's free-form `arguments`,
+            // so a wrong-args call is easy. Handing it the schema on failure turns
+            // "wrong args multiple times" into a one-shot, guided retry.
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
+            const handlers = manyHandlers(60)
+            handlers['get-insights'] = {
+                description: 'Fetch insights.',
+                inputSchema: {
+                    type: 'object',
+                    properties: { project_id: { type: 'number' } },
+                    required: ['project_id'],
+                },
+                handler: async () => {
+                    throw new Error('missing required arg: project_id')
+                },
+            }
+            const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], handlers)
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+
+            let err: Error | undefined
+            try {
+                await byLabel(built, 'posthog__call_tool').execute('c1', { tool_name: 'get-insights', arguments: {} })
+            } catch (e) {
+                err = e as Error
+            }
+            expect(err?.message).toContain('missing required arg: project_id') // remote message preserved
+            expect(err?.message).toContain('"required":["project_id"]') // + the schema, for a guided retry
+        })
+
+        it('names explore_tools instead of dumping a large schema into the error', async () => {
+            // A big schema would balloon the error, so the cap swaps the inline
+            // dump for a one-line pointer to get_tool_schema.
+            const bigSchema = {
+                type: 'object',
+                properties: Object.fromEntries(
+                    Array.from({ length: 200 }, (_, i) => [
+                        `field_${i}`,
+                        { type: 'string', description: 'x'.repeat(50) },
+                    ])
+                ),
+            }
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
+            const handlers = manyHandlers(60)
+            handlers['huge-tool'] = {
+                description: 'has a big schema',
+                inputSchema: bigSchema,
+                handler: async () => {
+                    throw new Error('bad args')
+                },
+            }
+            const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], handlers)
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+
+            let err: Error | undefined
+            try {
+                await byLabel(built, 'posthog__call_tool').execute('c1', { tool_name: 'huge-tool', arguments: {} })
+            } catch (e) {
+                err = e as Error
+            }
+            expect(err?.message).toContain('bad args')
+            expect(err?.message).toContain('posthog__get_tool_schema({ tool_name: "huge-tool" })')
+            // The giant schema is NOT inlined.
+            expect(err?.message).not.toContain('field_199')
+            expect(err!.message.length).toBeLessThan(2_000)
         })
     })
 })
