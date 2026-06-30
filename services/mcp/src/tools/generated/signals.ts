@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    SignalsProductEnablementCreateBody,
     SignalsReportArtefactsCreateBody,
     SignalsReportArtefactsCreateParams,
     SignalsReportArtefactsDestroyParams,
@@ -363,6 +364,26 @@ const inboxSourceConfigsCreate = (): ToolBase<typeof InboxSourceConfigsCreateSch
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ProductsEnableSchema = SignalsProductEnablementCreateBody
+
+const productsEnable = (): ToolBase<typeof ProductsEnableSchema, Schemas.ProductEnablementResult> => ({
+    name: 'products-enable',
+    schema: ProductsEnableSchema,
+    handler: async (context: Context, params: z.infer<typeof ProductsEnableSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.products !== undefined) {
+            body['products'] = params.products
+        }
+        const result = await context.api.request<Schemas.ProductEnablementResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/product_enablement/`,
             body,
         })
         return result
@@ -931,6 +952,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
+    'products-enable': productsEnable,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
