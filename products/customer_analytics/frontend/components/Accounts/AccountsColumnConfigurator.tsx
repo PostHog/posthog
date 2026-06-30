@@ -127,8 +127,11 @@ function SelectedAccountColumn({
     onEdit: (column: string, index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element {
+    const { aliasToDefinition } = useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
-    const label = extractDisplayLabel(column)
+    const alias = extractDisplayLabel(column)
+    // Custom-property columns are aliased to an opaque `cp_<id>`; show the definition name instead.
+    const label = aliasToDefinition[alias]?.name ?? alias
     // `name` carries the row identity (account id) and external_id for the
     // Account cell — removing it would break row expansion and role updates.
     const isMandatory = column === ACCOUNTS_NAME_COLUMN
