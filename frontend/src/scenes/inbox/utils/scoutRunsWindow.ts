@@ -475,7 +475,7 @@ export function sortConfigsForDisplay(configs: SignalScoutConfig[]): SignalScout
 
 export const SCOUT_AUTHOR_PROMPT = `I'd like to make a new scout for this PostHog project.
 
-Use the authoring-signals-scouts skill from the PostHog MCP to guide creating a new signals scout.
+Use the authoring-scouts skill from the PostHog MCP to guide creating a new signals scout.
 
 First, take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value.
 
@@ -485,7 +485,7 @@ If the skill is unavailable, fall back to the signals-scout MCP tools directly (
 
 export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
+Use the exploring-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
 
 - The fleet: which scouts exist, enabled vs disabled, and their cadences
 - Recent run health: success rate, failures and timeouts, anything stuck
@@ -497,7 +497,7 @@ Lead with a short overall verdict, then per-scout notes only where something is 
 
 export const SCOUT_RECENT_SIGNALS_PROMPT = `What signals have my scouts emitted recently?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
+Use the exploring-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
 
 - What each signal says, in plain language
 - Which scout emitted it, when, and its severity/confidence where available
@@ -509,7 +509,7 @@ Group by scout, newest first. Close with a short note on overall signal quality 
 export function buildScoutCheckinPrompt(skillName: string, displayName: string): string {
     return `How is my ${displayName} scout performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
+Use the exploring-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
 
 - Its config: enabled, cadence, dry-run posture
 - Recent run history: successes, failures, timeouts, durations

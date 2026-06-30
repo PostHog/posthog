@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -46,6 +47,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
 )
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -123,6 +125,7 @@ __all__ = [
     "get_latest_run_by_task",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -450,6 +453,19 @@ def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDT
     return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
 
 
+def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> list[contracts.TaskDTO]:
+    """Tasks matching the supplied ids, restricted to ``team_ids``.
+
+    For multi-team callers (e.g. the Slack App Home Tasks card) that already resolved the
+    set of accessible teams upstream and need a bulk DTO fetch in one query.
+    """
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return []
+    return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
@@ -531,6 +547,30 @@ def get_stale_queued_task_run_ids(
     return list(
         TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
         .filter(stale)
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    """Ids of prewarmed runs orphaned in QUEUED — their processing workflow never started, so the
+    in-workflow ``WARM_IDLE_TIMEOUT`` (10m) never armed to finalize them.
+
+    A live warm run idles in QUEUED awaiting its first message and self-terminates at
+    ``WARM_IDLE_TIMEOUT``, so a prewarmed run still QUEUED well past that window has no workflow
+    behind it (dispatch lost — e.g. an ``on_commit`` callback that never ran) and can be reaped
+    immediately rather than lingering until the 24h stale sweep. ``older_than`` should sit safely
+    above ``WARM_IDLE_TIMEOUT`` so a still-idling warm run is never killed early.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    now = django_timezone.now()
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.QUEUED,
+            state__prewarmed=True,
+            updated_at__lt=now - older_than,
+        )
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )
@@ -647,6 +687,42 @@ def create_and_run_task(
         task_id=task.id,
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
+    )
+
+
+def create_wizard_cloud_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    branch: str | None = None,
+) -> contracts.CreatedTaskDTO:
+    """Create + run a cloud setup-wizard task.
+
+    The workflow runs the published wizard in the sandbox (it integrates PostHog), then the agent
+    commits the changes, opens a PR on the user's repo, and keeps it green — it never implements
+    PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
+    token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
+    the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+
+    ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
+    run is explicitly attributed to them.
+    """
+    return create_and_run_task(
+        team=team,
+        title="Set up PostHog",
+        description=WIZARD_PR_AGENT_PROMPT,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        user_id=user_id,
+        repository=repository,
+        create_pr=True,
+        mode="background",
+        branch=branch,
+        wizard_config={},
+        posthog_mcp_scopes="read_only",
+        # The agent server boots idle; this is the message that actually kicks it off once ready
+        # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
+        pending_user_message=WIZARD_PR_AGENT_PROMPT,
     )
 
 
@@ -1118,6 +1194,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "wizard_config",
     }
 )
 
@@ -1767,8 +1844,6 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
     read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
     server owns this decision; clients just connect to whatever URL comes back.
     """
-    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
-
     from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
 
     proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL

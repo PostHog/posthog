@@ -754,10 +754,8 @@ class SerializedStreamTransformer:
                 log_attributes={"num_records": record_batch.num_rows},
             ) as recorder:
                 recorder.add_bytes_processed(record_batch.nbytes)
-                # The entire Arrow C++ call is not GIL-free, but enough of it
-                # seems to be for it to be worth to spawn a thread here, based
-                # on tests with 64MiB batches.
-                buf = await asyncio.to_thread(record_batch.select(self.schema.names).serialize)
+
+                buf = record_batch.select(self.schema.names).serialize()
                 chunk = buf.to_pybytes()  # We need bytes downstream
                 del buf  # Free buf on the next gc run
 

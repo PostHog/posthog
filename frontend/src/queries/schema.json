@@ -12587,6 +12587,9 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },
@@ -22119,7 +22122,8 @@
                 "Talkwalker",
                 "NextdoorAds",
                 "AppLovin",
-                "Baserow"
+                "Baserow",
+                "Plunk"
             ],
             "type": "string"
         },
@@ -25772,7 +25776,9 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
-                "postgresql"
+                "postgresql",
+                "aws-s3",
+                "s3-compatible"
             ],
             "type": "string"
         },
@@ -32178,6 +32184,8 @@
                 "llm_dataset_created",
                 "llm_evaluation_created",
                 "llm_prompt_created",
+                "mcp_analytics_viewed",
+                "mcp_analytics_connected",
                 "logs_docs_viewed",
                 "logs_set_filters",
                 "logs_settings_opened",
@@ -44609,6 +44617,7 @@
                 "cohorts",
                 "cohorts_with_all",
                 "data_warehouse",
+                "data_warehouse_source_tables",
                 "data_warehouse_properties",
                 "data_warehouse_person_properties",
                 "elements",

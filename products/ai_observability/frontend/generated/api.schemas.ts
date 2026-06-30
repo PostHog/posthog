@@ -398,6 +398,17 @@ export interface EvaluationConditionApi {
 }
 
 /**
+ * * `generation` - Generation
+ * * `trace` - Trace
+ */
+export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
+
+export const EvaluationTargetEnumApi = {
+    Generation: 'generation',
+    Trace: 'trace',
+} as const
+
+/**
  * * `openai` - Openai
  * * `anthropic` - Anthropic
  * * `gemini` - Gemini
@@ -405,6 +416,7 @@ export interface EvaluationConditionApi {
  * * `fireworks` - Fireworks
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -416,6 +428,7 @@ export const LLMProviderEnumApi = {
     Fireworks: 'fireworks',
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
+    Minimax: 'minimax',
 } as const
 
 /**
@@ -465,6 +478,18 @@ export type EvaluationApiOutputConfig = {
     allows_na?: boolean
 }
 
+/**
+ * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ */
+export type EvaluationApiTargetConfig = {
+    /**
+     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+}
+
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -500,6 +525,13 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    target_config?: EvaluationApiTargetConfig
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -548,6 +580,18 @@ export type PatchedEvaluationApiOutputConfig = {
     allows_na?: boolean
 }
 
+/**
+ * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ */
+export type PatchedEvaluationApiTargetConfig = {
+    /**
+     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+}
+
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -583,6 +627,13 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    target_config?: PatchedEvaluationApiTargetConfig
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -2073,7 +2124,8 @@ export interface TaggerModelConfigurationApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2125,7 +2177,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `openrouter` - Openrouter
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI */
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2426,6 +2479,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     AzureOpenai: 'azure_openai',
     Fireworks: 'fireworks',
     Gemini: 'gemini',
+    Minimax: 'minimax',
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',

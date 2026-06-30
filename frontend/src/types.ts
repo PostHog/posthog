@@ -582,6 +582,8 @@ export interface OrganizationDomainType {
     id_jag_issuer_url?: string | null
     id_jag_jwks_url?: string | null
     id_jag_allowed_clients?: string[]
+    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -4518,6 +4520,7 @@ export interface PreflightStatus {
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
     ai_gateway_url?: string | null
     object_storage: boolean
+    wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
 }
@@ -5365,6 +5368,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6071,7 +6076,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {
@@ -6893,6 +6898,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
     key: string
     label: string
     choices?: { value: string; label: string }[]
