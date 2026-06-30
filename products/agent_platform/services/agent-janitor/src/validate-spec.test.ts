@@ -352,6 +352,7 @@ describe('validateRevisionBundle', () => {
                     mcps: [
                         {
                             kind: 'agent',
+                            default_tool_approval: 'allow',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -378,7 +379,13 @@ describe('validateRevisionBundle', () => {
                 mkRev({
                     secrets: ['TENANT'],
                     mcps: [
-                        { kind: 'agent', id: 'tenant', url: 'https://${TENANT}.example.com/mcp', secrets: ['TENANT'] },
+                        {
+                            kind: 'agent',
+                            default_tool_approval: 'allow',
+                            id: 'tenant',
+                            url: 'https://${TENANT}.example.com/mcp',
+                            secrets: ['TENANT'],
+                        },
                     ],
                 }),
                 bundles
@@ -401,6 +408,7 @@ describe('validateRevisionBundle', () => {
                     mcps: [
                         {
                             kind: 'agent',
+                            default_tool_approval: 'allow',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
@@ -422,6 +430,7 @@ describe('validateRevisionBundle', () => {
                     mcps: [
                         {
                             kind: 'agent',
+                            default_tool_approval: 'allow',
                             id: 'github',
                             url: 'https://api.githubcopilot.com/mcp',
                             secrets: ['GITHUB_TOKEN'],
