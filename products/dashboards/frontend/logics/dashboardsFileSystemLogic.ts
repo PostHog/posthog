@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { withTimeout } from 'lib/utils/async'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -20,7 +21,6 @@ import {
     FolderTreeNode,
     subtreeDashboards,
 } from './dashboardsFileSystemUtils'
-import { dashboardsLogic } from './dashboardsLogic'
 
 const FILE_SYSTEM_PAGE_SIZE = 500
 // Safety ceiling so a misbehaving endpoint can't loop forever — 10 pages = 5k entries, well above any realistic
@@ -72,7 +72,7 @@ async function fetchAllFileSystemEntries(type: 'dashboard' | 'folder'): Promise<
 // organizing (move / rename / delete) is handled by the reused DashboardsTable's own row actions, which go
 // through the shared move path — there is no second folder model to sync.
 export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
-    path(['scenes', 'dashboard', 'dashboards', 'dashboardsFileSystemLogic']),
+    path(['products', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
         actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'deleteItem']],

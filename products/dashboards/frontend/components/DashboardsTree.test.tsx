@@ -9,7 +9,7 @@ import { DashboardsTree } from './DashboardsTree'
 let mockLastOnFolderClick: ((folder: unknown) => void) | undefined
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
-jest.mock('./DashboardsTable', () => ({
+jest.mock('scenes/dashboard/dashboards/DashboardsTable', () => ({
     DashboardsTable: ({ dashboards }: any) => (
         <div>
             {dashboards.map((dashboard: { id: number; name: string }) => (

@@ -12,7 +12,7 @@ import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
+import { dashboardsFileSystemLogic } from '../logics/dashboardsFileSystemLogic'
 
 interface DashboardsTreeFolderMenuProps {
     // The folder this menu acts on; '' is the tree root ("All dashboards"), which only offers New folder.

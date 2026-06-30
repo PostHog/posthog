@@ -7,7 +7,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { DashboardsContent } from './DashboardsContent'
 
-jest.mock('./DashboardsTable', () => ({ DashboardsTableContainer: () => <div>table-arm</div> }))
+jest.mock('scenes/dashboard/dashboards/DashboardsTable', () => ({
+    DashboardsTableContainer: () => <div>table-arm</div>,
+}))
 jest.mock('./DashboardsTree', () => ({ DashboardsTree: () => <div>tree-arm</div> }))
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn() }))
 

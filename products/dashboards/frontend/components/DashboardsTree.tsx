@@ -6,13 +6,13 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
-import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { FolderTreeNode } from './dashboardsFileSystemUtils'
-import { DashboardsTable } from './DashboardsTable'
+import { dashboardsFileSystemLogic } from '../logics/dashboardsFileSystemLogic'
+import { FolderTreeNode } from '../logics/dashboardsFileSystemUtils'
 import { DashboardsTreeFolderMenu } from './DashboardsTreeFolderMenu'
 
 // "All dashboards" is the single tree root; every folder nests under it. record.type 'folder' makes even

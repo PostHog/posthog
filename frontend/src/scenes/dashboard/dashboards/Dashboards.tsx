@@ -8,7 +8,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { DashboardsContent } from 'scenes/dashboard/dashboards/DashboardsContent'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
@@ -25,6 +24,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { DashboardsContent } from 'products/dashboards/frontend/components/DashboardsContent'
 
 import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
 
