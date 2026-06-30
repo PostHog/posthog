@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -48,11 +48,18 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _absolute_url(base_url: str, url: str) -> str:
-    """page_details URLs may come back absolute or as a relative path; normalize to absolute."""
-    if url.startswith("http://") or url.startswith("https://"):
-        return url
-    return urljoin(base_url, url)
+def _pinned_url(base_url: str, url: str) -> str:
+    """Resolve a page_details URL (absolute or relative) and pin it to the selected base host.
+
+    next_url comes from the API response body (and is persisted in resume state), so a tampered
+    response must not be able to redirect the credential-bearing request to another host. Anything
+    that resolves off the selected base origin is rejected.
+    """
+    resolved = url if url.startswith(("http://", "https://")) else urljoin(base_url, url)
+    base, target = urlsplit(base_url), urlsplit(resolved)
+    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
+        raise ValueError(f"AssemblyAI pagination URL {resolved!r} is not on the selected host {base_url!r}")
+    return resolved
 
 
 @retry(
@@ -115,7 +122,8 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        # Persisted state is still untrusted input — pin it to the selected host before fetching.
+        url = _pinned_url(base_url, resume.next_url)
         logger.debug(f"AssemblyAI: resuming from URL: {url}")
     else:
         url = f"{base_url}{config.path}?{urlencode({'limit': PAGE_SIZE})}"
@@ -140,7 +148,7 @@ def get_rows(
 
         # Save AFTER yielding the page so a crash re-yields the just-finished page rather than
         # skipping it — merge dedupes on the primary key. Resume picks up at the next page.
-        url = _absolute_url(base_url, next_url)
+        url = _pinned_url(base_url, next_url)
         resumable_source_manager.save_state(AssemblyAIResumeConfig(next_url=url))
 
 

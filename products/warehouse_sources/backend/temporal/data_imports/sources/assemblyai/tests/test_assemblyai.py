@@ -5,7 +5,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai import (
     AssemblyAIResumeConfig,
-    _absolute_url,
+    _pinned_url,
     assemblyai_source,
     base_url_for_region,
     get_rows,
@@ -59,7 +59,7 @@ class TestBaseUrlForRegion:
         assert base_url_for_region(region) == expected
 
 
-class TestAbsoluteUrl:
+class TestPinnedUrl:
     @pytest.mark.parametrize(
         "url, expected",
         [
@@ -70,8 +70,21 @@ class TestAbsoluteUrl:
             ("/v2/transcript?before_id=abc", "https://api.assemblyai.com/v2/transcript?before_id=abc"),
         ],
     )
-    def test_absolute_url(self, url: str, expected: str) -> None:
-        assert _absolute_url("https://api.assemblyai.com", url) == expected
+    def test_pinned_url_keeps_same_host(self, url: str, expected: str) -> None:
+        assert _pinned_url("https://api.assemblyai.com", url) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # A tampered next_url must not redirect the credential-bearing request off the base host.
+            "https://evil.example.com/v2/transcript",
+            "http://api.assemblyai.com/v2/transcript",  # scheme downgrade
+            "https://api.eu.assemblyai.com/v2/transcript",  # different region host
+        ],
+    )
+    def test_pinned_url_rejects_other_hosts(self, url: str) -> None:
+        with pytest.raises(ValueError):
+            _pinned_url("https://api.assemblyai.com", url)
 
 
 class TestValidateCredentials:
