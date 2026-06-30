@@ -772,6 +772,34 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         if not ok:
             return False, err
 
+        # An integration-backed OAuth2 source keeps its secrets in the CustomOAuth2Integration row,
+        # not in job_inputs — `_assemble_manifest` deliberately skipped the static secrets for it. Mint
+        # (or reuse a cached token) through the row here, exactly as sync time does, so validation has a
+        # live token to probe with. `get_access_token()` persists a rotated single-use refresh token, so
+        # this is the only seam that re-mints; the data probe below reuses the seeded token via
+        # `OAuth2Auth.__call__` and must NOT re-mint (that would rotate without writeback — see the guard
+        # on the pre-mint block). Errors mirror the pre-mint handling: a permanent token rejection blocks
+        # with a pointed message; a transient one doesn't block (the first real sync retries).
+        if config.auth_oauth2_integration_id:
+            try:
+                _inject_oauth2_integration_secrets(manifest, config.auth_oauth2_integration_id, team_id)
+            except CustomOAuth2Integration.DoesNotExist:
+                return False, "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
+            except OAuth2AuthRequestError as exc:
+                auth_config = manifest.get("client", {}).get("auth", {})
+                injected_secrets = tuple(
+                    str(auth_config[key])
+                    for key in ("client_secret", "refresh_token", "access_token")
+                    if auth_config.get(key)
+                )
+                if exc.is_permanent:
+                    return False, _redact_secrets(
+                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
+                        injected_secrets,
+                    )
+                # Transient (429 / 5xx): don't block creation — the first real sync retries the mint.
+                return True, None
+
         # Probe a small prefix of resources so we surface auth/connection errors
         # at create-time rather than waiting for the first sync. The auth/header
         # setup comes from the shared client config, so it is built once and
@@ -797,7 +825,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # freshly-minted access token join that session's redaction set. A transient
         # (429 / 5xx) token error must not block creation — the first real sync retries —
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
-        if isinstance(probe_auth, OAuth2Auth):
+        #
+        # Skip this for an integration-backed source: its token was already minted+persisted above
+        # (via the row's writeback-safe path) and seeded into the manifest. Re-minting on this
+        # throwaway `probe_auth` would rotate the single-use refresh token WITHOUT persisting it,
+        # orphaning the row on a consumed token. The seeded token reaches the probe through
+        # `OAuth2Auth.__call__`, which doesn't re-mint a still-valid token.
+        if isinstance(probe_auth, OAuth2Auth) and not config.auth_oauth2_integration_id:
             try:
                 # Bound the inline token exchange to the same budget as the data probe — this runs
                 # on the API request thread, so a stalled token endpoint must fail fast (well within
@@ -1052,6 +1086,34 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
             raise ManifestValidationError(err or "Manifest URL validation failed")
+
+        # Integration-backed OAuth2 source: seed the manifest with the row's live secrets + minted token
+        # (mint-or-reuse, persisting any rotation) so the preview's lazy first-request mint reuses the
+        # seeded token instead of re-minting on the throwaway preview auth — which would rotate the
+        # single-use refresh token without writing it back. Same seam as sync time / validate_credentials.
+        if config.auth_oauth2_integration_id:
+            try:
+                _inject_oauth2_integration_secrets(manifest, config.auth_oauth2_integration_id, team_id)
+            except CustomOAuth2Integration.DoesNotExist as exc:
+                raise ManifestValidationError(
+                    "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
+                ) from exc
+            except OAuth2AuthRequestError as exc:
+                # The mint is a live network call, so a token-endpoint failure here is a fetch-style
+                # error, not a config error — surface it the same way a row-read failure would be, with
+                # the injected secrets redacted out of the message.
+                auth_config = manifest.get("client", {}).get("auth", {})
+                injected_secrets = tuple(
+                    str(auth_config[key])
+                    for key in ("client_secret", "refresh_token", "access_token")
+                    if auth_config.get(key)
+                )
+                return PreviewResult(
+                    rows=[],
+                    row_count=0,
+                    columns=[],
+                    error=_redact_secrets(strip_oauth2_permanent_marker(str(exc)), injected_secrets),
+                )
 
         chain = _fanout_chain(manifest, resource_name)
 

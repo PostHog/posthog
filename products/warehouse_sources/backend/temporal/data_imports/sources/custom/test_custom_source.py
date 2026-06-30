@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
+SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session"
 
 
 def _token_response(status_code: int = 200, payload: dict[str, Any] | None = None) -> MagicMock:
@@ -574,6 +575,65 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         auth(request)
         assert request.headers["Authorization"] == "Bearer cached-AT"
         mock_session.return_value.post.assert_not_called()
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_mints_through_integration(self, mock_token_session, mock_probe_session):
+        # The bug: an integration-backed OAuth2 source has no refresh token in job_inputs, so
+        # validate_credentials used to build a refresh_token-grant OAuth2Auth with no token and fail the
+        # pre-mint with "A refresh_token is required". The fix seeds the manifest from the row first, so
+        # validation mints through the integration and the data probe reuses the seeded token.
+        mock_token_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        integration = self._make_integration()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert ok, err
+        assert "refresh_token is required" not in (err or "")
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_does_not_re_mint_for_integration_backed(self, mock_token_session, mock_probe_session):
+        # The rotation-without-writeback guard: for an integration-backed source the token is minted once
+        # through the row (which persists the rotated single-use refresh token). The data probe must reuse
+        # that seeded token and NOT mint a second time — a second mint would rotate the refresh token
+        # without writing it back, orphaning the row on a consumed token. Assert exactly one token POST,
+        # and that the stored refresh token is the one the integration path rotated to (not double-rotated).
+        mock_token_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        )
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        integration = self._make_integration()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert ok, err
+        assert mock_token_session.return_value.post.call_count == 1
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
+
+    def test_validate_credentials_missing_integration_returns_clear_error(self):
+        # A dangling / foreign auth_oauth2_integration_id must surface a clear message, not crash.
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert not ok
+        assert "no longer exists" in (err or "")
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
