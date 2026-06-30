@@ -44,6 +44,11 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'retention', label: 'Retention' },
 ]
 
+// Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
+// mirroring how the Duration column sums total_duration_ms over the group.
+const groupBytes = (item: SlowestQuery): number =>
+    item.read_bytes + item.sub_queries.reduce((sum, q) => sum + q.read_bytes, 0)
+
 function QueryStats({
     read_bytes,
     read_rows,
@@ -187,6 +192,23 @@ export function QueryPerformance(): JSX.Element {
                         <span>{total}</span>
                         {hasSubQueries && (
                             <span className="text-muted text-xs"> · read {Math.round(item.execution_time)}</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Read',
+            width: 130,
+            sorter: (a, b) => groupBytes(a) - groupBytes(b),
+            render: function Read(_, item): JSX.Element {
+                const total = groupBytes(item)
+                const hasSubQueries = item.sub_queries && item.sub_queries.length > 0
+                return (
+                    <div className="font-mono">
+                        <span>{humanizeBytes(total)}</span>
+                        {hasSubQueries && (
+                            <span className="text-muted text-xs"> · read {humanizeBytes(item.read_bytes)}</span>
                         )}
                     </div>
                 )
