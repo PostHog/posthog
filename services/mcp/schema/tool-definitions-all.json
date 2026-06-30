@@ -7165,6 +7165,20 @@
             "readOnlyHint": false
         }
     },
+    "signals-scout-members-list": {
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing",
+        "title": "List project members for reviewer routing",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "signals-scout-project-profile-get": {
         "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",

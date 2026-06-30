@@ -31,6 +31,7 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMemberApi,
     ScoutMetadataApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
@@ -51,6 +52,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsScoutMembersListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
@@ -490,6 +492,37 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutMembersListUrl = (projectId: string, params?: SignalsScoutMembersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/members/`
+}
+
+/**
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * @summary List project members for reviewer routing
+ */
+export const signalsScoutMembersList = async (
+    projectId: string,
+    params?: SignalsScoutMembersListParams,
+    options?: RequestInit
+): Promise<ScoutMemberApi[]> => {
+    return apiMutator<ScoutMemberApi[]>(getSignalsScoutMembersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
