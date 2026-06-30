@@ -941,7 +941,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DingConnectSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

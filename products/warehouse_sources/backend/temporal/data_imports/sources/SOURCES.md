@@ -117,6 +117,7 @@ the row lists both.
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
@@ -372,7 +373,6 @@ doesn't conflict with concurrent PRs.
 - dbt
 - deputy
 - devin_ai
-- ding_connect
 - display_video_360
 - dockerhub
 - docusign
