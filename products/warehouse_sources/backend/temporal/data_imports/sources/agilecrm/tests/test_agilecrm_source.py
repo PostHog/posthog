@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm import source as agilecrm_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import AgileCRMResumeConfig
@@ -35,9 +35,13 @@ class TestSourceConfig:
         fields = AgileCRMSource().get_source_config.fields
         assert [f.name for f in fields] == ["domain", "email", "api_key"]
         by_name = {f.name: f for f in fields}
-        assert by_name["api_key"].secret is True
-        assert by_name["domain"].secret is False
-        assert by_name["email"].secret is False
+        api_key, domain, email = by_name["api_key"], by_name["domain"], by_name["email"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(domain, SourceFieldInputConfig)
+        assert isinstance(email, SourceFieldInputConfig)
+        assert api_key.secret is True
+        assert domain.secret is False
+        assert email.secret is False
 
     def test_domain_is_a_connection_host_field(self) -> None:
         # Retargeting the domain (where the API key is sent) must re-require secrets.

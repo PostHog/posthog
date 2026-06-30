@@ -101,6 +101,8 @@ class TestPagination:
         # First request has no cursor; the second carries the cursor from the last item of page one.
         assert "cursor" not in params[0]
         assert params[1]["cursor"] == "CURSOR1"
+        # The cursor is navigation metadata and must never leak into the warehouse rows.
+        assert all("cursor" not in row for row in rows)
 
     def test_stops_when_full_page_has_no_cursor(self, monkeypatch: Any) -> None:
         # A full page whose last item carries no cursor must terminate rather than loop forever.
@@ -132,10 +134,12 @@ class TestPagination:
         big_first_page = [{"id": i} for i in range(2499)] + [{"id": 2500, "cursor": "NEXT"}]
         manager = _FakeResumableManager()
 
-        _collect_rows(monkeypatch, [big_first_page, [{"id": 1}]], manager)
+        rows, _ = _collect_rows(monkeypatch, [big_first_page, [{"id": 1}]], manager)
 
         assert manager.saved
         assert manager.saved[0].cursor == "NEXT"
+        # The cursor is navigation metadata and must never leak into the warehouse rows.
+        assert all("cursor" not in row for row in rows)
 
 
 class TestValidateCredentials:

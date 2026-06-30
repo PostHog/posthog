@@ -107,7 +107,12 @@ def get_rows(
             break
 
         # Agile CRM signals the next page via a `cursor` field on the *last* item of the current page.
-        next_cursor = items[-1].get("cursor") if isinstance(items[-1], dict) else None
+        last_item = items[-1]
+        next_cursor = last_item.get("cursor") if isinstance(last_item, dict) else None
+        # The cursor is navigation metadata, not data. Strip it from the last item so it isn't written
+        # to the warehouse as a sparse `cursor` column that only the final row of each page carries.
+        if isinstance(last_item, dict) and "cursor" in last_item:
+            items = [*items[:-1], {k: v for k, v in last_item.items() if k != "cursor"}]
 
         for item in items:
             batcher.batch(item)
