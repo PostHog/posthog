@@ -19,6 +19,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 
@@ -95,9 +96,6 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: ProductEnablementResultSerializer},
     )
     def create(self, request, *args, **kwargs):
-        # Local import: keeps this product module off posthog.api.team at import time.
-        from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET
-
         serializer = ProductEnablementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
