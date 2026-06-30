@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -46,6 +47,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
 )
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -688,6 +690,42 @@ def create_and_run_task(
     )
 
 
+def create_wizard_cloud_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    branch: str | None = None,
+) -> contracts.CreatedTaskDTO:
+    """Create + run a cloud setup-wizard task.
+
+    The workflow runs the published wizard in the sandbox (it integrates PostHog), then the agent
+    commits the changes, opens a PR on the user's repo, and keeps it green — it never implements
+    PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
+    token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
+    the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+
+    ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
+    run is explicitly attributed to them.
+    """
+    return create_and_run_task(
+        team=team,
+        title="Set up PostHog",
+        description=WIZARD_PR_AGENT_PROMPT,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        user_id=user_id,
+        repository=repository,
+        create_pr=True,
+        mode="background",
+        branch=branch,
+        wizard_config={},
+        posthog_mcp_scopes="read_only",
+        # The agent server boots idle; this is the message that actually kicks it off once ready
+        # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
+        pending_user_message=WIZARD_PR_AGENT_PROMPT,
+    )
+
+
 def create_task_without_run(
     *,
     team,
@@ -1156,6 +1194,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "wizard_config",
     }
 )
 
@@ -1805,8 +1844,6 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
     read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
     server owns this decision; clients just connect to whatever URL comes back.
     """
-    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
-
     from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
 
     proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL

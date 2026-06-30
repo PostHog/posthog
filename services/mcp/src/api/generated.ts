@@ -30603,6 +30603,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -30619,6 +30620,7 @@ export namespace Schemas {
 
 
     export const OriginProductEnum = {
+      Onboarding: 'onboarding',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -41287,6 +41289,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -51878,6 +51881,7 @@ export namespace Schemas {
       description?: string;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
        *
+       * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
