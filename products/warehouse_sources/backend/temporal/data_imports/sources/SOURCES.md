@@ -71,6 +71,7 @@ the row lists both.
 | buildkite           | HTTP                        | requests                                                        | ✅                          |
 | calendly            | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor    | HTTP                        | requests                                                        | ✅                          |
+| campayn             | HTTP                        | requests                                                        | ✅                          |
 | canny               | HTTP                        | requests                                                        | ✅                          |
 | chargebee           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
@@ -332,7 +333,6 @@ doesn't conflict with concurrent PRs.
 - cal_com
 - callrail
 - campaign_manager_360
-- campayn
 - capsule_crm
 - captain_data
 - care_quality_commission
