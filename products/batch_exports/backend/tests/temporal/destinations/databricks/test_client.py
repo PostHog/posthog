@@ -124,6 +124,7 @@ class TestConnect:
         use_catalog_mock = AsyncMock()
 
         with (
+            patch.object(client, "_check_host_reachable", new=AsyncMock()),
             patch(
                 "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
                 return_value=MagicMock(),
@@ -137,10 +138,28 @@ class TestConnect:
 
         use_catalog_mock.assert_not_called()
 
-    async def test_when_invalid_host(self, client: DatabricksClient):
-        with patch(
-            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
-            side_effect=ValueError("invalid host"),
+    async def test_when_invalid_host(self):
+        """An invalid/unreachable host must fail fast rather than hang for ~5 minutes in the SDK's
+        OIDC discovery (https://github.com/databricks/databricks-sdk-py/issues/1046).
+
+        The TCP reachability preflight must fail the connection — using the configurable
+        ``connect_timeout_seconds`` — *before* ``sql.connect`` is ever called, so no worker thread
+        is left blocking on the hang-prone SDK call.
+        """
+        client = DatabricksClient(
+            server_hostname="test",
+            http_path="test",
+            client_id="test",
+            client_secret="test",
+            catalog="test",
+            schema="test",
+            connect_timeout_seconds=0.01,
+        )
+
+        module = "products.batch_exports.backend.temporal.destinations.databricks_batch_export"
+        with (
+            patch(f"{module}.socket.create_connection", side_effect=OSError("unreachable")) as mock_create_connection,
+            patch(f"{module}.sql.connect") as mock_sql_connect,
         ):
             with pytest.raises(
                 DatabricksConnectionError,
@@ -148,6 +167,9 @@ class TestConnect:
             ):
                 async with client.connect():
                     pass
+
+        mock_create_connection.assert_called_once_with(("test", 443), timeout=0.01)
+        mock_sql_connect.assert_not_called()
 
 
 class TestQueryBuilders:

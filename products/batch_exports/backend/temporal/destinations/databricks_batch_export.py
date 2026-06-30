@@ -1,6 +1,7 @@
 import io
 import json
 import time
+import socket
 import typing as t
 import asyncio
 import datetime as dt
@@ -87,6 +88,13 @@ FIVE_MINUTES = 5 * 60
 THIRTY_MINUTES = 30 * 60
 ONE_HOUR = 60 * 60
 SIX_HOURS = 6 * 60 * 60
+
+# Timeout (seconds) for the TCP reachability preflight we run before `sql.connect`. The Databricks
+# SDK's OIDC endpoint discovery inside `sql.connect` ignores `_socket_timeout` and retries for ~5
+# minutes on an unreachable/invalid host (https://github.com/databricks/databricks-sdk-py/issues/1046),
+# blocking the worker thread the whole time. A short TCP probe lets us fail fast instead — 30s is
+# generous for a TCP connect to a live host while bounding the bad-host failure.
+DEFAULT_CONNECT_TIMEOUT = 30.0
 
 
 class DatabricksConnectionError(Exception):
@@ -222,6 +230,7 @@ class DatabricksClient:
         catalog: str,
         schema: str,
         statement_timeout_seconds: float | None = None,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
     ):
         self.server_hostname = server_hostname
         self.http_path = http_path
@@ -233,6 +242,9 @@ class DatabricksClient:
         # to be longer than the client-side per-call timeouts so the client fires first and the
         # server only kicks in as a last resort.
         self.statement_timeout_seconds = statement_timeout_seconds
+        # Timeout for the TCP reachability preflight that works around an SDK hang on invalid hosts
+        # (see ``_check_host_reachable``).
+        self.connect_timeout_seconds = connect_timeout_seconds
 
         self._connection: None | Connection = None
 
@@ -271,15 +283,34 @@ class DatabricksClient:
             raise Exception("Not connected, open a connection by calling `connect`")
         return self._connection
 
-    async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread.
+    async def _check_host_reachable(self) -> None:
+        """Fail fast on an unreachable/invalid host before calling ``sql.connect``.
 
-        Known hang risk: ``oauth_service_principal(config)`` triggers an OIDC endpoint discovery
-        HTTP call inside ``sql.connect``. That call uses the Databricks SDK's own client timeout
-        (~5 minutes, not configurable here), and doesn't respect the ``_socket_timeout`` / ``_retry_stop_after_*``
-        settings. So if the host is unreachable or DNS hangs, this method can block for
-        up to ~5 minutes before raising. See https://github.com/databricks/databricks-sdk-py/issues/1046.
+        ``sql.connect`` triggers an OIDC endpoint discovery HTTP call (via ``oauth_service_principal``)
+        whose client retries for ~5 minutes and ignores the ``_socket_timeout`` / ``_retry_stop_after_*``
+        settings we pass, so an invalid host blocks the worker thread for the full ~5 minutes before
+        raising (https://github.com/databricks/databricks-sdk-py/issues/1046). A short TCP probe catches
+        that case in ``connect_timeout_seconds`` and, unlike wrapping ``sql.connect`` in a timeout,
+        leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
+        started.
         """
+
+        def probe() -> None:
+            with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
+                pass
+
+        try:
+            await asyncio.to_thread(probe)
+        except OSError as err:
+            self.logger.info("Could not reach Databricks host '%s': %s", self.server_hostname, err)
+            raise DatabricksConnectionError(
+                "Failed to connect to Databricks. Please check that your connection details are valid."
+            ) from err
+
+    async def _connect(self):
+        """Establish a raw Databricks connection in a separate thread."""
+        # Reachability preflight: bounds the SDK's ~5-minute OIDC-discovery hang on invalid hosts.
+        await self._check_host_reachable()
 
         def get_credential_provider():
             config = Config(
