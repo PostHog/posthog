@@ -99,7 +99,13 @@ from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetr
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
-from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
+from posthog.hogql.database.schema.metrics import (
+    MetricAttributesTable,
+    MetricSamplesTable,
+    MetricSeriesTable,
+    MetricsKafkaMetricsTable,
+    MetricsTable,
+)
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -375,6 +381,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
+                    "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
                     "error_tracking_fingerprint_issue_state": TableNode(
