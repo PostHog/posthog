@@ -146,6 +146,54 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
+# Transient connection-level failures from a connection pooler (e.g. PgBouncer) dropping
+# a connection the worker still holds — "server closed the connection unexpectedly". They
+# clear once a fresh connection is opened, so closing stale connections and retrying recovers.
+TRANSIENT_DB_CONNECTION_ERRORS: tuple[type[Exception], ...] = (
+    django.db.OperationalError,
+    django.db.InterfaceError,
+)
+
+
+def retry_transient_db_errors(
+    func: Callable[P, T],
+    *,
+    max_attempts: int = 3,
+    initial_retry_delay: float = 0.5,
+    max_retry_delay: float = 4.0,
+    exponential_backoff_coefficient: int = 2,
+) -> Callable[P, T]:
+    """Wrap a sync DB callable so a transient connection drop is retried in-process.
+
+    Long-running Temporal worker threads hold pooled Postgres connections outside Django's
+    request cycle, so the ``request_started``/``request_finished`` signals that normally evict
+    stale connections never fire. A connection pooler can drop such a connection server-side
+    while it sits idle; the next ORM/HogQL call then raises a transient ``OperationalError`` or
+    ``InterfaceError`` ("server closed the connection unexpectedly"). Evicting stale connections
+    before each attempt forces a fresh connection, so a momentary blip is ridden out in-process
+    rather than failing the whole activity (and re-running any expensive work that preceded it).
+
+    Only wrap idempotent work — the callable may run more than once. Non-transient DB errors and
+    every other exception propagate immediately.
+    """
+
+    @wraps(func)
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+        attempt = 0
+        while True:
+            _close_db_connections()
+            try:
+                return func(*args, **kwargs)
+            except TRANSIENT_DB_CONNECTION_ERRORS:
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise
+                delay = min(max_retry_delay, initial_retry_delay * (exponential_backoff_coefficient ** (attempt - 1)))
+                time.sleep(delay)
+
+    return inner
+
+
 def get_scheduled_start_time():
     """Return the start time of a workflow.
 

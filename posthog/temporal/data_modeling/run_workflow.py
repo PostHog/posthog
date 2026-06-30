@@ -56,6 +56,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_transient_db_errors
 from posthog.temporal.data_modeling.activities.fail_materialization import (
     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
     should_pause_schedule_for_timeout,
@@ -1594,19 +1595,23 @@ async def update_saved_query_status(
         )
         filter_params["name"] = label
 
+    # Idempotent status writes from a long-lived worker thread: retry a transient
+    # connection-pooler drop in-process instead of failing the activity.
     saved_query = await database_sync_to_async(
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(**filter_params).get
+        retry_transient_db_errors(DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(**filter_params).get)
     )()
 
     if run_at:
         saved_query.last_run_at = run_at
     saved_query.status = status
 
-    await database_sync_to_async(saved_query.save)()
+    await database_sync_to_async(retry_transient_db_errors(saved_query.save))()
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
-        await database_sync_to_async(update_materialization_ready_for_saved_query)(team_id, saved_query, is_ready)
+        await database_sync_to_async(retry_transient_db_errors(update_materialization_ready_for_saved_query))(
+            team_id, saved_query, is_ready
+        )
 
 
 @dataclasses.dataclass

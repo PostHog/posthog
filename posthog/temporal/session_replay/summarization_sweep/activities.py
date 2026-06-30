@@ -12,6 +12,7 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.ai_summary_cap import consume_summary_quota, headroom
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
+from posthog.temporal.common.utils import retry_transient_db_errors
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
@@ -104,20 +105,24 @@ async def _stuck_session_ids(team_id: int, session_ids: list[str]) -> set[str]:
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
     # No-op when disabled; the reconciler will tear down the schedule on its next tick.
-    enabled = await database_sync_to_async(_is_team_summarization_allowed)(inputs.team_id)
+    # These sync calls touch Postgres/HogQL from a long-lived worker thread, so a transient
+    # connection-pooler drop is retried in-process rather than killing the whole sweep tick.
+    enabled = await database_sync_to_async(retry_transient_db_errors(_is_team_summarization_allowed))(inputs.team_id)
     if not enabled:
         return FindSessionsResult(team_id=inputs.team_id)
 
-    team, session_ids, system_user = await database_sync_to_async_pool(_load_team_user_and_sessions)(
-        inputs.team_id, inputs.lookback_minutes
-    )
+    team, session_ids, system_user = await database_sync_to_async_pool(
+        retry_transient_db_errors(_load_team_user_and_sessions)
+    )(inputs.team_id, inputs.lookback_minutes)
     if not session_ids:
         return FindSessionsResult(team_id=inputs.team_id)
     if system_user is None:
         logger.warning("No user found to run summarization", team_id=inputs.team_id)
         return FindSessionsResult(team_id=inputs.team_id)
 
-    existing_summaries = await database_sync_to_async_pool(SingleSessionSummary.objects.summaries_exist)(
+    existing_summaries = await database_sync_to_async_pool(
+        retry_transient_db_errors(SingleSessionSummary.objects.summaries_exist)
+    )(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=None,
@@ -125,7 +130,9 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
     sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)]
     # Recording-only sessions never write a summary row, so summaries_exist can't dedup them.
     if sessions_to_summarize:
-        sessions_with_events = await database_sync_to_async_pool(filter_session_ids_with_events)(
+        sessions_with_events = await database_sync_to_async_pool(
+            retry_transient_db_errors(filter_session_ids_with_events)
+        )(
             team=team,
             session_ids=sessions_to_summarize,
             lookback_minutes=inputs.lookback_minutes,
@@ -138,7 +145,9 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
     # Hard-cap the dispatch list by the team's remaining monthly headroom. Without
     # this, an autonomous sweep can drain the bucket and starve the DRF entrypoint.
     # Race against concurrent DRF traffic is fine — the cap is a backstop, not billing.
-    available = await database_sync_to_async(headroom, thread_sensitive=False)(inputs.team_id)
+    available = await database_sync_to_async(retry_transient_db_errors(headroom), thread_sensitive=False)(
+        inputs.team_id
+    )
     if available <= 0:
         return FindSessionsResult(team_id=inputs.team_id)
     sessions_to_summarize = sessions_to_summarize[:available]
