@@ -1,0 +1,143 @@
+name: CI Flake Triage
+
+# Companion to "CI Flake Overseer": the overseer observes (telemetry only); this
+# posts a flake-vs-real verdict back onto the PR so the author stops hand-deciding
+# whether a red check is theirs to fix or just flaky. Reuses the same classifier.
+
+on:
+    workflow_run:
+        workflows:
+            - 'Backend CI'
+            - 'Dagster CI'
+            - 'E2E CI Playwright'
+            - 'Frontend CI'
+            - 'Python CI'
+        types: [completed]
+    workflow_dispatch:
+        inputs:
+            run_id:
+                description: 'GitHub Actions run ID to triage'
+                required: true
+                type: string
+
+# pull-requests:write to upsert the comment; the rest is read-only.
+permissions:
+    actions: read
+    contents: read
+    pull-requests: write
+
+env:
+    # Master on/off switch. Defaults to off: set repo/org variable
+    # CI_FLAKE_TRIAGE_ENABLED=true to start posting comments.
+    CI_FLAKE_TRIAGE_ENABLED: ${{ vars.CI_FLAKE_TRIAGE_ENABLED || 'false' }}
+
+jobs:
+    triage:
+        name: Triage failed run and comment on PR
+        # Only spin up for a PR run that failed/timed out (or a manual dispatch). A
+        # green run, a push to master, or a merge_group run has no PR author to help.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.workflow_run.event == 'pull_request' &&
+              github.event.workflow_run.head_repository.full_name == github.repository &&
+              (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out')
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GITHUB_TOKEN: ${{ github.token }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
+              continue-on-error: true
+              with:
+                  clean: false
+
+            - name: Gate on feature flag
+              if: env.CI_FLAKE_TRIAGE_ENABLED != 'true'
+              run: |
+                  echo "::notice title=CI flake triage disabled::Set CI_FLAKE_TRIAGE_ENABLED=true to post triage comments."
+
+            - name: Render triage comment
+              id: render
+              if: env.CI_FLAKE_TRIAGE_ENABLED == 'true' && steps.checkout.outcome == 'success'
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  INPUT_RUN_ID: ${{ inputs.run_id }}
+                  FLAKE_TRIAGE_OUTPUT: ${{ runner.temp }}/flake-triage-comment.md
+              run: |
+                  set -euo pipefail
+                  args=()
+                  if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                    args+=(--run-id "$INPUT_RUN_ID")
+                  fi
+                  python .github/scripts/ci_flake_triage.py "${args[@]}"
+                  # head_sha drives PR resolution in the next step; empty on manual dispatch.
+                  echo "head_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+
+            - name: Upsert triage comment on PR
+              if: env.CI_FLAKE_TRIAGE_ENABLED == 'true' && steps.render.outcome == 'success'
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  COMMENT_PATH: ${{ runner.temp }}/flake-triage-comment.md
+                  HEAD_SHA: ${{ steps.render.outputs.head_sha }}
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const fs = require('fs');
+                      const marker = '<!-- ci-flake-triage -->';
+
+                      let body = '';
+                      try {
+                          body = fs.readFileSync(process.env.COMMENT_PATH, 'utf8').trim();
+                      } catch {}
+
+                      // Resolve the PR from the failed run's head SHA.
+                      const headSha = process.env.HEAD_SHA;
+                      if (!headSha) {
+                          core.notice('No head SHA to resolve a PR from; skipping.');
+                          return;
+                      }
+                      const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          commit_sha: headSha,
+                      });
+                      const pr = prs.find(p => p.state === 'open');
+                      if (!pr) {
+                          core.notice(`No open PR for ${headSha}; skipping.`);
+                          return;
+                      }
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: pr.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      // Empty body => nothing classifiable this run. Leave any prior
+                      // comment in place (it may describe a failure still unaddressed).
+                      if (!body) {
+                          core.notice('No triage content for this run; leaving any existing comment untouched.');
+                          return;
+                      }
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: pr.number,
+                              body,
+                          });
+                      }
