@@ -460,7 +460,7 @@ class UserAccessControl:
                 if (ac.resource_id is None) != value:
                     return False
             elif filter_key == "team__organization_id":
-                if ac._team_organization_id != value:
+                if ac._team_organization_id != value:  # type: ignore[attr-defined]
                     return False
             elif getattr(ac, filter_key) != value:
                 return False
