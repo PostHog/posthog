@@ -769,7 +769,6 @@ class ExperimentService:
             [
                 *(metrics or []),
                 *(metrics_secondary or []),
-                *(secondary_metrics or []),
                 *self._collect_saved_metric_queries(saved_metrics_ids),
             ],
             team=self.team,
