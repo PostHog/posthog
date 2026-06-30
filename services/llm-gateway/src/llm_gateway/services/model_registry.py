@@ -146,7 +146,7 @@ class ModelRegistryService:
 
         # Cloudflare-served models aren't in litellm's cost map (so get_model returns None) — gate
         # them on the CF allowlist + configured CF creds instead.
-        if model_id.lower() in CLOUDFLARE_ALLOWED_MODELS:
+        if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
             return _cloudflare_configured()
 
         model = self.get_model(model_id)
