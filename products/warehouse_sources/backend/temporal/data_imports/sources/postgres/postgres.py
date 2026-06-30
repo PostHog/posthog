@@ -212,16 +212,21 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutret
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
 # clients already" once max_connections is reached, "remaining connection slots are reserved for
 # roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
-# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
-# transient capacity conditions on the customer's database — a slot frees the moment another
-# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
-# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
-# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
-# pooler saturation (see source.py).
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
+# Supavisor session-mode pooler reports its own variant when every client slot it exposes is in use
+# ("(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size:
+# <n>"). All of these are transient capacity conditions on the customer's database or pooler — a
+# slot frees the moment another connection closes (or a session ends) — so a fresh connect after a
+# short backoff usually succeeds. Retried in-process on the read/sync connect path (see
+# `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
+# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor match is on the stable
+# "max clients reached in session mode" phrase, excluding the volatile pool_size and the
+# "(EMAXCONNSESSION)" code (mirrors the `PostgresErrors` validation mapping in source.py).
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
+    "max clients reached in session mode",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
