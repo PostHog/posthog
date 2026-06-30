@@ -42,20 +42,27 @@ def build_support_ticket_url(team_id: int, ticket_number: int) -> str:
     return f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/support/tickets/{ticket_number}"
 
 
-def _get_slack_bot_token_for_team(team_id: int) -> str | None:
-    config = (
-        TeamConversationsSlackConfig.objects.filter(team_id=team_id, slack_bot_token__isnull=False)
-        .only("slack_bot_token")
-        .first()
-    )
+def _get_slack_bot_token(slack_team_id: str | None, team_id: int | None) -> str | None:
+    """Resolve the Slack bot token that can read a channel.
+
+    The bot lives in the channel's Slack workspace, so match the config by
+    ``slack_team_id`` (unique per workspace) first and fall back to the
+    representative PostHog team only when the workspace id is unknown.
+    """
+    configs = TeamConversationsSlackConfig.objects.filter(slack_bot_token__isnull=False).only("slack_bot_token")
+
+    config = configs.filter(slack_team_id=slack_team_id).first() if slack_team_id else None
+    if config is None and team_id is not None:
+        config = configs.filter(team_id=team_id).first()
+
     if not config or not config.slack_bot_token:
         return None
     return str(config.slack_bot_token)
 
 
-def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str) -> int | None:
-    """Fetch the current Slack channel member count using the team's support bot token."""
-    bot_token = _get_slack_bot_token_for_team(team_id)
+def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str, slack_team_id: str | None = None) -> int | None:
+    """Fetch the current Slack channel member count using the channel's support bot token."""
+    bot_token = _get_slack_bot_token(slack_team_id, team_id)
     if not bot_token:
         return None
 
@@ -104,6 +111,11 @@ def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str) -> int |
     return None
 
 
+def _activity_at() -> Coalesce:
+    """Most recent activity timestamp for a ticket, preferring the newest available signal."""
+    return Coalesce("last_message_at", "updated_at", "created_at", output_field=DateTimeField())
+
+
 def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, object]]:
     if not org_ids:
         return []
@@ -116,14 +128,7 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
         )
         .exclude(organization_id="")
         .exclude(slack_channel_id="")
-        .annotate(
-            activity_at=Coalesce(
-                "last_message_at",
-                "updated_at",
-                "created_at",
-                output_field=DateTimeField(),
-            )
-        )
+        .annotate(activity_at=_activity_at())
         .values("organization_id", "slack_channel_id")
         .annotate(
             team_id=Min("team_id"),
@@ -142,14 +147,7 @@ def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, obje
     return list(
         Ticket.objects.filter(organization_id__in=org_ids)
         .exclude(organization_id="")
-        .annotate(
-            activity_at=Coalesce(
-                "last_message_at",
-                "updated_at",
-                "created_at",
-                output_field=DateTimeField(),
-            )
-        )
+        .annotate(activity_at=_activity_at())
         .values("organization_id", "team_id", "ticket_number", "activity_at")
         .order_by("organization_id", "-activity_at", "-ticket_number")
         .distinct("organization_id")
@@ -202,7 +200,7 @@ def aggregate_conversations_slack_signals_for_orgs(
         team_id = int(team_id_value) if isinstance(team_id_value, int) else None
 
         slack_user_count = (
-            fetch_slack_channel_user_count(team_id, slack_channel_id)
+            fetch_slack_channel_user_count(team_id, slack_channel_id, slack_team_id)
             if include_slack_user_count and team_id is not None and slack_channel_id is not None
             else None
         )

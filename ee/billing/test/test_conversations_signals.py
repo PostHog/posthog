@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 
 from ee.billing.salesforce_enrichment.conversations_signals import (
+    _get_slack_bot_token,
     aggregate_conversations_slack_signals_for_orgs,
     build_slack_channel_url,
     build_support_ticket_url,
@@ -105,7 +106,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert result == {}
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals.WebClient")
-    @patch("ee.billing.salesforce_enrichment.conversations_signals._get_slack_bot_token_for_team")
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._get_slack_bot_token")
     def test_fetch_slack_channel_user_count_paginates(self, mock_get_token, mock_web_client):
         mock_get_token.return_value = "xoxb-test"
         mock_client = MagicMock()
@@ -191,3 +192,16 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert tie_signals.slack_channel_url == "https://app.slack.com/client/T123/C_TIE_A"
         assert tie_signals.slack_issue_count == 2
         assert tie_signals.last_slack_activity == tie_activity
+
+    def test_get_slack_bot_token_resolves_by_workspace_then_team(self):
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team, defaults={"slack_team_id": "TWORK", "slack_bot_token": "xoxb-test"}
+        )
+
+        # Matches by Slack workspace id, independent of the representative team.
+        assert _get_slack_bot_token("TWORK", None) == "xoxb-test"
+        # Falls back to the representative team when the workspace id is absent or unmatched.
+        assert _get_slack_bot_token(None, self.team.id) == "xoxb-test"
+        assert _get_slack_bot_token("TUNMATCHED", self.team.id) == "xoxb-test"
+        # No token when neither path resolves.
+        assert _get_slack_bot_token("TUNMATCHED", None) is None
