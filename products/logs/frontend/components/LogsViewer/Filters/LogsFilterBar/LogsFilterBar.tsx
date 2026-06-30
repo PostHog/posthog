@@ -91,7 +91,7 @@ export const LogsQueryControls = (): JSX.Element => {
 
     return (
         <div className="flex shrink-0 gap-1.5">
-            <div className="LogsDateButtonGroup">
+            <div className="flex">
                 <LemonButton
                     size="small"
                     icon={<IconMinusSquare />}
