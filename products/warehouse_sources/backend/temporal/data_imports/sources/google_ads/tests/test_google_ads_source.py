@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
+    get_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -768,6 +769,90 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+class _FlakyFieldService:
+    """``GoogleAdsFieldService`` that raises ``error`` for the first ``fail_times`` calls, then serves fields."""
+
+    def __init__(self, error: BaseException, fail_times: int):
+        self.error = error
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def search_google_ads_fields(self, query: str):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        # Empty results is fine: RESOURCE_SCHEMAS is patched to {} so no field lookups happen.
+        return SimpleNamespace(results=[])
+
+
+_GOOGLE_ADS_CLIENT_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+)
+_RESOURCE_SCHEMAS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.RESOURCE_SCHEMAS"
+)
+_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+
+
+class TestGetSchemasTransientRetry:
+    """Schema discovery (``search_google_ads_fields``) must ride out transient gRPC blips just like
+    the data-fetch path — a transient ``INTERNAL`` here used to escape uncaught into error tracking.
+    """
+
+    def _get_schemas(self, field_service: _FlakyFieldService):
+        client = SimpleNamespace(get_service=lambda *args, **kwargs: field_service)
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(_GOOGLE_ADS_CLIENT_PATH, return_value=client),
+            mock.patch(_RESOURCE_SCHEMAS_PATH, {}),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            schemas = get_schemas(config, team_id=1)
+        return schemas, sleep
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
+            _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
+        ],
+    )
+    def test_rides_out_transient_error(self, error):
+        field_service = _FlakyFieldService(error=error, fail_times=2)
+
+        schemas, sleep = self._get_schemas(field_service)
+
+        # Two transient failures were retried, then the fields query succeeded — no error escaped.
+        assert schemas == {}
+        assert field_service.calls == 3
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_persistent_internal_is_reraised_for_temporal_to_retry(self):
+        field_service = _FlakyFieldService(
+            error=google_api_exceptions.InternalServerError("500 Internal error encountered."), fail_times=99
+        )
+
+        with pytest.raises(google_api_exceptions.InternalServerError):
+            self._get_schemas(field_service)
+
+        # Bounded attempts: gives up rather than looping forever, leaving Temporal to retry the activity.
+        assert field_service.calls == 4
+
+    def test_non_transient_error_is_not_retried(self):
+        field_service = _FlakyFieldService(
+            error=google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), fail_times=99
+        )
+
+        with pytest.raises(google_api_exceptions.PermissionDenied):
+            self._get_schemas(field_service)
+
+        # A non-transient error propagates on the first call — no retry.
+        assert field_service.calls == 1
 
 
 _INTEGRATION_GET_PATH = (

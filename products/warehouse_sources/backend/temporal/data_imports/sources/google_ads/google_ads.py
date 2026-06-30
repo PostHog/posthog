@@ -372,8 +372,10 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     """
     client = google_ads_client(config, team_id)
     gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
-    fields_query = gaf_service.search_google_ads_fields(
-        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    fields_query = _call_with_transient_retry(
+        lambda: gaf_service.search_google_ads_fields(
+            query="select name, data_type, is_repeated, type_url where selectable = true"
+        )
     )
     fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
@@ -520,10 +522,14 @@ def google_ads_source(
 # backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
 # succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
 # would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
-# checkpoint — and avoids the captured error-tracking noise.
+# checkpoint — and avoids the captured error-tracking noise. Both gRPC hops we make against Google
+# Ads can hit this — schema discovery (``GoogleAdsFieldService.search_google_ads_fields``) and data
+# pagination (``GoogleAdsService.search``) — so both ride it out via ``_call_with_transient_retry``.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
 _TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
+
+_T = typing.TypeVar("_T")
 
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
@@ -543,28 +549,37 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
 
 
+def _call_with_transient_retry(
+    call: collections.abc.Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> _T:
+    """Run ``call``, retrying a transient gRPC failure (see ``_is_transient_grpc_error``) with backoff.
+
+    Each retry re-issues the same request, so there is no partial state to reconcile. The transient
+    status may itself arrive wrapped in a ``GoogleAdsException``. Non-transient errors re-raise
+    immediately so callers' own error handling (e.g. ``INVALID_PAGE_TOKEN``) and Temporal's retry
+    policy still apply.
+    """
+    attempt = 0
+    while True:
+        try:
+            return call()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
 def _search_with_transient_retry(
     service: GoogleAdsServiceClient,
     request: dict,
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
 ) -> pagers.SearchPager:
-    """Call ``GoogleAdsService.search``, retrying a transient gRPC failure with backoff.
-
-    Each retry re-requests the same ``page_token``, so there is no partial state to reconcile. The
-    transient status may itself arrive wrapped in a ``GoogleAdsException`` (see
-    ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
-    ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
-    """
-    attempt = 0
-    while True:
-        try:
-            return service.search(request=request)
-        except Exception as e:
-            attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
-                raise
-            time.sleep(min(2 * attempt, 30))
+    """Call ``GoogleAdsService.search``, retrying a transient gRPC failure with backoff."""
+    return _call_with_transient_retry(lambda: service.search(request=request), max_attempts=max_attempts)
 
 
 def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
