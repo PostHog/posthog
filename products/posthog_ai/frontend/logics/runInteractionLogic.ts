@@ -278,6 +278,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     method: 'set_config_option',
                     params: { configId: MODEL_CONFIG_ID, value: model },
                 })
+                // The new model may not support the current effort — clamp and sync to the backend if so.
+                const currentEffort = values.effortOverride ?? props.currentEffort
+                const resolvedEffort = resolveEffortForModel(currentEffort, model)
+                if (resolvedEffort !== currentEffort) {
+                    actions.setEffort(resolvedEffort)
+                }
             } catch {
                 actions.resetModelOverride()
                 lemonToast.error('Failed to switch model. Please try again.')
