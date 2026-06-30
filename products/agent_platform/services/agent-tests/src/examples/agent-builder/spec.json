@@ -321,6 +321,7 @@
             ]
         }
     ],
+    "authoritative_provider": "posthog",
     "identity_providers": [
         {
             "kind": "posthog",
