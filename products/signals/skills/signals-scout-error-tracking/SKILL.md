@@ -1,11 +1,8 @@
 ---
 name: signals-scout-error-tracking
 description: >
-  Focused Signals scout for PostHog projects using error tracking. Watches `$exception`
-  bursts, stuck loops, multi-fingerprint clusters, status regressions, and stack-trace
-  activity-name patterns. Emits findings only when they clear the confidence bar;
-  otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for PostHog error tracking. Watches `$exception` bursts, stuck loops,
+  multi-fingerprint clusters, and status regressions.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

@@ -1,15 +1,9 @@
 ---
 name: signals-scout-insight-alerts
 description: >
-  Digest + triage scout over a PostHog project's own configured insight alerts. The team
-  already declared what matters by creating alerts with thresholds or anomaly detectors, so
-  this scout doesn't detect anomalies — it reads each alert's recent firing history and
-  surfaces the handful of recent firings a human likely missed, weighting hardest toward
-  firings the standard notification path stayed silent on (no subscribers, suppressed by the
-  investigation agent, or an alert that's silently Errored and no longer evaluating). Skips
-  snoozed, disabled, flapping, and already-notified-and-resolved alerts. Emits a finding only
-  when a firing clears the confidence bar; otherwise writes durable memory and closes out
-  empty. Self-contained peer in the signals-scout-* fleet.
+  Signals scout over a project's own configured insight alerts. Reads each alert's recent
+  firing history and surfaces the firings a human likely missed — especially ones the standard
+  notification path stayed silent on.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes the
