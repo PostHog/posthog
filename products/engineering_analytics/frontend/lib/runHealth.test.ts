@@ -132,6 +132,12 @@ describe('runHealth', () => {
             [job('self_hosted', 120, 0.5), job('self_hosted', 300, null)],
             { billableMinutes: 2, estimatedCostUsd: 0.5, unsettledJobs: 0 },
         ],
+        // Every billable job finished on an unpriced tier → nothing to show, omit the tile (no dangling "—").
+        [
+            'all billable jobs finished but unpriced → null',
+            [job('self_hosted', 300, null), job('self_hosted', 120, null)],
+            null,
+        ],
     ])('summarizeRunCost: %s', (_name, jobs, expected) => {
         expect(summarizeRunCost(jobs)).toEqual(expected)
     })

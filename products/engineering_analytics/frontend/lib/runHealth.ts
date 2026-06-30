@@ -207,21 +207,24 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
  * `unsettledJobs` counts only billable jobs that haven't finished yet (no duration) — excluded from the
  * total and surfaced as a caveat so the number never silently inflates. A finished self-hosted job with no
  * cost is an excluded tier (the backend doesn't price non-Linux Depot runners), not "unsettled", so it's
- * left out of both. Returns null when no job is billable at all (every job GitHub-hosted / free), so the
- * caller can omit the tile rather than show a misleading $0.
+ * left out of both. Returns null when there's nothing to show — no priced jobs and nothing still running
+ * (every job free, or every billable job finished on an unpriced tier) — so the caller omits the tile rather
+ * than render a dangling "—".
  */
 export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
     const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
-    if (billable.length === 0) {
-        return null
-    }
     const costed = billable.filter((job) => job.estimated_cost_usd != null)
     // A null cost on a finished job means an unpriced tier (excluded), not "still running" — only a job
     // with no duration is genuinely unsettled.
     const unsettledJobs = billable.filter((job) => job.duration_seconds == null).length
+    if (costed.length === 0 && unsettledJobs === 0) {
+        // Nothing to report: no priced jobs and nothing still running (all free, or every billable job
+        // finished on an unpriced tier). Omit the tile rather than render a dangling "—".
+        return null
+    }
     if (costed.length === 0) {
-        // Billable jobs exist but none has settled yet — keep the tile (with a "—" value + caveat) rather
-        // than reporting a misleading $0.00 / 0 min for a run whose cost simply hasn't landed.
+        // Billable jobs are still running but none has settled yet — keep the tile (with a "—" value +
+        // caveat) rather than reporting a misleading $0.00 / 0 min for a run whose cost hasn't landed.
         return { billableMinutes: null, estimatedCostUsd: null, unsettledJobs }
     }
     const billableMinutes = costed.reduce((sum, job) => sum + (job.duration_seconds ?? 0) / 60, 0)
