@@ -965,6 +965,19 @@ def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[
         return ""
 
 
+def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    if args[1] is None or args[0] is None:
+        return False
+    if not isinstance(args[0], str):
+        raise HogVMException(f"Function match requires input to be a string, got {type(args[0]).__name__}")
+    if not isinstance(args[1], str):
+        raise HogVMException(f"Function match requires pattern to be a string, got {type(args[1]).__name__}")
+    try:
+        return re.search(re.compile(args[1]), args[0]) is not None
+    except re.error as e:
+        raise HogVMException(f"Invalid regex pattern: {e}") from e
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -973,13 +986,7 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=None,
     ),
-    "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: (
-            False if args[1] is None or args[0] is None else bool(re.search(re.compile(args[1]), args[0]))
-        ),
-        minArgs=2,
-        maxArgs=2,
-    ),
+    "match": STLFunction(fn=match, minArgs=2, maxArgs=2),
     "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),

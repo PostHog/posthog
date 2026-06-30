@@ -82,12 +82,16 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'e.*')") is True
         assert self._run("match('test', '^e.*')") is False
         assert self._run("match('test', 'x.*')") is False
+        assert self._run("match('test', '')") is True
+        assert self._run("match('', '')") is True
+        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
         assert self._run("'test' !~ '^e.*'") is True
         assert self._run("'test' =~ 'x.*'") is False
         assert self._run("'test' !~ 'x.*'") is True
+        assert self._run("'' !~ 'x.*'") is False
         assert self._run("'test' ~* 'EST'") is True
         assert self._run("'test' =~* 'EST'") is True
         assert self._run("'test' !~* 'EST'") is False
@@ -107,6 +111,26 @@ class TestBytecodeExecute:
     def test_ordering_comparison_type_error_raises_hogvm_exception(self):
         with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
             self._run("properties.missing <= 1.0")
+
+    @parameterized.expand(
+        [
+            ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
+            ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
+            (
+                "operator_invalid_pattern",
+                "'tool_call' =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern",
+            ),
+        ]
+    )
+    def test_regex_errors_raise_hogvm_exception(self, _name, expr, properties, expected_message):
+        globals = {"properties": properties}
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+
+        with pytest.raises(HogVMException, match=expected_message):
+            execute_bytecode(bytecode, globals)
 
     def test_nested_value(self):
         my_dict = {
@@ -732,6 +756,9 @@ class TestBytecodeExecute:
             assert str(e) == "Array access starts from 1"
         else:
             raise AssertionError("Expected Exception not raised")
+
+        with pytest.raises(HogVMException, match="Index 1 out of range for array of length 0"):
+            self._run_program("let calls := []; calls[1] := 'tool_call'; return true")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()
