@@ -249,10 +249,10 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('parks once to the full max_wait deadline rather than capping at 10 minutes', async () => {
-            // A wait_until_condition is woken event-driven by the subscription matcher, so it parks
-            // once to its full max_wait (the timeout) instead of re-parking on the 10-minute cap that
-            // a plain conditional_branch still uses. A 30-minute wait must schedule ~30 minutes out.
+        it('re-parks a wait_until_condition on the 10-minute cap (polling retained as backstop)', async () => {
+            // Polling is kept for now: a wait_until_condition re-parks on the 10-minute cap and
+            // re-checks its condition, even though the subscription matcher also wakes it early on a
+            // matching signal. A 30-minute wait therefore schedules ~10 minutes out, not ~30.
             waitAction.config.max_wait_duration = '30m'
 
             const result = await handler.execute({
@@ -261,7 +261,7 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
         })
     })
 })

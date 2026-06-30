@@ -1113,10 +1113,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
-        it('parks once to the max_wait deadline instead of re-parking every 10 minutes', async () => {
-            // Pre-change, a wait re-parked on a 10-minute cap, churning dequeues. Now it parks once to
-            // its full max_wait deadline and relies on the matcher to wake it early. A 30-minute wait
-            // must therefore schedule ~30 minutes out, not ~10.
+        it('re-parks a wait on the 10-minute cap (polling retained as backstop)', async () => {
+            // Polling is kept for now: a wait re-parks on the 10-minute cap and re-checks its condition,
+            // even though the matcher also wakes it early on a matching signal. A 30-minute wait must
+            // therefore schedule ~10 minutes out (the cap), not ~30. Removing the poll is a follow-up.
             await createWaitUntilWorkflow({
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
                 events: [eventNameFilter('never_fires')],
@@ -1129,11 +1129,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const parked = jobs.find((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())
             expect(parked).toBeDefined()
             const minutesOut = (new Date(parked.scheduled).getTime() - Date.now()) / 60000
-            // Past the old 10-minute cap but not beyond the 30-minute deadline: a single deep park
-            // lands near 30 minutes. The upper bound also rules out a regression that parked to the
-            // 60-minute MAX_VALUE_FOR_DURATION_UNIT['m'] cap instead of the configured max_wait.
-            expect(minutesOut).toBeGreaterThan(11)
-            expect(minutesOut).toBeLessThan(31)
+            // Capped at the 10-minute poll interval, well below the 30-minute max_wait deadline.
+            expect(minutesOut).toBeGreaterThan(8)
+            expect(minutesOut).toBeLessThan(12)
         })
 
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {

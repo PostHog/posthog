@@ -44,11 +44,7 @@ export class ConditionalBranchHandler implements ActionHandler {
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
                       },
-                  },
-            // A wait_until_condition is woken event-driven by the subscription matcher, so it parks
-            // once to its full max_wait deadline (the timeout) instead of re-parking every 10 minutes.
-            // The 10-minute cap is kept for a plain conditional_branch, which has no matcher backstop.
-            { singleDeepPark: action.type === 'wait_until_condition' }
+                  }
         )
 
         if (conditionResult.scheduledAt) {
@@ -63,8 +59,7 @@ export class ConditionalBranchHandler implements ActionHandler {
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
-    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    options?: { singleDeepPark?: boolean }
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -86,13 +81,13 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Single deep park (wait_until_condition): park once to the full delay_duration deadline and
-        // let the subscription matcher wake the job early on any matching signal. Otherwise (plain
-        // conditional_branch) keep the 10-minute cap so it re-checks the condition by polling.
+        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
+        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
+        // for now; removing it is a follow-up once the matcher streams are proven in production.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp,
-            options?.singleDeepPark ? undefined : DEFAULT_WAIT_DURATION_SECONDS
+            DEFAULT_WAIT_DURATION_SECONDS
         )
 
         if (scheduledAt) {
