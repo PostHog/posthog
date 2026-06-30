@@ -1623,7 +1623,15 @@ describe('sqlEditorLogic', () => {
             await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
             await expectLogic(viewsLogic).toFinishAllListeners()
 
-            expect(materializeEndpointMock).toHaveBeenCalledTimes(materialize ? 1 : 0)
+            if (materialize) {
+                expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
+                // Guard against passing the wrong (or undefined) view id to the materialize call.
+                expect(materializeEndpointMock).toHaveBeenCalledWith(
+                    expect.objectContaining({ params: expect.objectContaining({ id: 'created-view-id' }) })
+                )
+            } else {
+                expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
+            }
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
