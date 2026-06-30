@@ -43,7 +43,7 @@ export const areAlertsSupportedForInsight = (
     }
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
         // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
-        // and flow (a sankey with no single metric) have no threshold UI yet, so they stay hidden.
+        // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
         const vizType = query.source.funnelsFilter?.funnelVizType
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }

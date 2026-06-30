@@ -364,13 +364,13 @@ class TestValidateAlertConfig:
                 None,
             ),
             (
-                "funnels_time_to_convert_viz_accepted",
+                "funnels_time_to_convert_viz_rejected",
                 {**_funnels_query(), "funnelsFilter": {"funnelVizType": "time_to_convert"}},
                 _base_condition("absolute_value"),
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                None,
+                "aren't supported for the",
             ),
             (
                 "funnels_flow_viz_rejected",

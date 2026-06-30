@@ -141,35 +141,10 @@ def test_trends_funnel_empty_result_raises_extraction_error():
         _extract([], viz="trends")
 
 
-# --- Time-to-convert funnel (average conversion time) ---
-
-
-def test_time_to_convert_funnel_evaluates_average_seconds():
-    result = _extract(
-        {"bins": [[600, 3], [1200, 1]], "average_conversion_time": 840.0, "median_conversion_time": 600.0},
-        viz="time_to_convert",
-    )
-    assert result.subject == "The funnel average time to convert"
-    assert result.unit == "s"
-    assert result.is_breakdown is False
-    assert result.series[0].points[0].value == 840.0
-
-
-def test_time_to_convert_funnel_no_conversions_yields_no_data_point():
-    # No conversions → average is None; the comparator treats a None anchor as "no data this interval".
-    result = _extract({"bins": [], "average_conversion_time": None}, viz="time_to_convert")
-    assert result.series[0].points[0].value is None
-
-
-def test_time_to_convert_funnel_compare_evaluates_current_period_only():
-    result = _extract(
-        [
-            {"bins": [[600, 1]], "average_conversion_time": 600.0, "compare_label": "current"},
-            {"bins": [[1200, 1]], "average_conversion_time": 1200.0, "compare_label": "previous"},
-        ],
-        viz="time_to_convert",
-    )
-    assert result.series[0].points[0].value == 600.0
+def test_unsupported_viz_raises():
+    # Time-to-convert and flow funnels have no conversion-rate metric, so they aren't supported.
+    with pytest.raises(ValueError, match="aren't supported for the"):
+        _extract(_steps(100, 40), viz="time_to_convert")
 
 
 def test_breakdown_yields_one_series_per_value():

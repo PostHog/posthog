@@ -4,8 +4,9 @@ from posthog.schema import FunnelConversionMetric, FunnelsAlertConfig, FunnelsQu
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ComparableSeries, SeriesPoint
 
-# Each funnel viz type evaluates a different metric: STEPS and TRENDS alert on a conversion-rate
-# percentage (0–100), TIME_TO_CONVERT on the average time to convert in seconds.
+# Funnel alerts evaluate a conversion-rate percentage (0–100): a steps funnel at the configured step,
+# a trends funnel at the latest period. Other viz types (time-to-convert, flow) have no conversion-rate
+# metric and aren't supported — see strategy_for_viz.
 _CONVERSION_RATE_SUBJECT = "The funnel conversion rate"
 _CONVERSION_RATE_UNIT = "%"
 
@@ -89,31 +90,19 @@ class TrendsFunnelStrategy(FunnelVizStrategy):
         return series
 
 
-class TimeToConvertFunnelStrategy(FunnelVizStrategy):
-    """Time-to-convert funnel: the average time to convert (seconds) — a single aggregate value."""
-
-    subject = "The funnel average time to convert"
-    unit = "s"
-
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
-        payload = _time_to_convert_payload(result)
-        value = _numeric_or_none(payload.get("average_conversion_time"))
-        return [ComparableSeries(label="conversion", points=[SeriesPoint(date=None, value=value)], current_index=0)]
-
-
 # Mirrors EXTRACTORS in dispatcher.py: one strategy per supported funnel viz type. A funnel with no
 # explicit viz type defaults to STEPS (matching the schema default), resolved in strategy_for_viz.
 FUNNEL_VIZ_STRATEGIES: dict[FunnelVizType, FunnelVizStrategy] = {
     FunnelVizType.STEPS: StepsFunnelStrategy(),
     FunnelVizType.TRENDS: TrendsFunnelStrategy(),
-    FunnelVizType.TIME_TO_CONVERT: TimeToConvertFunnelStrategy(),
 }
 
 
 def strategy_for_viz(viz: FunnelVizType | None) -> FunnelVizStrategy:
-    # FLOW has no single conversion metric, so it has no strategy (the frontend also hides alerts for
-    # it). Raise ValueError, not KeyError/AlertExtractionError, so the alert API maps it to a 400 at
-    # save time — the only path that reaches an unsupported viz, since saved alerts are validated first.
+    # Time-to-convert (a duration) and flow (a sankey) have no conversion-rate metric, so they have no
+    # strategy and the frontend hides alerts for them. Raise ValueError, not KeyError/AlertExtractionError,
+    # so the alert API maps it to a 400 at save time — the only path that reaches an unsupported viz,
+    # since saved alerts are validated first.
     strategy = FUNNEL_VIZ_STRATEGIES.get(viz or FunnelVizType.STEPS)
     if strategy is None:
         raise ValueError(f"Funnel alerts aren't supported for the '{viz}' visualization.")
@@ -131,8 +120,7 @@ def _current_period_only(result: Any) -> Any:
 
     With compare-to-previous on, the funnel runner concatenates current + previous rows (each tagged
     ``compare_label``). Funnel alerts evaluate the current period; without this, a steps funnel's
-    default last-row resolution or a trends series would mix periods. No-op when compare is off, and
-    a no-op for non-list payloads (e.g. the time-to-convert result object).
+    default last-row resolution or a trends series would mix periods. No-op when compare is off.
 
     For a breakdown steps funnel the runner emits the previous-period breakdowns as their own groups,
     which filter to empty — drop those, or an empty group would resolve ``funnel_step`` to -1 and raise.
@@ -162,21 +150,6 @@ def _steps_per_breakdown(result: Any) -> list[list[dict[str, Any]]]:
     if isinstance(series[0], list):
         return cast(list[list[dict[str, Any]]], series)
     return [cast(list[dict[str, Any]], series)]
-
-
-def _time_to_convert_payload(result: Any) -> dict[str, Any]:
-    """Normalize a time-to-convert result to the dict with ``average_conversion_time``. The runner
-    returns a ``FunnelTimeToConvertResults`` model (or its dict once cached); compare mode wraps it in
-    a list tagged with ``compare_label``, of which we keep the current period. (A ``None`` result is
-    caught earlier, in the extractor.)"""
-    if isinstance(result, list):
-        current = [row for row in result if _is_current_period_row(row)]
-        result = current[0] if current else None
-    if result is not None and hasattr(result, "model_dump"):
-        result = result.model_dump()
-    if not isinstance(result, dict):
-        raise AlertExtractionError("Funnel time_to_convert alert query returned no data.")
-    return result
 
 
 def _label_for_breakdown(breakdown: Any) -> str:
