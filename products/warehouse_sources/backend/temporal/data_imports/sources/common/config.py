@@ -212,7 +212,7 @@ def to_config(
         raise TypeError("must be called with a config type or instance")
 
     top_level_prefixes = prefixes or ()
-    inputs = {}
+    inputs: dict[str, typing.Any] = {}
 
     fields = dataclasses.fields(config_cls)
     module_path = config_cls.__module__
