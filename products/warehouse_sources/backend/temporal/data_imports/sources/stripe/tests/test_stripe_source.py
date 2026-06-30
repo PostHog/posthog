@@ -399,6 +399,39 @@ class TestStripeBatcherDrainsSplitChunks:
 
         assert [row["id"] for row in rows] == [f"cbt_{i}" for i in range(6)]
 
+    def test_final_incomplete_chunk_drain_splits(self):
+        # The final drain takes a different path: get_table() flushes the leftover buffer and can
+        # itself produce multiple chunks. A large chunk_size keeps every row in the buffer until the
+        # end, so all rows go through that final drain — which must drain every split chunk.
+        objects = [{"id": f"ch_{i}", "description": "z" * 10} for i in range(4)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        splitting_batcher = functools.partial(
+            stripe_module.Batcher, chunk_size=100, max_table_bytes=1, max_column_offset_bytes=1
+        )
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint="charge",
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(4)]
+
 
 class TestCustomerMightHaveBalanceTransactions:
     @pytest.mark.parametrize(
