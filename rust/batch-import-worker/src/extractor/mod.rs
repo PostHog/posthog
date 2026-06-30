@@ -1,7 +1,9 @@
 use anyhow::Error;
+use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Arc};
+use std::{io::Read, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
+use zip::ZipArchive;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -152,10 +154,11 @@ impl PartExtractor for PlainGzipExtractor {
 /// Decompress a single gzip member, streaming blocks to `tx`. Appends a trailing
 /// newline if the decompressed content is non-empty and didn't already end with
 /// one, so the downstream JSONL parser always sees a complete final line.
+///
+/// `GzDecoder` decodes a single gzip member (it stops at the first member's end).
+/// This matches the previous materializing extractor; the export endpoints we
+/// consume emit single-member gzip streams, not concatenated members.
 fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
@@ -198,10 +201,6 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
 /// streaming blocks to `tx`. A trailing newline is appended after each non-empty
 /// member that didn't end with one, matching the previous concatenation behavior.
 fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-    use zip::ZipArchive;
-
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
@@ -274,8 +273,6 @@ fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
 
 #[cfg(test)]
 fn run_verbatim_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
-    use std::io::Read;
-
     let mut file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
@@ -421,6 +418,24 @@ mod tests {
         assert_eq!(size, 0);
         assert!(data.is_empty());
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_plain_gzip_extractor_corrupt_midstream_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let gzip_file = temp_dir.path().join("corrupt.gz");
+        // Write a valid gzip, then truncate it so the header is intact but the
+        // deflate body (and trailer) are incomplete.
+        create_test_gzip_file(&"line\n".repeat(10000), &gzip_file).unwrap();
+        let full = std::fs::read(&gzip_file).unwrap();
+        assert!(full.len() > 50, "compressed fixture should be non-trivial");
+        std::fs::write(&gzip_file, &full[..20]).unwrap();
+
+        // Decoding the truncated stream must surface an error rather than
+        // silently truncating output or panicking.
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+        let result = reader.read_at(0, 8192).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
