@@ -15,7 +15,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
 class TestBytecodeExecute:
@@ -669,6 +669,10 @@ class TestBytecodeExecute:
         assert self._run_program("if (empty('') and notEmpty('234')) return length('123');") == 3
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
+
+    def test_bytecode_length_null_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="Can not call length on null"):
+            self._run_program("return length(null);")
 
     def test_random_float(self):
         for _ in range(50):

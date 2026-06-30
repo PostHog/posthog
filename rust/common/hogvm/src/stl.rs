@@ -1,7 +1,9 @@
 use core::str;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone};
+use once_cell::sync::Lazy;
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 
@@ -20,16 +22,23 @@ pub const TO_STRING_RECURSION_LIMIT: usize = 32;
 
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
-pub type NativeFunction = Box<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>>;
+// `Arc` (not `Box`) so the static registry below can be cloned cheaply per execution context.
+pub type NativeFunction =
+    Arc<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync>;
+
+// The native and hog STL registries are process-constant: build them once and hand out cheap clones
+// instead of reconstructing (and, for the hog STL, re-parsing its bytecode) on every context.
+static STL_NATIVE_FNS: Lazy<HashMap<String, NativeFunction>> =
+    Lazy::new(|| stl().into_iter().collect());
+static HOG_STL_MODULES: Lazy<HashMap<String, Module>> =
+    Lazy::new(|| HashMap::from([("stl".to_string(), hog_stl())]));
 
 pub fn stl_map() -> HashMap<String, NativeFunction> {
-    stl().into_iter().collect()
+    STL_NATIVE_FNS.clone()
 }
 
 pub fn hog_stl_map() -> HashMap<String, Module> {
-    let mut res = HashMap::new();
-    res.insert("stl".to_string(), hog_stl());
-    res
+    HOG_STL_MODULES.clone()
 }
 
 // NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvmrs_stl`
@@ -344,7 +353,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());
                 };
-                construct_free_standing(res, 0)
+                // `res` borrows into the local `json`; clone the extracted subtree for the owned
+                // value `construct_free_standing` needs.
+                construct_free_standing(res.clone(), 0)
             })),
         ),
         // Wrapped in `err_to_null` so an unparseable input becomes `Null`, letting a leaf's
@@ -604,7 +615,7 @@ fn err_to_null(
 /// Helper to construct a HogVM native function from a closure.
 pub fn native_func<F>(func: F) -> NativeFunction
 where
-    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + 'static,
+    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync + 'static,
 {
-    Box::new(func)
+    Arc::new(func)
 }

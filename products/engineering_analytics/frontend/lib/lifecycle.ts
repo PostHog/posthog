@@ -43,6 +43,11 @@ export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
 }
 
+/** A decisive failure — the verdict that turns a run red. Cancelled/skipped/neutral are not failures. */
+export function isDecisiveFailure(conclusion: string | null): boolean {
+    return conclusion === 'failure' || conclusion === 'timed_out'
+}
+
 /**
  * ci_finished detail is "workflow name: conclusion" (the name itself may contain ": "), assembled
  * by backend/logic/queries/pr_lifecycle.py from structured fields the API then flattens.

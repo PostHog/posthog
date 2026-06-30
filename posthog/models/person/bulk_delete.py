@@ -1,20 +1,20 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db.models import Prefetch
 
 import structlog
-from loginas.utils import is_impersonated_session
 from temporalio import common
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
@@ -22,7 +22,6 @@ from posthog.models.person.util import (
     delete_persons_from_postgres,
 )
 from posthog.models.user import User
-from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
@@ -35,68 +34,24 @@ class PersonProfileDeletionResult:
     errors: list[uuid_lib.UUID] = field(default_factory=list)
 
 
-# Columns required by the deletion path:
-# - id, team_id: Person.delete() WHERE clause (single-partition delete on posthog_person_new)
-# - uuid: ClickHouse tombstone, AsyncDeletion key, recording workflow id, activity log
-# - version, created_at: delete_person() -> _delete_person() (Kafka tombstone payload)
-# Everything else (notably ``properties``, a large JSONB) is excluded to keep row size small.
-_PERSON_DELETION_COLUMNS = ("id", "team_id", "uuid", "version", "created_at")
-
-
 def resolve_persons_for_deletion(
     team_id: int,
     uuids: builtins.list[str] | None,
     distinct_ids: builtins.list[str] | None,
 ) -> builtins.list[Person]:
-    """Materialize Persons matching either uuids or distinct_ids.
-
-    Goes straight to personhog, falling back to ORM only on error or if
-    the client is not configured.
-    """
-    from posthog.personhog_client.client import get_personhog_client
+    """Materialize Persons matching either uuids or distinct_ids, via personhog."""
+    from posthog.personhog_client.client import personhog_call
 
     if not uuids and not distinct_ids:
         return []
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            # Unbounded distinct_ids: downstream recording deletion needs the full set per person.
-            with personhog_caller_tag("persons/deletion-resolve"):
-                if uuids:
-                    return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
-                else:
-                    return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
-        except Exception:
-            logger.warning("resolve_persons_for_deletion_personhog_failure", team_id=team_id, exc_info=True)
+    # Unbounded distinct_ids: downstream recording deletion needs the full set per person.
+    def _fetch() -> builtins.list[Person]:
+        if uuids:
+            return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+        return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
 
-    # ORM fallback
-    persons_queryset = (
-        Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
-        .only(*_PERSON_DELETION_COLUMNS)
-        .prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                # nosemgrep: no-direct-persons-db-orm
-                queryset=PersonDistinctId.objects.filter(
-                    team_id=team_id
-                ).order_by(  # nosemgrep: no-direct-persons-db-orm
-                    "id"
-                ),  # nosemgrep: no-direct-persons-db-orm
-                to_attr="distinct_ids_cache",
-            )
-        )
-    )
-    if uuids:
-        persons_queryset = persons_queryset.filter(uuid__in=uuids)
-    elif distinct_ids:
-        person_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team_id=team_id, distinct_id__in=distinct_ids
-        ).values_list(  # nosemgrep: no-direct-persons-db-orm
-            "person_id", flat=True
-        )
-        persons_queryset = persons_queryset.filter(id__in=person_ids)
-    return list(persons_queryset)
+    return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
 
 
 def delete_persons_profile(
@@ -127,7 +82,7 @@ def delete_persons_profile(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=cast(User, actor),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=person.pk,
                 scope="Person",
                 activity="deleted",
@@ -173,30 +128,56 @@ def queue_person_recording_deletion(
     _start_recording_workflows(team_id, persons, actor, reason)
 
 
+# Batch persons per workflow (not one each) to bound concurrent ClickHouse load queries; cap distinct IDs per chunk to stay under Temporal's payload limit.
+_RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
+_MAX_CONCURRENT_WORKFLOW_STARTS = 20
+_MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
+
+
+def _chunk_persons(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
+    """Group persons into workflow batches, bounded by both person and distinct-ID count."""
+    batch: builtins.list[Person] = []
+    batch_distinct_ids = 0
+    for person in persons:
+        person_distinct_ids = len(person.distinct_ids)
+        over_caps = len(batch) >= _RECORDING_DELETION_PERSONS_PER_WORKFLOW or (
+            batch_distinct_ids + person_distinct_ids > _MAX_DISTINCT_IDS_PER_WORKFLOW
+        )
+        if batch and over_caps:
+            yield batch
+            batch = []
+            batch_distinct_ids = 0
+        batch.append(person)
+        batch_distinct_ids += person_distinct_ids
+    if batch:
+        yield batch
+
+
 def _start_recording_workflows(
     team_id: int,
     persons: builtins.list[Person],
     actor: User | None,
     reason: str,
 ) -> None:
-    """Kick off one ``delete-recordings-with-person`` workflow per person.
+    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
     temporal = sync_connect()
+    config = DeletionConfig(deleted_by=getattr(actor, "email", None) or "", reason=reason)
 
     async def start_all_workflows():
-        tasks = []
-        for person in persons:
-            workflow_input = RecordingsWithPersonInput(
-                distinct_ids=person.distinct_ids,
-                team_id=team_id,
-                config=DeletionConfig(deleted_by=getattr(actor, "email", None), reason=reason),
-            )
-            workflow_id = f"delete-recordings-{team_id}-person-{person.uuid}-{uuid_lib.uuid4()}"
-            tasks.append(
-                temporal.start_workflow(
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
+
+        async def start_batch(batch: builtins.list[Person]) -> None:
+            distinct_ids = sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})
+            if not distinct_ids:
+                return
+            workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
+            workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
+            async with semaphore:
+                await temporal.start_workflow(
                     "delete-recordings-with-person",
                     workflow_input,
                     id=workflow_id,
@@ -206,7 +187,7 @@ def _start_recording_workflows(
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
-            )
-        await asyncio.gather(*tasks)
+
+        await asyncio.gather(*(start_batch(batch) for batch in _chunk_persons(persons)))
 
     asyncio.run(start_all_workflows())

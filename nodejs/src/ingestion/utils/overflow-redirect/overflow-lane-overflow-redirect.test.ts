@@ -30,6 +30,7 @@ describe('OverflowLaneOverflowRedirect', () => {
         mockRepository = createMockRepository()
         service = new OverflowLaneOverflowRedirect({
             redisRepository: mockRepository,
+            overflowType: 'events',
         })
     })
 
@@ -37,7 +38,7 @@ describe('OverflowLaneOverflowRedirect', () => {
         it('always returns empty set (no redirects from overflow lane)', async () => {
             const batch = [createBatch('token1', 'user1', 100), createBatch('token1', 'user2', 100)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(0)
         })
@@ -45,7 +46,7 @@ describe('OverflowLaneOverflowRedirect', () => {
         it('refreshes TTL for all keys in batch', async () => {
             const batch = [createBatch('token1', 'user1'), createBatch('token1', 'user2')]
 
-            await service.handleEventBatch('events', batch)
+            await service.handleEventBatch(batch)
 
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
                 { token: 'token1', distinctId: 'user1' },
@@ -54,7 +55,12 @@ describe('OverflowLaneOverflowRedirect', () => {
         })
 
         it('uses correct overflow type', async () => {
-            await service.handleEventBatch('recordings', [createBatch('token1', 'session1')])
+            const recordingsService = new OverflowLaneOverflowRedirect({
+                redisRepository: mockRepository,
+                overflowType: 'recordings',
+            })
+
+            await recordingsService.handleEventBatch([createBatch('token1', 'session1')])
 
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('recordings', [
                 { token: 'token1', distinctId: 'session1' },
@@ -62,7 +68,7 @@ describe('OverflowLaneOverflowRedirect', () => {
         })
 
         it('handles empty batch gracefully', async () => {
-            const result = await service.handleEventBatch('events', [])
+            const result = await service.handleEventBatch([])
 
             expect(result.size).toBe(0)
             expect(mockRepository.batchRefreshTTL).not.toHaveBeenCalled()
@@ -75,7 +81,7 @@ describe('OverflowLaneOverflowRedirect', () => {
                 createBatch('token2', 'user1'),
             ]
 
-            await service.handleEventBatch('events', batch)
+            await service.handleEventBatch(batch)
 
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledTimes(1)
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
@@ -93,7 +99,7 @@ describe('OverflowLaneOverflowRedirect', () => {
             // and the service still returns an empty set (no redirects from overflow lane)
             const batch = [createBatch('token1', 'user1')]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(0)
         })

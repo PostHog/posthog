@@ -161,6 +161,20 @@ export const Loading: Story = {
     ],
 }
 
+// The tasks list endpoint fails with no cached tasks — the column shows an error + retry, not "No tasks yet".
+export const ListLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/': () =>
+                    HttpResponse.json({ detail: 'Could not load tasks.' }, { status: 500 }),
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
+                '/api/environments/:team_id/integrations/': { results: [] },
+            },
+        }),
+    ],
+}
+
 // Detail route before either the task payload or run list has resolved.
 export const TaskDetailLoading: Story = {
     parameters: {

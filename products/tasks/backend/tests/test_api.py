@@ -3287,6 +3287,11 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def test_list_runs_with_malformed_task_id_returns_404(self):
+        # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
+        response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_publishes_stream_state_event(self, mock_signal, mock_publish_stream_state_event):
@@ -4088,6 +4093,71 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["source"], "user_attachment")
         self.assertEqual(artifact["size"], len(binary_content))
 
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_upload_artifacts_preserves_skill_bundle_metadata(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        binary_content = b"skill zip"
+        metadata = {
+            "skill_name": "local-skill",
+            "skill_source": "user",
+            "content_sha256": "a" * 64,
+            "bundle_format": "zip",
+            "schema_version": 1,
+        }
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {
+                "artifacts": [
+                    {
+                        "name": "local-skill.zip",
+                        "type": "skill_bundle",
+                        "source": "posthog_code_skill",
+                        "content": base64.b64encode(binary_content).decode("ascii"),
+                        "content_encoding": "base64",
+                        "content_type": "application/zip",
+                        "metadata": metadata,
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_write.assert_called_once()
+        mock_tag.assert_called_once()
+
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["type"], "skill_bundle")
+        self.assertEqual(artifact["metadata"], metadata)
+
+    def test_upload_artifacts_rejects_skill_bundle_without_metadata(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {
+                "artifacts": [
+                    {
+                        "name": "local-skill.zip",
+                        "type": "skill_bundle",
+                        "source": "posthog_code_skill",
+                        "content": "c2tpbGw=",
+                        "content_encoding": "base64",
+                        "content_type": "application/zip",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("metadata", json.dumps(response.json()))
+
     def test_upload_artifacts_rejects_invalid_base64_content(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -4189,6 +4259,44 @@ class TestTaskRunAPI(BaseTaskAPITest):
         get_presigned_post_kwargs = mock_get_presigned_post.call_args.kwargs
         self.assertEqual(get_presigned_post_kwargs["expiration"], 3600)
         self.assertEqual(get_presigned_post_kwargs["conditions"], [["content-length-range", 0, 4096 + 65536]])
+
+    @patch("posthog.storage.object_storage.get_presigned_post")
+    def test_prepare_artifact_uploads_preserves_skill_bundle_metadata(self, mock_get_presigned_post):
+        mock_get_presigned_post.return_value = {
+            "url": "https://example-bucket.s3.amazonaws.com",
+            "fields": {"key": "placeholder", "policy": "policy", "x-amz-signature": "sig"},
+        }
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        metadata = {
+            "skill_name": "local-skill",
+            "skill_source": "repo",
+            "content_sha256": "b" * 64,
+            "bundle_format": "zip",
+            "schema_version": 1,
+        }
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/prepare_upload/",
+            {
+                "artifacts": [
+                    {
+                        "name": "local-skill.zip",
+                        "type": "skill_bundle",
+                        "source": "posthog_code_skill",
+                        "size": 4096,
+                        "content_type": "application/zip",
+                        "metadata": metadata,
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prepared = response.json()["artifacts"][0]
+        self.assertEqual(prepared["type"], "skill_bundle")
+        self.assertEqual(prepared["metadata"], metadata)
 
     def test_prepare_artifact_uploads_rejects_oversized_size(self):
         task = self.create_task()
@@ -4307,6 +4415,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(prepared["name"], "spec.pdf")
         self.assertEqual(prepared["type"], "user_attachment")
         self.assertEqual(prepared["source"], "user_attachment")
+        self.assertNotIn("metadata", prepared)
         self.assertIn(f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/", prepared["storage_path"])
         self.assertEqual(mock_get_presigned_post.call_args.args[0], prepared["storage_path"])
 
@@ -5321,6 +5430,44 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(len(data), 0)
         self.assertEqual(response["X-Total-Count"], "0")
         self.assertEqual(response["X-Filtered-Count"], "0")
+
+    def test_session_logs_walks_resume_chain(self):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        resumed = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"resume_from_run_id": str(ancestor.id)},
+        )
+
+        self._seed_log(
+            task,
+            ancestor,
+            [
+                self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z"),
+                self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z"),
+            ],
+        )
+        self._seed_log(
+            task,
+            resumed,
+            [self._make_session_update_entry("agent_message", "2026-01-01T00:00:03Z")],
+        )
+
+        response = self.client.get(self._events_url(task, resumed))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(
+            [e["notification"]["params"]["update"]["sessionUpdate"] for e in data],
+            ["user_message", "agent_message", "agent_message"],
+        )
+        self.assertEqual(
+            [e["timestamp"] for e in data],
+            ["2026-01-01T00:00:01Z", "2026-01-01T00:00:02Z", "2026-01-01T00:00:03Z"],
+        )
+        self.assertEqual(response["X-Total-Count"], "3")
 
     def test_session_logs_filter_by_event_types(self):
         task = self.create_task()
