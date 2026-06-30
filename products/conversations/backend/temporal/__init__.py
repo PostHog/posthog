@@ -7,8 +7,10 @@ from products.conversations.backend.temporal.coordinator import (
 )
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
+    support_bug_fix_judge_activity,
     support_build_context_activity,
     support_classify_activity,
+    support_dispatch_bug_fix_activity,
     support_draft_activity,
     support_persist_reply_activity,
     support_record_triage_activity,
@@ -28,6 +30,8 @@ ACTIVITIES = [
     support_build_context_activity,
     support_safety_filter_activity,
     support_classify_activity,
+    support_bug_fix_judge_activity,
+    support_dispatch_bug_fix_activity,
     support_refine_queries_activity,
     support_retrieve_activity,
     support_draft_activity,

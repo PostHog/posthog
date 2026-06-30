@@ -20,12 +20,15 @@ from products.conversations.backend.temporal.ai_reply.activities.review_reply im
 from products.conversations.backend.temporal.ai_reply.activities.safety_filter import support_safety_filter_activity
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
+    BUG_FIX_CONFIDENCE_THRESHOLD,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import (
+    BugFixJudgeInput,
     ClassifyInput,
+    DispatchBugFixInput,
     DraftInput,
     PersistKnowledgeGapInput,
     PersistReplyInput,
@@ -43,7 +46,10 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 # sandbox crashes workflow validation. Only the activities touch them at runtime, so pass
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
-    pass
+    from products.conversations.backend.temporal.ai_reply.activities.bug_fix_judge import support_bug_fix_judge_activity
+    from products.conversations.backend.temporal.ai_reply.activities.dispatch_bug_fix import (
+        support_dispatch_bug_fix_activity,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +187,43 @@ class SupportReplyWorkflow:
 
             ticket_type = classify_output.ticket_type
             needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
+
+            if (
+                ticket_type == "diagnostic"
+                and ctx_output.bug_fix_enabled
+                and ctx_output.github_integration_present
+                and ctx_output.bug_fix_repo
+            ):
+                try:
+                    judge_output = await workflow.execute_activity(
+                        support_bug_fix_judge_activity,
+                        BugFixJudgeInput(team_id=team_id, ticket_context=reviewed_context),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    if judge_output.is_fixable_bug and judge_output.confidence >= BUG_FIX_CONFIDENCE_THRESHOLD:
+                        dispatch_output = await workflow.execute_activity(
+                            support_dispatch_bug_fix_activity,
+                            DispatchBugFixInput(
+                                team_id=team_id,
+                                ticket_id=ticket_id,
+                                repository=ctx_output.bug_fix_repo,
+                                title=judge_output.bug_title,
+                                summary=judge_output.bug_summary,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if dispatch_output.dispatched:
+                            await _record_triage(
+                                {
+                                    "bug_fix_dispatched": True,
+                                    "bug_fix_task_id": dispatch_output.task_id,
+                                    "bug_fix_run_id": dispatch_output.run_id,
+                                }
+                            )
+                except Exception:
+                    workflow.logger.warning("support_reply: bug-fix dispatch failed", exc_info=True)
 
             missing: list[str] = []
             prior_citations: list[str] = []

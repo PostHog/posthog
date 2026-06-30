@@ -30,6 +30,8 @@ MAX_SAFETY_REVIEWED_CHARS = 6000
 # against sources, so it uses a stronger sonnet-class model to avoid under-scoring good answers.
 UTILITY_MODEL = "claude-haiku-4-5"
 VALIDATOR_MODEL = "claude-sonnet-4-6"
+BUG_FIX_JUDGE_MODEL = UTILITY_MODEL
+BUG_FIX_CONFIDENCE_THRESHOLD = 0.75
 
 # Bound each utility LLM call so a dropped/slow gateway connection fails fast and Temporal
 # retries (per each activity's retry policy) instead of the SDK hanging on its long default

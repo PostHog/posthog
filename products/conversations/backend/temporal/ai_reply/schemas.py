@@ -27,6 +27,9 @@ class BuildContextOutput:
     # Team opted into letting the agent investigate the customer's own data (wider read scopes
     # on diagnostic tickets). Off by default: a crafted ticket can't unlock those scopes alone.
     diagnostics_allowed: bool = False
+    bug_fix_enabled: bool = False
+    bug_fix_repo: str | None = None
+    github_integration_present: bool = False
 
 
 @dataclass
@@ -169,6 +172,37 @@ class PersistKnowledgeGapInput:
     missing: list[str] = field(default_factory=list)
     ticket_type: str = ""
     outcome: str = ""
+
+
+@dataclass
+class BugFixJudgeInput:
+    team_id: int
+    ticket_context: str
+
+
+@dataclass
+class BugFixJudgeOutput:
+    is_fixable_bug: bool
+    confidence: float
+    bug_title: str
+    bug_summary: str
+
+
+@dataclass
+class DispatchBugFixInput:
+    team_id: int
+    ticket_id: str
+    repository: str
+    title: str
+    summary: str
+
+
+@dataclass
+class DispatchBugFixOutput:
+    dispatched: bool
+    task_id: str | None = None
+    run_id: str | None = None
+    skipped_reason: str | None = None
 
 
 class SupportReplySource(BaseModel):

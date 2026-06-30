@@ -496,7 +496,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
     pr_loop_enabled = (
-        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SUPPORT_REPLY)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,

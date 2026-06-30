@@ -110,6 +110,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setAiBugFixPrsEnabled: (enabled: boolean) => ({ enabled }),
+        setAiBugFixRepo: (repo: string | null) => ({ repo }),
+        setAiBugFixPrsLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: string[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -288,6 +291,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiDiagnosticsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiBugFixPrsLoading: [
+            false,
+            {
+                setAiBugFixPrsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -512,6 +523,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         aiDiagnosticsEnabled: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiBugFixPrsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_bug_fix_prs_enabled,
+        ],
+        aiBugFixRepo: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.ai_bug_fix_repo ?? null,
+        ],
+        githubIntegrationConnected: [
+            (s) => [s.githubIntegrations],
+            (githubIntegrations): boolean => githubIntegrations.length > 0,
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
@@ -943,6 +966,28 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        setAiBugFixPrsEnabled: ({ enabled }) => {
+            actions.setAiBugFixPrsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_bug_fix_prs_enabled: enabled,
+                    ...(enabled ? {} : { ai_bug_fix_repo: null }),
+                },
+            })
+            if (enabled) {
+                actions.loadGithubRepos()
+            }
+        },
+        setAiBugFixRepo: ({ repo }) => {
+            actions.setAiBugFixPrsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_bug_fix_repo: repo,
+                },
+            })
+        },
         setAiResolutionChannels: ({ channels }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
@@ -999,6 +1044,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setSlackTicketEmojiValue(null)
             actions.setSlackBotIconUrlValue(null)
             actions.setSlackBotDisplayNameValue(null)
+        },
+        loadGithubIntegrationsSuccess: ({ githubIntegrations }) => {
+            if (githubIntegrations.length > 0) {
+                actions.loadGithubRepos()
+            }
         },
     })),
     afterMount(({ values, actions }) => {

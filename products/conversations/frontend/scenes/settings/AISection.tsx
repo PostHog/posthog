@@ -36,12 +36,24 @@ export function AISection(): JSX.Element {
         aiSuggestionsLoading,
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
+        aiBugFixPrsEnabled,
+        aiBugFixPrsLoading,
+        aiBugFixRepo,
+        githubIntegrationConnected,
+        githubRepos,
+        githubReposLoading,
         aiEnabledChannels,
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiBugFixPrsEnabled,
+        setAiBugFixRepo,
+        setAiResolutionChannels,
+        setAiReplyMode,
+    } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
 
@@ -162,6 +174,44 @@ export function AISection(): JSX.Element {
                             </tbody>
                         </table>
                     </div>
+                </LemonCard>
+            )}
+
+            {aiSuggestionsEnabled && (
+                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                    <LemonSwitch
+                        checked={aiBugFixPrsEnabled}
+                        onChange={(checked) => setAiBugFixPrsEnabled(checked)}
+                        loading={aiBugFixPrsLoading}
+                        disabledReason={
+                            !githubIntegrationConnected
+                                ? 'Connect GitHub to your project first (via Tasks, Signals, or the Issues channel)'
+                                : undefined
+                        }
+                        label="Open draft PRs for fixable bugs"
+                    />
+                    <p className="text-xs text-muted-alt mb-0">
+                        When a diagnostic ticket looks like a concrete code bug, PostHog can start a Tasks run against
+                        your repository and open a draft pull request. The support reply pipeline continues
+                        independently — this only hands off the fix.
+                    </p>
+                    {aiBugFixPrsEnabled && githubIntegrationConnected && (
+                        <LemonSelect
+                            placeholder="Select target repository"
+                            value={aiBugFixRepo ?? undefined}
+                            onChange={(value) => setAiBugFixRepo(value ?? null)}
+                            loading={githubReposLoading}
+                            disabledReason={
+                                !githubReposLoading && githubRepos.length === 0
+                                    ? 'No repositories found for your GitHub integration'
+                                    : undefined
+                            }
+                            options={githubRepos.map((repo) => ({
+                                value: repo.full_name,
+                                label: repo.full_name,
+                            }))}
+                        />
+                    )}
                 </LemonCard>
             )}
         </SceneSection>

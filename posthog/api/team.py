@@ -1333,6 +1333,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        if "ai_bug_fix_prs_enabled" in value:
+            value["ai_bug_fix_prs_enabled"] = bool(value["ai_bug_fix_prs_enabled"])
+        if "ai_bug_fix_repo" in value:
+            repo = value.get("ai_bug_fix_repo")
+            if repo is None:
+                value["ai_bug_fix_repo"] = None
+            elif isinstance(repo, str):
+                repo = repo.strip()
+                repo_pattern = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+                if repo and len(repo) <= 256 and repo_pattern.match(repo):
+                    value["ai_bug_fix_repo"] = repo
+                else:
+                    value.pop("ai_bug_fix_repo", None)
+            else:
+                value.pop("ai_bug_fix_repo", None)
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

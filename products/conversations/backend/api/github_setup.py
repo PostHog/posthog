@@ -108,13 +108,13 @@ class GithubReposView(APIView):
         team = user.current_team
         settings_dict = team.conversations_settings or {}
         integration_id = settings_dict.get("github_integration_id")
-        if not integration_id:
+        integration = None
+        if integration_id:
+            integration = Integration.objects.filter(id=integration_id, team=team, kind="github").first()
+        if integration is None:
+            integration = Integration.objects.filter(team=team, kind="github").first()
+        if integration is None:
             return Response({"error": "GitHub not connected"}, status=400)
-
-        try:
-            integration = Integration.objects.get(id=integration_id, team=team, kind="github")
-        except Integration.DoesNotExist:
-            return Response({"error": "GitHub integration not found"}, status=404)
 
         github = GitHubIntegration(integration)
         repos, _has_more = github.list_cached_repositories(limit=200)

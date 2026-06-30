@@ -1835,6 +1835,37 @@ def team_api_test_factory():
                 "https://test.com",
             ]
 
+        def test_conversations_settings_coerces_ai_bug_fix_prs_enabled(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_bug_fix_prs_enabled": 1}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_bug_fix_prs_enabled"] is True
+
+        def test_conversations_settings_validates_ai_bug_fix_repo_format(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_bug_fix_repo": "posthog/posthog",
+                        "github_repos": [],
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_bug_fix_repo"] == "posthog/posthog"
+
+        def test_conversations_settings_drops_invalid_ai_bug_fix_repo(self):
+            self.team.conversations_settings = {"ai_bug_fix_repo": "posthog/posthog"}
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_bug_fix_repo": "not-a-valid-repo!!!"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_bug_fix_repo"] == "posthog/posthog"
+
         def test_conversations_settings_merges_with_existing(self):
             self.client.patch(
                 "/api/environments/@current/",

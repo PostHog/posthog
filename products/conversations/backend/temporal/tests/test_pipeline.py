@@ -11,6 +11,7 @@ from posthog.models import Organization, Team
 
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
+from products.conversations.backend.temporal.ai_reply.activities.dispatch_bug_fix import _dispatch_bug_fix_sync
 from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
 from products.conversations.backend.temporal.ai_reply.activities.persist_reply import _persist_reply_sync
 from products.conversations.backend.temporal.ai_reply.activities.record_triage import _record_triage_sync
@@ -20,6 +21,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import _validate
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
+    BUG_FIX_CONFIDENCE_THRESHOLD,
     DIAGNOSTIC_DRAFT_SCOPES,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
@@ -29,8 +31,10 @@ from products.conversations.backend.temporal.ai_reply.llms import (
     strip_json_fence as _strip_json_fence,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import (
+    BugFixJudgeOutput,
     BuildContextOutput,
     ClassifyOutput,
+    DispatchBugFixOutput,
     DraftOutput,
     RefineQueriesOutput,
     RetrieveOutput,
@@ -42,8 +46,10 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 )
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
+    support_bug_fix_judge_activity,
     support_build_context_activity,
     support_classify_activity,
+    support_dispatch_bug_fix_activity,
     support_draft_activity,
     support_persist_reply_activity,
     support_record_triage_activity,
@@ -76,6 +82,8 @@ VALIDATE_MODULE = f"{ACTIVITIES}.validate"
 REVIEW_REPLY_MODULE = f"{ACTIVITIES}.review_reply"
 PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
+BUG_FIX_JUDGE_MODULE = f"{ACTIVITIES}.bug_fix_judge"
+DISPATCH_BUG_FIX_MODULE = f"{ACTIVITIES}.dispatch_bug_fix"
 
 
 @pytest.mark.django_db
@@ -1640,3 +1648,402 @@ class TestRecordTriageSync:
 
         ticket.refresh_from_db()
         assert ticket.ai_triage == {}
+
+
+def _diagnostic_build_context(**overrides: Any) -> BuildContextOutput:
+    base = {
+        "ticket_context": "exports fail with 500",
+        "ticket_title": "Broken export",
+        "diagnostics_allowed": True,
+        "bug_fix_enabled": True,
+        "bug_fix_repo": "posthog/posthog",
+        "github_integration_present": True,
+    }
+    base.update(overrides)
+    return BuildContextOutput(**base)
+
+
+def _bug_fix_worker_activities() -> list[Any]:
+    return [
+        support_build_context_activity,
+        support_safety_filter_activity,
+        support_classify_activity,
+        support_bug_fix_judge_activity,
+        support_dispatch_bug_fix_activity,
+        support_refine_queries_activity,
+        support_retrieve_activity,
+        support_draft_activity,
+        support_validate_activity,
+        support_review_reply_activity,
+        support_persist_reply_activity,
+        support_record_triage_activity,
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{DISPATCH_BUG_FIX_MODULE}._dispatch_bug_fix_sync")
+@patch(f"{BUG_FIX_JUDGE_MODULE}._judge_bug_fix", new_callable=AsyncMock)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_bug_fix_dispatch_fires_for_fixable_diagnostic(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = _diagnostic_build_context()
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(
+        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
+    )
+    mock_judge.return_value = BugFixJudgeOutput(
+        is_fixable_bug=True,
+        confidence=BUG_FIX_CONFIDENCE_THRESHOLD,
+        bug_title="Fix export 500",
+        bug_summary="Exports fail with HTTP 500.",
+    )
+    mock_dispatch.return_value = DispatchBugFixOutput(dispatched=True, task_id="task-123", run_id="run-456")
+    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(reply="Partial.", citations=sample_chunk_ids, confidence=0.3)
+    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_bug_fix_worker_activities(),
+        ):
+            await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-bug-fix-dispatch",
+                task_queue="test-queue",
+            )
+
+    mock_judge.assert_called_once()
+    mock_dispatch.assert_called_once()
+    bug_fix_triage_call = next(
+        call for call in mock_record_triage.call_args_list if call[0][2].get("bug_fix_dispatched")
+    )
+    assert bug_fix_triage_call[0][2]["bug_fix_task_id"] == "task-123"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{DISPATCH_BUG_FIX_MODULE}._dispatch_bug_fix_sync")
+@patch(f"{BUG_FIX_JUDGE_MODULE}._judge_bug_fix", new_callable=AsyncMock)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_bug_fix_dispatch_skipped_when_setting_off(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+):
+    await _assert_bug_fix_dispatch_skipped(
+        mock_build,
+        mock_safety,
+        mock_classify,
+        mock_refine,
+        mock_retrieve,
+        mock_draft,
+        mock_validate,
+        mock_review,
+        mock_persist,
+        mock_record_triage,
+        mock_judge,
+        mock_dispatch,
+        workflow_input,
+        sample_chunk_ids,
+        build_overrides={"bug_fix_enabled": False},
+        workflow_id="test-bug-fix-skipped-setting-off",
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{DISPATCH_BUG_FIX_MODULE}._dispatch_bug_fix_sync")
+@patch(f"{BUG_FIX_JUDGE_MODULE}._judge_bug_fix", new_callable=AsyncMock)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_bug_fix_dispatch_skipped_when_no_repo(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+):
+    await _assert_bug_fix_dispatch_skipped(
+        mock_build,
+        mock_safety,
+        mock_classify,
+        mock_refine,
+        mock_retrieve,
+        mock_draft,
+        mock_validate,
+        mock_review,
+        mock_persist,
+        mock_record_triage,
+        mock_judge,
+        mock_dispatch,
+        workflow_input,
+        sample_chunk_ids,
+        build_overrides={"bug_fix_repo": None},
+        workflow_id="test-bug-fix-skipped-no-repo",
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{DISPATCH_BUG_FIX_MODULE}._dispatch_bug_fix_sync")
+@patch(f"{BUG_FIX_JUDGE_MODULE}._judge_bug_fix", new_callable=AsyncMock)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_bug_fix_dispatch_skipped_when_no_github_integration(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+):
+    await _assert_bug_fix_dispatch_skipped(
+        mock_build,
+        mock_safety,
+        mock_classify,
+        mock_refine,
+        mock_retrieve,
+        mock_draft,
+        mock_validate,
+        mock_review,
+        mock_persist,
+        mock_record_triage,
+        mock_judge,
+        mock_dispatch,
+        workflow_input,
+        sample_chunk_ids,
+        build_overrides={"github_integration_present": False},
+        workflow_id="test-bug-fix-skipped-no-github",
+    )
+
+
+async def _assert_bug_fix_dispatch_skipped(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+    *,
+    build_overrides: dict[str, Any],
+    workflow_id: str,
+) -> None:
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = _diagnostic_build_context(**build_overrides)
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(
+        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
+    )
+    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(reply="Partial.", citations=sample_chunk_ids, confidence=0.3)
+    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_bug_fix_worker_activities(),
+        ):
+            await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id=workflow_id,
+                task_queue="test-queue",
+            )
+
+    mock_judge.assert_not_called()
+    mock_dispatch.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{DISPATCH_BUG_FIX_MODULE}._dispatch_bug_fix_sync")
+@patch(f"{BUG_FIX_JUDGE_MODULE}._judge_bug_fix", new_callable=AsyncMock)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_bug_fix_dispatch_skipped_when_not_fixable_or_low_confidence(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    mock_judge,
+    mock_dispatch,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = _diagnostic_build_context()
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(
+        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
+    )
+    mock_judge.return_value = BugFixJudgeOutput(
+        is_fixable_bug=False,
+        confidence=0.9,
+        bug_title="",
+        bug_summary="",
+    )
+    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(reply="Partial.", citations=sample_chunk_ids, confidence=0.3)
+    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_bug_fix_worker_activities(),
+        ):
+            await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-bug-fix-not-fixable",
+                task_queue="test-queue",
+            )
+
+    mock_judge.assert_called_once()
+    mock_dispatch.assert_not_called()
+
+
+class TestDispatchBugFixSync:
+    @pytest.mark.django_db
+    @patch(f"{DISPATCH_BUG_FIX_MODULE}.tasks_facade.create_and_run_task")
+    @patch(f"{DISPATCH_BUG_FIX_MODULE}.resolve_user_id_for_support", return_value=1)
+    def test_idempotent_when_bug_fix_task_id_present(self, _mock_user, mock_create_task):
+        org = Organization.objects.create(name="bugfix-org")
+        team = Team.objects.create(organization=org, name="bugfix-team")
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="bugfix-session",
+            distinct_id="bugfix-distinct",
+            ai_triage={"bug_fix_task_id": "existing-task"},
+        )
+
+        result = _dispatch_bug_fix_sync(
+            team.id,
+            str(ticket.id),
+            "posthog/posthog",
+            "Fix export 500",
+            "Exports fail with HTTP 500.",
+        )
+
+        assert result.dispatched is False
+        assert result.skipped_reason == "already_dispatched"
+        mock_create_task.assert_not_called()

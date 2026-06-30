@@ -129,6 +129,73 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('aiBugFixPrsEnabled selector', () => {
+        it.each([
+            ['conversations_settings is undefined', undefined, false],
+            ['ai_bug_fix_prs_enabled is not set', { widget_enabled: true }, false],
+            ['ai_bug_fix_prs_enabled is true', { ai_bug_fix_prs_enabled: true }, true],
+        ])('%s', async (_label, settings, expected) => {
+            if (settings) {
+                initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            }
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ aiBugFixPrsEnabled: expected })
+        })
+    })
+
+    describe('setAiBugFixPrsEnabled', () => {
+        it('sets loading state and writes ai_bug_fix_prs_enabled', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiBugFixPrsEnabled(true)
+            })
+                .toDispatchActions(['setAiBugFixPrsLoading', 'updateCurrentTeam'])
+                .toMatchValues({ aiBugFixPrsLoading: true })
+        })
+
+        it('clears repo when disabling bug-fix PRs', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    ai_bug_fix_prs_enabled: true,
+                    ai_bug_fix_repo: 'posthog/posthog',
+                },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiBugFixPrsEnabled(false)
+            }).toDispatchActions(['setAiBugFixPrsLoading', 'updateCurrentTeam'])
+        })
+    })
+
+    describe('setAiBugFixRepo', () => {
+        it('writes ai_bug_fix_repo into conversations_settings', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiBugFixRepo('posthog/posthog')
+            })
+                .toDispatchActions(['setAiBugFixPrsLoading', 'updateCurrentTeam'])
+                .toMatchValues({ aiBugFixPrsLoading: true })
+        })
+    })
+
+    describe('loadGithubIntegrationsSuccess', () => {
+        it('loads repos when a team GitHub integration is present', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadGithubIntegrationsSuccess([{ id: 1, name: 'posthog' }])
+            }).toDispatchActions(['loadGithubRepos'])
+        })
+    })
+
     describe('teamsChannelPairs selector', () => {
         it('reads the teams_channels list when present', async () => {
             initKeaTests(true, {

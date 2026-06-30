@@ -3,6 +3,7 @@ from __future__ import annotations
 from temporalio import activity
 
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -41,11 +42,19 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
     always_on_chunks = get_always_on_context(team_id)
     always_on_text = "\n\n".join(c.content for c in always_on_chunks) if always_on_chunks else ""
 
-    diagnostics_allowed = bool((team.conversations_settings or {}).get("ai_diagnostics_enabled", False))
+    conversations_settings = team.conversations_settings or {}
+    diagnostics_allowed = bool(conversations_settings.get("ai_diagnostics_enabled", False))
+    bug_fix_enabled = bool(conversations_settings.get("ai_bug_fix_prs_enabled", False))
+    bug_fix_repo_raw = conversations_settings.get("ai_bug_fix_repo")
+    bug_fix_repo = bug_fix_repo_raw.strip() if isinstance(bug_fix_repo_raw, str) and bug_fix_repo_raw.strip() else None
+    github_integration_present = Integration.objects.filter(team=team, kind="github").exists()
 
     return BuildContextOutput(
         ticket_context=context,
         ticket_title=title,
         always_on_context=always_on_text,
         diagnostics_allowed=diagnostics_allowed,
+        bug_fix_enabled=bug_fix_enabled,
+        bug_fix_repo=bug_fix_repo,
+        github_integration_present=github_integration_present,
     )
