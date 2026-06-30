@@ -42272,7 +42272,10 @@ export namespace Schemas {
     } as const;
 
     export interface ProductEnablement {
-      /** Products to turn on for this project, each enabled with server-owned conservative defaults. */
+      /**
+         * Products to turn on for this project, each enabled with server-owned conservative defaults.
+         * @minItems 1
+         */
       products: ProductsEnum[];
     }
 

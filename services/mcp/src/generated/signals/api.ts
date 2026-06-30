@@ -25,6 +25,7 @@ export const SignalsProductEnablementCreateBody = /* @__PURE__ */ zod.object({
                     '* `conversations` - conversations\n* `error_tracking` - error_tracking\n* `session_replay` - session_replay'
                 )
         )
+        .min(1)
         .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
 })
 

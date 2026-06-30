@@ -80,6 +80,7 @@ class ProductEnablementSerializer(serializers.Serializer):
     products = serializers.ListField(
         child=serializers.ChoiceField(choices=sorted(RECIPES.keys())),
         allow_empty=False,
+        min_length=1,
         help_text="Products to turn on for this project, each enabled with server-owned conservative defaults.",
     )
 
