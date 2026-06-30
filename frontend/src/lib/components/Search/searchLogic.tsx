@@ -76,9 +76,9 @@ const fileSystemEntryToSearchItem = (
     const name = splitPath(item.path).pop()
     const itemName = name ? unescapePath(name) : item.path
     const displayName = getProductDisplayLabelByPath().get(itemName)
-    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank type because
-    // their product only defines `iconType`. Fall back to the product registry, keyed by name,
-    // so their icon still resolves.
+    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank (empty-string)
+    // type because their product only defines `iconType`. The `||` (not `??`) is deliberate: an
+    // empty string must fall through to the product registry, keyed by name, so the icon resolves.
     const itemType = item.type || getProductIconTypeByPath().get(itemName) || null
     const productIconColor = itemType ? getProductIconColorByType().get(itemType) : undefined
     return {
