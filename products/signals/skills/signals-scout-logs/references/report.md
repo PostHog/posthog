@@ -41,6 +41,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                 |
+| `suggested_reviewers`       | list of strings         | Bare, lowercase GitHub logins. The **single most important routing field** — set on every report (PR or not). See the _`suggested_reviewers`_ section below for resolution steps.                                                                  |
 
 **Status is decided for you, from safety × actionability:**
 
