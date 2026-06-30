@@ -1,3 +1,4 @@
+import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -51,9 +52,12 @@ export function ConnectedApps(): JSX.Element {
     const { revokeApp } = useActions(connectedAppsLogic)
 
     const handleRevoke = (app: ConnectedApp): void => {
+        // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).
+        const name = decode(app.name)
+
         LemonDialog.open({
-            title: `Revoke access for ${app.name}?`,
-            description: `This will revoke all tokens and permissions granted to ${app.name}. The app will no longer be able to access your PostHog account. You can re-authorize it at any time through the application's own interface.`,
+            title: `Revoke access for ${name}?`,
+            description: `This will revoke all tokens and permissions granted to ${name}. The app will no longer be able to access your PostHog account. You can re-authorize it at any time through the application's own interface.`,
             primaryButton: {
                 children: 'Revoke',
                 status: 'danger',
@@ -79,16 +83,16 @@ export function ConnectedApps(): JSX.Element {
                                 <div className="w-8 h-8 shrink-0 rounded bg-bg-light border flex items-center justify-center p-1">
                                     <img
                                         src={app.logo_uri}
-                                        alt={`${app.name} logo`}
+                                        alt={`${decode(app.name)} logo`}
                                         className="w-full h-full object-contain"
                                     />
                                 </div>
                             ) : (
                                 <div className="w-8 h-8 shrink-0 rounded bg-border flex items-center justify-center text-sm font-bold text-muted">
-                                    {app.name.charAt(0).toUpperCase()}
+                                    {decode(app.name).charAt(0).toUpperCase()}
                                 </div>
                             )}
-                            <span className="font-medium">{app.name}</span>
+                            <span className="font-medium">{decode(app.name)}</span>
                             {app.is_first_party ? (
                                 <LemonTag type="highlight" size="small">
                                     PostHog

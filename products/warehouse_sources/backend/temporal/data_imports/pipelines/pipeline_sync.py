@@ -190,55 +190,62 @@ async def validate_schema_and_update_table(
         table_name = build_table_name(job.pipeline, table_storage_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
-        # Check
         try:
-            with transaction.atomic():
-                logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
+            logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
 
-                table_params = {
-                    "name": table_name,
-                    "format": table_format,
-                    "url_pattern": new_url_pattern,
-                    "team_id": team_id,
-                    "row_count": row_count,
-                    "queryable_folder": queryable_folder,
-                }
+            table_params = {
+                "name": table_name,
+                "format": table_format,
+                "url_pattern": new_url_pattern,
+                "team_id": team_id,
+                "row_count": row_count,
+                "queryable_folder": queryable_folder,
+            }
 
-                # create or update
-                table_created: DataWarehouseTable | None = external_data_schema.table
-                if table_created:
-                    table_created.format = table_params["format"]
-                    table_created.url_pattern = new_url_pattern
-                    table_created.queryable_folder = queryable_folder
-                    if external_data_schema.table_row_count_is_cumulative:
-                        table_created.row_count = table_created.get_count()
-                    else:
-                        table_created.row_count = row_count
-                    table_created.save()
+            # Resolve (or create) the target table and introspect its ClickHouse schema BEFORE
+            # opening a transaction. get_count()/get_columns() hit ClickHouse and retry with
+            # backoff when the cluster is degraded — running them inside transaction.atomic()
+            # held the Postgres transaction (and the select_for_update row lock below) open for
+            # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
+            # exhausted the connection pool.
+            table_created: DataWarehouseTable | None = external_data_schema.table
+            if table_created:
+                table_created.format = table_params["format"]
+                table_created.url_pattern = new_url_pattern
+                table_created.queryable_folder = queryable_folder
+                if external_data_schema.table_row_count_is_cumulative:
+                    table_created.row_count = table_created.get_count()
+                else:
+                    table_created.row_count = row_count
+                # Scope to the fields changed here. This save is now outside the transaction, so a
+                # full save would rewrite `columns` with its pre-merge value and could clobber a
+                # concurrent sync's column update before the select_for_update merge below runs.
+                table_created.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+
+            if not table_created:
+                # Check if we already have an orphaned table that we can repurpose
+                existing_tables = DataWarehouseTable.objects.filter(
+                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+                )
+                existing_tables_count = existing_tables.count()
+                if existing_tables_count > 0:
+                    table_created = existing_tables[0]
+                    logger.debug(
+                        f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
+                    )
 
                 if not table_created:
-                    # Check if we already have an orphaned table that we can repurpose
-                    existing_tables = DataWarehouseTable.objects.filter(
-                        team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+                    logger.debug(f"Creating table for schema: {str(schema_id)}")
+                    table_created = DataWarehouseTable.objects.create(
+                        external_data_source_id=job.pipeline.id, **table_params
                     )
-                    existing_tables_count = existing_tables.count()
-                    if existing_tables_count > 0:
-                        table_created = existing_tables[0]
-                        logger.debug(
-                            f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
-                        )
 
-                    if not table_created:
-                        logger.debug(f"Creating table for schema: {str(schema_id)}")
-                        table_created = DataWarehouseTable.objects.create(
-                            external_data_source_id=job.pipeline.id, **table_params
-                        )
+            assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-                assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+            raw_db_columns = table_created.get_columns()
+            db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
-                raw_db_columns = table_created.get_columns()
-                db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
-
+            with transaction.atomic():
                 # select_for_update prevents two concurrent sync operations from
                 # causing a lost-update: both would read the current columns,
                 # merge independently, and one write would overwrite the other.
@@ -338,33 +345,40 @@ async def register_cdc_companion_table(
         }
 
         try:
+            # Resolve (or create) the companion table and introspect its ClickHouse schema BEFORE
+            # opening a transaction — get_count()/get_columns() hit ClickHouse and can take minutes
+            # when the cluster is degraded, so holding a Postgres transaction open across them is
+            # what produced minutes-long "idle in transaction" connections.
+            # Find existing companion table (not schema.table) by name
+            companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
+                team_id=team_id,
+                name=companion_table_name,
+                external_data_source_id=job.pipeline.id,
+                deleted=False,
+            ).first()
+
+            if companion_table:
+                companion_table.format = table_format
+                companion_table.url_pattern = new_url_pattern
+                companion_table.queryable_folder = queryable_folder
+                companion_table.row_count = companion_table.get_count()
+                # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
+                # `columns` with its pre-merge value before the column save below.
+                companion_table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+            else:
+                logger.debug(f"Creating CDC companion table: {companion_table_name}")
+                companion_table = DataWarehouseTable.objects.create(
+                    external_data_source_id=job.pipeline.id, **table_params
+                )
+
+            raw_db_columns = companion_table.get_columns()
+            db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
+            existing_columns = companion_table.columns or {}
+            columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+
             with transaction.atomic():
-                # Find existing companion table (not schema.table) by name
-                companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
-                    team_id=team_id,
-                    name=companion_table_name,
-                    external_data_source_id=job.pipeline.id,
-                    deleted=False,
-                ).first()
-
-                if companion_table:
-                    companion_table.format = table_format
-                    companion_table.url_pattern = new_url_pattern
-                    companion_table.queryable_folder = queryable_folder
-                    companion_table.row_count = companion_table.get_count()
-                    companion_table.save()
-                else:
-                    logger.debug(f"Creating CDC companion table: {companion_table_name}")
-                    companion_table = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
-                    )
-
-                raw_db_columns = companion_table.get_columns()
-                db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
-                existing_columns = companion_table.columns or {}
-                columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 companion_table.columns = columns
-                companion_table.save()
+                companion_table.save(update_fields=["columns"])
 
                 if set_as_schema_table:
                     ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)

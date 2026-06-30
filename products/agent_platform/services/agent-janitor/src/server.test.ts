@@ -172,6 +172,36 @@ describe('janitor HTTP', () => {
         expect(Object.keys(res.body.levels)).toEqual(['low', 'medium', 'high'])
     })
 
+    it('GET /spec-schema returns the full inlined agent-spec JSON Schema with descriptions', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema')
+        expect(res.status).toBe(200)
+        expect(res.body.section).toBeNull()
+        const schema = res.body.spec_json_schema
+        // Inlined (no $defs) so every slice is self-contained.
+        expect(schema.$defs).toBeUndefined()
+        expect(Object.keys(schema.properties)).toContain('models')
+        // Descriptions travel with the schema — the whole point of the tool.
+        expect(typeof schema.properties.models.description).toBe('string')
+    })
+
+    it('GET /spec-schema?section=models returns just the models slice', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema').query({ section: 'models' })
+        expect(res.status).toBe(200)
+        expect(res.body.section).toBe('models')
+        expect(res.body.spec_json_schema.$schema).toBeTruthy()
+        expect(res.body.spec_json_schema.oneOf).toHaveLength(2) // auto | manual
+    })
+
+    it('GET /spec-schema?section=bogus is a 400 listing the valid sections', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema').query({ section: 'bogus' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('unknown_section')
+        expect(res.body.sections).toContain('models')
+    })
+
     it('GET /sessions?application_id= returns summaries, newest first', async () => {
         const { queue, app } = mk()
         const a = { ...session('s-a'), application_id: uuidFor('app-1'), created_at: '2026-05-01T00:00:00Z' }

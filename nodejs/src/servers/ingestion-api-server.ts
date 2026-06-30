@@ -313,6 +313,7 @@ export class IngestionApiServer implements NodeServer {
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
                 statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                overflowType: 'events',
             })
         }
 
@@ -320,6 +321,7 @@ export class IngestionApiServer implements NodeServer {
         if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'events',
             })
         }
 
@@ -486,8 +488,10 @@ export class IngestionApiServer implements NodeServer {
             }
 
             // Wait for all side effects — the HTTP response is the ACK to the
-            // Rust consumer, so all work must finish before responding.
-            await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
+            // Rust consumer, so all work must finish before responding. The hog
+            // transformer drain is scheduled as a side effect by the pipeline's
+            // afterBatch flush step, so it's covered by waitForAll().
+            await this.promiseScheduler.waitForAll()
 
             batchesProcessed.inc()
             messagesProcessed.inc(messages.length)
