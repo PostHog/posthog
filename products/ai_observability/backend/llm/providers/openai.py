@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
@@ -37,6 +38,22 @@ from products.ai_observability.backend.providers.formatters.openai_formatter imp
 from products.ai_observability.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 
 logger = logging.getLogger(__name__)
+
+
+def _is_context_length_error(e: openai.BadRequestError) -> bool:
+    """Detect a 400 caused by the prompt exceeding the model's context window.
+
+    OpenAI returns `code == "context_length_exceeded"`; OpenAI-compatible providers (OpenRouter,
+    Together, …) phrase it differently, so we also match the canonical message fragments.
+    """
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        nested = body.get("error")
+        nested_code = nested.get("code") if isinstance(nested, dict) else None
+        if (body.get("code") or nested_code) == "context_length_exceeded":
+            return True
+    message = str(e).lower()
+    return "context_length_exceeded" in message or "maximum context length" in message
 
 
 class OpenAIConfig:
@@ -166,6 +183,10 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
+                    # An over-window prompt is deterministic — surface it as terminal so callers
+                    # don't retry an identical request that can never succeed.
+                    if _is_context_length_error(e):
+                        raise ContextWindowExceededError(str(e))
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
@@ -197,6 +218,13 @@ class OpenAIAdapter:
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+        except openai.BadRequestError as e:
+            # Covers the non-structured-output and JSON-fallback paths; the structured-output
+            # path handles its own BadRequestError above. Must precede the APIStatusError catch
+            # since BadRequestError is a subclass of it.
+            if _is_context_length_error(e):
+                raise ContextWindowExceededError(str(e))
+            raise
         except openai.APIStatusError as e:
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror

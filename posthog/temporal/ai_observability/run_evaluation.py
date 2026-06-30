@@ -130,7 +130,9 @@ async def handle_llm_judge_activity_error(
             result=terminal_result,
         )
 
-    if error_type == "parse_error":
+    # Both are deterministic for the given input — the judge can't produce a verdict, so skip the
+    # evaluation instead of failing the workflow or retrying a request that can never succeed.
+    if error_type in ("parse_error", "context_window_exceeded"):
         skip_result: WorkflowResult = {
             "verdict": None,
             "skipped": True,

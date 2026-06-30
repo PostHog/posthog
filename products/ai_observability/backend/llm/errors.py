@@ -51,6 +51,14 @@ class StructuredOutputParseError(LLMError):
     """Raised when the LLM response cannot be parsed into the expected structured output format"""
 
 
+class ContextWindowExceededError(LLMError):
+    """Raised when the request exceeds the model's context window.
+
+    This is deterministic for a given prompt — retrying the identical request never helps, so
+    callers should treat it as terminal rather than retryable.
+    """
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 

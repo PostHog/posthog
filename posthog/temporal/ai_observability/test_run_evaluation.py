@@ -14,11 +14,17 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    JUDGE_MAX_CONTENT_CHARS,
+    JUDGE_MAX_TOOLS_CHARS,
+    _bound_judge_sections,
+)
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
@@ -59,6 +65,42 @@ from .run_evaluation import (
     send_evaluation_disabled_email_activity,
     send_trial_usage_email_activity,
 )
+
+
+class TestBoundJudgeSections:
+    def test_small_sections_pass_through_unchanged(self):
+        assert _bound_judge_sections("in", "out", "tools") == ("in", "out", "tools")
+
+    def test_oversized_content_is_bounded_and_keeps_tails(self):
+        input_data = "I" * JUDGE_MAX_CONTENT_CHARS + "INPUT_TAIL"
+        output_data = "O" * JUDGE_MAX_CONTENT_CHARS + "OUTPUT_TAIL"
+
+        bounded_input, bounded_output, bounded_tools = _bound_judge_sections(input_data, output_data, "")
+
+        assert len(bounded_input) + len(bounded_output) + len(bounded_tools) <= JUDGE_MAX_CONTENT_CHARS
+        # Tail is the most recent context — the part most informative for a verdict — so it's kept.
+        assert bounded_input.endswith("INPUT_TAIL")
+        assert bounded_output.endswith("OUTPUT_TAIL")
+
+    def test_tool_catalog_is_capped_so_it_cannot_crowd_out_io(self):
+        tools_data = "T" * (JUDGE_MAX_CONTENT_CHARS * 2)
+        input_data = "I" * 10_000
+        output_data = "O" * 10_000
+
+        bounded_input, bounded_output, bounded_tools = _bound_judge_sections(input_data, output_data, tools_data)
+
+        assert len(bounded_tools) == JUDGE_MAX_TOOLS_CHARS
+        assert bounded_input == input_data
+        assert bounded_output == output_data
+
+    def test_small_output_lets_input_borrow_the_unused_budget(self):
+        input_data = "I" * (JUDGE_MAX_CONTENT_CHARS * 2)
+        output_data = "O" * 100
+
+        bounded_input, bounded_output, _ = _bound_judge_sections(input_data, output_data, "")
+
+        assert bounded_output == output_data
+        assert len(bounded_input) == JUDGE_MAX_CONTENT_CHARS - len(output_data)
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
@@ -1007,6 +1049,58 @@ class TestRunEvaluationWorkflow:
         mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
         assert exc_info.value.non_retryable is True
         assert exc_info.value.details[0] == {"error_type": "parse_error"}
+
+    def test_execute_llm_judge_activity_context_window_exceeded_raises_non_retryable(self):
+        evaluation = {
+            "id": "eval-123",
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with (
+            patch(
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
+        ):
+            mock_get_or_create.return_value = (
+                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
+                False,
+            )
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = ContextWindowExceededError(
+                "This model's maximum context length is 272000 tokens."
+            )
+
+            with pytest.raises(ApplicationError, match="too large to fit") as exc_info:
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_increment_errors.assert_called_once_with("context_window_exceeded", provider="openai")
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.details[0] == {
+            "error_type": "context_window_exceeded",
+            "provider": "openai",
+            "model": "gpt-4.1",
+        }
 
     @pytest.mark.parametrize(
         "raised_exception, expected_label",

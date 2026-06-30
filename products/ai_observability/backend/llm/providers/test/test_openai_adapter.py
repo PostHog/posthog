@@ -9,7 +9,9 @@ from posthoganalytics.ai.openai import (
     OpenAI as WrappedOpenAI,
 )
 
-from products.ai_observability.backend.llm.errors import QuotaExceededError
+from pydantic import BaseModel
+
+from products.ai_observability.backend.llm.errors import ContextWindowExceededError, QuotaExceededError
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -128,6 +130,83 @@ class TestOpenAIAdapterErrorMapping:
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(openai.APIStatusError):
+                adapter.complete(
+                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
+                )
+
+
+def _make_bad_request_error(message: str, code: str | None = None) -> openai.BadRequestError:
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    error_body = {"message": message, "type": "invalid_request_error", "code": code}
+    response = httpx.Response(status_code=400, request=request, json={"error": error_body})
+    return openai.BadRequestError(message, response=response, body={"error": error_body})
+
+
+class _Verdict(BaseModel):
+    verdict: bool
+
+
+class TestOpenAIAdapterContextWindowMapping:
+    """An over-window 400 must surface as the terminal ContextWindowExceededError, not escape as a
+    retryable error — retrying the identical oversized prompt can never succeed."""
+
+    @pytest.fixture
+    def request_no_structured_output(self) -> CompletionRequest:
+        return CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+
+    @parameterized.expand(
+        [
+            ("by_code", "This model's maximum context length is 272000 tokens.", "context_length_exceeded"),
+            ("by_message_only", "Requested tokens exceed the maximum context length of this model.", None),
+        ]
+    )
+    def test_structured_output_context_length_maps_to_context_window_error(
+        self, _name: str, message: str, code: str | None
+    ):
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _make_bad_request_error(message, code)
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ContextWindowExceededError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    def test_non_structured_context_length_maps_to_context_window_error(
+        self, request_no_structured_output: CompletionRequest
+    ):
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = _make_bad_request_error(
+            "maximum context length exceeded", "context_length_exceeded"
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ContextWindowExceededError):
+                adapter.complete(
+                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
+                )
+
+    def test_non_context_bad_request_is_reraised(self, request_no_structured_output: CompletionRequest):
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = _make_bad_request_error(
+            "you must provide a model parameter", "missing_required_parameter"
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(openai.BadRequestError):
                 adapter.complete(
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
