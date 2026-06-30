@@ -28,9 +28,10 @@ class CodefreshEndpointConfig:
     page_size: int = 100
     should_sync_default: bool = True
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Top-level fields to strip from every row before it's emitted. Used to keep secret-bearing
-    # fields (e.g. a project's `variables`, which can hold plaintext config values) out of the
-    # warehouse, where any table reader could see them.
+    # Fields to strip from every row before it's emitted, to keep secret-bearing fields (e.g. a
+    # project's `variables` or a pipeline's `spec.variables`, which can hold plaintext config values)
+    # out of the warehouse, where any table reader could see them. Each entry is a dotted path, so
+    # nested fields can be redacted (e.g. `spec.variables`); a bare name targets a top-level field.
     redact_keys: list[str] = field(default_factory=list)
 
 
@@ -51,6 +52,8 @@ CODEFRESH_ENDPOINTS: dict[str, CodefreshEndpointConfig] = {
         data_key=["docs"],  # envelope: {docs: [...], count}
         flatten_key="metadata",  # lift metadata.{id,name,project,...} to the row top level
         primary_keys=["id"],
+        # Pipeline spec variables are exported with their plaintext `value` — keep them out of the warehouse.
+        redact_keys=["spec.variables"],
     ),
     "builds": CodefreshEndpointConfig(
         name="builds",

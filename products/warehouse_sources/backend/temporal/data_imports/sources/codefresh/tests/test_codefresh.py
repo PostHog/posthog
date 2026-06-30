@@ -95,21 +95,59 @@ class TestFlatten:
 
 
 class TestTransformRow:
-    def test_redacts_configured_keys(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "top_level_key",
+                ["variables"],
+                {"id": "p1", "variables": [{"key": "TOKEN", "value": "secret"}]},
+                {"id": "p1"},
+            ),
+            (
+                "nested_dotted_key",
+                ["spec.variables"],
+                {"id": "p1", "spec": {"steps": {}, "variables": [{"key": "TOKEN", "value": "secret"}]}},
+                {"id": "p1", "spec": {"steps": {}}},
+            ),
+            (
+                "nested_path_absent_is_noop",
+                ["spec.variables"],
+                {"id": "p1", "spec": {"steps": {}}},
+                {"id": "p1", "spec": {"steps": {}}},
+            ),
+            (
+                "nested_parent_not_a_dict_is_noop",
+                ["spec.variables"],
+                {"id": "p1", "spec": None},
+                {"id": "p1", "spec": None},
+            ),
+        ]
+    )
+    def test_redacts_configured_keys(
+        self, _name: str, redact_keys: list[str], item: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
         config = CodefreshEndpointConfig(
-            name="projects", path="/projects", pagination="offset", redact_keys=["variables"]
+            name="projects", path="/projects", pagination="offset", redact_keys=redact_keys
         )
-        row = _transform_row({"id": "p1", "variables": [{"key": "TOKEN", "value": "secret"}]}, config)
-        assert row == {"id": "p1"}
+        assert _transform_row(item, config) == expected
+
+    def test_redaction_does_not_mutate_source_item(self) -> None:
+        config = CodefreshEndpointConfig(
+            name="pipelines", path="/pipelines", pagination="offset", redact_keys=["spec.variables"]
+        )
+        item = {"id": "p1", "spec": {"variables": [{"key": "TOKEN", "value": "secret"}]}}
+        _transform_row(item, config)
+        assert item["spec"] == {"variables": [{"key": "TOKEN", "value": "secret"}]}
 
     def test_no_redact_keys_is_passthrough(self) -> None:
         config = CodefreshEndpointConfig(name="builds", path="/workflow", pagination="page")
         row = _transform_row({"id": "b1", "variables": ["x"]}, config)
         assert row == {"id": "b1", "variables": ["x"]}
 
-    def test_projects_endpoint_redacts_variables(self) -> None:
-        # The configured projects endpoint must strip variables, which can hold plaintext secrets.
-        assert "variables" in CODEFRESH_ENDPOINTS["projects"].redact_keys
+    @parameterized.expand([("projects", "variables"), ("pipelines", "spec.variables")])
+    def test_endpoint_redacts_secret_bearing_variables(self, endpoint: str, redacted_key: str) -> None:
+        # These endpoints expose plaintext config/CI variables; the configured source must strip them.
+        assert redacted_key in CODEFRESH_ENDPOINTS[endpoint].redact_keys
 
 
 def _offset_config(page_size: int = 2) -> CodefreshEndpointConfig:

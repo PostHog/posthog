@@ -72,13 +72,28 @@ def _flatten(item: dict[str, Any], flatten_key: Optional[str]) -> dict[str, Any]
     return item
 
 
+def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    """Return ``row`` with a possibly-nested field removed. ``"variables"`` drops a top-level field;
+    ``"spec.variables"`` walks into ``spec`` and drops its ``variables``. Only the nodes on the path
+    are copied, so the upstream item is left unmodified; a missing or non-dict node is a no-op."""
+    head, _, rest = dotted_key.partition(".")
+    if head not in row:
+        return row
+    if not rest:
+        return {k: v for k, v in row.items() if k != head}
+    nested = row[head]
+    if not isinstance(nested, dict):
+        return row
+    return {**row, head: _redact_key(nested, rest)}
+
+
 def _transform_row(item: dict[str, Any], config: CodefreshEndpointConfig) -> dict[str, Any]:
     """Flatten the row, then drop any redacted fields. Redaction runs after flattening so a key that
     only surfaces once a nested object is lifted (and a top-level key of the same name) are both
-    caught."""
+    caught. Redact keys may be dotted paths (e.g. ``spec.variables``) to reach nested fields."""
     row = _flatten(item, config.flatten_key)
-    if config.redact_keys:
-        row = {k: v for k, v in row.items() if k not in config.redact_keys}
+    for key in config.redact_keys:
+        row = _redact_key(row, key)
     return row
 
 
