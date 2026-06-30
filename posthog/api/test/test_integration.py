@@ -812,7 +812,7 @@ class TestBatchExportIntegrationMemberAccess:
             content_type="application/json",
         )
 
-        assert response.status_code != status.HTTP_403_FORBIDDEN, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @pytest.mark.parametrize("kind", ["slack", "email", "twilio"])
     def test_member_cannot_create_non_batch_export_kinds(self, kind, client: HttpClient):
