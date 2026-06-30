@@ -105,7 +105,11 @@ class LaunchSurveyAction(BaseAction):
             return True
 
         stored_updated_at = intent_data.get("preconditions", {}).get("updated_at")
-        if stored_updated_at is not None and instance.updated_at and instance.updated_at.isoformat() != stored_updated_at:
+        if (
+            stored_updated_at is not None
+            and instance.updated_at
+            and instance.updated_at.isoformat() != stored_updated_at
+        ):
             return True
 
         return False
