@@ -54,8 +54,14 @@ from products.notebooks.backend.facade import (
 # account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
 # CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
+from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
 from . import contracts
+
+# The "Update account property" workflow action (Hog template) stores the custom property values it
+# sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+_ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
+_ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -654,6 +660,7 @@ def delete_customer_profile_config(
 
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
+    references: list[contracts.CustomPropertyReference] | None = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
         id=definition.id,
@@ -664,7 +671,23 @@ def _to_custom_property_definition_view(
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
+        references=references or [],
     )
+
+
+def _custom_property_references_by_definition_id(team_id: int) -> dict[str, list[contracts.CustomPropertyReference]]:
+    """Map each referenced definition id to the workflows that set it via the "Update account
+    property" action. One scan of the team's workflows, matched by definition id."""
+    usage = get_hog_flows_referencing_template_input_keys(
+        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY
+    )
+    return {
+        definition_id: [
+            contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
+            for ref in refs
+        ]
+        for definition_id, refs in usage.items()
+    }
 
 
 def list_custom_property_definitions(
@@ -674,14 +697,16 @@ def list_custom_property_definitions(
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_custom_property_definition_view(d) for d in page], total_count
+    references = _custom_property_references_by_definition_id(team_id)
+    return [_to_custom_property_definition_view(d, references.get(str(d.id), [])) for d in page], total_count
 
 
 def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
-    return _to_custom_property_definition_view(definition)
+    references = _custom_property_references_by_definition_id(team_id).get(str(definition.id), [])
+    return _to_custom_property_definition_view(definition, references)
 
 
 def create_custom_property_definition(
