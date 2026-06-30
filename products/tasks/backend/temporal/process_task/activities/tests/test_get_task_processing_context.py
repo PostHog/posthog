@@ -269,6 +269,30 @@ class TestGetTaskProcessingContextActivity:
         sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
+    @pytest.mark.django_db(transaction=True)
+    def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
+        # Signals implementation PRs are bot-authored and always opt into the PR
+        # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
+        # rollout that gates other origins.
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        def feature_enabled(flag_key, **kwargs):
+            return False  # `tasks-pr-loop` disabled for the org
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=feature_enabled,
+        ) as feature_enabled_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is True
+        # The signal_report origin short-circuits the gate, so the flag is never consulted.
+        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
+        assert "tasks-pr-loop" not in called_flags
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [

@@ -6,6 +6,8 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+from django.db import OperationalError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
     _earliest_supported_since,
+    _fetch_integration_row,
     _is_permanent_auth_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
@@ -1172,3 +1175,68 @@ class TestGetIntegration:
         assert calls == ["close_old_connections", "Integration.objects.get"]
         meta_ads_integration.refresh_access_token.assert_called_once()
         assert result is integration
+
+
+class TestFetchIntegrationRowDbResilience:
+    def test_retries_on_dropped_connection_then_succeeds(self, monkeypatch) -> None:
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+        close = mock.Mock()
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", close)
+        monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
+
+        result = _fetch_integration_row(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_rides_out_pool_wait_timeout_then_succeeds(self, monkeypatch) -> None:
+        integration = object()
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
+        sleeps: list[int] = []
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
+        monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
+
+        result = _fetch_integration_row(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleeps == [2, 4]
+
+    def test_reraises_after_exhausting_attempts(self, monkeypatch) -> None:
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+        sleeps: list[int] = []
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
+        monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
+
+        with pytest.raises(OperationalError):
+            _fetch_integration_row(integration_id=1, team_id=2)
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+        assert get.call_count == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleeps == [2, 4, 6]
+
+    def test_missing_integration_is_not_retried(self, monkeypatch) -> None:
+        get = mock.Mock(side_effect=meta_ads_module.Integration.DoesNotExist())
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
+        monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
+
+        with pytest.raises(meta_ads_module.Integration.DoesNotExist):
+            _fetch_integration_row(integration_id=1, team_id=2)
+
+        # A deleted integration row is non-retryable — don't mask it as a transient drop.
+        assert get.call_count == 1

@@ -80,6 +80,10 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
+    # Advisory locks are session-scoped: the lock acquired during fetch_and_lock
+    # must be verified/released on the same connection, so groups share the poll
+    # connection. Migrating duckgres to leases is tracked separately.
+    per_group_connections: bool = False
 
     def __init__(self) -> None:
         self._team_ids: list[int] | None = None
@@ -95,8 +99,18 @@ class DuckgresBatchConsumerAdapter:
         if self._team_ids_fetched_at is not None and now - self._team_ids_fetched_at < ENABLEMENT_REFRESH_SECONDS:
             return self._team_ids
         try:
+            first_resolution = self._team_ids_fetched_at is None
+            previous = self._team_ids
             self._team_ids = await sync_to_async(duckgres_sink_team_ids, thread_sensitive=False)()
             self._team_ids_fetched_at = now
+            if first_resolution or self._team_ids != previous:
+                # Only on the first resolution or an actual change — the refresh
+                # itself runs every ~60s and would otherwise spam.
+                logger.info(
+                    "duckgres_sink_enabled_teams_resolved",
+                    first_resolution=first_resolution,
+                    team_count=None if self._team_ids is None else len(self._team_ids),
+                )
         except Exception as e:
             logger.exception("duckgres_sink_enablement_refresh_failed")
             capture_exception(e)
@@ -126,16 +140,34 @@ class DuckgresBatchConsumerAdapter:
         SINK_BLOCKED_BACKLOG.set(blocked)
         SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
 
+        block_list_was_unset = self._blocked_schema_ids is None
         try:
             # Backfill planner: bootstrap/plan/reconcile schema priming, then
             # refresh the live-batch block list it derives from.
             await sync_to_async(run_backfill_planner, thread_sensitive=False)(team_ids)
             self._blocked_schema_ids = await sync_to_async(compute_blocked_schema_ids, thread_sensitive=False)(team_ids)
+            if block_list_was_unset:
+                # First successful planner pass: the sink can now claim live
+                # batches (fetch returns [] until this happens).
+                logger.info(
+                    "duckgres_backfill_block_list_ready",
+                    blocked_schema_count=len(self._blocked_schema_ids),
+                )
         except Exception as e:
             # An app-DB blip must not crash the poll loop; keep the previous
             # block list (or keep claiming nothing if we never had one).
             logger.exception("duckgres_backfill_planner_failed")
             capture_exception(e)
+
+        # Heartbeat: confirms the ~30s maintenance pass (enablement set, supersede
+        # sweep, planner) actually ran. Bounded to one line per maintenance tick.
+        logger.info(
+            "duckgres_maintenance_ran",
+            team_count=None if team_ids is None else len(team_ids),
+            eligible_backlog=backlog,
+            blocked_backlog=blocked,
+            blocked_schema_count=None if self._blocked_schema_ids is None else len(self._blocked_schema_ids),
+        )
 
     async def fetch_and_lock(
         self,
@@ -143,7 +175,12 @@ class DuckgresBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
+        # The duckgres sink coordinates via session advisory locks, not leases:
+        # owner_token / lease_ttl_seconds are part of the shared adapter contract
+        # but unused here.
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
             return []
@@ -168,8 +205,18 @@ class DuckgresBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
         await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        # Duckgres holds session advisory locks; release them all on graceful shutdown.
+        await conn.execute("SELECT pg_advisory_unlock_all()")
 
     async def update_status(
         self,
@@ -212,8 +259,22 @@ class DuckgresBatchConsumerAdapter:
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
         return await DuckgresBatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        # Duckgres ownership is the session advisory lock (checked by verify_advisory_lock),
+        # which has no TTL to renew; report ownership retained.
+        return True
 
     async def get_stale_executing(
         self,
