@@ -7,6 +7,7 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
     path(['scenes', 'notebooks', 'notebooks', 'notebookSettingsLogic']),
     actions({
         setIsExpanded: (expanded: boolean) => ({ expanded }),
+        setIsMarkdownExpanded: (expanded: boolean) => ({ expanded }),
         setShowKernelInfo: (showKernelInfo: boolean) => ({ showKernelInfo }),
         setShowTableOfContents: (showTOC: boolean) => ({ showTOC }),
     }),
@@ -16,6 +17,13 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
             { persist: true },
             {
                 setIsExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        isMarkdownExpanded: [
+            true,
+            { persist: true },
+            {
+                setIsMarkdownExpanded: (_, { expanded }) => expanded,
             },
         ],
         showKernelInfo: [

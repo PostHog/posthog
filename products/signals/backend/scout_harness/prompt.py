@@ -294,8 +294,11 @@ report your evidence bears on, then keep it current:
   genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set
   `suggested_reviewers` to route it to an owner — each reviewer a bare lowercase
-  `github_login`, or a PostHog `user_uuid` the server resolves for you. This
-  replaces the report's reviewer list and re-runs autostart, so a report that
+  `github_login`, or a PostHog `user_uuid` the server resolves for you. If the owner
+  isn't already named in the report, call `signals-scout-members-list` to look up this
+  project's members (each carries a resolved `github_login`; the org-scoped
+  `org-member-get-github-login` / `org-members-list` tools aren't available in a scout
+  run). This replaces the report's reviewer list and re-runs autostart, so a report that
   already has a repo + priority but lacked a qualifying reviewer can now open a draft
   PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent — a retried
@@ -345,6 +348,13 @@ inbox, but it routes to no one, so it tends to sit unactioned.
   guessed, mis-cased, or display-name handle reaches no one. When you only know the
   owner as a PostHog member, pass their `user_uuid` and let the server resolve it
   rather than inventing a handle.
+- **No owner in your evidence? List the members.** When the owner isn't already named in
+  what you gathered, call `signals-scout-members-list` to get this project's members —
+  each row carries the member's `email`, name, and resolved `github_login` (pass `search`
+  to narrow a big project). Match the owner by email/name and use their `github_login`; a
+  member whose `github_login` is null can't be routed to at all, so pick a different owner
+  or leave the field empty. The org-scoped `org-member-get-github-login` / `org-members-list`
+  tools are not available in a scout run — this is the in-run lookup path.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass

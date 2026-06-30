@@ -1573,9 +1573,16 @@ class Database(BaseModel):
 
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
-                                # where a.b.c will contain the table
+                                # where a.b.c will contain the table.
+                                # Snowflake stores identifiers uppercase but resolves them
+                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
+                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
                                 warehouse_tables.add_child(
-                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    TableNode.create_nested_for_chain(
+                                        table_chain,
+                                        table_for_key,
+                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                    ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
 

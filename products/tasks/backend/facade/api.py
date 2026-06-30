@@ -450,6 +450,19 @@ def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDT
     return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
 
 
+def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> list[contracts.TaskDTO]:
+    """Tasks matching the supplied ids, restricted to ``team_ids``.
+
+    For multi-team callers (e.g. the Slack App Home Tasks card) that already resolved the
+    set of accessible teams upstream and need a bulk DTO fetch in one query.
+    """
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return []
+    return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]

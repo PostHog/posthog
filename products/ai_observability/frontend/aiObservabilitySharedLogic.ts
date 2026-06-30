@@ -337,6 +337,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySessions()]: (_, searchParams) => applyNonDashboard(searchParams),
+            '/ai-observability/sessions/:id': (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.

@@ -408,6 +408,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return
         }
 
+        if (saveAsMenuItems.primary.action === 'view') {
+            saveAsView()
+            return
+        }
+
         saveAsInsight()
     }
 
@@ -649,7 +654,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     saveAsDisabledReason ??
                                     (saveAsMenuItems.primary.action === 'endpoint'
                                         ? saveAsEndpointAccessDisabledReason
-                                        : undefined)
+                                        : saveAsMenuItems.primary.action === 'view'
+                                          ? saveAsViewAccessDisabledReason
+                                          : undefined)
                                 }
                                 sideAction={{
                                     icon: <IconChevronDown />,

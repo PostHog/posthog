@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
@@ -689,11 +690,11 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         http_request.user = user or self.user
         _attach_messages(http_request)
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
-            return view(http_request, str(request.pk))
+            return view(http_request, str(request.pk)), http_request
 
     def test_fetch_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.fetch_stats_view, request)
+        response, _ = self._call(self.admin.fetch_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
         request.refresh_from_db()
@@ -701,16 +702,22 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
 
     def test_preview_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.preview_stats_view, request)
+        response, _ = self._call(self.admin.preview_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
 
     def test_preview_stats_rejects_non_clickhouse_team(self):
         request = self._person_request()
         self.user.groups.clear()
-        response = self._call(self.admin.preview_stats_view, request)
+
+        response, http_request = self._call(self.admin.preview_stats_view, request)
+
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
+        # The guard must short-circuit before any preview is computed or stashed in the session, and
+        # surface the rejection — otherwise removing the authz check would still pass this test.
+        self.assertNotIn("data_deletion_preview_stats", http_request.session)
+        self.assertIn("Only ClickHouse Team members can preview stats.", [str(m) for m in get_messages(http_request)])
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
