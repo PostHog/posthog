@@ -26,6 +26,9 @@ packages:
     - '!tools/hedgebox-dummy'
     - rust/cyclotron-node
 
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
 catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.5
