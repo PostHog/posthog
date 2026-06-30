@@ -485,6 +485,12 @@ tools:
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
             surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
             it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-emission-reports-batch:
+        operation: signals_scout_runs_emission_reports_batch
+        enabled: false
+    signals-scout-runs-emissions-batch:
+        operation: signals_scout_runs_emissions_batch
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
@@ -526,6 +532,26 @@ tools:
             the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
             `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
             capped at 100.
+    signals-scout-runs-recent-emissions:
+        operation: signals_scout_runs_recent_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent emitted findings across all scout runs
+        description: >
+            Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
+            cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries
+            its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and
+            the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
+            surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
+            `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
+            upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
+            walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true

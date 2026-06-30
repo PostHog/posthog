@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-29 11:38:33 UTC
+// Generated at: 2026-06-29 20:33:51 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -47,6 +47,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -148,6 +149,7 @@ export type CanonicalProvider =
     | 'venice-int4'
     | 'wafer-fast'
     | 'wafer-fp4'
+    | 'wafer-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'

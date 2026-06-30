@@ -76,12 +76,14 @@ the row lists both.
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
+| coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools       | HTTP                        | requests                                                        | ✅                          |
 | confluence          | HTTP                        | requests                                                        | ✅                          |
 | chartmogul          | HTTP                        | requests                                                        | ✅                          |
 | circleci            | HTTP                        | requests                                                        | ✅                          |
+| cimis               | HTTP                        | requests                                                        | ✅                          |
 | cloudflare          | HTTP                        | requests                                                        | ✅                          |
 | clari               | HTTP                        | requests                                                        | ✅                          |
 | clerk               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -104,6 +106,7 @@ the row lists both.
 | doit                | HTTP                        | requests                                                        | ✅                          |
 | drip                | HTTP                        | requests                                                        | ✅                          |
 | easypost            | HTTP                        | requests                                                        | ✅                          |
+| easypromos          | HTTP                        | requests                                                        | ✅                          |
 | freshdesk           | HTTP                        | requests                                                        | ✅                          |
 | freshsales          | HTTP                        | requests                                                        | ✅                          |
 | elasticemail        | HTTP                        | requests                                                        | ✅                          |
@@ -111,6 +114,7 @@ the row lists both.
 | emailoctopus        | HTTP                        | requests                                                        | ✅                          |
 | eventbrite          | HTTP                        | requests                                                        | ✅                          |
 | everhour            | HTTP                        | requests                                                        | ✅                          |
+| factorial           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling | HTTP                        | requests                                                        | ✅                          |
 | finnhub             | HTTP                        | requests                                                        | ✅                          |
@@ -339,7 +343,6 @@ doesn't conflict with concurrent PRs.
 - chift
 - chorus
 - churnkey
-- cimis
 - cin7
 - cisco_meraki
 - clarifai
@@ -349,7 +352,6 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - codefresh
-- coin_api
 - concord
 - configcat
 - constant_contact
@@ -378,7 +380,6 @@ doesn't conflict with concurrent PRs.
 - dynamics365
 - dynamodb
 - e_conomic
-- easypromos
 - ebay
 - eloqua
 - employment_hero
@@ -389,7 +390,6 @@ doesn't conflict with concurrent PRs.
 - expensify
 - ezofficeinventory
 - facebook_pages
-- factorial
 - fastbill
 - fastly
 - fauna

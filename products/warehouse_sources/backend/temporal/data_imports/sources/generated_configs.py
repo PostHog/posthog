@@ -642,7 +642,9 @@ class ChurnkeySourceConfig(config.Config):
 
 @config.config
 class CimisSourceConfig(config.Config):
-    pass
+    app_key: str
+    targets: str | None = None
+    unit_of_measure: Literal["E", "M"] | None = config.value(default="E")
 
 
 @config.config
@@ -748,7 +750,11 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CoinApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    exchange_rate_base_asset: str | None = None
+    symbol_id: str | None = None
+    period_id: str | None = None
+    start_date: str | None = None
 
 
 @config.config
@@ -1017,7 +1023,7 @@ class EasypostSourceConfig(config.Config):
 
 @config.config
 class EasypromosSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1093,7 +1099,7 @@ class FacebookPagesSourceConfig(config.Config):
 
 @config.config
 class FactorialSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
