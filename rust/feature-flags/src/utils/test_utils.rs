@@ -219,6 +219,32 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
         .unwrap_or_default()
 }
 
+/// An S3 client that reports every key as NotFound. Lets integration tests force a
+/// genuine HyperCache `CacheMiss` (redis miss + S3 NotFound) without a real object
+/// store, so a `/flags/definitions` miss classifies as `cache_miss` rather than
+/// `s3_error`.
+pub struct AlwaysMissS3Client;
+
+#[async_trait]
+impl common_hypercache::S3Client for AlwaysMissS3Client {
+    async fn get_string(&self, _bucket: &str, key: &str) -> Result<String, common_hypercache::S3Error> {
+        Err(common_hypercache::S3Error::NotFound(key.to_string()))
+    }
+
+    async fn put_string(&self, _bucket: &str, _key: &str, _value: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// A dummy S3 client (always NotFound) for injecting into the test server.
+pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(AlwaysMissS3Client)
+}
+
 /// Create a HyperCacheReader for tests using the provided Redis client.
 /// Uses default test configuration for S3 (which won't be used in most tests
 /// since Redis should have the data).

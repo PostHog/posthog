@@ -2663,7 +2663,7 @@ async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
 async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
     use feature_flags::{
         config::{Config, FlexBool},
-        utils::test_utils::TestContext,
+        utils::test_utils::{dummy_s3_client, TestContext},
     };
     use reqwest;
 
@@ -2675,9 +2675,9 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    // Intentionally do NOT populate the cache, so the read is a genuine cache miss.
-
-    let server = common::ServerHandle::for_config(config.clone()).await;
+    // Don't populate the cache, and inject a NotFound S3 so the read is a genuine
+    // cache_miss (the flags test job has no object store, so real S3 would error).
+    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
     let response = reqwest::Client::new()
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -2700,7 +2700,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{
         config::Config,
-        utils::test_utils::{read_flag_definitions_rebuild_requests, TestContext},
+        utils::test_utils::{dummy_s3_client, read_flag_definitions_rebuild_requests, TestContext},
     };
     use reqwest;
     use tokio::time::{sleep, Duration};
@@ -2714,7 +2714,9 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         .await
         .unwrap();
 
-    let server = common::ServerHandle::for_config(config.clone()).await;
+    // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
+    // happens is the flag being off, not the miss classifying as s3_error.
+    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
     let response = reqwest::Client::new()
         .get(format!(
             "http://{}/flags/definitions?token={}",
