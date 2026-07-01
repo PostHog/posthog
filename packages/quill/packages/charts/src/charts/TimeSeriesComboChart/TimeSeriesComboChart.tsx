@@ -17,6 +17,9 @@ import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
+    buildYAxes,
+    normalizeYAxisList,
+    primaryYAxisConfig,
     useXTickFormatter,
     useYTickFormatter,
     type XAxisConfig,
@@ -32,7 +35,8 @@ import {
 
 export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
-    yAxis?: YAxisConfig
+    /** Single object for a standard left axis; array for dual left+right axes. */
+    yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -96,8 +100,12 @@ export function TimeSeriesComboChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
+    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
+    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
+    const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
+
     const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(yAxis)
+    const yTickFormatter = useYTickFormatter(primaryYAxis)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
 
@@ -130,14 +138,14 @@ export function TimeSeriesComboChart<Meta = unknown>({
     }, [trendLines, visibleSeries])
 
     const comboChartConfig: ComboChartConfig = {
-        yScaleType: yAxis?.scale,
+        yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: yAxis?.hide,
+        hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
-        yAxisLabel: yAxis?.label,
-        showGrid: yAxis?.showGrid,
+        yAxisLabel: primaryYAxis?.label,
+        showGrid: primaryYAxis?.showGrid,
         showAxisLines,
         showCrosshair,
         defaultSeriesType,
@@ -145,6 +153,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         tooltip: tooltipConfig,
         valueDomain,
+        yAxes,
     }
 
     return (
