@@ -1,7 +1,8 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -1052,6 +1053,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
+    beforeUnload(({ values, actions, props }) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldGuardScannerNavigation({
+                hasUnsavedChanges: values.hasUnsavedChanges,
+                isSubmitting: values.isScannerSubmitting,
+                scannerId: props.id,
+                currentPathname: router.values.location.pathname,
+                nextPathname: newLocation?.pathname,
+            }),
+        message: 'Leave scanner editor?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (values.originalScanner) {
+                actions.resetScanner(values.originalScanner)
+            }
+        },
+    })),
+
     afterMount(({ actions, props }) => {
         actions.loadScanner()
         if (props.id !== 'new') {
@@ -1062,6 +1080,42 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 ])
 
 const TABLE_URL_PARAM_KEYS = ['page', 'sort', 'status', 'triggered_by', 'verdict', 'tags', 'recording_subject'] as const
+
+/** The three step URLs of a scanner's editor wizard. */
+function scannerEditorPaths(scannerId: string): string[] {
+    return [
+        urls.replayVisionScannerTemplate(scannerId),
+        urls.replayVisionScannerConfigure(scannerId),
+        urls.replayVisionScannerTriggers(scannerId),
+    ]
+}
+
+/**
+ * Whether leaving the current location should warn about losing unsaved scanner edits.
+ * Only guards while actually inside this scanner's editor, and stays quiet for the
+ * navigation the editor triggers itself: moving between its own steps, and the
+ * programmatic redirect that a save/advance fires while submitting.
+ */
+export function shouldGuardScannerNavigation(params: {
+    hasUnsavedChanges: boolean
+    isSubmitting: boolean
+    scannerId: string
+    currentPathname: string
+    nextPathname?: string
+}): boolean {
+    const { hasUnsavedChanges, isSubmitting, scannerId, currentPathname, nextPathname } = params
+    if (!hasUnsavedChanges || isSubmitting) {
+        return false
+    }
+    const editorPaths = scannerEditorPaths(scannerId)
+    if (!editorPaths.includes(currentPathname)) {
+        return false
+    }
+    if (nextPathname && editorPaths.includes(nextPathname)) {
+        return false
+    }
+    return true
+}
 
 export function parseSortParam(value: string | undefined): ObservationsSorting | null {
     if (typeof value !== 'string' || value.length === 0) {

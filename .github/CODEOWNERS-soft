@@ -98,6 +98,10 @@ frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
 posthog/tasks/calculate_cohort.py @PostHog/team-feature-flags
 posthog/hogql_queries/hogql_cohort_query.py @PostHog/team-feature-flags
 
+# Auto-label scope mappings - owned by @PostHog/team-feature-flags so mappings
+# can change without editing the Auto Assign Labels workflow or its script
+.github/auto-assign-labels.json @PostHog/team-feature-flags
+
 # Feature Flags frontend - owned by @PostHog/team-feature-flags
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 frontend/src/scenes/FeatureFlagPermissions.tsx @PostHog/team-feature-flags
