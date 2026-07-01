@@ -456,6 +456,7 @@ export function buildBarChartConfig({
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
+        trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },

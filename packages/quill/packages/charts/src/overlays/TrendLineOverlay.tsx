@@ -3,27 +3,27 @@ import React, { useMemo } from 'react'
 
 import type { Series } from '../core/types'
 import { useChartLayout } from '../core/chart-context'
-import { resolveYScaleForSeries } from '../core/scales'
 
 interface TrendLineOverlayProps {
     /** Pre-computed trend line series (from buildTrendLineSeries). One per source series. */
     trendSeries: Series[]
 }
 
-/** Renders trend lines as SVG polylines over vertical bar and combo charts. */
+/**
+ * Renders trend lines as SVG polylines over any chart type that uses ChartLayoutContext.
+ * Designed for bar charts where the underlying BarChart canvas can't draw mixed line/bar —
+ * this overlay draws the regression line on top as a DOM element using chart scales.
+ */
 export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.ReactElement | null {
-    const clipId = React.useId()
-    const { scales, dimensions, labels, axis } = useChartLayout()
+    // Stable per-instance ID so clipPath refs don't collide when multiple charts share a page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally stable, computed once
+    const clipId = useMemo(() => `tlo-${(Math.random() * 1e9) | 0}`, [])
+    const { scales, dimensions, labels } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
 
     const lines = useMemo(() => {
-        if (axis.orientation === 'horizontal') {
-            return []
-        }
         return trendSeries
-            .filter((s) => !s.visibility?.excluded)
             .map((s) => {
-                const yScale = resolveYScaleForSeries(scales, s)
                 const points: string[] = []
                 for (let i = 0; i < labels.length; i++) {
                     const rawY = s.data[i]
@@ -31,8 +31,8 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
                         continue
                     }
                     const x = scales.x(labels[i])
-                    const y = yScale(rawY as number)
-                    if (x == null || !isFinite(x) || !isFinite(y)) {
+                    const y = scales.y(rawY)
+                    if (!isFinite(x) || !isFinite(y)) {
                         continue
                     }
                     points.push(`${x},${y}`)
@@ -44,7 +44,7 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
                 return { key: s.key, points: points.join(' '), color: s.color ?? 'currentColor', dashArray }
             })
             .filter((l): l is NonNullable<typeof l> => l !== null)
-    }, [trendSeries, scales, labels, axis.orientation])
+    }, [trendSeries, scales, labels])
 
     if (lines.length === 0) {
         return null
