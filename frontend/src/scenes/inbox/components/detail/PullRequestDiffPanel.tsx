@@ -1,14 +1,11 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCode, IconGitBranch } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
-
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
-
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { SignalReport } from '../../types'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { PullRequestDiffView } from './PullRequestDiffView'
@@ -20,52 +17,13 @@ const DIFF_STYLE_OPTIONS = [
 
 /**
  * Full-width "Files changed" section: the report's branch diff against the repository default branch,
- * rendered GitHub-style and read-only. The diff is fetched from the latest `commit` artefact's branch
- * (its current tip), so it reflects the latest state of the work — not just the recorded commit. It
- * lives at the bottom of the report detail, always visible (Graphite-style), and loads on mount.
+ * rendered GitHub-style and read-only. The diff itself is loaded by `inboxReportDetailLogic` (keyed to
+ * the report, cascading off the artefact load) — this component just renders the current state. The
+ * diff reflects the latest `commit` artefact's branch tip, so it tracks the work as the branch moves.
  */
-export function PullRequestDiffPanel({
-    reportId,
-    artefactId,
-    commit,
-}: {
-    reportId: string
-    artefactId: string
-    commit: CommitContent
-}): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const [diff, setDiff] = useState<CommitDiffResponseApi | null>(null)
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+export function PullRequestDiffPanel({ report, commit }: { report: SignalReport; commit: CommitContent }): JSX.Element {
+    const { reportDiff, reportDiffError } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>('unified')
-
-    useEffect(() => {
-        if (!currentTeamId) {
-            return
-        }
-        setLoading(true)
-        setError(null)
-        let cancelled = false
-        signalsReportArtefactsDiff(String(currentTeamId), reportId, artefactId)
-            .then((response) => {
-                if (!cancelled) {
-                    setDiff(response)
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    setError("Couldn't load the diff — the branch may have been merged, deleted, or rewritten.")
-                }
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setLoading(false)
-                }
-            })
-        return () => {
-            cancelled = true
-        }
-    }, [reportId, artefactId, currentTeamId])
 
     return (
         <DetailSection
@@ -89,21 +47,21 @@ export function PullRequestDiffPanel({
             }
         >
             <div className="flex flex-col gap-3">
-                {loading ? (
+                {reportDiffError ? (
+                    <p className="m-0 py-4 text-sm text-danger">{reportDiffError}</p>
+                ) : reportDiff ? (
+                    <PullRequestDiffView
+                        diff={reportDiff.diff}
+                        truncated={reportDiff.truncated}
+                        cacheKey={commit.commit_sha}
+                        diffStyle={diffStyle}
+                    />
+                ) : (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-8 w-full" />
                         <LemonSkeleton className="h-24 w-full" />
                     </div>
-                ) : error ? (
-                    <p className="m-0 py-4 text-sm text-danger">{error}</p>
-                ) : diff ? (
-                    <PullRequestDiffView
-                        diff={diff.diff}
-                        truncated={diff.truncated}
-                        cacheKey={commit.commit_sha}
-                        diffStyle={diffStyle}
-                    />
-                ) : null}
+                )}
             </div>
         </DetailSection>
     )

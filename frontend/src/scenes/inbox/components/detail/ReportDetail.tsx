@@ -445,7 +445,7 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             }
             diffSection={
                 canDiff && commit && latestCommitArtefact ? (
-                    <PullRequestDiffPanel reportId={report.id} artefactId={latestCommitArtefact.id} commit={commit} />
+                    <PullRequestDiffPanel report={report} commit={commit} />
                 ) : undefined
             }
         />
