@@ -55,19 +55,22 @@ class TemporalIOResumeConfig:
 
 T = TypeVar("T")
 
-# Temporal Cloud throttles per-namespace RPCs (RPS / concurrency / overload) with a gRPC
-# RESOURCE_EXHAUSTED status — e.g. "namespace rate limit exceeded". It's transient: a short backoff
-# usually clears the window. Riding it out in-process keeps a brief throttle from failing the whole
-# import activity (which would rebuild the client and restart pagination) and avoids error-tracking
-# noise. Persistent throttling re-raises so Temporal's activity retry still applies.
-_MAX_RATE_LIMIT_ATTEMPTS = 6
+# Temporal Cloud surfaces transient server-side conditions as gRPC errors that a short backoff
+# usually clears: per-namespace throttling (RESOURCE_EXHAUSTED — e.g. "namespace rate limit
+# exceeded") and request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
+# "downstream duration timeout"). Riding these out in-process keeps a brief blip from failing the
+# whole import activity (which would rebuild the client and restart pagination) and avoids
+# error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
+_MAX_TRANSIENT_RPC_ATTEMPTS = 6
+
+_RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED})
 
 
-async def _with_rate_limit_retry(
+async def _with_transient_rpc_retry(
     operation: Callable[[], Awaitable[T]],
     logger: FilteringBoundLogger,
     *,
-    max_attempts: int = _MAX_RATE_LIMIT_ATTEMPTS,
+    max_attempts: int = _MAX_TRANSIENT_RPC_ATTEMPTS,
 ) -> T:
     attempt = 0
     while True:
@@ -75,10 +78,15 @@ async def _with_rate_limit_retry(
             return await operation()
         except RPCError as e:
             attempt += 1
-            if attempt >= max_attempts or e.status != RPCStatusCode.RESOURCE_EXHAUSTED:
+            if attempt >= max_attempts or e.status not in _RETRYABLE_RPC_STATUSES:
                 raise
             backoff = min(2 * attempt, 30)
-            logger.debug("TemporalIO: namespace rate limited", backoff_seconds=backoff, attempt=attempt)
+            logger.debug(
+                "TemporalIO: transient RPC error, backing off",
+                status=e.status,
+                backoff_seconds=backoff,
+                attempt=attempt,
+            )
             await asyncio.sleep(backoff)
 
 
@@ -206,7 +214,7 @@ async def _get_workflows(
         # Save the token that will be used to fetch this page *before* fetching.
         # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
-        await _with_rate_limit_retry(workflows.fetch_next_page, logger)
+        await _with_transient_rpc_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
         if not page:
             break
@@ -257,7 +265,7 @@ async def _get_workflow_histories(
         # Save the token that will be used to fetch this page *before* fetching.
         # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
-        await _with_rate_limit_retry(workflows.fetch_next_page, logger)
+        await _with_transient_rpc_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
         if not page:
             break
@@ -274,7 +282,7 @@ async def _get_workflow_histories(
         for item in page:
             try:
                 handle = client.get_workflow_handle(item.id, run_id=item.run_id)
-                history = await _with_rate_limit_retry(handle.fetch_history, logger)
+                history = await _with_transient_rpc_retry(handle.fetch_history, logger)
                 history_dict = history.to_json_dict()
                 events = history_dict["events"]
                 for event in events:

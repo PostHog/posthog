@@ -21,11 +21,15 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowJob
 from products.engineering_analytics.backend.logic.cost import estimate_job_cost_usd, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
+# Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
+# by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
+# jobs — the breakdown would then miss jobs and not add up to the run's cost.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id = {run_id}
     ORDER BY started_at ASC, id ASC
+    LIMIT 1000000
 """
 
 _LATEST_ATTEMPT_SELECT = """

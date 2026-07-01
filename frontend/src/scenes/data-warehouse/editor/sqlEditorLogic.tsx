@@ -202,7 +202,7 @@ export interface QueryTab {
     draft?: DataWarehouseSavedQueryDraft
 }
 
-export type SqlEditorSource = 'insight' | 'endpoint'
+export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
 
 export interface DataWarehouseAccessControlModalProps {
     resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
@@ -1312,6 +1312,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
+                        materializeAfterSave,
                         dagId: multiDagEnabled
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
@@ -1372,11 +1373,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                                 dataModelingLogic.values.dags.map((d) => d.name)
                                                             ),
                                                             onSubmit: async (dagData) => {
-                                                                const newDag =
-                                                                    await api.dataModelingDags.create(dagData)
-                                                                await dataModelingLogic.asyncActions.loadDags()
-                                                                onSelect(newDag.id)
-                                                                lemonToast.success('DAG created')
+                                                                try {
+                                                                    const newDag =
+                                                                        await api.dataModelingDags.create(dagData)
+                                                                    await dataModelingLogic.asyncActions.loadDags()
+                                                                    onSelect(newDag.id)
+                                                                    lemonToast.success('DAG created')
+                                                                } catch (error) {
+                                                                    lemonToast.error(
+                                                                        error instanceof ApiError
+                                                                            ? (error.detail ?? 'Failed to create DAG')
+                                                                            : 'Failed to create DAG'
+                                                                    )
+                                                                    // Re-throw so the dialog stays open for the user to retry.
+                                                                    throw error
+                                                                }
                                                             },
                                                         })
                                                     }}
@@ -1402,6 +1413,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         )}
                                     </LemonField>
                                 )}
+                                <LemonField name="materializeAfterSave" className="mt-2">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-materialize"
+                                                label="Materialize this view"
+                                            />
+                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </LemonField>
                                 <SaveTargetCycler
                                     candidates={candidates}
                                     onChange={(q) => {
@@ -1414,10 +1440,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
-                    onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
+                    onSubmit: async ({
+                        viewName,
+                        dagId,
+                        folderId,
+                        isTest,
+                        materializeAfterSave: shouldMaterialize,
+                    }) => {
                         await asyncActions.saveAsViewSubmit(
                             viewName,
-                            materializeAfterSave,
+                            shouldMaterialize ?? false,
                             fromDraft,
                             dagId,
                             folderId,
@@ -2190,7 +2222,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
-            if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
+            if (
+                searchParams.source === 'endpoint' ||
+                searchParams.source === 'insight' ||
+                searchParams.source === 'view'
+            ) {
                 actions.setEditorSource(searchParams.source)
             }
             if (searchParams.dashboard) {

@@ -102,9 +102,17 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
 })
 
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
-    integration_id: zod.number(),
-    config: zod.unknown(),
-    issue: zod.uuid(),
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    config: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+        ),
+    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
 })
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -213,16 +221,28 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
         external_issues: zod
             .array(
                 zod.object({
-                    id: zod.uuid(),
-                    integration: zod.object({
-                        id: zod.number(),
-                        kind: zod.string(),
-                        display_name: zod.string(),
-                    }),
-                    integration_id: zod.number(),
-                    config: zod.unknown(),
-                    issue: zod.uuid(),
-                    external_url: zod.string(),
+                    id: zod.uuid().describe('Unique ID of the external reference.'),
+                    integration: zod
+                        .object({
+                            id: zod.number().describe('ID of the integration backing this external reference.'),
+                            kind: zod
+                                .string()
+                                .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                            display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                        })
+                        .describe('The connected integration this reference was created through.'),
+                    integration_id: zod
+                        .number()
+                        .describe(
+                            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                        ),
+                    config: zod
+                        .record(zod.string(), zod.string())
+                        .describe(
+                            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                        ),
+                    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                    external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
                 })
             )
             .optional(),
@@ -254,16 +274,28 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
         ]),
         external_issues: zod.array(
             zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
+                id: zod.uuid().describe('Unique ID of the external reference.'),
+                integration: zod
+                    .object({
+                        id: zod.number().describe('ID of the integration backing this external reference.'),
+                        kind: zod
+                            .string()
+                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                    })
+                    .describe('The connected integration this reference was created through.'),
+                integration_id: zod
+                    .number()
+                    .describe(
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                    ),
+                config: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                    ),
+                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
             })
         ),
         cohort: zod.union([
@@ -315,16 +347,28 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
         ]),
         external_issues: zod.array(
             zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
+                id: zod.uuid().describe('Unique ID of the external reference.'),
+                integration: zod
+                    .object({
+                        id: zod.number().describe('ID of the integration backing this external reference.'),
+                        kind: zod
+                            .string()
+                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                    })
+                    .describe('The connected integration this reference was created through.'),
+                integration_id: zod
+                    .number()
+                    .describe(
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                    ),
+                config: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                    ),
+                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
             })
         ),
         cohort: zod.union([
@@ -470,6 +514,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -495,7 +540,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -666,6 +711,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -691,7 +737,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])

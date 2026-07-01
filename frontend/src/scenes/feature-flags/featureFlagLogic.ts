@@ -85,6 +85,7 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1313,6 +1314,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
+                                    aggregation_group_type_index: uniformAggregationGroupTypeIndex(
+                                        conditionsConfig.default_groups
+                                    ),
                                 },
                             }
                         }
@@ -2081,6 +2085,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
                 eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+
+                // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
+                // doesn't exist in the target, or scheduled changes that failed to copy).
+                const warnings = featureFlagCopy.success.flatMap((flag) => [
+                    ...(flag.flag_dependency_warnings ?? []),
+                    ...(flag.schedule_copy_warning ? [flag.schedule_copy_warning] : []),
+                ])
+                warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
                 const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
                 lemonToast.error(`Error while saving feature flag: ${errorMessage}`)

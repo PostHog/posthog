@@ -55,27 +55,41 @@ export function EvaluationRunsTable(): JSX.Element {
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
-            title: 'Generation ID',
-            key: 'generation_id',
+            title: 'Target',
+            key: 'target',
             render: (_, run) => {
-                if (!run.generation_id) {
-                    return <span className="font-mono text-sm text-muted">—</span>
+                // Generation-target runs link to the specific event in the trace; trace-target
+                // runs (no generation id) link to the whole trace.
+                if (run.generation_id) {
+                    return (
+                        <div className="font-mono text-sm">
+                            <Link
+                                to={
+                                    combineUrl(urls.aiObservabilityTrace(run.trace_id), {
+                                        ...traceSearchParams,
+                                        event: run.generation_id,
+                                    }).url
+                                }
+                                className="text-primary"
+                            >
+                                {run.generation_id.slice(0, 12)}...
+                            </Link>
+                        </div>
+                    )
                 }
-                return (
-                    <div className="font-mono text-sm">
-                        <Link
-                            to={
-                                combineUrl(urls.aiObservabilityTrace(run.trace_id), {
-                                    ...traceSearchParams,
-                                    event: run.generation_id,
-                                }).url
-                            }
-                            className="text-primary"
-                        >
-                            {run.generation_id.slice(0, 12)}...
-                        </Link>
-                    </div>
-                )
+                if (run.trace_id) {
+                    return (
+                        <div className="font-mono text-sm">
+                            <Link
+                                to={combineUrl(urls.aiObservabilityTrace(run.trace_id), traceSearchParams).url}
+                                className="text-primary"
+                            >
+                                trace {run.trace_id.slice(0, 12)}...
+                            </Link>
+                        </div>
+                    )
+                }
+                return <span className="font-mono text-sm text-muted">—</span>
             },
         },
         {

@@ -99,6 +99,10 @@ export function buildTooltipContext<Meta = unknown>(
      *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
      *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue: ResolveValueFn = resolveValue,
+    /** Resolves the stacked *bottom* value for each series — used to compute the segment midpoint
+     *  for tooltip row highlighting. When provided, yPixel is set to the segment midpoint so
+     *  findClosestSeriesKey transitions at the visual boundary between segments. */
+    resolveBottomValue?: ResolveValueFn,
     /** Optional horizontal data-extent centered on the categorical axis position — bar charts
      *  pass band width so the tooltip can anchor at the band edge instead of its center. */
     positionExtent?: number,
@@ -137,11 +141,21 @@ export function buildTooltipContext<Meta = unknown>(
             // reads the right color/meta/label rather than the shared series-level ones.
             const bar = s.bars?.[dataIndex]
             const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
+            const segmentValue = resolveValue(s, dataIndex)
+            // When resolveBottomValue is provided (stacked bar charts), use the segment midpoint
+            // so findClosestSeriesKey transitions exactly at the visual boundary between segments.
+            let yPx = px
+            if (isFinite(px) && resolveBottomValue) {
+                const bottomPx = seriesValueScale(resolveBottomValue(s, dataIndex))
+                if (isFinite(bottomPx)) {
+                    yPx = (px + bottomPx) / 2
+                }
+            }
             seriesData.push({
                 series: entrySeries,
-                value: resolveValue(s, dataIndex),
+                value: segmentValue,
                 color: barColorAt(s, dataIndex),
-                yPixel: isFinite(px) ? px : undefined,
+                yPixel: isFinite(yPx) ? yPx : undefined,
             })
         }
     }

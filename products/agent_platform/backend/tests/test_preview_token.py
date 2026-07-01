@@ -50,7 +50,6 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
         "tools": [],
         "mcps": [],
         "skills": [],
-        "integrations": [],
         "secrets": [],
         "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
     }
@@ -60,8 +59,6 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
 class TestPreviewTokenResponse(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -222,8 +219,6 @@ class TestPreviewTokenDomainMode(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -278,8 +273,6 @@ class TestSlackUrlSerializer(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -322,8 +315,6 @@ class TestPreviewTokenMintPost(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -386,8 +377,6 @@ class TestPreviewTokenScopeMapping(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }

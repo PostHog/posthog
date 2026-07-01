@@ -13,11 +13,18 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     /** Formats each row's value. Receives the row's `seriesData` entry as a second argument so
      *  callers can format per-series — e.g. each SQL column with its own currency/duration/percent
      *  settings — rather than with one global formatter. Defaults to `toLocaleString`. Existing
-     *  callers that take only `value` keep working (the extra argument is ignored). */
-    valueFormatter?: (value: number, entry: SeriesDatum<Meta>) => string
+     *  callers that take only `value` keep working (the extra argument is ignored). May return a
+     *  node (e.g. a property-formatted value) and not just a string. */
+    valueFormatter?: (value: number, entry: SeriesDatum<Meta>) => React.ReactNode
     /** Transforms the header label before display — use to convert raw ISO strings to human-
      *  readable dates. Defaults to rendering the label as-is. */
-    labelFormatter?: (label: string) => string
+    labelFormatter?: (label: string) => React.ReactNode
+    /** Overrides how each row's label renders. Defaults to the series label. Use for richer labels
+     *  than a plain string — e.g. breakdown-value pills. */
+    labelRenderer?: (entry: SeriesDatum<Meta>) => React.ReactNode
+    /** Show the header label row. Defaults to true; pass false for charts without a meaningful
+     *  header (e.g. pie slices, aggregated single-column bars). */
+    showHeader?: boolean
     /** Append a footer row summing the visible series at the hovered point. `overlay` series
      *  (e.g. goal lines) are excluded from the sum, and the row is suppressed when fewer than two
      *  summable series remain — a single-series total would just restate the one row. */
@@ -26,9 +33,15 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     totalLabel?: string
     /** Formats the total value. Defaults to the `valueFormatter` (applied with the first summable
      *  row's entry) or `toLocaleString`. */
-    totalFormatter?: (value: number) => string
+    totalFormatter?: (value: number) => React.ReactNode
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
+    hideZeroRows?: boolean
+    /** Make each series row clickable, firing with the row's `seriesData` entry. The tooltip must
+     *  be pinned for clicks to land (an unpinned tooltip has `pointer-events: none`). Used to open a
+     *  drill-down (e.g. the persons modal) for a specific series. */
+    onRowClick?: (entry: SeriesDatum<Meta>) => void
     /** Extra content rendered below all rows and the total, separated by a divider. */
     footer?: React.ReactNode
 }
@@ -39,19 +52,29 @@ export function DefaultTooltip<Meta = unknown>({
     hoverPosition,
     valueFormatter,
     labelFormatter,
+    labelRenderer,
+    showHeader = true,
     showTotal,
     totalLabel = 'Total',
     totalFormatter,
     sortedByValue,
+    hideZeroRows,
+    onRowClick,
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
-    const format = valueFormatter ?? ((value: number): string => value.toLocaleString())
-    const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
+    const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
+    const visible = hideZeroRows ? seriesData.filter((s) => s.value !== 0) : seriesData
+    const rows = sortedByValue
+        ? [...visible].sort((a, b) => b.value - a.value)
+        : visible[0]?.yPixel != null
+          ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
+          : visible
     const summable = rows.filter((s) => !s.series.overlay)
-    const closestKey = hoverPosition != null ? findClosestSeriesKey(rows, hoverPosition.y) : null
+    const closestKey =
+        hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
-    const formatTotal = totalFormatter ?? ((value: number): string => format(value, summable[0]))
+    const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [canScrollUp, setCanScrollUp] = useState(false)
     const [canScrollDown, setCanScrollDown] = useState(false)
@@ -78,15 +101,19 @@ export function DefaultTooltip<Meta = unknown>({
         if (!el) {
             return
         }
-        // Scroll only the tooltip container — scrollIntoView would walk all scroll ancestors.
-        const elTop = el.offsetTop
-        const elBottom = elTop + el.offsetHeight
-        const containerTop = container.scrollTop
-        const containerBottom = containerTop + container.clientHeight
-        if (elBottom > containerBottom) {
-            container.scrollTop = elBottom - container.clientHeight
-        } else if (elTop < containerTop) {
-            container.scrollTop = elTop
+        // Use getBoundingClientRect so the position is relative to the container's visible area,
+        // not to the nearest positioned ancestor (which may not be the scroll container).
+        const containerRect = container.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        const elTopInView = elRect.top - containerRect.top
+        const elBottomInView = elRect.bottom - containerRect.top
+        // Scroll before the row enters the mask fade zone (top/bottom 20%), not just when it's
+        // fully off-screen — otherwise the highlighted row can sit in the faded region.
+        const fadeZone = container.clientHeight * 0.2
+        if (elBottomInView > container.clientHeight - fadeZone) {
+            container.scrollTop += elBottomInView - (container.clientHeight - fadeZone)
+        } else if (elTopInView < fadeZone) {
+            container.scrollTop += elTopInView - fadeZone
         }
     }, [closestKey])
 
@@ -105,9 +132,11 @@ export function DefaultTooltip<Meta = unknown>({
 
     return (
         <TooltipSurface>
-            <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1 opacity-60">
-                {labelFormatter ? labelFormatter(label) : label}
-            </div>
+            {showHeader && (
+                <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1 opacity-60">
+                    {labelFormatter ? labelFormatter(label) : label}
+                </div>
+            )}
             <div
                 ref={scrollContainerRef}
                 onScroll={updateScrollFades}
@@ -115,24 +144,37 @@ export function DefaultTooltip<Meta = unknown>({
                     maxHeight: ROWS_MAX_HEIGHT,
                     overflowY: 'auto',
                     scrollbarWidth: 'none',
+                    scrollBehavior: 'smooth',
                     maskImage,
                     WebkitMaskImage: maskImage,
                 }}
             >
                 {rows.map((s) => {
                     const isClosest = s.series.key === closestKey
+                    const clickable = onRowClick ? ' cursor-pointer hover:bg-current/10' : ''
+                    const labelContent = labelRenderer ? labelRenderer(s) : s.series.label
                     return (
                         <div
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0${isClosest ? ' font-semibold' : ''}`}
+                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5 rounded transition-colors duration-150${isClosest ? ' font-semibold bg-current/[.1]' : ''}${clickable}`}
+                            onClick={onRowClick ? () => onRowClick(s) : undefined}
                         >
                             <TooltipSwatch color={s.color} />
-                            <span data-attr="hog-chart-tooltip-series" className="flex-1 min-w-0 truncate">
-                                {s.series.label}
+                            {/* Grid-stack the label so an invisible semibold ghost always reserves
+                                the bold width — the visible span toggles weight without reflowing. */}
+                            <span className="flex-1 min-w-0 overflow-hidden grid">
+                                <span className="font-semibold invisible truncate [grid-area:1/1]" aria-hidden="true">
+                                    {labelContent}
+                                </span>
+                                <span data-attr="hog-chart-tooltip-series" className="truncate [grid-area:1/1]">
+                                    {labelContent}
+                                </span>
                             </span>
-                            <strong data-attr="hog-chart-tooltip-value">{format(s.value, s)}</strong>
+                            <strong data-attr="hog-chart-tooltip-value" className="tabular-nums">
+                                {format(s.value, s)}
+                            </strong>
                         </div>
                     )
                 })}
@@ -146,7 +188,9 @@ export function DefaultTooltip<Meta = unknown>({
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
-            {footer && <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60">{footer}</div>}
+            {footer && (
+                <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">{footer}</div>
+            )}
         </TooltipSurface>
     )
 }

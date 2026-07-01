@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -32,6 +33,7 @@ from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration
 
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
@@ -45,6 +47,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
 )
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -122,6 +125,7 @@ __all__ = [
     "get_latest_run_by_task",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -147,8 +151,8 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
+    "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
     "reset_code_workflow_bindings",
@@ -450,6 +454,19 @@ def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDT
     return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
 
 
+def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> list[contracts.TaskDTO]:
+    """Tasks matching the supplied ids, restricted to ``team_ids``.
+
+    For multi-team callers (e.g. the Slack App Home Tasks card) that already resolved the
+    set of accessible teams upstream and need a bulk DTO fetch in one query.
+    """
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return []
+    return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
@@ -513,15 +530,47 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
-    """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
+def get_stale_queued_task_run_ids(
+    older_than: timedelta,
+    limit: int,
+    *,
+    created_hard_cap: timedelta | None = None,
+    hard_cap_min_queued: timedelta = timedelta(hours=1),
+) -> list[UUID]:
+    """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
-    cutoff = django_timezone.now() - older_than
+    now = django_timezone.now()
+    stale = Q(updated_at__lt=now - older_than)
+    if created_hard_cap is not None:
+        stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
+    return list(
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+        .filter(stale)
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    """Ids of prewarmed runs orphaned in QUEUED — their processing workflow never started, so the
+    in-workflow ``WARM_IDLE_TIMEOUT`` (10m) never armed to finalize them.
+
+    A live warm run idles in QUEUED awaiting its first message and self-terminates at
+    ``WARM_IDLE_TIMEOUT``, so a prewarmed run still QUEUED well past that window has no workflow
+    behind it (dispatch lost — e.g. an ``on_commit`` callback that never ran) and can be reaped
+    immediately rather than lingering until the 24h stale sweep. ``older_than`` should sit safely
+    above ``WARM_IDLE_TIMEOUT`` so a still-idling warm run is never killed early.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    now = django_timezone.now()
     return list(
         TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
+            status=TaskRun.Status.QUEUED,
+            state__prewarmed=True,
+            updated_at__lt=now - older_than,
         )
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
@@ -642,6 +691,42 @@ def create_and_run_task(
     )
 
 
+def create_wizard_cloud_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    branch: str | None = None,
+) -> contracts.CreatedTaskDTO:
+    """Create + run a cloud setup-wizard task.
+
+    The workflow runs the published wizard in the sandbox (it integrates PostHog), then the agent
+    commits the changes, opens a PR on the user's repo, and keeps it green — it never implements
+    PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
+    token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
+    the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+
+    ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
+    run is explicitly attributed to them.
+    """
+    return create_and_run_task(
+        team=team,
+        title="Set up PostHog",
+        description=WIZARD_PR_AGENT_PROMPT,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        user_id=user_id,
+        repository=repository,
+        create_pr=True,
+        mode="background",
+        branch=branch,
+        wizard_config={},
+        posthog_mcp_scopes="read_only",
+        # The agent server boots idle; this is the message that actually kicks it off once ready
+        # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
+        pending_user_message=WIZARD_PR_AGENT_PROMPT,
+    )
+
+
 def create_task_without_run(
     *,
     team,
@@ -723,6 +808,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
     if run is not None:
         run.mark_failed(error)
     return True
+
+
+def redispatch_task_run(run_id: str | UUID) -> str:
+    """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
+
+    Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``error``).
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        redispatch_orphaned_task_run,
+    )
+
+    return redispatch_orphaned_task_run(str(run_id))
 
 
 def upsert_internal_sandbox_env(
@@ -827,6 +925,22 @@ def is_valid_sandbox_env_var_key(key: str) -> bool:
     return SandboxEnvironment.is_valid_env_var_key(key)
 
 
+def is_blocked_sandbox_env_var_key(key: str) -> bool:
+    return is_blocked_sandbox_env_key(key)
+
+
+def is_reserved_sandbox_env_var_key(key: str) -> bool:
+    return key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+
+
+def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
+    for key in environment_variables or {}:
+        if not SandboxEnvironment.is_valid_env_var_key(key):
+            raise ValueError(f"Invalid environment variable key: {key!r}")
+        if is_blocked_sandbox_env_key(key) or key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
+            raise ValueError(f"Environment variable key {key!r} is not allowed")
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -859,6 +973,7 @@ def create_sandbox_environment(
     private: bool,
 ) -> contracts.SandboxEnvironmentDTO:
     """Create a team environment owned by the user and return it as a DTO."""
+    _validate_user_sandbox_env_vars(environment_variables)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
@@ -880,6 +995,8 @@ def update_sandbox_environment(
     env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
     if env is None:
         return None
+    if "environment_variables" in fields:
+        _validate_user_sandbox_env_vars(fields["environment_variables"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -1081,7 +1198,9 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
+#     a caller could otherwise force directory snapshot creation while the feature flag is off.
+# These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
@@ -1091,6 +1210,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "wizard_config",
+        "use_modal_directory_resume_snapshots",
     }
 )
 
@@ -1228,6 +1349,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_agent_turn_failed,
+    )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -1295,6 +1419,8 @@ def update_task_run(
     update_automation_run_result(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.FAILED:
+            observe_agent_turn_failed(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -1413,8 +1539,9 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-) -> dict[str, str | int]:
-    return {
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -1424,6 +1551,9 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
 
 
 def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storage_path: str) -> dict | None:
@@ -1474,6 +1604,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                metadata=artifact.get("metadata"),
             )
         )
         logger.info(
@@ -1530,19 +1661,20 @@ def prepare_task_run_artifact_uploads(
         if not presigned_post:
             return None, False
 
-        prepared.append(
-            {
-                "id": artifact_id,
-                "name": safe_name,
-                "type": artifact["type"],
-                "source": artifact.get("source") or "",
-                "size": artifact["size"],
-                "content_type": content_type,
-                "storage_path": storage_path,
-                "expires_in": upload_expiration_seconds,
-                "presigned_post": presigned_post,
-            }
-        )
+        prepared_artifact = {
+            "id": artifact_id,
+            "name": safe_name,
+            "type": artifact["type"],
+            "source": artifact.get("source") or "",
+            "size": artifact["size"],
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "expires_in": upload_expiration_seconds,
+            "presigned_post": presigned_post,
+        }
+        if metadata := artifact.get("metadata"):
+            prepared_artifact["metadata"] = metadata
+        prepared.append(prepared_artifact)
     return prepared, True
 
 
@@ -1608,6 +1740,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
         finalized_entries.append(entry)
@@ -1695,16 +1828,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return "".join(parts)
 
 
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Raw session-log JSONL for a run. ``None`` if the run isn't found."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return object_storage.read(run.log_url, missing_ok=True) or ""
-
-
 def create_task_run_connection_token(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int, distinct_id: str
 ) -> str | None:
@@ -1738,8 +1861,6 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
     read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
     server owns this decision; clients just connect to whatever URL comes back.
     """
-    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
-
     from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
 
     proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
@@ -1897,13 +2018,34 @@ def capture_relay_command_telemetry(
 # --- Task run relay (Slack) ---
 
 
+def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
+    """Pick the text to post. If ``text_parts`` has any non-empty entries,
+    the last one wins (that's the post-last-tool-use answer). Otherwise fall
+    back to the joined ``text`` field."""
+    if text_parts:
+        for part in reversed(text_parts):
+            if isinstance(part, str) and part.strip():
+                return part
+    return text
+
+
 def relay_task_run_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, text: str
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    text: str,
+    text_parts: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text), or ``"failed"``.
+
+    When ``text_parts`` is provided the last non-empty entry is used — it's the
+    post-last-tool-use answer, and posting only that keeps the interim narration
+    ("Let me check…") out of the Slack thread. Older callers still send just
+    ``text`` and get the previous behavior unchanged.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -1918,7 +2060,8 @@ def relay_task_run_message(
     if not SlackThreadTaskMapping.objects.filter(task_run=run).exists():
         return "skipped", None
 
-    trimmed = text.strip()
+    posted_text = _pick_relay_text(text=text, text_parts=text_parts)
+    trimmed = posted_text.strip()
     if not trimmed:
         return "skipped", None
 
@@ -2235,8 +2378,6 @@ def resume_task_run_in_cloud(
     ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
     (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
-    from django.conf import settings  # noqa: PLC0415
-
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
     )
@@ -2258,7 +2399,8 @@ def resume_task_run_in_cloud(
             "prior_environment": run.environment,
             "prior_state_keys": sorted((run.state or {}).keys()),
             "prior_snapshot_external_id": (run.state or {}).get("snapshot_external_id"),
-            "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            "prior_snapshot_kind": (run.state or {}).get("snapshot_kind"),
+            "prior_snapshot_mount_path": (run.state or {}).get("snapshot_mount_path"),
         },
     )
 
@@ -2788,6 +2930,7 @@ def prepare_task_staged_artifacts(
                 storage_path=storage_path,
                 expires_in=upload_expiration_seconds,
                 presigned_post=presigned_post,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2855,6 +2998,7 @@ def finalize_task_staged_artifacts(
                 size=content_length,
                 content_type=content_type,
                 storage_path=storage_path,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -3158,6 +3302,10 @@ def run_task(
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         if prev_state.snapshot_external_id:
             extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
+            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
+            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
+            if snapshot_mount_path is not None:
+                extra_state["snapshot_mount_path"] = snapshot_mount_path
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

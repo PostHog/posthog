@@ -148,6 +148,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -172,6 +173,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -658,6 +660,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
         },
         {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
+        },
+        {
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
@@ -945,6 +960,21 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 {
                     key: 'comment_text',
                     name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'click_count',
+                    name: getFilterLabel('click_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'keypress_count',
+                    name: getFilterLabel('keypress_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'mouse_activity_count',
+                    name: getFilterLabel('mouse_activity_count', TaxonomicFilterGroupType.Replay),
                     propertyFilterType: PropertyFilterType.Recording,
                 },
             ],

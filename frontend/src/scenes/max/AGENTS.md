@@ -48,10 +48,12 @@ parsing wire frames in a Max component.
 
 The conversation-agnostic sandbox run surface (stream logic, thread/tool/permission/composer components,
 policy, wire types) **no longer lives under `scenes/max`** — it's the composable PostHog AI agent-run
-library at `products/posthog_ai/frontend`, consumed here via its barrel
-(`import { ... } from 'products/posthog_ai/frontend'`). See that directory's `AGENTS.md` for its layout,
-public component API (`RunViewer`, `Thread`, `Composer`, `runStreamLogic`, the tool registry), and the
-hard rule that it must never import `scenes/max`.
+library at `products/posthog_ai/frontend`, consumed here through its tiered `api/<module>` facade
+(`import { ... } from 'products/posthog_ai/frontend/api/readableRun'` / `api/runSurface` / `api/primitives` /
+`api/logics` / `api/types` / `api/tools` — there is no root barrel; pick the narrowest tier). See that
+directory's `README.md` for the tier decision table + recipes and its `AGENTS.md` for layout, the public API
+(`ReadonlyRunSurface`, the `RunSurface` compound, `Thread`, `Composer`, `runStreamLogic`, the tool registry),
+and the hard rule that it must never import `scenes/max`.
 
 What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLogic`, `maxGlobalLogic`), the
 Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, the frozen LangGraph path,

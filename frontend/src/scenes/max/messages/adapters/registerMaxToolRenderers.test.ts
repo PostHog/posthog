@@ -3,7 +3,7 @@
 // Renderer itself is an opaque chunk).
 import './registerMaxToolRenderers'
 
-import { toolRegistry } from 'products/posthog_ai/frontend'
+import { toolRegistry } from 'products/posthog_ai/frontend/api/tools'
 
 describe('registerMaxToolRenderers', () => {
     it.each([

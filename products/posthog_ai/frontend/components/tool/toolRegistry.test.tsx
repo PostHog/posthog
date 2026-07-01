@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { ToolCallCard } from './ToolCallCard'
-import { lookupToolRenderer, toolRegistry } from './toolRegistry'
+import { lookupToolRenderer, registerToolRenderers, toolRegistry, type ToolRegistryEntry } from './toolRegistry'
 
 function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
     return {
@@ -25,6 +25,17 @@ describe('toolRegistry', () => {
     // are NOT registered by this shared registry — they're contributed by scenes/max via
     // `registerMaxToolRenderers` and covered by that module's own test. Here we assert only what the
     // shared, Max-free registry registers: built-ins, exec verbs, the question card, and the fallback.
+
+    it('bulk-registers every entry it is handed', () => {
+        const Renderer = (() => null) as unknown as ToolRegistryEntry['Renderer']
+        const icon = null as unknown as JSX.Element
+        registerToolRenderers([
+            { key: '__test_alpha__', displayName: 'Alpha', icon, Renderer },
+            { key: '__test_beta__', displayName: 'Beta', icon, Renderer },
+        ])
+        expect(toolRegistry.lookup('__test_alpha__')?.displayName).toEqual('Alpha')
+        expect(toolRegistry.lookup('__test_beta__')?.displayName).toEqual('Beta')
+    })
 
     it('leaves product-specific and unknown tool names unregistered, resolving to the key as displayName', () => {
         expect(toolRegistry.lookup('mcp__user-installed__something')).toBeNull()

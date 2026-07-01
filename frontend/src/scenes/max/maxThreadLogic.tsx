@@ -69,7 +69,7 @@ import {
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
-} from 'products/posthog_ai/frontend'
+} from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
@@ -212,6 +212,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
+                'setRunOpening as setSandboxRunOpening',
                 'bootstrapRun as bootstrapSandboxRun',
                 'reset as resetSandboxStream',
                 'cancelRun as cancelSandboxRun',
@@ -717,6 +718,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
+                        // Optimistic boot indicator: light the "spinning up sandbox" provisioning state
+                        // for the duration of the open POST, before any SSE state exists. `openSandboxSse`
+                        // (success) clears it via the reducer; the failure/no-handle paths clear it below.
+                        actions.setSandboxRunOpening(true)
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
@@ -763,7 +768,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     posthog.captureException(e)
                     actions.pushSandboxError('Failed to send your message. Please try again.')
                 }
-                // The POST failed or no run was started — nothing will stream, release the lock now.
+                // The POST failed or no run was started — nothing will stream. Drop the optimistic boot
+                // indicator and release the lock now.
+                actions.setSandboxRunOpening(false)
                 actions.decrActiveStreamingThreads()
                 releaseStreamingLock()
                 return
@@ -2491,10 +2498,14 @@ export async function onEventImplementation(
                 .find(([m]) => isHumanMessage(m))?.[1]
 
             const lastHumanMessage = lastHumanIndex != null ? values.threadRaw[lastHumanIndex] : null
+            // Match the streamed human echo to the provisional bubble by trace_id when the server
+            // provides one, otherwise fall back to content so an echo without a trace_id replaces
+            // the provisional message instead of appending a duplicate.
             const shouldReplace =
                 isHumanMessage(lastHumanMessage) &&
-                parsedResponse.trace_id &&
-                lastHumanMessage.trace_id === parsedResponse.trace_id
+                (parsedResponse.trace_id
+                    ? lastHumanMessage.trace_id === parsedResponse.trace_id
+                    : lastHumanMessage.content === parsedResponse.content)
 
             if (lastHumanIndex != null && shouldReplace) {
                 actions.replaceMessage(lastHumanIndex, {

@@ -17,10 +17,10 @@ import {
     MultiFieldQuestion,
     type Option,
     OptionSelector,
-    QuestionField,
     PermissionInput,
+    QuestionField,
     QuestionInput,
-} from 'products/posthog_ai/frontend'
+} from 'products/posthog_ai/frontend/api/primitives'
 
 import { maxThreadLogic } from '../maxThreadLogic'
 

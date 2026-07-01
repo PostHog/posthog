@@ -18,9 +18,17 @@ tool. There is **no dedicated ClickHouse table** — every field lives as a
 percentiles, reach) is an aggregation over this one event. This is the data
 behind the MCP analytics dashboard and tool-quality screens.
 
-**HogQL via `posthog:execute-sql` is the primary path.** There are no typed
-tools for tool quality — it is all SQL. The full property schema and the
-canonical query recipes live in the shared MCP data reference:
+**For a single tool, prefer the typed tools** — `posthog:query-mcp-tool-stats` (calls,
+errors, p50/p95, users, sessions, intents), `posthog:query-mcp-tool-failures` (top error
+messages by harness), and `posthog:query-mcp-tool-daily-stats` (day-by-day trend). Each
+takes a `toolName` + `dateRange`, runs the same query runner as the tool-detail
+UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
+
+**HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
+"which tool errors most" ranking below has no typed tool, so rank with SQL, then
+drill into the worst tool with `posthog:query-mcp-tool-stats` / `-failures`. The full
+property schema and the canonical query recipes live in the shared MCP data
+reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 That reference is the single source of truth for the `$mcp_*` schema and the
 effective-tool-name idiom used below — this skill inlines only the headline
@@ -78,9 +86,15 @@ under "Tool-quality matrix".
 
 ## Workflow: why is a tool failing
 
-Pull the most common error messages for a tool, then correlate to richer
+For one tool's top error messages (grouped by harness), call
+`posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
+query below. Pass the **raw** `$mcp_tool_name` (the registered tool name), not
+the effective inner tool: failures match `$exception` events, which don't carry
+the new-SDK effective-tool markers. Drop to SQL only to correlate to richer
 exception detail (`$exception` events carry `$exception_message`, joined by
-`$session_id` and timestamp):
+`$session_id` and timestamp) — that session join is approximate: it surfaces
+every exception in the session, not only this tool's, so treat it as a lead, not
+exact attribution:
 
 ```sql
 posthog:execute-sql

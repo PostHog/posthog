@@ -8,6 +8,8 @@ import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
+import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 // The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
@@ -30,13 +32,15 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         workflowHealthLoading,
         notConnected,
         workflowHealthLoadError,
-        workflowDateFrom,
-        workflowDateTo,
         branchInput,
         appliedBranch,
         sourceId,
+        fleetSummary,
+        fleetTruncated,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
+    const { setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -45,7 +49,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
-    const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 24 hours') ?? 'Last 24 hours'
+    const windowLabel = dateFilterToText(dateFrom, dateTo, 'Last 7 days') ?? 'Last 7 days'
 
     // Stage + apply a branch in one click (the chips). Clicking the active chip clears back to all branches.
     const selectBranch = (branch: string): void => {
@@ -57,9 +61,9 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2">
                 <DateFilter
-                    dateFrom={workflowDateFrom}
-                    dateTo={workflowDateTo}
-                    onChange={setWorkflowDateRange}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
                 <LemonInput
@@ -86,6 +90,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     </LemonButton>
                 ))}
             </div>
+            {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />}
             <WorkflowHealthTable
                 rows={workflowHealth}
                 loading={workflowHealthLoading}

@@ -64,9 +64,10 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 </SceneContent>
             )
         }
-        // List view scrolls with the page (main), not an inner container, so no fixed height here.
+        // Full-height column so the virtualized list has a bounded height to fill; the header stays
+        // fixed and the list owns its own scroll (the page no longer scrolls).
         return (
-            <SceneContent>
+            <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.TaskTracker].name}
                     description={sceneConfigurations[Scene.TaskTracker].description}
@@ -85,7 +86,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 <div className="w-72 shrink-0 pl-0 flex flex-col min-h-0 border-r border-primary">
                     <TasksListColumn selectedTaskId={selectedTaskId} />
                 </div>
-                <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">{rightPane}</div>
+                <div className="flex-1 min-w-0 flex flex-col min-h-0">{rightPane}</div>
             </div>
         </SceneContent>
     )

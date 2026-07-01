@@ -16,7 +16,11 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { toolRegistry, type ToolRendererProps } from 'products/posthog_ai/frontend'
+import {
+    registerToolRenderers,
+    type ToolRegistryEntry,
+    type ToolRendererProps,
+} from 'products/posthog_ai/frontend/api/tools'
 
 // Product-specific tool-call renderers for the PostHog AI agent run surface. These render PostHog
 // product entities (insights, dashboards, recordings, error-tracking issues, notebooks, query results)
@@ -40,16 +44,16 @@ const NotebookRenderer = lazy(() => import('./CreateNotebookWidget').then((m) =>
 const QueryRenderer = lazy(() => import('./QueryWidget').then((m) => ({ default: m.QueryWidget })))
 
 // The single-exec inner tool names exist in two conventions — hyphenated (the MCP yaml definitions) and
-// snake_case (legacy Max tools) — so we register both aliases where both are real tool names.
+// snake_case (legacy Max tools) — so we register both aliases where both are real tool names. Each call
+// fans the aliases into one entry per key and feeds them through the surface's `registerToolRenderers`
+// seam (Tier 4) — Max is the first consumer of that generic per-product mechanism.
 function register(
     keys: string[],
     displayName: string,
     icon: JSX.Element,
     Renderer: ComponentType<ToolRendererProps>
 ): void {
-    for (const key of keys) {
-        toolRegistry.register({ key, displayName, icon, Renderer })
-    }
+    registerToolRenderers(keys.map((key): ToolRegistryEntry => ({ key, displayName, icon, Renderer })))
 }
 
 // --- Data tools: insight (create / update / read) ---
@@ -113,6 +117,13 @@ const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element
     { key: 'query-lifecycle-actors', displayName: 'Lifecycle persons', icon: <IconPerson /> },
     { key: 'query-paths-actors', displayName: 'Paths persons', icon: <IconPerson /> },
 ]
-for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
-    toolRegistry.register({ key, displayName, icon, Renderer: QueryRenderer })
-}
+registerToolRenderers(
+    QUERY_WRAPPER_TOOLS.map(
+        ({ key, displayName, icon }): ToolRegistryEntry => ({
+            key,
+            displayName,
+            icon,
+            Renderer: QueryRenderer,
+        })
+    )
+)
