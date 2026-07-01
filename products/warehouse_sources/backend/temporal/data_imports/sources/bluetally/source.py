@@ -42,6 +42,12 @@ class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConf
         return ExternalDataSourceType.BLUETALLY
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored API key is sent with whatever `tenant_id` is configured, so changing it
+        # retargets the saved credential at a different tenant — force secret re-entry on a change.
+        return ["tenant_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BLUETALLY,

@@ -88,13 +88,15 @@ class TestFetchPage:
         rows = bluetally._fetch_page(session, "https://app.bluetallyapp.com/api/v1/assets", MagicMock())
         assert rows == [{"id": 1}, {"id": 2}]
 
-    def test_non_list_payload_is_retryable(self) -> None:
+    def test_non_list_payload_raises_value_error(self) -> None:
+        # A non-list 200 is a permanent contract violation, so it must bypass the retry decorator.
         response = _response_with_status(200)
         response._content = b'{"error": "unexpected"}'
         session = MagicMock()
         session.get.return_value = response
-        with pytest.raises(BluetallyRetryableError):
+        with pytest.raises(ValueError):
             bluetally._fetch_page(session, "https://app.bluetallyapp.com/api/v1/assets", MagicMock())
+        assert session.get.call_count == 1
 
 
 class TestGetRows:

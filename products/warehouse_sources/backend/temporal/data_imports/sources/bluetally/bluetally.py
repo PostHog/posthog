@@ -37,6 +37,12 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    # `redact_values` masks the bearer token in logged URLs and captured HTTP samples so a failed or
+    # sampled request can never persist the raw BlueTally credential in PostHog's HTTP telemetry.
+    return make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
+
+
 def _build_url(path: str, params: dict[str, Any]) -> str:
     query = {key: value for key, value in params.items() if value is not None and value != ""}
     return f"{BLUETALLY_BASE_URL}{path}?{urlencode(query)}"
@@ -55,21 +61,23 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
         raise BluetallyRetryableError(f"BlueTally API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"BlueTally API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log the response body: it can echo back the Authorization header or other secrets.
+        logger.error(f"BlueTally API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     data = response.json()
-    # Every list endpoint returns a bare JSON array. Guard against an unexpected wrapped shape so a
-    # malformed response fails loudly rather than silently yielding nothing.
+    # Every list endpoint returns a bare JSON array. A non-list 200 is a permanent API-contract
+    # violation (wrapped payload, proxy HTML, …), not a transient failure — raise a plain ValueError
+    # so it surfaces immediately instead of burning the retry budget on something retries can't fix.
     if not isinstance(data, list):
-        raise BluetallyRetryableError(f"BlueTally API returned a non-list response: url={url}")
+        raise ValueError(f"BlueTally API returned a non-list response: url={url}")
     return data
 
 
 def validate_credentials(api_key: str, tenant_id: str | None = None, path: str = "/assets") -> bool:
     url = _build_url(path, {"limit": 1, "tenant_id": tenant_id})
     try:
-        response = make_tracked_session(headers=_get_headers(api_key)).get(url, timeout=10)
+        response = _make_session(api_key).get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -84,7 +92,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = BLUETALLY_ENDPOINTS[endpoint]
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(headers=_get_headers(api_key))
+    session = _make_session(api_key)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume.offset if resume else 0

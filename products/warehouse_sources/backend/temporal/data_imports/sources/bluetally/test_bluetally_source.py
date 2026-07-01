@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.bluetally import BluetallyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.canonical_descriptions import (
@@ -36,13 +36,19 @@ class TestSourceConfig:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bluetally"
 
     def test_fields(self) -> None:
-        fields = {f.name: f for f in BluetallySource().get_source_config.fields}
+        fields = {
+            f.name: f for f in BluetallySource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)
+        }
         assert set(fields) == {"api_key", "tenant_id"}
         assert fields["api_key"].required is True
         assert fields["api_key"].secret is True
         # The tenant id is a non-secret, optional connection parameter.
         assert fields["tenant_id"].required is False
         assert fields["tenant_id"].secret is False
+
+    def test_connection_host_fields_force_secret_reentry_on_tenant_change(self) -> None:
+        # Changing tenant_id retargets the stored API key, so it must count as a host field.
+        assert BluetallySource().connection_host_fields == ["tenant_id"]
 
 
 class TestGetSchemas:
