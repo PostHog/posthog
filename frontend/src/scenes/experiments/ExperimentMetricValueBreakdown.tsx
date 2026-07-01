@@ -42,9 +42,7 @@ export function ExperimentMetricValueBreakdown({
                     every split keeps the full exposure denominator, so the per-value means add up to the overall mean.
                 </>
             }
-            description={
-                <p className="text-muted text-xs -mb-1">Only available for counted or summed metrics.</p>
-            }
+            description={<p className="text-muted text-xs -mb-1">Only available for counted or summed metrics.</p>}
         >
             <TaxonomicStringPopover
                 groupType={TaxonomicFilterGroupType.EventProperties}
