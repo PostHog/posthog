@@ -27,6 +27,7 @@ from social_core.backends.saml import (
 )
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
+from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -130,7 +131,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         # never guess which tenant an unsolicited assertion belongs to.
         matches = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(saml_entity_id=issuer).exclude(saml_entity_id="")
+            OrganizationDomain.objects.verified_domains().filter(saml_entity_id=issuer)
         )
         if len(matches) != 1:
             if len(matches) > 1:
@@ -146,13 +147,13 @@ class MultitenantSAMLAuth(SAMLAuth):
             domain=organization_domain.domain,
             organization_id=str(organization_domain.organization_id),
         )
-        # Inject the resolved RelayState in place so the standard flow routes (and labels the
-        # response with) the correct tenant.
-        post = self.strategy.request.POST
-        was_mutable = post._mutable
-        post._mutable = True
-        post["RelayState"] = str(organization_domain.id)
-        post._mutable = was_mutable
+        # Inject the resolved RelayState so the standard flow routes (and labels the response
+        # with) the correct tenant. Work on a mutable copy via the public QueryDict API.
+        strategy = cast(DjangoStrategy, self.strategy)
+        mutable_post = strategy.request.POST.copy()
+        mutable_post["RelayState"] = str(organization_domain.id)
+        # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
+        strategy.request.POST = mutable_post  # type: ignore[assignment]
 
     def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
