@@ -18,9 +18,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import OrganizationAdminReadPermissions
 
 from products.conversations.backend.models import ZendeskImportJob
+from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskCredentials,
     validate_zendesk_credentials,
@@ -88,9 +88,12 @@ class ZendeskImportJobSerializer(serializers.ModelSerializer):
 
 class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Settings-only, admin-gated, session-auth endpoint — not exposed as a public API scope.
+    # IsConversationsAdmin gates on the *routed* team's org admin; the mixin's
+    # TeamMemberAccessPermission additionally enforces membership of the routed project,
+    # so an org admin can't import into a project they can't access.
     scope_object = "INTERNAL"
     serializer_class = ZendeskImportJobSerializer
-    permission_classes = [OrganizationAdminReadPermissions]
+    permission_classes = [IsConversationsAdmin]
     queryset = ZendeskImportJob.objects.unscoped()
 
     def safely_get_queryset(self, queryset):
