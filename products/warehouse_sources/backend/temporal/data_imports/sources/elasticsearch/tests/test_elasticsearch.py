@@ -1,7 +1,8 @@
 from typing import Any
-from unittest import mock
 
 import pytest
+from unittest import mock
+
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
