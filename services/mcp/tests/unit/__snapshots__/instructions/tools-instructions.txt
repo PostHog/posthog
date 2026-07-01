@@ -216,7 +216,9 @@ Choose the link source in this order:
 
 ### Sharing feedback on PostHog
 
-The `agent-feedback` tool is a direct channel to the PostHog team for feedback about **anything PostHog** — a product or feature you (or the user) hit a rough edge with, this MCP server itself, the docs, or a capability that's missing. Use it whenever you or the user run into something worth telling the PostHog team, on any surface.
+The `agent-feedback` tool is a direct channel to the PostHog team for feedback about **anything PostHog** — a product or feature you (or the user) hit a rough edge with, this MCP server itself, the docs, or a capability that's missing.
+
+**Human-in-the-loop is required — always confirm with the user before submitting.** When you or the user run into something worth telling the PostHog team, surface the summary you would send, get the user's explicit go-ahead, and only then call the tool. Never submit feedback silently, autonomously, or without the user having seen and approved it. This is a user-driven side channel, not a background signal.
 
 Set `feedback_type` to route it:
 
@@ -229,7 +231,7 @@ Set `feedback_type` to route it:
 
 Keep it short and actionable: a one-sentence `summary`, then the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact product surface, tool name, parameter, or error text where you can. Include a concrete `suggested_improvement` whenever you can name one — for negative or mixed feedback that's the most valuable part. Use `task_completed: false` when you couldn't finish the user's request. Do not include user PII or sensitive query content in any field.
 
-The user can also ask you to send feedback directly — e.g. "make a PostHog feedback for this, it's broken." When they do, capture their point faithfully and submit it.
+The user can also ask you to send feedback directly — e.g. "make a PostHog feedback for this, it's broken." Even then, capture their point faithfully and show them the summary you'll submit before calling the tool.
 
 Submitting feedback is **not** a way to end your turn or skip work. It's a side report to the PostHog team — call it when warranted, then keep going and finish the user's task with the other tools.
 
