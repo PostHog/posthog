@@ -27,6 +27,7 @@ _LAZY = {
     "Config": "sources.common.config",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
+    "fold_column_name": "pipelines.pipeline.masking",
     "RowFilterValidationError": "sources.common.sql",
     "filter_dwh_columns_by_enabled_columns": "sources.common.sql",
     "sql_schema_metadata": "sources.common.sql",

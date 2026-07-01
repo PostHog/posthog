@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    fold_column_name,
     get_cdc_adapter,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
@@ -609,10 +610,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in masked_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
-                protected = {c.casefold() for c in (instance.primary_key_columns or [])}
+                # Fold names the same way the masking engine does (NamingConvention, via
+                # `fold_column_name`) so validation and runtime protection agree — `casefold` alone is a
+                # strict subset and would pass entries that normalize onto a PK/incremental name.
+                protected = {fold_column_name(c) for c in (instance.primary_key_columns or [])}
                 if instance.incremental_field:
-                    protected.add(instance.incremental_field.casefold())
-                conflicting = [c for c in masked_columns if c.casefold() in protected]
+                    protected.add(fold_column_name(instance.incremental_field))
+                conflicting = [c for c in masked_columns if fold_column_name(c) in protected]
                 if conflicting:
                     raise ValidationError(
                         f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)}."
@@ -898,6 +902,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
+        # Masking rewrites a column's values as string digests, so its stored type flips to string.
+        # If the Delta table already holds that column as a non-string type, the next incremental write
+        # collides with the existing schema (and already-synced rows keep their plaintext). Any change to
+        # the mask set therefore needs a full rebuild — reset_pipeline for non-CDC, a CDC re-snapshot below.
+        masked_columns_changed = "masked_columns" in validated_data and (
+            validated_data["masked_columns"] != instance.masked_columns
+        )
+
         if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
@@ -946,7 +958,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
+        # CDC re-snapshots through its own path below (it also has to reset cdc_mode); every other sync
+        # type rebuilds via reset_pipeline.
+        if masked_columns_changed and not is_cdc:
+            trigger_refresh = True
+
         if trigger_refresh:
+            # A mask-only PATCH never populates sync_type_config, so seed it before setting the flag.
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
@@ -1001,12 +1020,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
         # automatically once the snapshot completes via `run_post_load_operations`.
-        if is_cdc and "cdc_table_mode" in data:
+        if is_cdc:
             new_cdc_table_mode = data.get("cdc_table_mode")
-            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
+            cdc_table_mode_needs_resnapshot = "cdc_table_mode" in data and _cdc_table_mode_change_needs_resnapshot(
+                previous_cdc_table_mode, new_cdc_table_mode
+            )
+            if cdc_table_mode_needs_resnapshot or masked_columns_changed:
                 logger.info(
-                    "cdc_table_mode_changed_resnapshot_triggered",
+                    "cdc_resnapshot_triggered",
                     schema_id=str(updated_instance.id),
+                    cdc_table_mode_changed=cdc_table_mode_needs_resnapshot,
+                    masked_columns_changed=masked_columns_changed,
                     old_cdc_table_mode=previous_cdc_table_mode,
                     new_cdc_table_mode=new_cdc_table_mode,
                 )

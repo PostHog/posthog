@@ -3408,10 +3408,17 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
 
     def test_valid_masked_columns_persist(self):
         schema = self._create()
-        response = self._patch(schema, ["password"])
+        with mock.patch(
+            "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        ) as mock_trigger:
+            response = self._patch(schema, ["password"])
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
         assert schema.masked_columns == ["password"]
+        # A mask change flips the column's stored type to string, so the pipeline must rebuild from
+        # scratch — otherwise the next incremental write conflicts and old plaintext is never rewritten.
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
 
     def test_unknown_column_rejected(self):
         schema = self._create()

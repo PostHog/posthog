@@ -2,10 +2,12 @@
 
 Masked values are replaced with a SHA-256 digest salted by `team_id`, so equal values mask
 identically within a team (joinable downstream) but diverge across teams. The digest depends
-only on `team_id` and the value — nothing that rotates — so it is stable forever: the same
-value yields the same digest across resyncs, different sources, and secret-key rotation.
-Primary-key merges and incremental cursors stay stable as long as those columns themselves are
-never masked (enforced by `resolve_masked_columns`).
+only on `team_id` and the value's text form — nothing that rotates — so it is stable across
+resyncs and secret-key rotation. The value is hashed via `str(value)`, so the "same value →
+same digest" property holds for a stable textual representation; a value whose rendering differs
+between read paths (e.g. `Decimal("1.10")` vs `1.1`, or a datetime at different precision/tz)
+digests differently. Primary-key merges and incremental cursors stay stable as long as those
+columns themselves are never masked (enforced by `resolve_masked_columns`).
 
 Tradeoff: `team_id` is not secret, so low-entropy values (passwords, card numbers) remain
 brute-forceable by anyone who can query the masked column. Stability was chosen over
