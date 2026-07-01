@@ -4925,6 +4925,9 @@ const api = {
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('data_v2/run').create({ data })
         },
+        async dataV2Start(notebookId: NotebookType['short_id']): Promise<{ status: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('data_v2/start').create()
+        },
         async dataV2RunStream(
             notebookId: NotebookType['short_id'],
             runId: string,

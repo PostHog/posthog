@@ -29733,6 +29733,11 @@ export namespace Schemas {
       run_id: string;
     }
 
+    export interface NotebookDataV2StartResponse {
+      /** Provisioning state; 'starting' once the start workflow is enqueued. */
+      status: string;
+    }
+
     export interface NotebookMarkdownSave {
       /** Unique identifier for the client session, used to skip self-echo on the update stream. */
       client_id: string;

@@ -49,7 +49,7 @@ export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
     listeners(({ props, actions }) => ({
         startInstance: async () => {
             try {
-                await api.notebooks.kernelStart(props.notebookShortId)
+                await api.notebooks.dataV2Start(props.notebookShortId)
             } catch (error) {
                 actions.setRunError(error instanceof Error ? error.message : 'Failed to start instance')
             } finally {

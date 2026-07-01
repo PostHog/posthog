@@ -47,15 +47,18 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.data_v2 import DataV2KernelNotRunning, dispatch_data_v2_run, is_data_v2_enabled
+from products.notebooks.backend.data_v2 import is_data_v2_enabled
 from products.notebooks.backend.data_v2_serializers import (
     NotebookDataV2RunRequestSerializer,
     NotebookDataV2RunResponseSerializer,
+    NotebookDataV2StartResponseSerializer,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
+from products.notebooks.backend.temporal.client import start_data_v2_run_workflow, start_data_v2_start_workflow
+from products.notebooks.backend.temporal.data_v2 import DataV2RunInput, DataV2StartInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -888,20 +891,45 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         try:
-            dispatch_data_v2_run(notebook, user, run, serializer.validated_data["code"])
-        except DataV2KernelNotRunning:
-            run.status = NotebookNodeRun.Status.FAILED
-            run.error = "Kernel is not running. Start the instance first."
-            run.save(update_fields=["status", "error", "updated_at"])
-            return Response({"detail": "Kernel is not running. Start the instance first."}, status=409)
+            start_data_v2_run_workflow(
+                DataV2RunInput(
+                    run_id=str(run.id),
+                    notebook_short_id=notebook.short_id,
+                    team_id=self.team_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    code=serializer.validated_data["code"],
+                )
+            )
         except Exception:
-            logger.exception("notebook_data_v2_run_dispatch_failed", notebook_short_id=notebook.short_id)
+            logger.exception("notebook_data_v2_run_start_failed", notebook_short_id=notebook.short_id)
             run.status = NotebookNodeRun.Status.FAILED
-            run.error = "Failed to dispatch run to the kernel."
+            run.error = "Failed to start run."
             run.save(update_fields=["status", "error", "updated_at"])
-            return Response({"detail": "Failed to dispatch run to the kernel."}, status=503)
+            return Response({"detail": "Failed to start run."}, status=503)
 
         return Response({"run_id": str(run.id)})
+
+    @extend_schema(responses=NotebookDataV2StartResponseSerializer)
+    @action(methods=["POST"], url_path="data_v2/start", detail=True)
+    def data_v2_start(self, request: Request, **kwargs):
+        user = self._current_user()
+        if not (settings.DEBUG or is_data_v2_enabled(user)):
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        try:
+            start_data_v2_start_workflow(
+                DataV2StartInput(
+                    notebook_short_id=notebook.short_id,
+                    team_id=self.team_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                )
+            )
+        except Exception:
+            logger.exception("notebook_data_v2_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to start instance."}, status=503)
+
+        return Response({"status": "starting"})
 
     @extend_schema(
         parameters=[
@@ -936,9 +964,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     payload_json = renderer.render({"error": "Run not found"}).decode()
                     yield f"event: error\ndata: {payload_json}\n\n".encode()
                     return
+                if run.status == NotebookNodeRun.Status.FAILED:
+                    payload_json = renderer.render({"error": run.error or "Run failed"}).decode()
+                    yield f"event: error\ndata: {payload_json}\n\n".encode()
+                    return
                 if run.status != NotebookNodeRun.Status.RUNNING:
-                    payload = run.envelope or {"status": run.status, "error": run.error}
-                    payload_json = renderer.render(payload).decode()
+                    payload_json = renderer.render(run.envelope or {}).decode()
                     yield f"event: result\ndata: {payload_json}\n\n".encode()
                     return
                 time.sleep(0.5)

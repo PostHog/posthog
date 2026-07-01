@@ -15,6 +15,12 @@ class NotebookDataV2RunResponseSerializer(serializers.Serializer):
     )
 
 
+class NotebookDataV2StartResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        help_text="Provisioning state; 'starting' once the start workflow is enqueued.",
+    )
+
+
 class NotebookDataV2EnvelopeSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
     columns = serializers.ListField(

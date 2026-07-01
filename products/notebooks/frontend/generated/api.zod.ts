@@ -218,6 +218,30 @@ export const NotebooksDataV2RunCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksDataV2StartCreateBodyTitleMax = 256
+
+export const notebooksDataV2StartCreateBodyVersionMin = -2147483648
+export const notebooksDataV2StartCreateBodyVersionMax = 2147483647
+
+export const NotebooksDataV2StartCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(notebooksDataV2StartCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+    version: zod
+        .number()
+        .min(notebooksDataV2StartCreateBodyVersionMin)
+        .max(notebooksDataV2StartCreateBodyVersionMax)
+        .optional()
+        .describe(
+            'Version number for optimistic concurrency control. Must match the current version when updating content.'
+        ),
+    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    _create_in_folder: zod.string().optional(),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksHogqlExecuteCreateBodyTitleMax = 256
 
 export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648

@@ -30,8 +30,8 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDataV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const nodeId = nodeLogic.props.nodeId
-    const notebookShortId = nodeLogic.props.notebookLogic.props.shortId
+    const { nodeId, notebookLogic } = useValues(nodeLogic)
+    const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeDataV2Logic({ nodeId, notebookShortId, updateAttributes })
     const { isRunning, isStarting, runError } = useValues(dataLogic)

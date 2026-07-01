@@ -284,6 +284,11 @@ export interface NotebookDataV2RunResponseApi {
     run_id: string
 }
 
+export interface NotebookDataV2StartResponseApi {
+    /** Provisioning state; 'starting' once the start workflow is enqueued. */
+    status: string
+}
+
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
