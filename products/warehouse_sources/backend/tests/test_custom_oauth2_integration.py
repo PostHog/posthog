@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -27,7 +28,8 @@ AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.
 def _token_response(status_code: int = 200, payload: Optional[dict[str, Any]] = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
-    response.json.return_value = payload if payload is not None else {}
+    # The token exchange reads a capped `response.raw.read(...)` then json.loads — seed the raw body.
+    response.raw.read.return_value = json.dumps(payload if payload is not None else {}).encode()
     return response
 
 
