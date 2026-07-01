@@ -96,7 +96,9 @@ def get_rows(
     config = EZOFFICEINVENTORY_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session(headers=headers, redact_values=(api_key,))
+    # Redirects are pinned off so the user-supplied token can't be replayed to a
+    # cross-host redirect target (SSRF / credential-exfiltration defense-in-depth).
+    session = make_tracked_session(headers=headers, redact_values=(api_key,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
@@ -145,14 +147,29 @@ def ezofficeinventory_source(
     )
 
 
-def validate_credentials(api_key: str, subdomain: str) -> bool:
+def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None]:
+    """Return (is_valid, error_message). A non-None message overrides the generic
+    "invalid credentials" error so transient failures (e.g. rate limiting) aren't
+    misreported as bad credentials."""
     if not SUBDOMAIN_REGEX.match(subdomain):
-        return False
+        return False, None
     try:
-        response = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,)).get(
+        response = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False).get(
             f"{base_url(subdomain)}/assets.api?page=1",
             timeout=10,
         )
     except Exception:
-        return False
-    return response.status_code == 200
+        return False, None
+
+    if response.status_code == 200:
+        return True, None
+
+    # The fair-use cap is ~60 req/min; a 429 here means we couldn't verify the token, not that it's
+    # wrong. Surface that distinctly so the user isn't told their credentials are invalid.
+    if response.status_code == 429:
+        return (
+            False,
+            "EZOfficeInventory rate limit reached while validating credentials. Please wait a minute and try again.",
+        )
+
+    return False, None

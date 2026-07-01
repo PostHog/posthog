@@ -95,12 +95,14 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
     def validate_credentials(
         self, config: EZOfficeInventorySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_ezofficeinventory_credentials(config.api_key, config.subdomain):
+        is_valid, error_message = validate_ezofficeinventory_credentials(config.api_key, config.subdomain)
+        if is_valid:
             return True, None
 
         return (
             False,
-            "Invalid EZOfficeInventory credentials. Check the subdomain and access token, and that API access is enabled in Settings.",
+            error_message
+            or "Invalid EZOfficeInventory credentials. Check the subdomain and access token, and that API access is enabled in Settings.",
         )
 
     def get_resumable_source_manager(

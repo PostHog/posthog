@@ -101,6 +101,22 @@ class TestGetRows:
             )
         return batches, requested_urls
 
+    def test_sync_session_disables_redirects(self) -> None:
+        manager = _manager()
+        session = MagicMock()
+        session.get.return_value = _http_response({"assets": []})
+        with patch(f"{_MODULE}.make_tracked_session", return_value=session) as mocked:
+            list(
+                get_rows(
+                    api_key="tok",
+                    subdomain="acme",
+                    endpoint="assets",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+            assert mocked.call_args.kwargs["allow_redirects"] is False
+
     def test_paginates_until_total_pages(self) -> None:
         manager = _manager()
         responses = [
@@ -152,7 +168,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize("bad_subdomain", ["", "has space", "bad/slash", "a.b", "http://x"])
     def test_rejects_unsafe_subdomain_without_network(self, bad_subdomain: str) -> None:
         with patch(f"{_MODULE}.make_tracked_session") as mocked:
-            assert validate_credentials("tok", bad_subdomain) is False
+            assert validate_credentials("tok", bad_subdomain) == (False, None)
             mocked.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -163,13 +179,30 @@ class TestValidateCredentials:
         session = MagicMock()
         session.get.return_value = _http_response({}, status_code=status_code)
         with patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            assert validate_credentials("tok", "acme") is expected
+            is_valid, _ = validate_credentials("tok", "acme")
+            assert is_valid is expected
+
+    def test_rate_limit_returns_specific_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _http_response({}, status_code=429)
+        with patch(f"{_MODULE}.make_tracked_session", return_value=session):
+            is_valid, error = validate_credentials("tok", "acme")
+            assert is_valid is False
+            assert error is not None
+            assert "rate limit" in error.lower()
+
+    def test_validation_session_disables_redirects(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _http_response({}, status_code=200)
+        with patch(f"{_MODULE}.make_tracked_session", return_value=session) as mocked:
+            validate_credentials("tok", "acme")
+            assert mocked.call_args.kwargs["allow_redirects"] is False
 
     def test_network_error_is_false(self) -> None:
         session = MagicMock()
         session.get.side_effect = Exception("boom")
         with patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            assert validate_credentials("tok", "acme") is False
+            assert validate_credentials("tok", "acme") == (False, None)
 
 
 class TestSourceResponse:
@@ -211,7 +244,7 @@ class TestRetryableFetch:
         ]
         # Skip tenacity's real backoff sleep so the test stays fast.
         with (
-            patch.object(ezofficeinventory._fetch_page.retry, "sleep"),
+            patch.object(ezofficeinventory._fetch_page.retry, "sleep"),  # type: ignore[attr-defined]
             patch(f"{_MODULE}.make_tracked_session", return_value=session),
         ):
             batches = list(

@@ -3,7 +3,7 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
@@ -30,7 +30,7 @@ class TestSourceConfig:
 
     def test_get_source_config_fields(self) -> None:
         config = EZOfficeInventorySource().get_source_config
-        fields = {f.name: f for f in config.fields}
+        fields = {f.name: cast(SourceFieldInputConfig, f) for f in config.fields}
         assert set(fields) == {"subdomain", "api_key"}
         # The token is the only secret; the subdomain is a plain connection host field.
         assert fields["api_key"].secret is True
@@ -79,15 +79,24 @@ class TestGetSchemas:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("valid", "expected_ok"),
-        [(True, True), (False, False)],
+        ("transport_result", "expected_ok"),
+        [((True, None), True), ((False, None), False)],
     )
-    def test_delegates_to_transport(self, valid: bool, expected_ok: bool) -> None:
-        with patch(f"{_MODULE}.validate_ezofficeinventory_credentials", return_value=valid) as mocked:
+    def test_delegates_to_transport(self, transport_result: tuple[bool, str | None], expected_ok: bool) -> None:
+        with patch(f"{_MODULE}.validate_ezofficeinventory_credentials", return_value=transport_result) as mocked:
             ok, error = EZOfficeInventorySource().validate_credentials(_config(), team_id=1)
         mocked.assert_called_once_with("tok", "acme")
         assert ok is expected_ok
         assert (error is None) is expected_ok
+
+    def test_surfaces_transport_error_message(self) -> None:
+        with patch(
+            f"{_MODULE}.validate_ezofficeinventory_credentials",
+            return_value=(False, "EZOfficeInventory rate limit reached while validating credentials."),
+        ):
+            ok, error = EZOfficeInventorySource().validate_credentials(_config(), team_id=1)
+        assert ok is False
+        assert error == "EZOfficeInventory rate limit reached while validating credentials."
 
 
 class TestNonRetryableErrors:

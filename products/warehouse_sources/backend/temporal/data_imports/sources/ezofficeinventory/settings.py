@@ -20,8 +20,6 @@ class EZOfficeInventoryEndpointConfig:
     partition_key: Optional[str] = None
     # Extra static query params (e.g. the `status=checked_out` filter on /assets/filter.api).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # EZOfficeInventory defaults most list endpoints to 25 items/page.
-    page_size: int = 25
     should_sync_default: bool = True
 
 
