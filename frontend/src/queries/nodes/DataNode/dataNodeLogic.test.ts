@@ -616,4 +616,34 @@ describe('dataNodeLogic', () => {
             'posthog_ai'
         )
     })
+
+    it('recomputes instead of surfacing an error when a cancelled query id is re-polled', async () => {
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+            autoLoad: false,
+        })
+        logic.mount()
+
+        // We already told the backend to cancel this query id — this is what the abort chain does
+        // when a newer query supersedes an in-flight one.
+        logic.actions.abortQuery({ queryId: 'uuid-cancelled' })
+        await expectLogic(logic).toDispatchActions(['abortQuery'])
+
+        // Re-polling that same id (the propsChanged pollOnly path) reads back QUERY_WAS_CANCELLED as
+        // a server error, then the recompute the catch kicks off succeeds.
+        mockedQuery.mockRejectedValueOnce(Object.assign(new Error('Query was cancelled'), { status: 500 }))
+        const results = { recomputed: true }
+        mockedQuery.mockResolvedValueOnce({ results })
+
+        logic.actions.loadData('force_async', 'uuid-cancelled')
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadData', 'loadData', 'loadDataSuccess'])
+            .toNotHaveDispatchedActions(['loadDataFailure'])
+            .toMatchValues({ responseError: null, response: partial({ results }) })
+    })
 })
