@@ -1,4 +1,4 @@
-import type { TimeInterval, ValueLabelContext } from '@posthog/quill-charts'
+import type { TimeInterval, ValueLabelContext, YAxisConfig } from '@posthog/quill-charts'
 
 import type { CurrencyCode, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
@@ -222,7 +222,7 @@ describe('buildTrendsLifecycleConfig', () => {
 
     it('forwards yAxisScaleType into the y-axis scale', () => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, yAxisScaleType: 'log10' })
-        expect((cfg.yAxis as any)?.scale).toBe('log')
+        expect((cfg.yAxis as YAxisConfig)?.scale).toBe('log')
     })
 
     it('passes the tooltip config through unchanged', () => {
