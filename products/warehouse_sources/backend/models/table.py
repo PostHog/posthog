@@ -130,6 +130,89 @@ class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
         return self.get_queryset().queryable()
 
 
+def get_hogql_field_for_column(
+    column_name: str,
+    column_definition: dict[str, Any] | str,
+    clickhouse_type: str,
+    is_nullable: bool,
+) -> DatabaseField:
+    if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
+        child_fields: dict[str, DatabaseField] = {}
+        nested_definitions = column_definition.get("fields")
+        if isinstance(nested_definitions, dict):
+            for nested_name, nested_definition in nested_definitions.items():
+                if not isinstance(nested_definition, dict):
+                    continue
+
+                nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
+                nested_is_nullable = False
+                if nested_clickhouse_type.startswith("Nullable("):
+                    nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
+                    nested_is_nullable = True
+
+                child_fields[nested_name] = get_hogql_field_for_column(
+                    nested_name,
+                    nested_definition,
+                    nested_clickhouse_type,
+                    nested_is_nullable,
+                )
+
+        return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
+
+    # Support for 'old' style columns
+    if isinstance(column_definition, str):
+        hogql_type_str = clickhouse_type.partition("(")[0]
+        return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+
+    return STR_TO_HOGQL_MAPPING.get(
+        str(column_definition.get("hogql", "UnknownDatabaseField")),
+        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+    )(name=column_name, nullable=is_nullable)
+
+
+def hogql_fields_and_structure_for_columns(
+    columns: dict[str, Any], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> tuple[dict[str, FieldOrTable], list[str]]:
+    """Shared columns → HogQL fields mapping for warehouse and direct virtual tables.
+
+    Structure entries (the S3 table-function column spec) are only meaningful for S3-backed
+    tables; direct virtual tables ignore them.
+    """
+    fields: dict[str, FieldOrTable] = {}
+    structure = []
+    for column, type in columns.items():
+        # Support for 'old' style columns
+        if isinstance(type, str):
+            clickhouse_type = type
+        else:
+            clickhouse_type = type["clickhouse"]
+
+        is_nullable = False
+
+        if clickhouse_type.startswith("Nullable("):
+            clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+            is_nullable = True
+
+        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
+        if clickhouse_type.startswith("Array("):
+            clickhouse_type = remove_named_tuples(clickhouse_type)
+
+        if isinstance(type, dict):
+            column_invalid = not type.get("valid", True)
+        else:
+            column_invalid = False
+
+        if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if is_nullable:
+                structure.append(f"`{column}` Nullable({clickhouse_type})")
+            else:
+                structure.append(f"`{column}` {clickhouse_type}")
+
+        fields[column] = get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+
+    return fields, structure
+
+
 class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
@@ -465,82 +548,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def _get_hogql_field_for_column(
-        self,
-        column_name: str,
-        column_definition: dict[str, Any] | str,
-        clickhouse_type: str,
-        is_nullable: bool,
-    ) -> DatabaseField:
-        if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
-            child_fields: dict[str, DatabaseField] = {}
-            nested_definitions = column_definition.get("fields")
-            if isinstance(nested_definitions, dict):
-                for nested_name, nested_definition in nested_definitions.items():
-                    if not isinstance(nested_definition, dict):
-                        continue
-
-                    nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
-                    nested_is_nullable = False
-                    if nested_clickhouse_type.startswith("Nullable("):
-                        nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
-                        nested_is_nullable = True
-
-                    child_fields[nested_name] = self._get_hogql_field_for_column(
-                        nested_name,
-                        nested_definition,
-                        nested_clickhouse_type,
-                        nested_is_nullable,
-                    )
-
-            return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
-
-        # Support for 'old' style columns
-        if isinstance(column_definition, str):
-            hogql_type_str = clickhouse_type.partition("(")[0]
-            return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-        return STR_TO_HOGQL_MAPPING.get(
-            str(column_definition.get("hogql", "UnknownDatabaseField")),
-            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-        )(name=column_name, nullable=is_nullable)
-
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
         columns = self.columns or {}
 
-        fields: dict[str, FieldOrTable] = {}
-        structure = []
-        for column, type in columns.items():
-            # Support for 'old' style columns
-            if isinstance(type, str):
-                clickhouse_type = type
-            else:
-                clickhouse_type = type["clickhouse"]
-
-            is_nullable = False
-
-            if clickhouse_type.startswith("Nullable("):
-                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
-                is_nullable = True
-
-            # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if clickhouse_type.startswith("Array("):
-                clickhouse_type = remove_named_tuples(clickhouse_type)
-
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                if is_nullable:
-                    structure.append(f"`{column}` Nullable({clickhouse_type})")
-                else:
-                    structure.append(f"`{column}` {clickhouse_type}")
-
-            fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+        fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (

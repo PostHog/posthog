@@ -1734,3 +1734,114 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+
+    def test_hogql_query_for_synced_source_prints_identical_sql_to_pure_direct(self):
+        job_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "public",
+        }
+        direct_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="pure_direct_source",
+            connection_id="pure_direct_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="direct",
+            job_inputs=job_inputs,
+        )
+        DataWarehouseTable.objects.create(
+            name="users",
+            format="Parquet",
+            team=self.team,
+            external_data_source=direct_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        synced_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_source",
+            connection_id="synced_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="synced",
+            job_inputs=job_inputs,
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="users",
+            source=synced_source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "users",
+                }
+            },
+        )
+
+        sql_by_mode = {}
+        for mode, source in (("direct", direct_source), ("synced", synced_source)):
+            executor = HogQLQueryExecutor(
+                query="SELECT id FROM users WHERE id > 10",
+                team=self.team,
+                connection_id=str(source.id),
+            )
+            sql, _context = executor.generate_clickhouse_sql()
+            sql_by_mode[mode] = sql
+
+        # The virtual table built from schema metadata must print byte-identically to the
+        # physical pure-direct row for the same source location and columns.
+        self.assertEqual(sql_by_mode["synced"], sql_by_mode["direct"])
+        self.assertIn("public.users", sql_by_mode["synced"])
+
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_send_raw_query_for_synced_source_executes_verbatim(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_source",
+            connection_id="synced_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="synced",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        # The synced source resolves as a connection and keeps the read-only session guarantees.
+        self.assertEqual(response.results, [(1,)])
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        self.assertIn("-c default_transaction_read_only=on", mock_connect.call_args.kwargs["options"])
