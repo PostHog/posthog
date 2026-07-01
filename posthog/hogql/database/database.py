@@ -1070,6 +1070,39 @@ class Database(BaseModel):
         return Database._build_from_sources(sources, timings=timings)
 
     @staticmethod
+    def fetch_sources(
+        team_id: int | None = None,
+        *,
+        team: Optional["Team"] = None,
+        user: Optional["User | SyntheticUser"] = None,
+        user_access_control: Optional["UserAccessControl"] = None,
+        modifiers: "HogQLQueryModifiers | None" = None,
+        timings: HogQLTimings | None = None,
+        connection_id: str | None = None,
+        bypass_warehouse_access_control: bool = False,
+    ) -> HogQLDatabaseSources:
+        """Public entry to the I/O phase of the two-phase database build. Split out so callers that
+        build many databases for the same team (e.g. high-frequency Temporal activities) can cache the
+        returned bundle and pass each build through build_from_sources, skipping the repeated Postgres
+        queries create_for would otherwise fire on every call."""
+        return Database._fetch_sources(
+            team_id,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            modifiers=modifiers,
+            timings=timings,
+            connection_id=connection_id,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+        )
+
+    @staticmethod
+    def build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+        """Public entry to the no-I/O build phase. Pair with fetch_sources to rebuild a fresh, thread-owned
+        Database from a cached sources bundle without touching Postgres."""
+        return Database._build_from_sources(sources, timings=timings)
+
+    @staticmethod
     def _fetch_sources(
         team_id: int | None = None,
         *,

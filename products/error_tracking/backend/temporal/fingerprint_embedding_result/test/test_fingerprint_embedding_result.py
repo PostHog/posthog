@@ -28,6 +28,10 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _target_embedding_query,
     merge_similar_fingerprints_activity,
 )
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.hogql_database import (
+    clear_sources_cache,
+    embedding_query_database,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -140,11 +144,13 @@ class TestFingerprintEmbeddingResultActivity:
         )
         team = MagicMock()
 
+        database = MagicMock()
+
         with patch(
             "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
             side_effect=[target_response, closest_response],
         ) as execute_hogql_query:
-            result = _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
+            result = _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072", database)
 
         assert result == [
             SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
@@ -160,6 +166,9 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args_list[1].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        # Both queries run against the single database built once for the activity (from cached sources).
+        assert execute_hogql_query.call_args_list[0].kwargs["context"].database is database
+        assert execute_hogql_query.call_args_list[1].kwargs["context"].database is database
 
     def test_query_closest_fingerprints_uses_input_embedding(self) -> None:
         closest_response = MagicMock(
@@ -171,7 +180,9 @@ class TestFingerprintEmbeddingResultActivity:
             "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
             return_value=closest_response,
         ) as execute_hogql_query:
-            result = _query_closest_fingerprints(team, _inputs_with_embedding(), "text-embedding-3-large-3072")
+            result = _query_closest_fingerprints(
+                team, _inputs_with_embedding(), "text-embedding-3-large-3072", MagicMock()
+            )
 
         assert result == [
             SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
@@ -204,7 +215,7 @@ class TestFingerprintEmbeddingResultActivity:
             return_value=MagicMock(results=[]),
         ) as execute_hogql_query:
             with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="Target embedding not found"):
-                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
+                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072", MagicMock())
 
         execute_hogql_query.assert_called_once()
 
@@ -216,7 +227,7 @@ class TestFingerprintEmbeddingResultActivity:
             return_value=MagicMock(results=[[None]]),
         ):
             with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="Target embedding is invalid"):
-                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
+                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072", MagicMock())
 
     def test_report_closest_fingerprint_metrics_includes_fingerprints(self) -> None:
         team = MagicMock(uuid=uuid.uuid4())
@@ -265,6 +276,10 @@ class TestFingerprintEmbeddingResultActivity:
         with (
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.embedding_query_database",
                 return_value=MagicMock(),
             ),
             patch(
@@ -368,6 +383,27 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["merge_source"] == "auto"
         assert properties["source_issue_id"] == str(source_issue_id)
         assert properties["target_issue_id"] == str(target_issue_id)
+
+
+class TestEmbeddingQueryHogqlContextCache:
+    def test_sources_fetched_once_per_team_then_reused(self) -> None:
+        clear_sources_cache()
+        team = MagicMock(id=42)
+
+        try:
+            with patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.hogql_database.Database"
+            ) as database:
+                embedding_query_database(team)
+                embedding_query_database(team)
+                embedding_query_database(MagicMock(id=99))
+
+            # The Postgres source fetch runs once per distinct team (cache hit on the repeat), while the
+            # no-I/O build runs on every call so each activity gets its own thread-owned Database.
+            assert database.fetch_sources.call_count == 2
+            assert database.build_from_sources.call_count == 3
+        finally:
+            clear_sources_cache()
 
 
 class TestMergeFingerprintCrossTeamIsolation(BaseTest):

@@ -9,6 +9,8 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -20,6 +22,9 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.hogql_database import (
+    embedding_query_database,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -179,6 +184,7 @@ def _query_target_embedding(
     team: Team,
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
+    database: Database,
 ) -> list[float]:
     query = _target_embedding_query(
         inputs=inputs,
@@ -189,6 +195,7 @@ def _query_target_embedding(
         query=query,
         team=team,
         query_type="ErrorTrackingFingerprintEmbeddingResultTargetEmbedding",
+        context=HogQLContext(team=team, database=database),
     )
     if not response.results:
         raise TargetFingerprintEmbeddingNotFoundError(
@@ -227,10 +234,11 @@ def _query_closest_fingerprints(
     team: Team,
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
+    database: Database,
 ) -> list[SimilarFingerprintDistance]:
     target_embedding = _target_embedding_from_inputs(inputs, model_name)
     if target_embedding is None:
-        target_embedding = _query_target_embedding(team, inputs, model_name)
+        target_embedding = _query_target_embedding(team, inputs, model_name, database)
 
     query = _closest_fingerprints_query(
         inputs=inputs,
@@ -241,6 +249,7 @@ def _query_closest_fingerprints(
         query=query,
         team=team,
         query_type="ErrorTrackingFingerprintEmbeddingResultClosestFingerprints",
+        context=HogQLContext(team=team, database=database),
     )
     return [SimilarFingerprintDistance(fingerprint=row[0], distance=float(row[1])) for row in response.results]
 
@@ -337,8 +346,12 @@ def merge_similar_fingerprints_activity(
         team = Team.objects.get(id=inputs.team_id)
         model_name = _input_model_name(inputs)
 
+        # Build the HogQL database once per activity from a per-team cached sources bundle, so the
+        # embedding queries reuse it instead of re-querying Postgres on every execution.
+        database = embedding_query_database(team)
+
         start = time.monotonic()
-        closest_fingerprints = _query_closest_fingerprints(team, inputs, model_name)
+        closest_fingerprints = _query_closest_fingerprints(team, inputs, model_name, database)
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
