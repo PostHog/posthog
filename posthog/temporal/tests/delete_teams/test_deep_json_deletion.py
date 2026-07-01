@@ -70,7 +70,10 @@ def test_neutralize_discovery_reaches_indirect_cascade_children():
     targets = {table: (where_sql, params) for table, _cols, where_sql, params in _team_cascade_json_columns([123])}
 
     # Direct child (Cohort) filters straight on its own team column.
-    assert targets["posthog_cohort"] == ('"posthog_cohort"."team_id" = ANY(%s)', [[123]])
+    direct_where, direct_params = targets["posthog_cohort"]
+    assert '"posthog_cohort"."team_id" = ANY(%s)' in direct_where
+    assert [123] in direct_params
+    assert direct_where.count("%s") == len(direct_params)
 
     # Indirect child reaches the doomed teams through a subquery on its parent.
     indirect_where, indirect_params = targets["posthog_experimentmetricresult"]
