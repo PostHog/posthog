@@ -211,6 +211,8 @@ def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     return json.loads(result.stdout)
 
 
+# GitHub rejects GraphQL queries whose worst-case node count — the product of
+# nested `first:` sizes — exceeds 500,000, before executing anything.
 _REVIEW_THREADS_QUERY = """
 query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
   repository(owner: $owner, name: $name) {
@@ -236,7 +238,7 @@ query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
               body
               databaseId
               replyTo { databaseId }
-              reactions(first: 100) {
+              reactions(first: 20) {
                 nodes {
                   content
                   user { login }
