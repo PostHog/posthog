@@ -1,6 +1,8 @@
 from time import perf_counter
 from typing import Optional
 
+from django.db import DatabaseError, close_old_connections
+
 import structlog
 import posthoganalytics
 from celery import current_task, shared_task
@@ -39,7 +41,15 @@ def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
     exported_asset.failure_type = failure_type
-    exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
+    update_fields = ["exception", "exception_type", "failure_type"]
+    try:
+        exported_asset.save(update_fields=update_fields)
+    except DatabaseError:
+        # The failure we're recording may itself have been a dropped Postgres connection (OperationalError is
+        # in EXCEPTIONS_TO_RETRY), leaving this connection unusable. Recycle it and retry once so the failure
+        # metadata still lands instead of a secondary "connection is closed" error swallowing it.
+        close_old_connections()
+        exported_asset.save(update_fields=update_fields)
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 

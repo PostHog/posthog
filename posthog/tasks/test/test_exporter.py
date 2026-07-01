@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -130,3 +131,32 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception == "Code: None.\nToo many queries"
         assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
+
+
+class TestRecordExportFailure(TestCase):
+    @patch("posthog.tasks.exporter.close_old_connections")
+    def test_recovers_when_first_save_hits_a_dead_connection(self, mock_close_old_connections: MagicMock) -> None:
+        # The export commonly fails because Postgres dropped the connection mid-query; the recorder's first
+        # save() then hits that same dead connection. It must recycle the connection and retry so the failure
+        # metadata still lands instead of a secondary "connection is closed" error swallowing it.
+        asset = MagicMock()
+        asset.export_format = "image/png"
+        asset.save.side_effect = [OperationalError("the connection is closed"), None]
+
+        exporter._record_export_failure(asset, OperationalError("server closed the connection unexpectedly"))
+
+        assert asset.exception == "server closed the connection unexpectedly"
+        assert asset.exception_type == "OperationalError"
+        assert asset.failure_type == FAILURE_TYPE_SYSTEM
+        assert asset.save.call_count == 2
+        mock_close_old_connections.assert_called_once()
+
+    @patch("posthog.tasks.exporter.close_old_connections")
+    def test_does_not_reconnect_when_first_save_succeeds(self, mock_close_old_connections: MagicMock) -> None:
+        asset = MagicMock()
+        asset.export_format = "image/png"
+
+        exporter._record_export_failure(asset, QueryError("Invalid query syntax"))
+
+        assert asset.save.call_count == 1
+        mock_close_old_connections.assert_not_called()
