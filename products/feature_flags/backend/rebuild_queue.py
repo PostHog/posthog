@@ -48,7 +48,10 @@ CIRCUIT_ZSET = "flag_definitions:rebuild_circuit"
 COOLDOWN_KEY = "flag_definitions:rebuild_cooldown:{team_id}"
 FAILURE_STREAK_KEY = "flag_definitions:rebuild_fails:{team_id}"
 
-DRAIN_BATCH_SIZE = 500
+# Each team's rebuild does two synchronous set_cache_value writes (Redis + a blocking
+# S3 PUT), all sequential within the task's soft time limit. Kept conservative so a
+# full drain stays well under that limit; leftover teams re-drain on the next tick.
+DRAIN_BATCH_SIZE = 100
 COOLDOWN_SECONDS = 300  # at most one rebuild attempt per team per 5 minutes
 # Must stay > COOLDOWN_SECONDS * CIRCUIT_OPEN_THRESHOLD, or the streak key expires
 # between cooldown windows and the circuit can never trip.

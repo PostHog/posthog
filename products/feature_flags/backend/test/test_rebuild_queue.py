@@ -28,21 +28,22 @@ def fake_redis():
 
 
 @contextmanager
-def _rebuilds(error=None, skip_write=False):
+def _rebuilds(error=None, skip_write=False, load_error=None):
     """Patch the batch DB-load + cache-write seam so rebuilds succeed (error=None) or
     fail with the given exception, without touching the DB or the real caches.
-    `skip_write=True` makes the group-mapping-emptied guard veto every write."""
+    `skip_write=True` makes the group-mapping-emptied guard veto every write.
+    `load_error` makes the batch DB load raise (simulating a DB/query failure)."""
+
+    def _load(teams):
+        if load_error is not None:
+            raise load_error
+        return {t.id: {} for t in teams}
+
     with (
         patch.object(rebuild_queue, "Team") as team,
         patch.object(rebuild_queue, "_skip_write_if_group_mapping_emptied", return_value=skip_write),
-        patch.object(
-            rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=lambda teams: {t.id: {} for t in teams}
-        ),
-        patch.object(
-            rebuild_queue.flag_definitions_without_cohorts_hypercache,
-            "batch_load_fn",
-            new=lambda teams: {t.id: {} for t in teams},
-        ),
+        patch.object(rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=_load),
+        patch.object(rebuild_queue.flag_definitions_without_cohorts_hypercache, "batch_load_fn", new=_load),
         patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error) as set_cache,
         patch.object(rebuild_queue.flag_definitions_without_cohorts_hypercache, "set_cache_value", side_effect=error),
     ):
@@ -136,6 +137,19 @@ def test_rebuild_exception_is_caught_and_counts_as_failure(fake_redis):
     # that advances the streak.
     assert stats["failure"] == 1
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=5)) == b"1"
+
+
+def test_batch_load_failure_counts_every_team_as_failure(fake_redis):
+    for team_id in (11, 12, 13):
+        _enqueue(fake_redis, team_id)
+    with _rebuilds(load_error=Exception("db down")):
+        stats = drain_rebuild_requests()
+
+    # If the batched DB load raises, the whole batch is recorded as failures (so a
+    # persistent outage trips circuits normally instead of silently dropping teams).
+    assert stats["failure"] == 3
+    for team_id in (11, 12, 13):
+        assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=team_id)) == b"1"
 
 
 def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
