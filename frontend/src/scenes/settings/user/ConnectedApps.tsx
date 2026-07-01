@@ -2,9 +2,9 @@ import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -131,7 +131,7 @@ export function ConnectedApps(): JSX.Element {
             ]}
             emptyState={
                 <div className="flex items-center gap-4 py-4">
-                    <DetectiveHog className="w-16 h-16" />
+                    <HedgehogMagnifyingGlass className="w-16 h-16" />
                     <div>
                         <div className="flex items-center gap-2 font-semibold">
                             <IconKey className="text-xl text-secondary" />

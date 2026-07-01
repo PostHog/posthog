@@ -163,7 +163,16 @@ def _build_initial_params(
 
 
 @retry(
-    retry=retry_if_exception_type((KlaviyoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
+    # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
+    retry=retry_if_exception_type(
+        (
+            KlaviyoRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,

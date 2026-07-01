@@ -9,6 +9,8 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -63,6 +65,8 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
         useValues(boxPlotChartLogic(insightProps))
     const { timezone, weekStartDay } = useValues(teamLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
     // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -89,13 +93,16 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
         [seriesGroups]
     )
 
+    const formatValue = useCallback((value: number) => formatAggregationAxisValue(trendsFilter, value), [trendsFilter])
+
     const config = useMemo<BoxPlotConfig>(
         () => ({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
-            yTickFormatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
+            yTickFormatter: formatValue,
             showGrid: true,
+            tooltip: quillTooltipEnabled ? { pinnable: true, placement: 'cursor' } : undefined,
         }),
-        [yAxisScaleType, trendsFilter]
+        [yAxisScaleType, formatValue, quillTooltipEnabled]
     )
 
     const renderTooltip = useCallback(
@@ -126,13 +133,13 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                             {value}
                         </div>
                     )}
-                    renderCount={(value: number) => formatAggregationAxisValue(trendsFilter, value)}
+                    renderCount={(value: number) => formatValue(value)}
                     hideInspectActorsSection={!showPersonsModal}
                     groupTypeLabel="people"
                 />
             )
         },
-        [seriesGroups, timezone, interval, insightData, showPersonsModal, trendsFilter]
+        [seriesGroups, timezone, interval, insightData, showPersonsModal, formatValue]
     )
 
     const handleBoxClick = useCallback(
@@ -188,7 +195,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                 labels={dateLabels}
                 theme={theme}
                 config={config}
-                tooltip={renderTooltip}
+                tooltip={quillTooltipEnabled ? undefined : renderTooltip}
                 onBoxClick={handleBoxClick}
                 dataAttr="box-plot-graph"
             />

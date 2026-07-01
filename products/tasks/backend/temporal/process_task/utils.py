@@ -15,13 +15,20 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    InitialPermissionMode,
+    SnapshotKind,
+    filter_user_sandbox_env_vars,
+)
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.tasks.backend.models import Task
+    from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +225,8 @@ class RunState(BaseModel, extra="allow"):
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
+    snapshot_kind: str | None = None
+    snapshot_mount_path: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
     sandbox_connect_token: str | None = None
@@ -230,9 +239,36 @@ class RunState(BaseModel, extra="allow"):
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
 
+    def resume_snapshot_kind(self) -> SnapshotKind:
+        if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
+            return SNAPSHOT_KIND_DIRECTORY
+        return SNAPSHOT_KIND_FILESYSTEM
+
+    def resume_snapshot_mount_path(self) -> str | None:
+        if self.resume_snapshot_kind() != SNAPSHOT_KIND_DIRECTORY:
+            return None
+        return self.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
+
+
+@dataclass(frozen=True)
+class SnapshotMetadata:
+    kind: SnapshotKind
+    mount_path: str | None
+
+
+def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:
+    kind: SnapshotKind = (
+        SNAPSHOT_KIND_DIRECTORY
+        if snapshot.metadata.get("snapshot_kind") == SNAPSHOT_KIND_DIRECTORY
+        else SNAPSHOT_KIND_FILESYSTEM
+    )
+    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
+    mount_path = metadata_mount_path if isinstance(metadata_mount_path, str) and metadata_mount_path else None
+    return SnapshotMetadata(kind=kind, mount_path=mount_path)
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers

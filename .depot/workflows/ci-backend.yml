@@ -22,7 +22,9 @@
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
 # - Docker Hub login reads Depot's secret store (secrets.DOCKERHUB_*) rather than
-#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER
+#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER — depot never indirects
+#   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
+#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt
 # - Service launch via `nohup ... --down` (survives Depot's step-shell teardown) and
 #   waits on a superset (objectstorage, Temporal) with an explicit 900s timeout
 # - Path-filter persons-SQL folded into migrations. check-migrations.if also gates

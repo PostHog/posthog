@@ -1251,7 +1251,10 @@ class BigQueryStorageConsumer(Consumer):
                     if resp.error.code in _RETRYABLE_CODES and attempt < max_attempts:
                         backoff = min(2**attempt, 32)
                         self.logger.warning(
-                            "Storage stream transient error encountered", attempt=attempt, backoff=backoff
+                            "Storage stream response error",
+                            attempt=attempt,
+                            backoff=backoff,
+                            error_code=resp.error.code,
                         )
 
                         await self.close_stream()
@@ -1263,10 +1266,18 @@ class BigQueryStorageConsumer(Consumer):
 
                 return resp
 
-            except grpc.aio.AioRpcError as exc:
-                if exc.code() in _RETRYABLE_STATUS and attempt < max_attempts:
+            except (grpc.aio.AioRpcError, asyncio.InvalidStateError) as exc:
+                if (
+                    isinstance(exc, asyncio.InvalidStateError) or exc.code() in _RETRYABLE_STATUS
+                ) and attempt < max_attempts:
                     backoff = min(2**attempt, 32)
-                    self.logger.warning("Storage stream transient error encountered", attempt=attempt, backoff=backoff)
+                    self.logger.warning(
+                        "Storage stream transient error encountered",
+                        attempt=attempt,
+                        backoff=backoff,
+                        exc_info=True,
+                        error_code=exc.code() if isinstance(exc, grpc.aio.AioRpcError) else None,
+                    )
 
                     await self.close_stream()
                     await asyncio.sleep(backoff)

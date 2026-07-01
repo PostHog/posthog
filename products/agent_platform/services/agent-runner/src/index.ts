@@ -47,6 +47,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgMcpConnectionStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -184,6 +185,11 @@ async function main(): Promise<void> {
     // team) for the LLM-analytics sink's per-team routing (below). The gateway
     // bearer is a single static phs_ now, so this no longer feeds it.
     const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
+
+    // Shared MCP credentials (`spec.mcps[].connection`): reads/decrypts/refreshes
+    // the native installation row. `http` is proxy-bound (refresh via smokescreen).
+    // Needs UPDATE on `mcp_store_mcpserverinstallation` for write-back.
+    const mcpConnections = new PgMcpConnectionStore(posthogDb, encryption, http)
 
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
     // per tool dispatch, and one `$ai_trace` per session via PostHog's standard
@@ -374,6 +380,7 @@ async function main(): Promise<void> {
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
+        mcpConnections,
         devMcpBearerToken: config.devMcpBearerToken,
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,

@@ -712,13 +712,23 @@ tools:
         title: List shared experiment metrics
         description: >
             List shared metrics in the current project. Returns paginated results with id, name, description, query,
-            created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this
-            listing to resolve by name.
+            created_at, updated_at, tags.
+
+
+            To REUSE a metric by what it measures (rather than by its name): pass ?event=<the event you're measuring> to
+            find metrics that reference it — directly or via an action — then compare each candidate's 'query'
+            (metric_type + math) against the metric you'd otherwise build. Use 'search' (name/description/tags) only
+            when the user named a specific metric to attach.
         param_overrides:
             limit:
                 cast: string-int
             offset:
                 cast: string-int
+            event:
+                description: >
+                    Filter to shared metrics whose query references this event name — matched directly (an EventsNode)
+                    or via the step events of any action the metric references. For finding a reusable metric by what it
+                    measures; then confirm the match against each row's 'query'.
         response:
             include:
                 - id

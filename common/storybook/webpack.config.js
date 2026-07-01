@@ -179,21 +179,18 @@ function createEntry(entry) {
                 },
 
                 {
-                    // Now we apply rule for images
+                    // Images: webpack 5 Asset Modules (replaces the deprecated file-loader).
+                    // file-loader is incompatible with `new URL("./x.png", import.meta.url)` asset
+                    // references (e.g. @posthog/brand's PNG subpaths): it rewrites the PNG into a JS
+                    // module, and webpack then emits that JS text as the `new URL` asset — yielding a
+                    // broken image. `asset/resource` handles both plain imports and `new URL` refs.
+                    // `[name].[contenthash][ext]` reproduces file-loader's old `images/name.hash.png`
+                    // output ([ext] here includes the leading dot).
                     test: /\.(png|jpe?g|gif|svg)$/,
-                    use: [
-                        {
-                            // Using file-loader for these files
-                            loader: 'file-loader',
-
-                            // In options we can set different things like format
-                            // and directory to save
-                            options: {
-                                name: '[name].[contenthash].[ext]',
-                                outputPath: 'images',
-                            },
-                        },
-                    ],
+                    type: 'asset/resource',
+                    generator: {
+                        filename: 'images/[name].[contenthash][ext]',
+                    },
                 },
                 {
                     // Apply rule for fonts files
