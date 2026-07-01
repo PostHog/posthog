@@ -27,13 +27,13 @@ appear, but route them to the relevant team rather than diagnosing here.
 
 ## Available tools
 
-| Tool                    | Purpose                                                                           |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `health-issues-summary` | One-shot: active health-issue counts by `kind` and `severity` across the project  |
-| `health-issues-list`    | Active health issues, filterable by `kind`, `severity`, `status`, `dismissed`     |
-| `health-issues-get`     | One issue's full `payload` plus trusted `remediation` (`human` + `agent`)         |
-| `view-list`             | All saved queries / materialized views with status and latest_error               |
-| `view-run-history`      | Run history for a specific materialized view                                      |
+| Tool                    | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `health-issues-summary` | One-shot: active health-issue counts by `kind` and `severity` across the project |
+| `health-issues-list`    | Active health issues, filterable by `kind`, `severity`, `status`, `dismissed`    |
+| `health-issues-get`     | One issue's full `payload` plus trusted `remediation` (`human` + `agent`)        |
+| `view-list`             | All saved queries / materialized views with status and latest_error              |
+| `view-run-history`      | Run history for a specific materialized view                                     |
 
 Call `health-issues-summary` for the one-shot counts, then `health-issues-list` with `kind=materialized_view_failure`
 for the failing views (always pass `status=active` and `dismissed=false` — the list does **not** default-exclude
