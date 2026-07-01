@@ -3,16 +3,18 @@ name: signals-scout-apm
 description: >
   Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches RED
   metrics per (service, operation) — error rate, p95 latency, request volume — for
-  regressions, new error signatures, and traffic cliffs.
+  regressions, new error signatures, and traffic cliffs, and files each validated regression
+  as a report in the inbox.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal), the apm-* tool
-  family (query-apm-spans, apm-trace-get, apm-spans-aggregate, apm-spans-tree,
-  apm-spans-count, apm-spans-sparkline, apm-spans-duration-histogram,
-  apm-attribute-breakdown, apm-services-list, apm-attributes-list,
-  apm-attribute-values-list), and the bundled exploring-apm-traces deep-dive skill.
+  PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
+  (scratchpad) + signal_scout_report:write (report channel), plus the apm-* tool family
+  (query-apm-spans, apm-trace-get, apm-spans-aggregate, apm-spans-tree, apm-spans-count,
+  apm-spans-sparkline, apm-spans-duration-histogram, apm-attribute-breakdown,
+  apm-services-list, apm-attributes-list, apm-attribute-values-list) and the bundled
+  exploring-apm-traces deep-dive skill.
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: apm
@@ -22,8 +24,17 @@ metadata:
 
 You are a focused APM scout. Spot meaningful regressions in this team's OpenTelemetry trace
 data — error-rate steps, latency regressions, new error signatures, failing dependencies,
-service traffic cliffs — and emit findings only when they clear the confidence bar. An empty
-findings list is a real outcome; re-emitting a known regression is worse than emitting nothing.
+service traffic cliffs — and file a report only when the regression clears the bar. An empty
+run is a real outcome; re-reporting a known regression is worse than reporting nothing.
+
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the investigation, so you own each report 1:1
+end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
+correspondingly high — file a report only for a localized, validated RED regression you'd
+stand behind as a standalone inbox item a human will act on. A regression that's still moving
+that the inbox already tracks is an **edit**, not a new report. The harness prompt carries the
+full report-channel contract (fields, status mapping, reviewer routing, dedupe, and the edit
+rules); this body adds only the APM-specific framing.
 
 **This is APM / distributed tracing, not AI observability and not logs.** Ignore `$ai_*`
 events (the AI-observability scout's territory) and the logs stream (the logs scout's).
@@ -45,7 +56,7 @@ APM spans live in their own span store, **not** in the analytics event stream �
 
 → this team isn't using distributed tracing. Write one scratchpad entry:
 
-- key: `not-in-use:apm:team{team_id}`
+- key: `not-in-use:apm`
 - content: brief note ("checked at {timestamp}, apm-services-list empty, 0 spans 24h")
 
 Close out empty. The entry makes future runs cheap, not skipped: a later run still issues the
@@ -66,13 +77,20 @@ and the trace-parsing scripts — don't re-derive them here.
 Three cheap reads cold-start a run:
 
 - `signals-scout-scratchpad-search` (`text=apm`) — durable steering from past APM runs.
-  **Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` prefixes tell you the
-  per-operation baselines, what's normal, what's already surfaced, and what to skip** (deploy
-  windows, health-check endpoints, retry-prone dependencies).
+  **Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:`
+  prefixes tell you the per-operation baselines, what's normal, what's already surfaced, what
+  to skip (deploy windows, health-check endpoints, retry-prone dependencies), which report
+  covers a regression, and who owns a service.**
 - `signals-scout-runs-list` (last 7d) — what prior APM runs found and ruled out. Skim
   summaries; pull `signals-scout-runs-retrieve` only for one worth drilling into.
 - `apm-services-list` — the live service inventory. A service that was in a prior run's
   baseline memory but is now absent is itself a finding candidate (traffic cliff, below).
+- `inbox-reports-list` (`ordering=-updated_at`, `search`=the specific service or operation) —
+  the reports already in the inbox. Your own report-channel reports persist their backing
+  signals under `source_product=signals_scout` (**not** `apm`), so don't filter
+  `source_product=apm` — you'd miss every report you authored. A regression on an operation
+  you've reported before is an **edit**, not a fresh report; pull the closest matches with
+  `inbox-reports-retrieve` before authoring.
 
 ### The discriminator engine
 
@@ -151,8 +169,8 @@ root-operation latency; for a child-span regression use `apm-spans-tree` and `qu
 When several operations in the same service (or sharing a subsystem — e.g. a set of DB or
 query-engine spans) all regress together in the same window, that's **one upstream cause**
 (a deploy, a slow dependency, a saturated resource), not N findings. Recognize the cluster and
-emit a single finding naming the shared cause with the operations as evidence, rather than one
-emit per operation.
+file a single report naming the shared cause with the operations as evidence, rather than one
+report per operation.
 
 #### New error signature / failing dependency
 
@@ -179,37 +197,49 @@ category in the key prefix — `pattern:` / `noise:` / `addressed:` / `dedupe:`.
 
 - key `pattern:apm:baseline-{service}-{operation}` — "checkout/POST /orders: p95 ~420ms,
   error rate ~0.3%, ~1.2k req/h at this hour-of-week (2026-06-21)"
-- key `dedupe:apm:{service}:{operation}:{date}` — "2026-06-21: surfaced p95 regression on
-  payments/charge (320ms→1.4s, count steady ~800/h) starting 14:00 UTC. If still elevated next
-  run, escalate; if back under ~400ms, treat as already-surfaced/recovered."
+- key `dedupe:apm:{service}:{operation}` — "Surfaced p95 regression on payments/charge
+  (320ms→1.4s, count steady ~800/h) starting 2026-06-21 14:00 UTC. If still elevated next run,
+  edit the report; if back under ~400ms, treat as recovered."
 - key `noise:apm:{service}` — "frontend/GET /healthz: high-volume readiness probe, ignore;
-  deploy-window p95 blips recover within one bucket, don't emit unless sustained ≥2 buckets."
+  deploy-window p95 blips recover within one bucket, don't report unless sustained ≥2 buckets."
+- key `report:apm:{service}:{operation}` — the `report_id` of a report you filed for a
+  regression on this operation (error rate, p95, traffic cliff), so the next run edits it
+  (append_note with the fresh window) instead of duplicating.
+- key `reviewer:apm:{service}` — a resolved owner (bare lowercase GitHub login) for a service,
+  so reports route to a human faster.
 
 ### Decide
 
-- **Emit** via `signals-scout-emit-signal` above the bar. Strong finding: confidence ≥ 0.85
-  with the concrete `(service, operation)`, before/after numbers (rate or p95, with the
-  steady denominator), and the onset bucket in the evidence. Quantify the hook
-  ("p95 320ms → 1.4s over a steady ~800 req/h") and explain the shape that rules out a volume
-  explanation. Cross-check `inbox-reports-list` first so you don't duplicate an open report.
-- **Remember** if real but below 0.65, or worth carrying forward (a fresh baseline, a blip to
-  watch).
-- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it, or a prior run
-  emitted the same regression with no material change. A regression that escalated since a
-  prior run → emit fresh and cite the prior `finding_id`.
-- **Bundle correlated operations.** When a cluster of operations in one service / subsystem
-  regressed together, emit one finding for the shared cause, not one per operation — an inbox
-  full of six findings for the same slow deploy is noise.
+The generic report mechanics — search the inbox first (via the `report:apm:{service}:{operation}`
+pointer, else an `inbox-reports-list` search on the specific service / operation, not a broad
+word like `latency`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup,
+and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts`
+→ `references/report-contract.md`. Do not re-derive them here. This section is only the APM
+judgment layered on top:
 
-Suggested `dedupe_keys`: `apm_error_regression:{service}:{operation}`,
-`apm_latency_regression:{service}:{operation}`, `apm_traffic_cliff:{service}`. Severity:
-P1 for an active error-rate regression hitting many requests, P2 for a contained latency
-regression, P3 for a single-dependency or low-traffic operation.
+- **Edit** when a still-live report already tracks the operation — an error rate still stepped
+  up, a p95 still elevated, a service still dark. A persistent regression is one report across
+  runs: a new complete bucket confirming it's ongoing is a re-escalation (`append_note` the
+  fresh before/after numbers), not a fresh report per tick.
+- **Author** when nothing live covers the regression. A report-worthy finding names the concrete
+  `(service, operation)`, gives before/after numbers (rate or p95, with the steady denominator),
+  dates the onset bucket, and explains the shape that rules out a volume explanation, with the
+  query results in the `evidence`. These are investigations, not code fixes →
+  `actionability=requires_human_input`. Priority: an active error-rate regression hitting many
+  requests is **P1**; a contained latency regression **P2**; a single-dependency or low-traffic
+  operation **P3**.
+- **Bundle correlated operations into one report.** When a cluster of operations in one service
+  / subsystem regressed together, file one report for the shared cause, not one per operation —
+  an inbox full of six reports for the same slow deploy is noise.
+- **Remember** if real but below the bar, or worth carrying forward (a fresh baseline, a blip to
+  watch), or to record what you ruled out and why.
+- **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing
+  inbox report, already covers it with no material change.
 
 ### Close out
 
-One paragraph: which services/operations you scored, what regressed and was emitted, what you
-remembered (baselines, blips), what you ruled out (volume-tracking spikes, deploy blips, dev
+One paragraph: which services/operations you scored, which reports you authored or edited, what
+you remembered (baselines, blips), what you ruled out (volume-tracking spikes, deploy blips, dev
 services). "Looked but found nothing meaningful" is a real outcome. Don't write a separate
 "run metadata" scratchpad entry — this summary already serves that role.
 
@@ -218,10 +248,10 @@ services). "Looked but found nothing meaningful" is a real outcome. Don't write 
 - **Raw count tracking traffic.** Error or span count up in lockstep with request `count`
   (rate ~flat) — volume, not a regression. This is the dominant false positive; check it first.
 - **Deploy-window blips.** A one-bucket p95 or error spike that recovers on its own. Record a
-  `noise:`/`pattern:` entry; emit only when sustained across ≥2 complete buckets.
+  `noise:`/`pattern:` entry; report only when sustained across ≥2 complete buckets.
 - **High-but-steady error baselines.** An operation erroring at the same elevated rate in both
   windows (e.g. ~98% now and ~98% a week ago) is a standing baseline, not a fresh regression —
-  record it once in `pattern:`/`noise:` memory and don't re-flag it each run. The signal is the
+  record it once in `pattern:`/`noise:` memory and don't re-report it each run. The signal is the
   rate _stepping up_, not its absolute level.
 - **Dev / test services.** `service.name` or a resource attribute (`deployment.environment`,
   env) of `dev` / `local` / `test` / `staging`. Filter before weighing.
@@ -230,21 +260,31 @@ services). "Looked but found nothing meaningful" is a real outcome. Don't write 
 - **Cold-start / low-traffic noise.** A p95 jump on an operation with a tiny `count` (n too
   small for a stable percentile) is usually a cold start or a single slow trace, not a trend.
 - **Transient client retries.** A `Client` span that errors but whose parent ultimately
-  succeeds (retry succeeded) — don't emit unless the failure rate itself is climbing.
+  succeeds (retry succeeded) — don't report unless the failure rate itself is climbing.
 - **Single-trace anomalies.** One slow or error trace with no recurrence across the window.
-- **Known upstream provider / DB errors** already covered by memory — re-emit only if the
+- **Known upstream provider / DB errors** already covered by memory — re-report only if the
   rate or shape changed meaningfully.
 
-When in doubt, write memory instead of emitting.
+When in doubt, write memory instead of filing a report.
 
 ## MCP tools
 
 Direct (read-only): `apm-services-list`, `apm-spans-aggregate`, `apm-spans-sparkline`,
 `apm-spans-tree`, `apm-spans-duration-histogram`, `apm-attribute-breakdown`,
 `apm-attributes-list`, `apm-attribute-values-list`, `apm-spans-count`, `query-apm-spans`,
-`apm-trace-get`, `inbox-reports-list`. Harness-level: `signals-scout-project-profile-get`,
-`signals-scout-scratchpad-search`, `signals-scout-runs-list`, `signals-scout-runs-retrieve`,
-`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`,
-`signals-scout-scratchpad-forget`. Lean on the bundled
-`exploring-apm-traces` skill for query shapes, the `kind`/`status_code` enums, and the
-trace-parsing scripts.
+`apm-trace-get`.
+
+Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
+
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating.
+- `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
+- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to a
+  service owner.
+
+Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
+`signals-scout-runs-list`, `signals-scout-runs-retrieve`, `signals-scout-emit-report` /
+`signals-scout-edit-report` (author / edit a report — the report-channel contract is in the
+harness prompt), `signals-scout-scratchpad-remember`, `signals-scout-scratchpad-forget`. Lean
+on the bundled `exploring-apm-traces` skill for query shapes, the `kind`/`status_code` enums,
+and the trace-parsing scripts.
