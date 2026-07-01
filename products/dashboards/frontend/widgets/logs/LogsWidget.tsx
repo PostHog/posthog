@@ -1,6 +1,7 @@
 import { combineUrl } from 'kea-router'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+
 import { getLocalTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
@@ -95,7 +96,7 @@ export function LogsWidget({ result, loading, config }: DashboardWidgetComponent
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="logs-widget-empty-state"
                     >
-                        <DetectiveHog className="size-20 shrink-0" />
+                        <HedgehogMagnifyingGlass className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No logs found</p>
                         <p className="m-0 text-sm text-muted">
                             No logs matched your severity and service filters for this date range.

@@ -71,6 +71,8 @@ from products.signals.backend.scout_harness.serializers import (
     EmitReportRequestSerializer,
     EmitReportResponseSerializer,
     EvidenceEntrySerializer,
+    FleetFindingsSummaryQuerySerializer,
+    FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
@@ -105,7 +107,12 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    fleet_findings_summary,
+    get_run,
+    search_recent_runs,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
     forget,
@@ -330,6 +337,38 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        query_serializer=FleetFindingsSummaryQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=FleetFindingsSummarySerializer,
+                description="Fleet-wide tally of recently emitted findings.",
+            ),
+        },
+        summary="Summarise recently emitted findings across the fleet",
+        description=(
+            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
+            "the total count, the number of distinct scouts behind them, and the latest emission time. "
+            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
+            "through the whole runs window. Counts only runs that emitted at least one finding "
+            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
+            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_findings_summary",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="findings/summary",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def findings_summary(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        window_hours = validated.get("window_hours") or DEFAULT_FINDINGS_WINDOW_HOURS
+        summary = fleet_findings_summary(team_id=_canonical_team_id(self), window_hours=window_hours)
+        return Response(FleetFindingsSummarySerializer(summary.as_dict()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -1219,15 +1258,17 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-scout config: list, register, and tune each scout's schedule, enablement, and
-    emit posture.
+    """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
+    and emit posture.
 
     `list` is read (`signal_scout:read`) and side-effect free — the MCP tool is annotated
-    `readOnly`, so it must never write. `create` and `partial_update` are user-grantable
-    writes (`signal_scout:write`) — config changes drive spend, so enablement is
+    `readOnly`, so it must never write. `create`, `partial_update`, and `destroy` are
+    user-grantable writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
     authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row.
+    coordinator tick to auto-register a row. `destroy` removes a row outright — the cleanup path
+    for an orphaned config whose skill was archived/deleted, which `partial_update` can only make
+    inert (`enabled=false`), not remove.
     """
 
     serializer_class = SignalScoutConfigSerializer
@@ -1382,6 +1423,35 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Config deleted."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Delete a scout config",
+        description=(
+            "Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row "
+            "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
+            "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
+            "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
+            "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "
+            "re-creates a default-schedule config on its next tick — to retire a live scout, archive "
+            "its skill (or set `enabled=false` to make it inert) rather than deleting the config."
+        ),
+        operation_id="signals_scout_config_destroy",
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
+        # config changes drive spend and are activity-logged, removals included.
+        config.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,

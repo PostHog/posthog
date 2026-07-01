@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
+import posthoganalytics
 from temporalio import activity
 
 from posthog.hogql import ast
@@ -15,8 +16,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.sync import database_sync_to_async
-from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
@@ -327,23 +327,24 @@ def _merge_fingerprint_into_closest_issue(
 
 
 @activity.defn
-@scoped_temporal()
-async def merge_similar_fingerprints_activity(
+@posthoganalytics.scoped()
+@close_db_connections
+def merge_similar_fingerprints_activity(
     inputs: FingerprintEmbeddingResultInputs,
 ) -> FingerprintEmbeddingMergeResult:
     model_name: str | None = None
     try:
-        team = await Team.objects.aget(id=inputs.team_id)
+        team = Team.objects.get(id=inputs.team_id)
         model_name = _input_model_name(inputs)
 
         start = time.monotonic()
-        closest_fingerprints = await database_sync_to_async(_query_closest_fingerprints)(team, inputs, model_name)
+        closest_fingerprints = _query_closest_fingerprints(team, inputs, model_name)
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
         # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
         _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, model_name, query_duration_ms)
-        merged_count = await database_sync_to_async(_merge_fingerprint_into_closest_issue)(
+        merged_count = _merge_fingerprint_into_closest_issue(
             team,
             inputs.fingerprint,
             closest_fingerprints,

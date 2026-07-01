@@ -290,7 +290,7 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppfiguresSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -447,7 +447,8 @@ class BloggerSourceConfig(config.Config):
 
 @config.config
 class BluetallySourceConfig(config.Config):
-    pass
+    api_key: str
+    tenant_id: str | None = None
 
 
 @config.config
@@ -544,7 +545,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CallRailSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str | None = None
 
 
 @config.config
@@ -754,7 +756,7 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodefreshSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -940,7 +942,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DingConnectSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1079,7 +1081,7 @@ class EventbriteSourceConfig(config.Config):
 
 @config.config
 class EventeeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1094,7 +1096,9 @@ class EverhourSourceConfig(config.Config):
 
 @config.config
 class ExchangeRatesApiSourceConfig(config.Config):
-    pass
+    access_key: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config

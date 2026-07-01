@@ -992,6 +992,13 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"])
         )
 
+        # Tile filters completely replace dashboard filters (same semantics as the compute path in
+        # calculate_results.py). Without this, the returned `query` field would reflect dashboard
+        # filters while the cached result was computed with tile filters — causing the persons modal
+        # to use a different filter set than the chart.
+        dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
+
         if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
             if (
@@ -999,15 +1006,20 @@ class InsightSerializer(InsightBasicSerializer):
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
             ):
-                query = apply_dashboard_filters_to_dict(
-                    query,
-                    (
+                effective_filters = (
+                    tile_filters_override
+                    if tile_filters_override
+                    else (
                         dashboard_filters_override
                         if dashboard_filters_override is not None
                         else dashboard.filters
                         if dashboard
                         else {}
-                    ),
+                    )
+                )
+                query = apply_dashboard_filters_to_dict(
+                    query,
+                    effective_filters,
                     instance.team,
                 )
 

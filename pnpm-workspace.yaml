@@ -26,6 +26,9 @@ packages:
     - '!tools/hedgebox-dummy'
     - rust/cyclotron-node
 
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
 catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.5
@@ -39,6 +42,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.37.4
+    '@posthog/brand': 0.3.0
     '@posthog/react': ^1.9.0
     posthog-js: ^1.396.3
     # Build tools
