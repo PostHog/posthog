@@ -410,6 +410,35 @@ class TestHogQLTypeSystem:
                 [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
                 ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
             ),
+            # Nullable inputs: array-level nullability propagates so the printer keeps its null wrapper.
+            (
+                "arrayUniq",
+                [ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=True),
+            ),
+            (
+                "arrayIntersect",
+                [
+                    ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "arrayWithConstant",
+                [ast.IntegerType(nullable=True), ast.StringType(nullable=False)],
+                ast.ArrayType(nullable=True, item_type=ast.StringType(nullable=False)),
+            ),
+            # A nullable appended value flows into the element type; array-level nullability stays
+            # conservative (any argument nullable).
+            (
+                "arrayPushBack",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.IntegerType(nullable=True),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=True)),
+            ),
         ],
     )
     def test_resolver_infers_array_helper_function_types(

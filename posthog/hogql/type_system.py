@@ -1279,20 +1279,23 @@ def _infer_generic_function_type(
         # compatibility layer, so the family-preserving input type is the precise-enough answer.
         return infer_array_slice_constant_type(arg_types[0])
 
+    # Array-returning helpers: array-level nullability propagates from the arguments (a nullable input
+    # can make the whole result NULL), while the element type comes from _array_element_type so array
+    # nullability isn't folded into the element. Matches _infer_array_concat_type.
     if normalized_name in {"arraypushback", "arraypushfront"} and len(arg_types) >= 2:
-        item_type = least_common_supertype(
-            [infer_array_access_constant_type(arg_types[0]), arg_types[1]], dialect=dialect
-        )
-        return ast.ArrayType(nullable=arg_types[0].nullable, item_type=item_type)
+        item_type = least_common_supertype([_array_element_type(arg_types[0]), arg_types[1]], dialect=dialect)
+        return ast.ArrayType(nullable=any(arg_type.nullable for arg_type in arg_types), item_type=item_type)
 
     if normalized_name == "arraywithconstant" and len(arg_types) >= 2:
-        return ast.ArrayType(nullable=False, item_type=dataclasses.replace(arg_types[1]))
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types), item_type=dataclasses.replace(arg_types[1])
+        )
 
     if normalized_name == "arrayintersect" and arg_types:
         return ast.ArrayType(
-            nullable=False,
+            nullable=any(arg_type.nullable for arg_type in arg_types),
             item_type=least_common_supertype(
-                [infer_array_access_constant_type(arg_type) for arg_type in arg_types], dialect=dialect
+                [_array_element_type(arg_type) for arg_type in arg_types], dialect=dialect
             ),
         )
 
