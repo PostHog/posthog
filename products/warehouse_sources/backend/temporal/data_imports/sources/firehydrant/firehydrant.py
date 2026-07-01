@@ -7,13 +7,20 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import FIREHYDRANT_ENDPOINTS
 
-FIREHYDRANT_BASE_URL = "https://api.firehydrant.io"
+# FireHydrant accounts are region-pinned: US accounts live on api.firehydrant.io, EU accounts on the
+# data-residency host. The stored API key only authenticates against its own region's host.
+BASE_URLS: dict[str, str] = {
+    "us": "https://api.firehydrant.io",
+    "eu": "https://api.eu.firehydrant.io",
+}
+DEFAULT_REGION = "us"
 # FireHydrant caps per_page at 200. 100 keeps each response comfortably small while halving the
 # request count versus the default page size.
 PAGE_SIZE = 100
@@ -39,14 +46,18 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _build_url(path: str, page: int) -> str:
+def base_url_for_region(region: str | None) -> str:
+    return BASE_URLS.get((region or DEFAULT_REGION).lower(), BASE_URLS[DEFAULT_REGION])
+
+
+def _build_url(base_url: str, path: str, page: int) -> str:
     query = urlencode({"page": page, "per_page": PAGE_SIZE})
-    return f"{FIREHYDRANT_BASE_URL}{path}?{query}"
+    return f"{base_url}{path}?{query}"
 
 
 def _fetch_page_once(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
+) -> dict[str, Any] | list[Any]:
     response = session.get(url, headers=headers, timeout=60)
 
     if response.status_code == 429:
@@ -84,14 +95,14 @@ _fetch_page = retry(
 )(_fetch_page_once)
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, region: str | None = None) -> tuple[bool, str | None]:
     """Probe the authenticated ping endpoint to confirm the token is genuine.
 
     Only a 200 proves the key is real and usable. A 403 means the request reached FireHydrant but the
     token lacks the required permissions — we surface that as a permissions failure rather than
     silently accepting an unverified key (which would let a broken source register as authenticated).
     """
-    url = f"{FIREHYDRANT_BASE_URL}/v1/ping"
+    url = f"{base_url_for_region(region)}/v1/ping"
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
@@ -129,18 +140,23 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FireHydrantResumeConfig],
+    region: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FIREHYDRANT_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
+    base_url = base_url_for_region(region)
     # One session reused across every page so urllib3 keeps the connection alive instead of
     # re-handshaking per request. Redact the token so it never lands in logged URLs or HTTP samples.
-    session = make_tracked_session(redact_values=(api_key,))
+    # `retry=Retry(total=0)` disables the adapter's own retries so tenacity is the single retry
+    # authority — otherwise adapter and tenacity backoffs would stack and could bypass the
+    # `MAX_RETRY_AFTER_SECONDS` cap on `Retry-After`.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
 
     while True:
-        payload = _fetch_page(session, _build_url(config.path, page), headers, logger)
+        payload = _fetch_page(session, _build_url(base_url, config.path, page), headers, logger)
         items = _extract_items(payload)
         if items:
             yield items
@@ -161,6 +177,7 @@ def firehydrant_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FireHydrantResumeConfig],
+    region: str | None = None,
 ) -> SourceResponse:
     config = FIREHYDRANT_ENDPOINTS[endpoint]
 
@@ -171,6 +188,7 @@ def firehydrant_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            region=region,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     FireHydrantResumeConfig,
     _build_url,
     _extract_items,
+    base_url_for_region,
     firehydrant_source,
     get_rows,
 )
@@ -36,7 +37,13 @@ class _FakeResumableManager:
         self.saved.append(data)
 
 
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], endpoint: str) -> list[dict]:
+def _collect(
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+    pages: dict[str, Any],
+    endpoint: str,
+    region: str | None = None,
+) -> list[dict]:
     def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
         result = pages[url]
         if isinstance(result, Exception):
@@ -51,15 +58,26 @@ def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, 
         endpoint=endpoint,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
+        region=region,
     ):
         rows.extend(batch)
     return rows
 
 
 class TestBuildUrl:
-    def test_includes_page_and_per_page(self) -> None:
-        url = _build_url("/v1/incidents", 3)
-        assert url == f"https://api.firehydrant.io/v1/incidents?page=3&per_page={PAGE_SIZE}"
+    @parameterized.expand(
+        [
+            # region -> host: EU accounts are pinned to the data-residency host, so an unknown or
+            # missing region must fall back to the US default rather than a wrong host.
+            ("default_us", None, "https://api.firehydrant.io"),
+            ("us", "us", "https://api.firehydrant.io"),
+            ("eu", "eu", "https://api.eu.firehydrant.io"),
+            ("unknown_falls_back", "apac", "https://api.firehydrant.io"),
+        ]
+    )
+    def test_includes_page_and_per_page(self, _name: str, region: str | None, base_host: str) -> None:
+        url = _build_url(base_url_for_region(region), "/v1/incidents", 3)
+        assert url == f"{base_host}/v1/incidents?page=3&per_page={PAGE_SIZE}"
 
 
 class TestExtractItems:
@@ -119,6 +137,18 @@ class TestGetRows:
         _collect(manager, monkeypatch, pages, "services")
         # State saved only when a next page exists — not after the final page.
         assert [s.next_page for s in manager.saved] == [2, 3]
+
+    def test_region_routes_requests_to_eu_host(self, monkeypatch: Any) -> None:
+        # EU accounts only answer on the data-residency host; if get_rows ignored region it would hit
+        # the US host and every EU sync would fail.
+        pages = {
+            "https://api.eu.firehydrant.io/v1/incidents?page=1&per_page=100": {
+                "data": [{"id": "eu1"}],
+                "pagination": {"next": None},
+            },
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents", region="eu")
+        assert rows == [{"id": "eu1"}]
 
     def test_resume_from_saved_state(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(FireHydrantResumeConfig(next_page=2))
@@ -200,6 +230,23 @@ class TestValidateCredentials:
         valid, error = firehydrant.validate_credentials("fhb_test")
         assert valid is False
         assert error is not None
+
+    @parameterized.expand(
+        [
+            ("default_us", None, "https://api.firehydrant.io/v1/ping"),
+            ("eu", "eu", "https://api.eu.firehydrant.io/v1/ping"),
+        ]
+    )
+    def test_probes_region_host(self, _name: str, region: str | None, expected_url: str) -> None:
+        # The key is only valid against its own region's host, so validation must probe there.
+        response = requests.Response()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
+            firehydrant.validate_credentials("fhb_test", region=region)
+        assert session.get.call_args.args[0] == expected_url
 
 
 class TestCredentialRedaction:

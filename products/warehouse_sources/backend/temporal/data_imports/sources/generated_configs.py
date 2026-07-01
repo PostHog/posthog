@@ -1176,6 +1176,7 @@ class FinnworldsSourceConfig(config.Config):
 @config.config
 class FireHydrantSourceConfig(config.Config):
     api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

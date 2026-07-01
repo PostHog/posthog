@@ -9,6 +9,7 @@ from posthog.schema import (
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -24,7 +25,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
-    return MagicMock(api_key="fhb_test")
+    return MagicMock(api_key="fhb_test", region="us")
 
 
 class TestFireHydrantSourceConfig:
@@ -42,13 +43,21 @@ class TestFireHydrantSourceConfig:
 
     def test_api_key_field_is_secret_password(self) -> None:
         fields = FireHydrantSource().get_source_config.fields
-        assert len(fields) == 1
         api_key = fields[0]
         assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True
+
+    def test_region_field_offers_us_and_eu(self) -> None:
+        # EU accounts are region-pinned; a missing EU option would leave those customers unable to
+        # connect. Region is also a connection-host field so retargeting re-requires the key.
+        region = next(f for f in FireHydrantSource().get_source_config.fields if isinstance(f, SourceFieldSelectConfig))
+        assert region.name == "region"
+        assert {o.value for o in region.options} == {"us", "eu"}
+        assert region.defaultValue == "us"
+        assert FireHydrantSource().connection_host_fields == ["region"]
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table catalog can render.
@@ -92,6 +101,14 @@ class TestNonRetryableErrors:
             (
                 "forbidden",
                 "403 Client Error: Forbidden for url: https://api.firehydrant.io/v1/runbooks?page=1&per_page=100",
+            ),
+            (
+                "unauthorized_eu",
+                "401 Client Error: Unauthorized for url: https://api.eu.firehydrant.io/v1/incidents?page=1&per_page=100",
+            ),
+            (
+                "forbidden_eu",
+                "403 Client Error: Forbidden for url: https://api.eu.firehydrant.io/v1/runbooks?page=1&per_page=100",
             ),
         ]
     )
@@ -139,13 +156,14 @@ class TestResumableWiring:
         assert captured["api_key"] == "fhb_test"
         assert captured["endpoint"] == "incidents"
         assert captured["resumable_source_manager"] is manager
+        assert captured["region"] == "us"
 
 
 class TestValidateCredentials:
     def test_delegates_to_transport(self, monkeypatch: Any) -> None:
         import products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source as source_module
 
-        monkeypatch.setattr(source_module, "validate_firehydrant_credentials", lambda key: (True, None))
+        monkeypatch.setattr(source_module, "validate_firehydrant_credentials", lambda key, region=None: (True, None))
         valid, error = FireHydrantSource().validate_credentials(_config(), team_id=1)
         assert valid is True
         assert error is None
