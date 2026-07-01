@@ -19,6 +19,7 @@ function definition(
         created_by: null,
         updated_at: null,
         references: [],
+        source: null,
         ...overrides,
     }
 }
