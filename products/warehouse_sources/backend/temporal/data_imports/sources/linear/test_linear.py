@@ -49,6 +49,16 @@ def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicM
     return response
 
 
+def _make_truncated_ok_response() -> MagicMock:
+    """Mimic a truncated HTTP-200: the body was cut off mid-stream so JSON parsing fails."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.text = '{"data": {"issues": {"nodes": [{"description": "a very long'
+    response.json.side_effect = ValueError("Unterminated string starting at: line 1 column 1 (char 0)")
+    return response
+
+
 def _retry_state(exc: BaseException) -> RetryCallState:
     state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
     state.outcome = Future.construct(1, exc, has_exception=True)
@@ -226,6 +236,36 @@ class TestMakePaginatedRequest:
             )
 
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_truncated_ok_response_is_retried_then_succeeds(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # A truncated HTTP-200 (connection dropped mid-stream on a large page) makes response.json()
+        # raise. It must ride the same backoff path as the network errors, not escalate to a
+        # non-retryable Exception that fails the whole activity.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_truncated_ok_response(),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
 
     @parameterized.expand(
         [

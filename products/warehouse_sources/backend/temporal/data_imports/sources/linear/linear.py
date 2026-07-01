@@ -117,10 +117,14 @@ def _make_paginated_request(
 
         try:
             payload = response.json()
-        except Exception:
+        except Exception as e:
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})")
-            raise Exception(f"Unexpected Linear response: {response.text}")
+            # A 2xx whose body won't parse is almost always a truncated/incomplete response - the
+            # connection dropped mid-stream on a large page (e.g. a long issue description). Fold it
+            # into the same backoff path as the transient network errors above instead of failing the
+            # whole activity; only a hard failure once retries are exhausted.
+            raise LinearRetryableError(f"Linear: incomplete response body (HTTP {response.status_code}) - {e}")
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
