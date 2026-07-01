@@ -41,7 +41,14 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    {
+        key: 'early_access_feature',
+        objectName: 'Early access feature',
+        objectPlural: 'early access features',
+        warnings: {
+            write: 'Early access features are backed by a feature flag. Creating or updating one also writes that flag, so this key also needs `feature_flag:write`.',
+        },
+    },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
@@ -138,7 +145,14 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
-    { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    {
+        key: 'survey',
+        objectName: 'Survey',
+        objectPlural: 'surveys',
+        warnings: {
+            write: 'Surveys with targeting also write a feature flag. If your integration sets survey targeting, this key also needs `feature_flag:write`.',
+        },
+    },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },

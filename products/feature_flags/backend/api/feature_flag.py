@@ -261,8 +261,9 @@ def assert_feature_flag_write_scope(
     if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
         raise exceptions.PermissionDenied(
             f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
-            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "
-            f"with the `*` scope."
+            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your personal API key at "
+            f"{settings.SITE_URL}/settings/user-api-keys — editing its scopes keeps the same key value — "
+            f"or use a key with the `*` scope."
         )
 
 
