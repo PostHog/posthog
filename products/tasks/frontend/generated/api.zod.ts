@@ -248,6 +248,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -261,11 +262,11 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'support_reply',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             ),
         repository: zod
             .string()
@@ -355,6 +356,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -368,11 +370,11 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'support_reply',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             ),
         repository: zod
             .string()
@@ -462,6 +464,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -475,11 +478,11 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'support_reply',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             ),
         repository: zod
             .string()
@@ -798,6 +801,12 @@ export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePat
 
 export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -808,12 +817,21 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                     .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name associated with the staged artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -829,6 +847,37 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                     .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type recorded for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of staged artifacts to finalize after upload'),
@@ -847,6 +896,12 @@ export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 3
 
 export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -856,12 +911,21 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                     .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the staged artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -878,6 +942,37 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                     .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact upload'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of staged artifacts to prepare before creating a run'),
@@ -1026,6 +1121,10 @@ export const tasksRunsArtifactsCreateBodyArtifactsItemSourceMax = 64
 export const tasksRunsArtifactsCreateBodyArtifactsItemContentEncodingDefault = `utf-8`
 export const tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
+
 export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1035,12 +1134,21 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1060,6 +1168,35 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of artifacts to upload'),
@@ -1091,6 +1228,12 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathM
 
 export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1101,12 +1244,21 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name associated with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1122,6 +1274,37 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type recorded for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -1140,6 +1323,12 @@ export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 314
 
 export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1149,12 +1338,21 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                     .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1171,6 +1369,35 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                     .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact upload'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of artifacts to prepare'),
@@ -1218,8 +1445,17 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
  */
 export const tasksRunsRelayMessageCreateBodyTextMax = 10000
 
+export const tasksRunsRelayMessageCreateBodyTextPartsItemMax = 10000
+
 export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(tasksRunsRelayMessageCreateBodyTextMax),
+    text: zod
+        .string()
+        .max(tasksRunsRelayMessageCreateBodyTextMax)
+        .describe('Joined message body. Used when text_parts is absent.'),
+    text_parts: zod
+        .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
+        .optional()
+        .describe('Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.'),
 })
 
 /**

@@ -3755,7 +3755,7 @@
     },
     "events": {
         "$$heatmap": {
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": true,
             "label": "Heatmap"
         },
@@ -4165,6 +4165,13 @@
         }
     },
     "numerical_event_properties": {},
+    "person_metadata": {
+        "created_at": {
+            "description": "The time when the person was first seen.",
+            "label": "First seen",
+            "type": "DateTime"
+        }
+    },
     "person_properties": {
         "$$plugin_metrics": {
             "description": "Performance metrics for a given plugin.",

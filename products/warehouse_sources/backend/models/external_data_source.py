@@ -90,6 +90,10 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_direct_query and self.source_type == ExternalDataSourceType.MYSQL
 
     @property
+    def is_direct_snowflake(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.SNOWFLAKE
+
+    @property
     def direct_engine(self) -> str | None:
         """The direct-SQL engine for this source's type, or None if no engine maps to it.
 

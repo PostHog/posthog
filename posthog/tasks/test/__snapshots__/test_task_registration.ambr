@@ -120,6 +120,7 @@
     'posthog.tasks.tasks.process_scheduled_changes',
     'posthog.tasks.tasks.redis_celery_queue_depth',
     'posthog.tasks.tasks.redis_heartbeat',
+    'posthog.tasks.tasks.redispatch_orphaned_queued_task_runs',
     'posthog.tasks.tasks.refresh_activity_log_fields_cache',
     'posthog.tasks.tasks.send_org_usage_reports',
     'posthog.tasks.tasks.start_poll_query_performance',

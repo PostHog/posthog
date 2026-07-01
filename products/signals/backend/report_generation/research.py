@@ -330,6 +330,8 @@ We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 We never use the em-dash, only the en-dash (–).
+When naming a PostHog product, we use its real name (for example "error tracking", not a third-party equivalent like "Sentry"). We only name an external vendor if the source data explicitly does.
+Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 </writing_guide>
 
 You have two investigation tools:

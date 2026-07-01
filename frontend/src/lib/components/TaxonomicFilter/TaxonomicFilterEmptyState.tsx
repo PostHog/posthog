@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
 
+import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -14,8 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-
-import { BuilderHog3 } from '../hedgehogs'
 
 function labelFor(key: string, type: TaxonomicFilterGroupType, fallback: string): string {
     return getCoreFilterDefinition(key, type)?.label ?? fallback
@@ -115,7 +114,7 @@ const DataWarehouseEmptyState = ({ isLoading = false }: { isLoading?: boolean })
                 text: 'New source',
             }}
             docsUrl="https://posthog.com/docs/data-warehouse"
-            hog={BuilderHog3}
+            hog={HedgehogConstruction2}
         />
     )
 }
@@ -257,6 +256,7 @@ const DefaultEmptyState = (): JSX.Element | null => {
 
 const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType<TaxonomicFilterEmptyStateProps>>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.DataWarehouseSourceTables]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
