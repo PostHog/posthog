@@ -7,7 +7,7 @@ Also handles team membership checks for the ownership gate.
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -30,6 +30,7 @@ class PRData:
     review_comments: list[dict]
     check_runs: list[dict]
     author_is_bot: bool = False
+    pr_reactions: list[dict] = field(default_factory=list)
 
     @property
     def file_paths(self) -> list[str]:
@@ -103,6 +104,32 @@ def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> lis
     return normalized_reviews
 
 
+# GitHub spells reaction contents two ways: REST returns "+1"/"-1", GraphQL
+# returns "THUMBS_UP"/"THUMBS_DOWN". Normalize both to an emoji so the reviewer
+# sees a consistent signal regardless of which API surfaced the reaction.
+_REACTION_EMOJI = {
+    "+1": "👍",
+    "thumbs_up": "👍",
+    "-1": "👎",
+    "thumbs_down": "👎",
+    "laugh": "😄",
+    "hooray": "🎉",
+    "confused": "😕",
+    "heart": "❤️",
+    "rocket": "🚀",
+    "eyes": "👀",
+}
+
+
+def _reaction_emoji(content: str) -> str:
+    """Map a GitHub reaction content string (REST or GraphQL) to an emoji.
+
+    Unknown values pass through unchanged so a newly-added reaction type still
+    surfaces rather than silently disappearing.
+    """
+    return _REACTION_EMOJI.get(content.lower(), content)
+
+
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
@@ -135,6 +162,12 @@ query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
               body
               databaseId
               replyTo { databaseId }
+              reactions(first: 20) {
+                nodes {
+                  content
+                  user { login }
+                }
+              }
             }
           }
         }
@@ -193,6 +226,7 @@ def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
                 if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
                     continue
                 reply_to = c.get("replyTo")
+                reaction_nodes = (c.get("reactions") or {}).get("nodes") or []
                 comments.append(
                     {
                         "user": (c.get("author") or {}).get("login", "ghost"),
@@ -202,6 +236,13 @@ def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
                         "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
                         "is_resolved": thread["isResolved"],
                         "is_outdated": thread["isOutdated"],
+                        "reactions": [
+                            {
+                                "user": (rn.get("user") or {}).get("login", "ghost"),
+                                "emoji": _reaction_emoji(rn.get("content", "")),
+                            }
+                            for rn in reaction_nodes
+                        ],
                     }
                 )
 
@@ -211,6 +252,28 @@ def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
         variables["threadCursor"] = page_info["endCursor"]
 
     return comments
+
+
+def _fetch_pr_reactions(repo: str, pr_number: int) -> list[dict]:
+    """Fetch reactions left on the PR body (issue-level reactions).
+
+    Agent reviewers and teammates often signal "no concerns" with a 👍 on the PR
+    rather than a formal review, so surface these to the reviewer as weak
+    context. Only actual reaction events count here — a review's own body is
+    already captured separately.
+    """
+    raw = _gh_api(f"repos/{repo}/issues/{pr_number}/reactions", paginate=True)
+    reactions = []
+    for r in raw:
+        user = r.get("user") or {}
+        reactions.append(
+            {
+                "user": user.get("login", "ghost"),
+                "emoji": _reaction_emoji(r.get("content", "")),
+                "user_is_bot": user.get("type") == "Bot",
+            }
+        )
+    return reactions
 
 
 def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
@@ -283,6 +346,13 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
 
     review_comments = _fetch_review_threads(repo, pr_number)
 
+    # Reactions are supplementary context — a hiccup here must not fail the
+    # whole review, so degrade to no reactions rather than raising.
+    try:
+        pr_reactions = _fetch_pr_reactions(repo, pr_number)
+    except RuntimeError:
+        pr_reactions = []
+
     return PRData(
         number=pr_number,
         repo=repo,
@@ -299,6 +369,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
         author_is_bot=is_bot_author(pr.get("user", {})),
+        pr_reactions=pr_reactions,
     )
 
 

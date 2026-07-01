@@ -33,7 +33,7 @@ try:
 except ImportError:
     _POSTHOG_AI_AVAILABLE = False
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 
 
 _CONTROL_CHARS_RE = re.compile(r"[^\x20-\x7E\n\t]")
@@ -140,28 +140,39 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
-    Review comments (inline feedback only, approval states are hidden):
-    - Top-level reviews are annotated as either "current head" or "older commit".
-      Treat reviews on the current head as active signals. Treat older-commit
-      reviews as historical context only, and only flag them if the current diff
+    Reviews, comments, and reactions:
+    - Each top-level review shows its state (APPROVED / COMMENTED /
+      CHANGES_REQUESTED) and whether it landed on the current head or an older
+      commit. Treat current-head reviews as active signals; treat older-commit
+      reviews as historical context, acting on them only if the current diff
       still shows the same unresolved issue.
-    - Comments are tagged [resolved], [outdated], or unmarked (unresolved).
-      Resolution status is a signal, not gospel — use your judgment.
-    - Resolved/outdated comments are usually fine, but still skim them.
-      If a resolved comment raised a serious concern (security, data
-      loss) that the diff clearly did NOT address, flag it anyway.
-    - For unresolved comments: check whether a subsequent commit or the
-      current diff already addressed the concern. Authors often fix
-      issues in follow-up commits without explicitly resolving the
-      thread. Only flag comments that remain genuinely unaddressed in
-      the current code.
-    - Substantive comments that remain unaddressed → REFUSE
-    - "Zero reviews" means no top-level reviews and no inline comments.
-      Zero reviews is fine for low-risk changes (trivial fixes, typos,
-      test updates, config tweaks). For anything higher-risk, treat zero
-      reviews as a concern and ESCALATE unless there's a strong,
-      specific justification to APPROVE.
-    - Bot comments with valid concerns that were ignored → ESCALATE
+    - Inline comments are tagged [resolved], [outdated], or unmarked
+      (unresolved). Resolution status is a signal, not gospel — use judgment. A
+      resolved or outdated comment that raised a serious concern (security, data
+      loss) the diff clearly did NOT address → flag it anyway. For unresolved
+      comments, check whether a later commit already addressed the concern
+      before flagging; substantive ones still unaddressed → REFUSE.
+    - Reactions (👍, 👎, 👀, etc.) on the PR and on individual comments are
+      provided. A 👍 from an agent reviewer or teammate is how a bot often
+      signals "no concerns" — a mild positive; a 👎 or 😕 is a mild negative.
+      These two are weak evidence: never approve on a 👍 alone or refuse on a 👎
+      alone — corroborate against the diff.
+    - An 👀 (eyes) reaction means a review is in flight — someone is actively
+      looking at the PR right now. Do NOT approve over an in-progress review:
+      REFUSE and tell the author to wait for that reviewer to finish and
+      re-request. This overrides any 👍 present.
+    - Bot/agent comments with valid concerns that were ignored → ESCALATE.
+
+    Independent review (you are not a substitute for one):
+    - Stamphog is the only automated approver in this path, so for any
+      non-trivial change require at least one independent reviewer — an agent
+      reviewer (Codex, Greptile, Claude) or a human teammate — to have passed
+      over the current head: an APPROVED or COMMENTED review with no unresolved
+      concerns, or a 👍 on the PR or on the review. If none has, ESCALATE and
+      tell the author to get a review before re-requesting.
+    - Trivial class where no independent review is needed: docs-only, test-only,
+      config/lockfile tweaks, and typo/comment/log-string fixes — purely
+      cosmetic or low-risk additive changes. Judge from the tier and diff.
 
     Tools: You have Read, Grep, and Glob (restricted to the repo directory).
     All PR metadata (comments, ownership) is in the prompt — do NOT fetch
@@ -270,6 +281,7 @@ class Reviewer:
                     "stamphog_reviewers": reviewers,
                     "stamphog_reviews_count": len(pr.reviews),
                     "stamphog_inline_comments_count": len(pr.review_comments),
+                    "stamphog_pr_reactions_count": len(pr.pr_reactions),
                     "stamphog_tier": classification.get("tier", ""),
                     "stamphog_t1_subclass": classification.get("t1_subclass", ""),
                     "stamphog_breadth": classification.get("breadth", ""),
@@ -370,8 +382,17 @@ class Reviewer:
                 elif c.get("is_outdated"):
                     status = " [outdated]"
                 safe_path = _sanitize_untrusted(c["path"], max_len=200)
-                lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}")
+                reactions = self._format_reactions(c.get("reactions"))
+                lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
+
+        pr_reactions = ""
+        if pr.pr_reactions:
+            lines = []
+            for r in pr.pr_reactions:
+                bot = " [bot]" if r.get("user_is_bot") else ""
+                lines.append(f"  - {r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}{bot}")
+            pr_reactions = "\n".join(lines)
 
         ownership = self._format_ownership(cl)
 
@@ -400,7 +421,7 @@ class Reviewer:
             Size: {pr.lines_total} lines ({pr.lines_added}+/{pr.lines_deleted}-), {len(pr.files)} files
             Scope: {cl["breadth"]}
             Commit type: {cl.get("commit_type") or "unknown"}
-            Reviews: {len(pr.reviews)} top-level, {len(pr.review_comments)} inline
+            Reviews: {len(pr.reviews)} top-level, {len(pr.review_comments)} inline, {len(pr.pr_reactions)} PR reactions
 
             {ownership}
 
@@ -424,8 +445,18 @@ class Reviewer:
 
             Inline comments:
             {review_comments}
+
+            Reactions on the PR:
+            {pr_reactions}
             --- END UNTRUSTED CONTENT ---
         """)
+
+    def _format_reactions(self, reactions: list[dict] | None) -> str:
+        """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""
+        if not reactions:
+            return ""
+        parts = [f"{r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}" for r in reactions]
+        return "  {" + ", ".join(parts) + "}"
 
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})

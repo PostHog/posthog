@@ -67,6 +67,15 @@ LLM Review
   - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
+  - Reads other reviewers' signals — review states, inline comments, and
+    reactions (👍/👎) on the PR and comments, all annotated current-head vs
+    older-commit — as context (not a gate)
+  - An 👀 reaction signals an in-flight review — the LLM refuses rather than
+    approving over someone who is mid-review
+  - For non-trivial changes, expects at least one independent reviewer (an
+    agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
+    over the current head; escalates otherwise. Trivial changes (docs, tests,
+    config/lockfile, typo/comment fixes) don't need one
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
