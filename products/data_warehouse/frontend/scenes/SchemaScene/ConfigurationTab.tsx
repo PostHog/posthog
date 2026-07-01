@@ -581,6 +581,34 @@ function ColumnsAndRowFiltersSection({
 
     const handleSave = (): void => {
         const syncType = schema.sync_type
+
+        // Unmasking can't be done in place — the hashes are one-way, so the original values have to be
+        // re-fetched from the source, which means a full re-sync of the table. Confirm before saving.
+        // (The backend triggers the re-sync itself on this PATCH, so a normal commit is enough.)
+        const unmasked = (schema.masked_columns ?? []).filter((c) => !draftMasked.includes(c))
+        if (unmasked.length > 0 && !!schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Unmasking triggers a full re-sync',
+                description: (
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            Unmasking {unmasked.length === 1 ? '1 column' : `${unmasked.length} columns`} re-downloads
+                            the whole table to restore the original values from the source — masked hashes can't be
+                            reversed.
+                        </span>
+                        {unmasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Unmasking: {unmasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                    </div>
+                ),
+                primaryButton: { children: 'Unmask and full re-sync', onClick: () => commit(false) },
+                secondaryButton: { children: 'Cancel' },
+            })
+            return
+        }
+
         const added = getAddedColumns(schema.enabled_columns ?? null, draftColumns, available)
         const requiresPrompt =
             !!schema.last_synced_at &&
