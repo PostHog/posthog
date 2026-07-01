@@ -29,8 +29,9 @@ export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean
                     </div>
                     <h3 className="text-base font-semibold m-0">No runs yet</h3>
                     <p className="text-sm text-tertiary m-0">
-                        Tasks kicked off by Self-driving – scouts exploring your project and the signals pipeline
-                        researching reports – will show up here, newest first.
+                        Self-driving agent runs.
+                        <br />
+                        Scouts exploring your data and per-signal agents show up here.
                     </p>
                 </div>
             ) : (

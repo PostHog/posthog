@@ -40,6 +40,8 @@ const SCOUT_RUNS_LIMIT = 100
 // Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
 // at 100); passed explicitly so the cap is visible rather than relying on the server default.
 const SIGNAL_TASKS_LIMIT = 100
+// How often the Runs tab refetches while it's open, so live runs update in place.
+const RUNS_POLL_INTERVAL_MS = 5000
 
 const SESSION_ANALYSIS_POLL_INTERVAL_MS = 5000
 
@@ -352,9 +354,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         setActiveTab: ({ tab }) => {
-            // Refresh the project-wide runs list each time the Runs tab opens.
+            // While the Runs tab is open, refetch on a slow poll so live runs update in place. The
+            // keyed disposable replaces any prior poll and is torn down on tab switch / unmount, and
+            // kea-disposables pauses it while the browser tab is hidden. The refetch is silent (the
+            // skeleton only shows before the first load), so it swaps the list without flicker.
             if (tab === 'runs') {
                 actions.loadRuns()
+                cache.disposables.add(() => {
+                    const interval = setInterval(() => actions.loadRuns(), RUNS_POLL_INTERVAL_MS)
+                    return () => clearInterval(interval)
+                }, 'runsPoll')
+            } else {
+                cache.disposables.dispose('runsPoll')
             }
         },
         setSelectedReportId: ({ id, openMethod }) => {
