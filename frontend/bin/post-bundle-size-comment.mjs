@@ -130,41 +130,45 @@ try {
     process.exit(0)
 }
 
+// Only diff per file when there is a baseline. Without one every file looks "new", which
+// would flood the comment with the whole manifest and make every delta a bogus increase.
 const prFiles = new Map(report.files.map((f) => [f.file, f.bytes]))
-const allIdentities = new Set([...prFiles.keys(), ...Object.keys(baseBytes)])
 const changed = []
-for (const identity of allIdentities) {
-    const prBytes = prFiles.get(identity)
-    const base = baseBytes[identity]
-    const delta = (prBytes ?? 0) - (base ?? 0)
-    if (Math.abs(delta) >= MINIMUM_CHANGE_BYTES) {
-        changed.push({ identity, prBytes, base, delta })
+if (baseReport) {
+    for (const identity of new Set([...prFiles.keys(), ...Object.keys(baseBytes)])) {
+        const prBytes = prFiles.get(identity)
+        const base = baseBytes[identity]
+        const delta = (prBytes ?? 0) - (base ?? 0)
+        if (Math.abs(delta) >= MINIMUM_CHANGE_BYTES) {
+            changed.push({ identity, prBytes, base, delta })
+        }
     }
 }
 changed.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
 
 const baseTotal = baseReport?.total
 const totalDelta = report.total - (baseTotal ?? 0)
-const anyChange = changed.length > 0
 
 const lines = [
     MARKER,
-    `## ${totalDelta > 0 ? '🔺' : '📦'} Bundle size`,
+    `## ${baseReport && totalDelta > 0 ? '🔺' : '📦'} Bundle size`,
     '',
     'Uncompressed size of every built `.js` bundle, compared against the base branch.',
     '',
-    `**Total:** ${formatBytes(report.total)} · ${formatDelta(report.total, baseTotal)}`,
+    baseReport
+        ? `**Total:** ${formatBytes(report.total)} · ${formatDelta(report.total, baseTotal)}`
+        : `**Total:** ${formatBytes(report.total)} _(no base branch measurement to compare against yet)_`,
     '',
 ]
 
-if (anyChange) {
+if (baseReport && changed.length) {
     lines.push('| File | Size | Δ vs base |', '| --- | --- | --- |')
     for (const { identity, prBytes, base } of changed) {
         const size = prBytes === undefined ? '_removed_' : formatBytes(prBytes)
         lines.push(`| \`${identity}\` | ${size} | ${formatDelta(prBytes ?? 0, base)} |`)
     }
     lines.push('')
-} else {
+} else if (baseReport) {
     lines.push(`No file changed by more than ${formatBytes(MINIMUM_CHANGE_BYTES)}.`, '')
 }
 
