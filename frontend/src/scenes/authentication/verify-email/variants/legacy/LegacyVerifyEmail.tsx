@@ -4,10 +4,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { HedgehogShocked } from '@posthog/brand/hoggies'
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { HeartHog, MailHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
@@ -152,7 +153,7 @@ function VerifyEmail(): JSX.Element {
                             <>
                                 <h1 className="text-3xl font-bold">Whoops!</h1>
                                 <div className="max-w-60 mb-12">
-                                    <SurprisedHog className="w-full h-full" />
+                                    <HedgehogShocked className="w-full h-full" />
                                 </div>
                                 <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
 

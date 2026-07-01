@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ scripts/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-primitives": "workspace:*",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
@@ -20,7 +21,6 @@
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
-        "@posthog/quill-primitives": "workspace:*",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",

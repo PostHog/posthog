@@ -1,3 +1,8 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { userLogic } from 'scenes/userLogic'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task } from '../types/taskTypes'
@@ -24,7 +29,10 @@ describe('tasksLogic', () => {
     let logic: ReturnType<typeof tasksLogic.build>
 
     beforeEach(() => {
+        useMocks({ get: { '/api/projects/:team_id/tasks/': () => [200, { results: [], count: 0 }] } })
         initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         logic = tasksLogic()
         logic.mount()
     })
@@ -55,6 +63,34 @@ describe('tasksLogic', () => {
 
             expect(logic.values.tasks).toHaveLength(1)
             expect(logic.values.tasks[0].id).toBe('task-1')
+        })
+    })
+
+    describe('taskListParams', () => {
+        it('defaults to "for you", scoping the list to the current user', () => {
+            expect(logic.values.assigneeFilter).toBe('for_you')
+            expect(logic.values.taskListParams).toEqual({
+                search: undefined,
+                created_by: userLogic.values.user?.id,
+            })
+        })
+
+        it('scopes to the Signals Scout origin for team scouts', () => {
+            logic.actions.setAssigneeFilter('team_scouts')
+
+            expect(logic.values.taskListParams).toEqual({
+                search: undefined,
+                origin_product: OriginProduct.SIGNALS_SCOUT,
+            })
+        })
+
+        it('composes the search term with the active assignee filter', () => {
+            logic.actions.setSearchQuery('checkout bug')
+
+            expect(logic.values.taskListParams).toEqual({
+                search: 'checkout bug',
+                created_by: userLogic.values.user?.id,
+            })
         })
     })
 })

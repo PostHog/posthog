@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -255,8 +255,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["rank_2_fingerprint"] == "fingerprint-2"
         assert properties["rank_3_fingerprint"] == "fingerprint-3"
 
-    @pytest.mark.asyncio
-    async def test_merge_activity_reports_distances(self) -> None:
+    def test_merge_activity_reports_distances(self) -> None:
         closest_fingerprints = [
             SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
             SimilarFingerprintDistance(fingerprint="fingerprint-2", distance=0.02),
@@ -265,8 +264,8 @@ class TestFingerprintEmbeddingResultActivity:
 
         with (
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.aget",
-                new=AsyncMock(return_value=MagicMock()),
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                return_value=MagicMock(),
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._query_closest_fingerprints",
@@ -276,7 +275,7 @@ class TestFingerprintEmbeddingResultActivity:
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._report_closest_fingerprint_metrics"
             ),
         ):
-            result = await merge_similar_fingerprints_activity(_inputs())
+            result = merge_similar_fingerprints_activity(_inputs())
 
         assert result.merged_count == 0
         assert result.query_duration_ms is not None

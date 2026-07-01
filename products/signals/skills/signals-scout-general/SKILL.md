@@ -8,7 +8,7 @@ compatibility: >
   scratchpad-remember/forget) + signal_scout_report:write (for emit-report/edit-report,
   granted because this scout authors reports directly via the report channel), llm_skill:read, plus standard
   analytics reads. Uses the signals-scout MCP family: project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report.
+  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report, members-list.
 allowed_tools:
   - emit_report
   - edit_report
@@ -97,12 +97,13 @@ Then, for each candidate finding:
 - **Author** a fresh report via `signals-scout-emit-report` when nothing in the
   inbox covers it (or a known issue has new evidence that changes the verdict).
   A fully-validated cross-product correlation is the natural fit. **Always set
-  `suggested_reviewers`** — resolve the owning person's GitHub login with
-  `org-member-get-github-login` (cache it under a `reviewer:` key). It's how the
-  report reaches a human; left empty, the report is assigned to nobody and is
-  likely missed. The report channel — the field schema, the safety × actionability
-  status mapping, reviewer routing, dedupe (it is **not** idempotent), and the edit
-  rules — lives in [`references/report.md`](references/report.md).
+  `suggested_reviewers`** — resolve the owning person with `signals-scout-members-list`
+  (each member carries a resolved `github_login`; cache it under a `reviewer:` key).
+  It's how the report reaches a human; left empty, the report is assigned to nobody
+  and is likely missed. The harness prompt carries the full report-channel contract
+  (field schema, safety × actionability status mapping, reviewer routing, the
+  non-idempotency caveat, and the edit rules) — this section only adds what's specific
+  to a cross-product correlation.
 - **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but
   worth carrying forward, or to record what you ruled out and why.
 - **Skip** if the scratchpad or inbox already covers it.
@@ -118,7 +119,7 @@ the key prefix:
 | `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                                                                      |
 | `dedupe:`     | Gates future runs on a specific issue / fingerprint so you don't re-file it.                                                         |
 | `report:`     | Records the `report_id` of a report you authored, keyed `report:<domain>:<entity>`, so the next run edits it instead of duplicating. |
-| `reviewer:`   | Caches a resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so reports route to a human faster.         |
+| `reviewer:`   | Caches a resolved owner (a `github_login` or `user_uuid`), keyed `reviewer:<domain>:<area>`, so reports route to a human faster.     |
 | `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                   |
 | `not-in-use:` | Close-out memo for "product not in use on this team".                                                                                |
 

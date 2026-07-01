@@ -239,7 +239,10 @@ class ErrorTrackingSymbolSet(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
-            models.Index(fields=["last_used"]),
+            # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
+            # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
+            # then created_at range), so batch cleanup avoids a full PK-ordered scan.
+            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
         ]
 
         constraints = [
