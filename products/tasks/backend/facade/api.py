@@ -1448,7 +1448,7 @@ def update_task_run(
             run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
             run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
         except Exception:
-            logger.warning("task_run.pr_progress_emit_failed", run_id=str(run.id), exc_info=True)
+            logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     return _task_run_detail_to_dto(run)
 
