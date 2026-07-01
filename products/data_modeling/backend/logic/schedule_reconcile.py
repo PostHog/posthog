@@ -23,16 +23,18 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleListActionStartWorkflow,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleState,
 )
-from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
+from temporalio.common import RetryPolicy
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
-from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -51,13 +53,22 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, build_frequency_graph, seed_targets
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
+from products.data_modeling.backend.schedule import (
+    DATA_MODELING_EXECUTE_DAG_WORKFLOW,
+    build_schedule_spec,
+    dag_schedule_search_attributes,
+)
 
 logger = structlog.get_logger(__name__)
 
 
-def reconcile_dag_schedules(dag: DAG) -> None:
-    """Make Temporal's schedules for this DAG match its nodes' effective cadences."""
+def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False) -> None:
+    """Make Temporal's schedules for this DAG match its nodes' effective cadences.
+
+    Converging a covered DAG to zero schedules is refused unless `allow_unschedule` — an
+    empty tier set on a DAG with live schedules almost always means unseeded targets, not
+    a deliberate wind-down.
+    """
     team = dag.team
     graph = build_frequency_graph(dag)
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=graph.targets)
@@ -68,6 +79,7 @@ def reconcile_dag_schedules(dag: DAG) -> None:
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
+        allow_unschedule=allow_unschedule,
     )
 
 
@@ -152,6 +164,7 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
+    allow_unschedule: bool = False,
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS)
     if unsupported:
@@ -161,15 +174,16 @@ async def _apply_reconciliation(
 
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    if not desired_tiers and existing_ids and not allow_unschedule:
+        logger.warning(
+            "Refusing to unschedule a covered DAG with no cadence tiers (unseeded targets?)",
+            dag_id=dag_id,
+            existing_schedule_ids=sorted(existing_ids),
+        )
+        return
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
-    search_attributes = TypedSearchAttributes(
-        search_attributes=[
-            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
-            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=organization_id),
-            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=dag_id),
-        ]
-    )
+    search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
 
     # Create/update every desired tier before deleting stale schedules so nodes are never left
     # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
@@ -178,8 +192,17 @@ async def _apply_reconciliation(
     try:
         for schedule_id, (interval, node_ids) in plan.to_create.items():
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
-            await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
-            created.append(schedule_id)
+            try:
+                await a_create_schedule(
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                )
+                created.append(schedule_id)
+            except ScheduleAlreadyRunningError:
+                # A concurrent reconcile of the same DAG created this tier from the same graph;
+                # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
+                await a_update_schedule(
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                )
         for schedule_id, (interval, node_ids) in plan.to_update.items():
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
             await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
@@ -191,8 +214,14 @@ async def _apply_reconciliation(
                 logger.exception("Failed to roll back created schedule", schedule_id=schedule_id, dag_id=dag_id)
         raise
 
+    # A failed delete leaves transient dual coverage (e.g. the legacy whole-DAG schedule alongside
+    # tiers); the next reconcile sweeps it, so log and keep going rather than fail the converge.
     for schedule_id in plan.to_delete:
-        await a_delete_schedule(temporal, schedule_id=schedule_id)
+        try:
+            await a_delete_schedule(temporal, schedule_id=schedule_id)
+        except Exception as error:
+            logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
+            capture_exception(error)
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:

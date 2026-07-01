@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest import TestCase, mock
 
 from parameterized import parameterized
-from temporalio.client import ScheduleListActionStartWorkflow
+from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import STREAMING, UnsupportedFrequencyTargetError
@@ -157,6 +157,71 @@ class TestReconcileDagSchedules(BaseTest):
         # so the DAG stays fully covered at its current cadence rather than opening a gap
         delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
         self.assertNotEqual(created_ids[0], legacy_id)
+
+    def test_refuses_to_unschedule_covered_dag_without_targets(self):
+        # a covered DAG with no targets means unseeded conversion, not a wind-down —
+        # converging to zero schedules would silently stop all materialization
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+
+        legacy_id = str(dag.id)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(legacy_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        create.assert_not_called()
+        delete.assert_not_called()
+
+    def test_concurrent_create_converges_to_update_without_rollback(self):
+        # a concurrent reconcile already created the tier; the loser must converge onto it,
+        # not roll it back — rolling back would delete the winner's live schedule
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_frequency_target(endpoint, M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                return
+                yield  # pragma: no cover — empty async generator
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(
+                f"{module}.a_create_schedule",
+                new=mock.AsyncMock(side_effect=ScheduleAlreadyRunningError()),
+            ),
+            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        update.assert_called_once()
+        self.assertEqual(update.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
+        delete.assert_not_called()
 
     def test_refuses_non_bucket_tier_before_touching_temporal(self):
         # the guard must fire before any Temporal call — a non-bucket tier would crash
