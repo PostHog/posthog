@@ -19,6 +19,7 @@ import {
     AgentRevision,
     type ApprovalRequest,
     type ApprovalStore,
+    ApprovalTypeSchema,
     AgentSession,
     AgentSpecSchema,
     buildTestBundleStore,
@@ -41,6 +42,7 @@ const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { buildApprovalDecidedMarker } from '@posthog/agent-shared'
 
 import { runSession } from './driver'
+import { assertToolsGated, gateTool } from './gate-tool'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 
 const FAUX_MODEL_ID = 'faux/test'
@@ -185,6 +187,42 @@ async function run(
         posthogApiBaseUrl: 'http://localhost:8010',
         ...over,
     })
+}
+
+// Minimal `OpenedMcp` stub that tracks `callTool` invocations, so a test can
+// assert the gated path never reached the remote.
+function makeFakeMcp(
+    prefix: string,
+    ref: McpRef,
+    tools: Record<string, { description: string; result: unknown }>
+): OpenedMcp & { calls: Array<{ name: string; args: Record<string, unknown> }> } {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+    return {
+        prefix,
+        ref,
+        listTools: async (): Promise<RemoteMcpTool[]> =>
+            Object.entries(tools).map(([name, t]) => ({
+                name,
+                description: t.description,
+                inputSchema: { type: 'object' },
+            })),
+        callTool: async (name, args) => {
+            calls.push({ name, args })
+            const result = tools[name]?.result ?? null
+            return {
+                content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+                structuredContent: result as Record<string, unknown>,
+            }
+        },
+        close: async () => undefined,
+        calls,
+    } as OpenedMcp & { calls: typeof calls }
+}
+
+const principalAlice: SessionPrincipal = {
+    kind: 'posthog',
+    user_id: 'alice',
+    team_id: 1,
 }
 
 describe('driver runSession', () => {
@@ -366,38 +404,6 @@ describe('driver runSession', () => {
      * relies on (which always queues — there is no fast-path).
      */
     describe('MCP tool approval gating', () => {
-        // Minimal `OpenedMcp` stub — same shape as `build-agent-tools.test.ts`'s
-        // helper but trimmed to what these cases need. Tracks `callTool`
-        // invocations so we can assert the gated path didn't reach the
-        // remote.
-        function makeFakeMcp(
-            prefix: string,
-            ref: McpRef,
-            tools: Record<string, { description: string; result: unknown }>
-        ): OpenedMcp & { calls: Array<{ name: string; args: Record<string, unknown> }> } {
-            const calls: Array<{ name: string; args: Record<string, unknown> }> = []
-            return {
-                prefix,
-                ref,
-                listTools: async (): Promise<RemoteMcpTool[]> =>
-                    Object.entries(tools).map(([name, t]) => ({
-                        name,
-                        description: t.description,
-                        inputSchema: { type: 'object' },
-                    })),
-                callTool: async (name, args) => {
-                    calls.push({ name, args })
-                    const result = tools[name]?.result ?? null
-                    return {
-                        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-                        structuredContent: result as Record<string, unknown>,
-                    }
-                },
-                close: async () => undefined,
-                calls,
-            } as OpenedMcp & { calls: typeof calls }
-        }
-
         // Route through `AgentSpecSchema.parse` so the approval-policy
         // defaults (`type`, `allow_edit`, `ttl_ms`) get materialised — the
         // runner reads the strict shape, not the zod input form.
@@ -421,12 +427,6 @@ describe('driver runSession', () => {
                 },
             ],
         }).mcps[0]
-
-        const principalAlice: SessionPrincipal = {
-            kind: 'posthog',
-            user_id: 'alice',
-            team_id: 1,
-        }
 
         it('queues an approval row when the model calls a gated MCP tool', async () => {
             // Concierge-shape: the model invokes promote-create; the
@@ -805,6 +805,84 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             // explore_tools ran (no approval queued) — read-only catalog browsing.
             expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
+        })
+    })
+
+    /**
+     * Pin the two fail-closed properties of the gate chokepoint (gate-tool.ts):
+     * under any approval authority a gated call queues and never runs the real
+     * executor; an unbranded tool throws at `assertToolsGated` before dispatch.
+     */
+    describe('gate chokepoint (fail-closed dispatch)', () => {
+        it('enumerates at least two approval authorities — an empty enum would pass every case below vacuously', () => {
+            expect(ApprovalTypeSchema.options.length).toBeGreaterThanOrEqual(2)
+        })
+
+        it.each(ApprovalTypeSchema.options)(
+            'queues instead of executing a tool gated under approval type=%s (real executor never runs)',
+            async (authority) => {
+                const ref: McpRef = AgentSpecSchema.parse({
+                    model: FAUX_MODEL_ID,
+                    mcps: [
+                        {
+                            kind: 'agent',
+                            default_tool_approval: 'deny',
+                            id: 'gate',
+                            url: 'https://example.com/gate',
+                            secrets: [],
+                            tools: [
+                                {
+                                    name: 'risky',
+                                    level: 'approve',
+                                    approval_policy: { type: authority, ttl_ms: 900_000 },
+                                },
+                            ],
+                        },
+                    ],
+                }).mcps[0]
+                const mcp = makeFakeMcp('gate', ref, { risky: { description: 'd', result: { done: true } } })
+                const approvals = new PgApprovalStore(pool)
+                const session = makeSession({ principal: principalAlice })
+                const out = await run(makeRev({ mcps: [ref as never] }), session, {
+                    script: [toolUse([call('gate__risky', { x: 1 })]), stop('queued')],
+                    approvals,
+                    mcpClients: [mcp],
+                })
+                expect(out.state).toBe('completed')
+                // The real executor never ran, regardless of who decides.
+                expect(mcp.calls).toEqual([])
+                const rows = await approvals.listBySession(TEST_SESSION_ID)
+                expect(rows).toHaveLength(1)
+                expect(rows[0].state).toBe('queued')
+                expect(rows[0].approver_scope).toMatchObject({ type: authority })
+            }
+        )
+
+        it('throws before dispatch when a tool reaches the chokepoint unbranded (a lane bypassed gateTool)', () => {
+            const bypassedExecute = vi.fn(async () => ({ content: [], details: {} }))
+            const branded = gateTool(
+                {
+                    name: 'ok-tool',
+                    label: 'ok-tool',
+                    description: '',
+                    parameters: { type: 'object' } as never,
+                    execute: async () => ({ content: [], details: {} }),
+                },
+                () => ({ gate: false }),
+                async () => ({ content: [], details: {} }) as never
+            )
+            // Simulates a future lane that builds an `AgentTool` without ever
+            // calling `gateTool`.
+            const bypassed = {
+                name: 'bypassed-tool',
+                label: 'bypassed-tool',
+                description: '',
+                parameters: { type: 'object' } as never,
+                execute: bypassedExecute,
+            }
+            expect(() => assertToolsGated([branded, bypassed as never])).toThrow(/bypassed-tool/)
+            // The unbranded tool's execute is never invoked.
+            expect(bypassedExecute).not.toHaveBeenCalled()
         })
     })
 

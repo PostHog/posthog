@@ -33,14 +33,7 @@
  * `pending_inputs` — handled in `getSteeringMessages`.
  */
 
-import type {
-    AgentContext,
-    AgentEvent,
-    AgentEventSink,
-    AgentMessage,
-    AgentToolResult,
-    StreamFn,
-} from '@earendil-works/pi-agent-core'
+import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
 import { runAgentLoop } from '@earendil-works/pi-agent-core'
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
@@ -96,6 +89,7 @@ import { nativeToolApprovalClass } from '@posthog/agent-tools'
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
 import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
+import { assertToolsGated, gateTool, QueueGated } from './gate-tool'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import {
@@ -543,10 +537,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let lastOutput: unknown = null
         const toolStarts = new Map<string, { args: Record<string, unknown>; t0: number }>()
 
-        // Keep each tool's real execute, then swap gated tools for the queue path.
-        // The real execute is what an approved call runs on resume (the human has
-        // already cleared the gate). `approvals` is mandatory (runSession throws
-        // otherwise), so gating is unconditional — there is no ungated fast path.
+        // Keep each tool's real execute (what an approved call runs on resume,
+        // once the human has cleared the gate), then rebuild every tool through
+        // `gateTool`. `approvals` is mandatory (runSession throws otherwise), so
+        // gating is unconditional — there is no ungated fast path.
         const realExecute = new Map<string, RealToolExecute>()
         for (const tool of tools) {
             // Tools are named with their original id.
@@ -554,16 +548,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
-            // Shared by the static wrap and the dynamic proxy wrap. Every gated
-            // call queues for a human decision — being the asker is not consent
-            // to the specific call (the model could have been steered by content
-            // it read). `toolName` is what the approval row records.
-            const queueGated = async (
-                toolName: string,
-                toolCallId: string,
-                args: Record<string, unknown>,
-                policy: ApprovalPolicy
-            ): Promise<AgentToolResult<ToolResultDetails>> => {
+            // Shared by every lane's resolver below. Every gated call queues for
+            // a human decision — being the asker is not consent to the specific
+            // call (the model could have been steered by content it read).
+            // `toolName` is what the approval row records.
+            const queueGated: QueueGated = async (toolName, toolCallId, args, policy) => {
                 const queued = await queueApprovalResult({
                     approvals,
                     buildApprovalUrl: deps.buildApprovalUrl,
@@ -599,33 +588,32 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             // so the synthetic read-only helpers below can be recognised as ours.
             const proxiedPrefixes = proxiedPrefixesFromCallTools(mcpProxyCallTools.keys())
 
-            for (const tool of tools) {
+            for (let i = 0; i < tools.length; i++) {
+                const tool = tools[i]
                 const id = tool.name
                 // Proxy `call_tool` gates dynamically: the underlying tool is
                 // only known at call time (the `tool_name` arg), so re-key the
                 // gate on `<prefix>__<tool_name>` per call.
                 const proxyEntry = mcpProxyCallTools.get(id)
                 if (proxyEntry) {
-                    const realProxyExecute = tool.execute as RealToolExecute
-                    tool.execute = async (toolCallId, args) => {
-                        const a = (args ?? {}) as Record<string, unknown>
-                        const raw = typeof a.tool_name === 'string' ? a.tool_name : ''
-                        // Resolve the same way `call_tool` will at dispatch time
-                        // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
-                        // name when it exists in the exposed catalog, only strip
-                        // `<prefix>__` when the stripped name does. Unconditionally
-                        // stripping was a bypass: a remote tool whose RAW name was
-                        // `<prefix>__delete` would gate as `delete` (no entry,
-                        // policy=allow) while dispatch ran the raw `<prefix>__delete`.
-                        // Sharing the resolver keeps the two paths in lockstep.
-                        const remoteName = proxyEntry.resolveRemoteName(raw)
-                        const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
-                        const gate = lookupMcpToolApproval(exposedName, rev.spec)
-                        if (gate?.requires_approval) {
-                            return queueGated(exposedName, toolCallId, a, gate.approval_policy)
-                        }
-                        return realProxyExecute(toolCallId, a)
-                    }
+                    tools[i] = gateTool(
+                        tool,
+                        (_toolCallId, args) => {
+                            const raw = typeof args.tool_name === 'string' ? args.tool_name : ''
+                            // Resolve the same way `call_tool` will at dispatch time
+                            // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
+                            // name when it exists in the exposed catalog, only strip
+                            // `<prefix>__` when the stripped name does. Gate and dispatch
+                            // must key on the same name or one tool gates while another runs.
+                            const remoteName = proxyEntry.resolveRemoteName(raw)
+                            const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
+                            const gate = lookupMcpToolApproval(exposedName, rev.spec)
+                            return gate?.requires_approval
+                                ? { gate: true, toolName: exposedName, policy: gate.approval_policy }
+                                : { gate: false }
+                        },
+                        queueGated
+                    )
                     continue
                 }
                 // Synthetic proxy read-only helpers (`explore_tools` /
@@ -635,6 +623,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // `lookupMcpToolApproval` (which can't tell a synthetic helper from
                 // a real same-named tool); the proxy-aware check lives here.
                 if (isProxyReadOnlyHelper(id, proxiedPrefixes)) {
+                    tools[i] = gateTool(tool, () => ({ gate: false }), queueGated)
                     continue
                 }
 
@@ -670,12 +659,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     : mcpGate?.requires_approval
                       ? mcpGate.approval_policy
                       : null
-                if (policy) {
-                    tool.execute = async (toolCallId, args) =>
-                        queueGated(id, toolCallId, (args ?? {}) as Record<string, unknown>, policy)
-                }
+                tools[i] = gateTool(
+                    tool,
+                    () => (policy ? { gate: true, toolName: id, policy } : { gate: false }),
+                    queueGated
+                )
             }
         }
+
+        // Fail-closed: every tool must be `gateTool`-branded before dispatch
+        // (see gate-tool.ts).
+        assertToolsGated(tools)
 
         const sink: AgentEventSink = async (event: AgentEvent): Promise<void> => {
             switch (event.type) {
