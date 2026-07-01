@@ -142,20 +142,22 @@ export function buildTooltipContext<Meta = unknown>(
             const bar = s.bars?.[dataIndex]
             const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
             const segmentValue = resolveValue(s, dataIndex)
-            // When resolveBottomValue is provided (stacked bar charts), use the segment midpoint
-            // so findClosestSeriesKey transitions exactly at the visual boundary between segments.
-            let yPx = px
-            if (isFinite(px) && resolveBottomValue) {
-                const bottomPx = seriesValueScale(resolveBottomValue(s, dataIndex))
-                if (isFinite(bottomPx)) {
-                    yPx = (px + bottomPx) / 2
-                }
-            }
+            // Expose the segment bottom pixel so findClosestSeriesKey can do range containment
+            // testing (is cursor between top and bottom?) instead of distance-to-midpoint, which
+            // breaks when adjacent segments differ greatly in size.
+            const yPixelBottom =
+                resolveBottomValue && isFinite(px)
+                    ? (() => {
+                          const b = seriesValueScale(resolveBottomValue(s, dataIndex))
+                          return isFinite(b) ? b : undefined
+                      })()
+                    : undefined
             seriesData.push({
                 series: entrySeries,
                 value: segmentValue,
                 color: barColorAt(s, dataIndex),
-                yPixel: isFinite(yPx) ? yPx : undefined,
+                yPixel: isFinite(px) ? px : undefined,
+                yPixelBottom,
             })
         }
     }
