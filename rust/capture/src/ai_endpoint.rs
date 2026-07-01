@@ -387,18 +387,28 @@ async fn ai_handler_inner(
 
     // AI-gateway provenance: stamp the trusted marker (overwriting client values) on a
     // verified event, else strip the whole $ai_gateway* namespace so a forged marker
-    // can't reach billing. The metric only fires when a gateway prop was actually
-    // present, so ordinary $ai_* events stay silent.
-    if let Some(properties) = parsed
-        .event
-        .as_object_mut()
-        .and_then(|o| o.get_mut("properties"))
-        .and_then(|p| p.as_object_mut())
-    {
+    // can't reach billing. The verified metric always fires; the strip metric only fires
+    // when a gateway prop was actually present, so ordinary $ai_* events stay silent.
+    if let Some(event_obj) = parsed.event.as_object_mut() {
         if gw_trusted {
-            gp::stamp_verified(properties, &gw_request_id);
-            counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
-        } else {
+            // A verified event was exempted from the LLM-events quota, so it must carry
+            // the stamp or billing would double-count it toward AIO. Guarantee a
+            // properties object here rather than relying on validate_event_structure
+            // having produced one, so the exemption and the stamp can't drift apart.
+            let properties = event_obj
+                .entry("properties")
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if !properties.is_object() {
+                *properties = Value::Object(serde_json::Map::new());
+            }
+            if let Some(properties) = properties.as_object_mut() {
+                gp::stamp_verified(properties, &gw_request_id);
+                counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+            }
+        } else if let Some(properties) = event_obj
+            .get_mut("properties")
+            .and_then(|p| p.as_object_mut())
+        {
             let before = properties.len();
             let forged = properties.contains_key(gp::VERIFIED_PROPERTY);
             gp::strip_gateway(properties);
