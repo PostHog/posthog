@@ -18,6 +18,8 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 from collections import defaultdict
 from datetime import timedelta
 
+from products.data_modeling.backend.logic.graph_traversal import reachable
+
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
 # carry their real sync interval.
@@ -36,19 +38,6 @@ def _adjacency(edges: list[tuple[str, str]]) -> tuple[dict[str, list[str]], dict
         children[upstream].append(downstream)
         parents[downstream].append(upstream)
     return children, parents
-
-
-def _reachable(start: str, adjacency: dict[str, list[str]]) -> set[str]:
-    """All nodes reachable from `start` (exclusive) by following `adjacency`."""
-    seen: set[str] = set()
-    stack = list(adjacency.get(start, []))
-    while stack:
-        node = stack.pop()
-        if node in seen:
-            continue
-        seen.add(node)
-        stack.extend(adjacency.get(node, []))
-    return seen
 
 
 def compute_effective_cadences(
@@ -101,11 +90,11 @@ def frequency_target_bounds(
     children, parents = _adjacency(edges)
 
     ancestor_source_intervals = [
-        source_intervals[ancestor] for ancestor in _reachable(node_id, parents) if ancestor in source_intervals
+        source_intervals[ancestor] for ancestor in reachable(node_id, parents) if ancestor in source_intervals
     ]
     floor = max(ancestor_source_intervals) if ancestor_source_intervals else STREAMING
 
-    descendant_targets = [targets[descendant] for descendant in _reachable(node_id, children) if descendant in targets]
+    descendant_targets = [targets[descendant] for descendant in reachable(node_id, children) if descendant in targets]
     ceiling = min(descendant_targets) if descendant_targets else None
 
     return floor, ceiling
