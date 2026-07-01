@@ -45,6 +45,9 @@ class SQLResultsFormatter:
         return cell_str
 
     def format(self) -> str:
+        if not self._results:
+            return "No data recorded for this time period."
+
         lines: list[str] = []
         lines.append("|".join(self._columns))
         for row in self._results:

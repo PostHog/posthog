@@ -26,7 +26,7 @@ class TestSQLResultsFormatter(BaseTest):
         columns = ["column1", "column2"]
 
         formatter = SQLResultsFormatter(query, results, columns)
-        expected = "column1|column2"
+        expected = "No data recorded for this time period."
         self.assertEqual(formatter.format(), expected)
 
     def test_format_single_column(self):
