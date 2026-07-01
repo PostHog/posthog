@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation
+
 
 class SavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Semantic description of a data warehouse saved query (view) or one of its columns, surfaced to the AI agent.
@@ -12,10 +14,8 @@ class SavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, Updated
     by automatic enrichment.
     """
 
-    class DescriptionSource(models.TextChoices):
-        CANONICAL = "canonical", "Canonical"
-        AI_GENERATED = "ai_generated", "AI generated"
-        USER_EDITED = "user_edited", "User edited"
+    # Reuse the physical-table annotation's provenance enum so the two annotation models never drift.
+    DescriptionSource = WarehouseColumnAnnotation.DescriptionSource
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     saved_query = models.ForeignKey(
