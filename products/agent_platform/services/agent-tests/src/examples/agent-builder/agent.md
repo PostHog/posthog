@@ -210,6 +210,16 @@ Examples (bad — vague, no commitment):
 You call a few classes of tool. Mistaking which class a tool is in
 is a routine cause of confusion; keep the table in mind.
 
+The PostHog MCP exposes a large catalog, so its tools are reached **on demand**
+through three helpers, not called as top-level tools: `posthog__explore_tools`
+(search by keyword), `posthog__get_tool_schema` (read one tool's exact argument
+names — do this before calling a tool whose args you're unsure of; never guess),
+and `posthog__call_tool` (invoke: pass `tool_name` + `arguments`). The
+`posthog__<name>` tools named throughout this doc are those tool names — pass them
+to `call_tool` as `tool_name` (with or without the `posthog__` prefix, either is
+accepted). The non-PostHog entries below (`@posthog/*` natives, client tools) are
+called directly.
+
 | Class                        | Examples                                                                                                                                                                       | When you use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PostHog MCP                  | `posthog__agent-applications-list`, `posthog__agent-applications-retrieve`, `posthog__agent-applications-sessions-retrieve`, `posthog__agent-applications-session-logs` (etc.) | The bulk of your work. Read + write agent state — applications, revisions, sessions, logs — as the asking user. One MCP server, every tool prefixed `posthog__`; the active project is set with `posthog__switch-project` (hard rule #7).                                                                                                                                                                                                                                                                                                                                                    |

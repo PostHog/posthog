@@ -99,6 +99,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -288,6 +297,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -874,6 +884,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -905,6 +916,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',

@@ -64,6 +64,12 @@ STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
 )
 
+ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER = Counter(
+    "posthog_task_run_orphaned_queued_reconciled_total",
+    "Orphaned QUEUED TaskRuns handled by the dispatch reconciler, by outcome",
+    labelnames=["outcome"],
+)
+
 # Separate from the stale-queued counters above so the 24h sweep and the prewarmed fast-reap
 # stay distinguishable in Prometheus (dashboards/alerts on the 24h sweep shouldn't absorb the
 # prewarmed reap rate).
@@ -208,6 +214,57 @@ def kill_stale_queued_task_runs() -> None:
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
+        batch_size=BATCH_SIZE,
+        saturated=saturated,
+    )
+
+
+@shared_task(ignore_result=True, soft_time_limit=110, time_limit=170)
+def redispatch_orphaned_queued_task_runs() -> None:
+    """Re-dispatch TaskRuns stranded in QUEUED because their create-time workflow dispatch was lost.
+
+    ``Task.create_and_run`` starts the Temporal ``process-task`` workflow from a
+    ``transaction.on_commit`` callback. If that callback never fires (the web process is recycled
+    in the commit->callback window, or an earlier on_commit hook raises and Django skips the rest),
+    the run stays QUEUED with no workflow — invisible to the workflow-start metrics — until the 24h
+    killer marks it FAILED. This sweep recovers those runs in minutes instead: it re-dispatches every
+    run QUEUED past a short grace window, reading the persisted dispatch params off the row. Prewarmed
+    runs are left alone (``redispatch_task_run`` skips them) — the prewarmed reaper owns them.
+
+    Recovery is idempotent and safe: ``ALLOW_DUPLICATE_FAILED_ONLY`` starts a workflow only when none
+    is live, so a run whose workflow already exists (slow queue, row not yet flipped to IN_PROGRESS)
+    is skipped rather than double-run. The reconciler never fails a run — the killer stays the only
+    terminal path — so a transient Temporal error simply retries next sweep.
+    """
+    from products.tasks.backend.facade import api as tasks_facade
+
+    BATCH_SIZE = 500
+    # Grace window: normal dispatch flips QUEUED->IN_PROGRESS in well under a second, so a run still
+    # QUEUED after this almost certainly lost its callback. Anything already dispatched is skipped by
+    # the reuse policy regardless, so the window only bounds churn, not correctness.
+    RECONCILE_AFTER = datetime.timedelta(minutes=5)
+
+    # Janitor sweep is intentionally cross-team — it runs without a team context.
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE)
+    outcomes: dict[str, int] = {}
+    for run_id in candidate_ids:
+        try:
+            outcome = tasks_facade.redispatch_task_run(run_id)
+        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+            outcome = "error"
+            capture_exception(exc)
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+        ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER.labels(outcome=outcome).inc()
+
+    saturated = len(candidate_ids) >= BATCH_SIZE
+    log = logger.warning if saturated else logger.info
+    log(
+        "redispatch_orphaned_queued_task_runs.sweep_done",
+        candidates=len(candidate_ids),
+        recovered=outcomes.get("recovered", 0),
+        already_running=outcomes.get("already_running", 0),
+        left_queue=outcomes.get("left_queue", 0),
+        errors=outcomes.get("error", 0),
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )

@@ -195,6 +195,14 @@ class DeltaTableHelper:
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
         return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
+    async def get_table_uri(self) -> str:
+        """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
+        return await self._get_delta_table_uri()
+
+    def get_storage_options(self) -> dict[str, str]:
+        """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
+        return self._get_credentials()
+
     async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
         if delta_table is None:
