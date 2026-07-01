@@ -185,6 +185,9 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # The writing-style section is wired into the tail, carrying the
+        # session-replay-vs-recording terminology rule scouts must follow.
+        assert "session recordings" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "signals-scout-emit-report" not in prompt
@@ -229,6 +232,12 @@ class TestPromptBuilder(BaseTest):
         # discipline re-opens the duplicate / stale-edit failure mode.
         assert "scratchpad entry is a pointer" in prompt
         assert "source of truth" in prompt
+        # The report-channel prompt must carry both dedup nuances: search `ordering=-updated_at`
+        # (else the most recent duplicate sorts below older rows) and don't filter by product name
+        # (a scout's own report-channel signals persist under `source_product=signals_scout`).
+        # Dropping either silently re-opens the duplicate-report failure mode for every report scout.
+        assert "ordering=-updated_at" in prompt
+        assert "source_product=signals_scout" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "signals-scout-emit-signal" not in prompt
@@ -257,6 +266,11 @@ class TestPromptBuilder(BaseTest):
         assert "signals-scout-edit-report" not in prompt
         assert "Authoring reports: search the inbox first" in prompt
         assert "Suggested reviewers route the report" in prompt
+        # The dedup nuances reach the emit-only variant too — not just the both-tools prompt.
+        assert "ordering=-updated_at" in prompt
+        # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
+        # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
+        assert "relapse of a closed report" in prompt
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
@@ -273,6 +287,9 @@ class TestPromptBuilder(BaseTest):
         # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
         # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
         assert "signals-scout-members-list" in prompt
+        # An edit-only scout searches the inbox to find the report to update, so it needs the same
+        # dedup nuance — else the default ordering hides the most recently updated match.
+        assert "ordering=-updated_at" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

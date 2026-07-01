@@ -7,6 +7,7 @@ import {
     removeTableFromList,
     TableForm,
     updateTableInList,
+    visibleAuthTypes,
 } from '../customSourceManifest'
 
 const baseState = (): ManifestState => ({
@@ -18,6 +19,18 @@ const baseState = (): ManifestState => ({
     auth_api_key_location: 'header',
     auth_username: '',
     auth_password: '',
+    oauth2_token_url: '',
+    oauth2_client_id: '',
+    oauth2_client_secret: '',
+    oauth2_grant_type: 'client_credentials',
+    oauth2_scopes: '',
+    oauth2_refresh_token: '',
+    oauth2_access_token_name: '',
+    oauth2_expires_in_name: '',
+    oauth2_expiry_date_format: '',
+    oauth2_client_auth_method: 'body',
+    oauth2_extra_token_request_params: {},
+    oauth2_token_request_headers: {},
     headers: [],
     tables: [
         {
@@ -624,34 +637,169 @@ describe('datetime_format (incremental cursor)', () => {
 })
 
 describe('extractAuthSecrets', () => {
+    const noSecrets = {
+        auth_token: '',
+        auth_api_key: '',
+        auth_password: '',
+        auth_oauth2_client_secret: '',
+        auth_oauth2_refresh_token: '',
+    }
+
     it('returns only the bearer token for bearer auth', () => {
         const state = baseState()
         state.auth_type = 'bearer'
         state.auth_token = 'tok_123'
-        expect(extractAuthSecrets(state)).toEqual({ auth_token: 'tok_123', auth_api_key: '', auth_password: '' })
+        expect(extractAuthSecrets(state)).toEqual({ ...noSecrets, auth_token: 'tok_123' })
     })
 
     it('returns only the api key for api_key auth', () => {
         const state = baseState()
         state.auth_type = 'api_key'
         state.auth_api_key = 'sk_test'
-        expect(extractAuthSecrets(state)).toEqual({ auth_token: '', auth_api_key: 'sk_test', auth_password: '' })
+        expect(extractAuthSecrets(state)).toEqual({ ...noSecrets, auth_api_key: 'sk_test' })
     })
 
     it('returns only the password for http_basic auth', () => {
         const state = baseState()
         state.auth_type = 'http_basic'
         state.auth_password = 'hunter2'
-        expect(extractAuthSecrets(state)).toEqual({ auth_token: '', auth_api_key: '', auth_password: 'hunter2' })
+        expect(extractAuthSecrets(state)).toEqual({ ...noSecrets, auth_password: 'hunter2' })
     })
 
     it('returns all-empty for none auth, ignoring stale credential state', () => {
         const state = baseState()
         state.auth_type = 'none'
-        // All three stale so each ternary's false-arm is genuinely exercised.
+        // All stale so each ternary's false-arm is genuinely exercised.
         state.auth_token = 'tok_123'
         state.auth_api_key = 'sk_test'
         state.auth_password = 'hunter2'
-        expect(extractAuthSecrets(state)).toEqual({ auth_token: '', auth_api_key: '', auth_password: '' })
+        state.oauth2_client_secret = 'cs_123'
+        state.oauth2_refresh_token = 'rt_123'
+        expect(extractAuthSecrets(state)).toEqual(noSecrets)
+    })
+
+    it('returns the client secret for the client_credentials grant, but never a refresh token', () => {
+        const state = baseState()
+        state.auth_type = 'oauth2'
+        state.oauth2_grant_type = 'client_credentials'
+        state.oauth2_client_secret = 'cs_123'
+        // A stale refresh token must not leak: client_credentials has no refresh token.
+        state.oauth2_refresh_token = 'rt_stale'
+        expect(extractAuthSecrets(state)).toEqual({ ...noSecrets, auth_oauth2_client_secret: 'cs_123' })
+    })
+
+    it('returns both secrets for the refresh_token grant', () => {
+        const state = baseState()
+        state.auth_type = 'oauth2'
+        state.oauth2_grant_type = 'refresh_token'
+        state.oauth2_client_secret = 'cs_123'
+        state.oauth2_refresh_token = 'rt_123'
+        expect(extractAuthSecrets(state)).toEqual({
+            ...noSecrets,
+            auth_oauth2_client_secret: 'cs_123',
+            auth_oauth2_refresh_token: 'rt_123',
+        })
+    })
+})
+
+describe('visibleAuthTypes', () => {
+    it.each([
+        [false, 'bearer', false], // flag off, not oauth2 -> hidden
+        [false, 'oauth2', true], // flag off, already oauth2 -> kept visible so the select can't rewrite it
+        [true, 'bearer', true], // flag on -> visible
+        [true, 'oauth2', true], // flag on, already oauth2 -> visible
+    ] as const)('oauth2 visible? (enabled=%s, current=%s)', (enabled, current, visible) => {
+        expect(visibleAuthTypes(enabled, current).includes('oauth2')).toBe(visible)
+    })
+
+    it('never drops the non-oauth2 types', () => {
+        expect(visibleAuthTypes(false, 'bearer')).toEqual(['none', 'bearer', 'api_key', 'http_basic'])
+    })
+})
+
+describe('oauth2 manifest round-trip', () => {
+    const oauth2Manifest = JSON.stringify({
+        client: {
+            base_url: 'https://api.example.com',
+            auth: {
+                type: 'oauth2',
+                client_id: 'client-abc',
+                token_url: 'https://auth.example.com/oauth2/token',
+                grant_type: 'client_credentials',
+                scopes: 'read:users read:orders',
+                client_auth_method: 'basic',
+                access_token_name: 'token',
+                expires_in_name: 'expires_at',
+                expiry_date_format: '%Y-%m-%dT%H:%M:%SZ',
+                extra_token_request_params: { audience: 'https://api.example.com' },
+                token_request_headers: { 'X-Tenant': 'acme' },
+            },
+        },
+        resources: [
+            {
+                name: 'users',
+                primary_key: 'id',
+                endpoint: { path: '/users', data_selector: 'data', paginator: { type: 'single_page' } },
+            },
+        ],
+    })
+
+    it('parses non-secret oauth fields and leaves secrets empty', () => {
+        const state = parseManifestIntoState(oauth2Manifest)
+        expect(state.auth_type).toBe('oauth2')
+        expect(state.oauth2_client_id).toBe('client-abc')
+        expect(state.oauth2_token_url).toBe('https://auth.example.com/oauth2/token')
+        expect(state.oauth2_grant_type).toBe('client_credentials')
+        expect(state.oauth2_scopes).toBe('read:users read:orders')
+        expect(state.oauth2_client_auth_method).toBe('basic')
+        // Secrets are never in the manifest, so they parse back empty.
+        expect(state.oauth2_client_secret).toBe('')
+        expect(state.oauth2_refresh_token).toBe('')
+    })
+
+    it('round-trips the auth manifest without secrets or scope corruption', () => {
+        const rebuilt = buildManifest(parseManifestIntoState(oauth2Manifest)) as any
+        const auth = rebuilt.client.auth
+        expect(auth.type).toBe('oauth2')
+        expect(auth.client_id).toBe('client-abc')
+        expect(auth.token_url).toBe('https://auth.example.com/oauth2/token')
+        expect(auth.grant_type).toBe('client_credentials')
+        // Scopes stay a single space-separated string end-to-end — never split/rejoined.
+        expect(auth.scopes).toBe('read:users read:orders')
+        expect(auth.client_auth_method).toBe('basic')
+        expect(auth.access_token_name).toBe('token')
+        expect(auth.expires_in_name).toBe('expires_at')
+        expect(auth.expiry_date_format).toBe('%Y-%m-%dT%H:%M:%SZ')
+        // Advanced dict knobs with no builder UI survive verbatim (like passthrough_params).
+        expect(auth.extra_token_request_params).toEqual({ audience: 'https://api.example.com' })
+        expect(auth.token_request_headers).toEqual({ 'X-Tenant': 'acme' })
+        // Secrets never appear in the manifest.
+        expect(auth.client_secret).toBeUndefined()
+        expect(auth.refresh_token).toBeUndefined()
+    })
+
+    it('drops an inline client_secret rather than re-emitting it', () => {
+        // Even if a hand-authored manifest inlines the secret, parse drops it and build never
+        // re-emits it — the secret only ever travels via extractAuthSecrets / the secret field.
+        const withInlineSecret = JSON.parse(oauth2Manifest)
+        withInlineSecret.client.auth.client_secret = 'should-not-survive'
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(withInlineSecret))) as any
+        expect(rebuilt.client.auth.client_secret).toBeUndefined()
+    })
+
+    it('omits client_auth_method when it is the default (body)', () => {
+        const bodyManifest = JSON.parse(oauth2Manifest)
+        bodyManifest.client.auth.client_auth_method = 'body'
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(bodyManifest))) as any
+        expect(rebuilt.client.auth.client_auth_method).toBeUndefined()
+    })
+
+    it('coerces token-param values to strings and drops non-scalars to match the backend dict[str, str]', () => {
+        // A hand/AI-authored manifest with non-string values would otherwise round-trip verbatim and
+        // fail backend validation; normalize scalars to strings and drop nested objects in the builder.
+        const manifest = JSON.parse(oauth2Manifest)
+        manifest.client.auth.extra_token_request_params = { audience: 'x', retries: 3, nested: { a: 1 } }
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.client.auth.extra_token_request_params).toEqual({ audience: 'x', retries: '3' })
     })
 })

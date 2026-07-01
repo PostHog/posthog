@@ -329,7 +329,7 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write("Next steps:")
         self.stdout.write(f"  1. Install it on your test repos: https://github.com/apps/{slug}/installations/new")
-        self.stdout.write(f"     (or via PostHog: {base_url.rstrip('/')}/project/1/settings/project-integrations)")
+        self.stdout.write(f"     (or via PostHog: {base_url.rstrip('/')}/project/1/integrations/github)")
         self.stdout.write("  2. Restart your dev server so it picks up the new .env values.")
 
     def _verify_key(self, client_id: str, pem: str) -> None:

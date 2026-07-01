@@ -358,6 +358,23 @@ tools:
             `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
             (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
             fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
+    signals-scout-config-delete:
+        operation: signals_scout_config_destroy
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout config
+        description: >
+            Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up
+            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in
+            `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed.
+            Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule
+            config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via
+            `signals-scout-config-update` to make it inert) rather than deleting the config.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -506,6 +523,25 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-run-now:
+        operation: signals_scout_config_run
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a scout now
+        description: >
+            Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a
+            scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and
+            inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its
+            daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against
+            the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
+            in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
+            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
+            Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true
@@ -549,6 +585,9 @@ tools:
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
             Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
             (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-findings-summary:
+        operation: signals_scout_runs_findings_summary
+        enabled: false
     signals-scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
