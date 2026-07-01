@@ -2,6 +2,8 @@ import type { Series } from '../../../core/types'
 import { dimHex } from '../../../utils/comparison-dimming'
 import { linearRegression, movingAverage, trendLine } from '../../../utils/statistics'
 
+export type { TrendLineConfig } from './use-derived-series'
+
 const TREND_LINE_DIM_OPACITY = 0.5
 const CI_FILL_OPACITY = 0.2
 const MA_DASH_PATTERN = [10, 3]
