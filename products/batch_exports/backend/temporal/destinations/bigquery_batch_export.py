@@ -1715,9 +1715,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         async with (
                             bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
                         ):
-                            with concurrent.futures.ProcessPoolExecutor(
+                            pool = concurrent.futures.ProcessPoolExecutor(
                                 max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS
-                            ) as pool:
+                            )
+                            try:
                                 serialized = SerializedStreamTransformer(pool)
                                 transformer: ChunkTransformerProtocol = PipelineTransformer(
                                     transformers=(
@@ -1762,6 +1763,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                     json_columns=(),
                                     records_total=inputs.records_total,
                                 )
+                            finally:
+                                await asyncio.to_thread(pool.shutdown)
 
                     else:
                         consumer = BigQueryConsumer(
@@ -1809,9 +1812,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         async with (
                             bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
                         ):
-                            with concurrent.futures.ProcessPoolExecutor(
+                            pool = concurrent.futures.ProcessPoolExecutor(
                                 max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS
-                            ) as pool:
+                            )
+                            try:
                                 result = await run_storage_stream_consumers(
                                     client=write_client,
                                     pool=pool,
@@ -1821,6 +1825,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                     max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
                                     model=model.name if isinstance(model, BatchExportModel) else "events",
                                 )
+                            finally:
+                                await asyncio.to_thread(pool.shutdown)
                     else:
                         result = await run_consumers(
                             client=bq_client,
