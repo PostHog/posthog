@@ -336,6 +336,17 @@ class TestIncrementalResourceWiring:
             )
 
 
+class TestZendeskSchemas:
+    def test_ticket_comments_is_opt_in_by_default(self) -> None:
+        # ticket_comments imports private/internal agent note bodies, so it must be off by
+        # default at source setup (PII opt-in) while normal tables stay pre-selected.
+        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        schemas = {s.name: s for s in ZendeskSource().get_schemas(config, team_id=1)}
+
+        assert schemas["ticket_comments"].should_sync_default is False
+        assert schemas["ticket_events"].should_sync_default is True
+
+
 class TestFlattenTicketComments:
     def test_flattens_to_one_row_per_comment_with_parent_fields(self) -> None:
         page = [

@@ -40,6 +40,10 @@ def flatten_ticket_comments(pages: Iterable[list[dict[str, Any]]]) -> Iterator[l
     `start_time` cursor. `ticket_id` and `created_at` are accessed directly (not `.get()`):
     both are guaranteed on every export event and drive parent linkage and the cursor, so a
     missing one is corrupt data we want to fail loud on rather than silently stamp `None`.
+
+    Caveat: the incremental watermark only advances from emitted comment rows, so a sync window
+    with ticket events but no comments re-scans `[last comment created_at, now]` next run. Data
+    stays correct (merge dedupes on `id`); the cost is a bounded re-read until a comment lands.
     """
     for page in pages:
         comments = [
