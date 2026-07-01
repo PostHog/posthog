@@ -185,13 +185,16 @@ if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
     DIST_PHROCS="$REPOSITORY_ROOT/tools/phrocs/dist/phrocs"
     if [[ -x "$DIST_PHROCS" ]]; then
         PROCESS_MANAGER_BIN="$DIST_PHROCS"
-    elif PATH_PHROCS="$(command -v phrocs)"; then
-        PROCESS_MANAGER_BIN="$PATH_PHROCS"
     elif [[ -n "${FLOX_ENV_PROJECT:-}" ]]; then
+        # Inside flox the source build is the only accepted binary — do NOT fall
+        # back to PATH, or a stray brew/curl phrocs would shadow the checkout
+        # build in exactly the failure mode this resolution is meant to prevent.
         echo "👉 phrocs isn't built yet. Re-activate your flox environment to build it"
         echo "   (leave and re-enter the repo directory, or run: flox activate),"
         echo "   or build it directly: hogli phrocs:build"
         exit 1
+    elif PATH_PHROCS="$(command -v phrocs)"; then
+        PROCESS_MANAGER_BIN="$PATH_PHROCS"
     else
         echo "👉 To run bin/start, install phrocs:"
         echo "     brew tap posthog/tap && brew install phrocs"
