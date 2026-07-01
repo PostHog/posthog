@@ -3,11 +3,18 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import type { QueryToolInfo } from '@/lib/instructions'
-import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import {
+    type InstructionsContext,
+    InstructionsFormatter,
+    schemaDiscoveryViaSqlEnabled,
+} from '@/lib/instructions-formatter'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import SCHEMA_DISCOVERY_INFOSCHEMA from '@/templates/sections/schema-discovery-infoschema.md'
+import SCHEMA_DISCOVERY_LEGACY from '@/templates/sections/schema-discovery-legacy.md'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -132,7 +139,13 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
-        return formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: this.guidelines.trim() })
+    formatExecuteSqlDescription(featureFlags?: EvaluatedFlags): string {
+        const schemaDiscovery = schemaDiscoveryViaSqlEnabled(featureFlags)
+            ? SCHEMA_DISCOVERY_INFOSCHEMA
+            : SCHEMA_DISCOVERY_LEGACY
+        return formatPrompt(EXECUTE_SQL_PROMPT, {
+            guidelines: this.guidelines.trim(),
+            schema_discovery: schemaDiscovery.trim(),
+        })
     }
 }

@@ -9,6 +9,7 @@ const WIDGET_PRODUCT_ACCESS_CHECKS = {
     error_tracking: () => userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer),
     session_recording: () => userHasAccess(AccessControlResourceType.SessionRecording, AccessControlLevel.Viewer),
     experiment: () => userHasAccess(AccessControlResourceType.Experiment, AccessControlLevel.Viewer),
+    logs: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
 } satisfies Record<DashboardWidgetProductAccess, () => boolean>
 
 export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidgetProductAccess | undefined): boolean {

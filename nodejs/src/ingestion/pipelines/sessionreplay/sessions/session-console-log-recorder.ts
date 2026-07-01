@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { sanitizeForUTF8 } from '~/common/utils/strings'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { TimestampFormat } from '~/types'
-import { sanitizeForUTF8 } from '~/utils/strings'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 

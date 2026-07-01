@@ -8,6 +8,7 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
     computeDivergingStackData,
     computePercentStackData,
@@ -344,6 +345,7 @@ function BarChartInner<Meta = unknown>({
     // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(stackedData), [stackedData])
 
     const seriesRef = useLatest(visibleSeries)
     const labelsRef = useLatest(labels)
@@ -390,6 +392,7 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    tooltipConfig={config?.tooltip}
                 />
             )}
             onPointClick={onPointClick}
@@ -398,6 +401,7 @@ function BarChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>

@@ -24,6 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
+from posthog.api.streaming import sse_streaming_response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.rate_limit import (
@@ -67,6 +68,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openrouter": "OpenRouter",
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
+    "minimax": "MiniMax",
 }
 
 
@@ -193,14 +195,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     def _create_streaming_response(self, stream: Generator[bytes]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
-            astream = SyncIterableToAsync(stream)
-            response = StreamingHttpResponse(streaming_content=astream, content_type=ServerSentEventRenderer.media_type)
-        else:
-            response = StreamingHttpResponse(streaming_content=stream, content_type=ServerSentEventRenderer.media_type)
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+        return sse_streaming_response(astream)
 
     def _handle_completion_request(self, request: Request) -> StreamingHttpResponse | Response:
         """Handler for completion requests using unified Client"""

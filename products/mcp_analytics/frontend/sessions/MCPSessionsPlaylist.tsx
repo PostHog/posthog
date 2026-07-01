@@ -25,6 +25,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { McpDateFilter } from '../components/McpDateFilter'
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
@@ -133,32 +134,50 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, loadSessions, loadMoreSessions, setSorting } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, sorting, hasNext } = useValues(mcpSessionsLogic)
+    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext } = useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <InputGroup className="w-full">
-                        <InputGroupAddon align="inline-start">
-                            <InputGroupText>
-                                <IconSearch />
-                            </InputGroupText>
-                        </InputGroupAddon>
-                        <InputGroupInput
-                            type="search"
-                            placeholder="Search by session id, client, or tool"
-                            onChange={(e) => setFilters({ search: e.target.value })}
-                            value={filters.search}
+                    <div className="flex items-center gap-2">
+                        <InputGroup className="flex-1">
+                            <InputGroupAddon align="inline-start">
+                                <InputGroupText>
+                                    <IconSearch />
+                                </InputGroupText>
+                            </InputGroupAddon>
+                            <InputGroupInput
+                                type="search"
+                                placeholder="Search by session id, client, or tool"
+                                onChange={(e) => setFilters({ search: e.target.value })}
+                                value={filters.search}
+                            />
+                        </InputGroup>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="size-8"
+                            onClick={() => loadSessions()}
+                            disabled={sessionsLoading}
+                            title="Reload sessions"
+                        >
+                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
+                        </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-1">
+                        <McpDateFilter
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            dataAttr="mcp-sessions-date-filter"
                         />
-                    </InputGroup>
-                    <div className="flex items-center justify-between gap-2">
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
                         >
-                            <SelectTrigger size="sm" data-attr="mcp-sessions-sort">
+                            <SelectTrigger data-attr="mcp-sessions-sort">
                                 <SelectValue>
                                     {(value: MCPSessionOrderBy) =>
                                         SORT_OPTIONS.find((o) => o.value === value)?.label ?? value
@@ -173,15 +192,6 @@ function SessionsListPanel(): JSX.Element {
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Button
-                            variant="outline"
-                            size="icon-sm"
-                            onClick={() => loadSessions()}
-                            disabled={sessionsLoading}
-                            title="Reload sessions"
-                        >
-                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
-                        </Button>
                     </div>
                 </div>
             </div>

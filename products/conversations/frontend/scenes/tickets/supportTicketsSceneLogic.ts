@@ -7,7 +7,10 @@ import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { TeamType } from '~/types'
+
 import type {
+    AITriageFilterValue,
     AssigneeFilterValue,
     SavedTicketView,
     Ticket,
@@ -36,6 +39,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
+        setAiTriageResultFilter: (results: AITriageFilterValue[]) => ({ results }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setTagsMatch: (match: TicketTagsMatch) => ({ match }),
@@ -93,6 +97,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         channelFilter: [
             'all' as TicketChannel | 'all',
+            { persist: true },
             {
                 setChannelFilter: (_, { channel }) => channel,
                 applyViewFilters: (state, { filters }) => filters.channel ?? state,
@@ -100,6 +105,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
+            { persist: true },
             {
                 setSlaFilter: (_, { sla }) => sla,
                 applyViewFilters: (state, { filters }) => filters.sla ?? state,
@@ -111,6 +117,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setPriorityFilter: (_, { priorities }) => priorities,
                 applyViewFilters: (state, { filters }) => filters.priority ?? state,
+            },
+        ],
+        aiTriageResultFilter: [
+            [] as AITriageFilterValue[],
+            { persist: true },
+            {
+                setAiTriageResultFilter: (_, { results }) => results,
+                applyViewFilters: (state, { filters }) => filters.aiTriageResult ?? state,
             },
         ],
         assigneeFilter: [
@@ -147,6 +161,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         searchQuery: [
             '' as string,
+            { persist: true },
             {
                 setSearchQuery: (_, { query }) => query,
                 applyViewFilters: (state, { filters }) => filters.search ?? state,
@@ -198,6 +213,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
     }),
     selectors({
+        aiEnabled: [
+            () => [teamLogic.selectors.currentTeam],
+            (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
+        ],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -221,6 +240,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.priorityFilter,
                 s.channelFilter,
                 s.slaFilter,
+                s.aiTriageResultFilter,
                 s.assigneeFilter,
                 s.tagsFilter,
                 s.tagsMatch,
@@ -235,6 +255,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority: TicketPriority[],
                 channel: TicketChannel | 'all',
                 sla: TicketSlaState | 'all',
+                aiTriageResult: AITriageFilterValue[],
                 assignee: AssigneeFilterValue,
                 tags: string[],
                 tagsMatch: TicketTagsMatch,
@@ -248,6 +269,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority,
                 channel,
                 sla,
+                aiTriageResult,
                 assignee,
                 tags,
                 tagsMatch,
@@ -273,6 +295,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
             if (values.priorityFilter.length > 0) {
                 params.priority = values.priorityFilter.join(',')
+            }
+            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+                params.ai_triage_result = values.aiTriageResultFilter.join(',')
             }
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
@@ -338,6 +363,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setSlaFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setAiTriageResultFilter: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },

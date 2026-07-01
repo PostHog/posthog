@@ -22,14 +22,6 @@
 import { createHmac } from 'crypto'
 import request from 'supertest'
 
-import {
-    AgentSpecSchema,
-    DEV_INTERNAL_SIGNING_KEY,
-    INTERNAL_JWT_AUDIENCE,
-    mintInternalJwt,
-    TEST_S3_BUCKET,
-} from '@posthog/agent-shared'
-
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
 /** Every signed test below uses the same secret + the matching encrypted_env
@@ -1294,97 +1286,6 @@ describe('slack trigger: real e2e', () => {
                 await cc.teardown()
             }
         })
-
-        it('preview-mode: no reactions.add posted when the resolved revision is a draft (slug-rev URL)', async () => {
-            // A Slack event routed to a draft revision via the slug-rev URL
-            // must NOT write to slack.com — preview output adapters no-op so
-            // draft iteration can't touch a real workspace. Matches the
-            // analytics-sink / native-tool isolation contract elsewhere.
-            const { cc, slackCalls } = await ackCluster()
-            try {
-                const { application } = await cc.deployAgent({
-                    slug: 'preview-ack',
-                    spec: {
-                        triggers: [
-                            {
-                                type: 'slack',
-                                config: {
-                                    mention_only: false,
-                                    auto_resume_threads: false,
-                                    ack_reaction: 'eyes',
-                                    trusted_workspaces: '*',
-                                },
-                            },
-                        ],
-                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
-                    },
-                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-preview-ack' },
-                })
-                // Build a non-live draft revision under the same application so
-                // the slug-rev resolver path can pick it as preview.
-                const draftSpec = AgentSpecSchema.parse({
-                    model: 'faux/faux',
-                    triggers: [
-                        {
-                            type: 'slack',
-                            config: {
-                                mention_only: false,
-                                auto_resume_threads: false,
-                                ack_reaction: 'eyes',
-                                trusted_workspaces: '*',
-                            },
-                        },
-                    ],
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
-                })
-                const draft = await cc.revisions.createRevision({
-                    application_id: application.id,
-                    parent_revision_id: null,
-                    created_by_id: null,
-                    bundle_uri: `s3://${TEST_S3_BUCKET}/${cc.bundlePrefix}/${application.id}/`,
-                    spec: draftSpec,
-                    encrypted_env: cc.encryption.encrypt(
-                        JSON.stringify({ ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-draft' })
-                    ),
-                })
-                await cc.bundle.write(draft.id, 'agent.md', 'You are a draft slack agent.')
-                const sha = await cc.bundle.freeze(draft.id)
-                await cc.revisions.setRevisionState(draft.id, 'ready', sha)
-
-                cc.setScript([fauxText('done')])
-                // Non-live revision invokes require a valid preview JWT — the
-                // ingress resolver's preview-gate rejects with 401 otherwise.
-                const previewToken = await mintInternalJwt({
-                    audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-                    signingKey: DEV_INTERNAL_SIGNING_KEY,
-                    claims: { app: application.id, rev: draft.id },
-                    ttlSec: 900,
-                })
-                const slug = `preview-ack-${draft.id.replace(/-/g, '')}`
-                const rawBody = JSON.stringify(
-                    slackEvent({ eventType: 'app_mention', text: '<@U0BOT> hi', ts: '900.0' })
-                )
-                const ts = String(Math.floor(Date.now() / 1000))
-                const sig = `v0=${createHmac('sha256', SLACK_SECRET).update(`v0:${ts}:${rawBody}`).digest('hex')}`
-                const res = await request(cc.ingress)
-                    .post(`/agents/${slug}/slack/events`)
-                    .set('content-type', 'application/json')
-                    .set('x-slack-request-timestamp', ts)
-                    .set('x-slack-signature', sig)
-                    .set('x-agent-preview-token', previewToken)
-                    .send(rawBody)
-                expect(res.status).toBe(200)
-                expect(res.body.session_id).toBeTruthy()
-                // Fire-and-forget — drain the microtask queue before asserting absence.
-                await new Promise((r) => setTimeout(r, 50))
-                expect(slackCalls.filter((c) => c.url.endsWith('reactions.add'))).toHaveLength(0)
-                // Preview flag did flow through: confirm the row is_preview=true.
-                const session = await cc.queue.get(res.body.session_id)
-                expect(session!.is_preview).toBe(true)
-            } finally {
-                await cc.teardown()
-            }
-        })
     })
 
     describe('allow_workspace_participants', () => {
@@ -1474,90 +1375,6 @@ describe('slack trigger: real e2e', () => {
                 expect(postCalls).toHaveLength(1)
                 expect(postCalls[0].body).toMatchObject({ channel: 'C01', thread_ts: '500.0' })
                 expect(String(postCalls[0].body.text)).toContain('started this thread')
-            } finally {
-                await cc.teardown()
-            }
-        })
-
-        it('preview-mode: owner-only non-owner reply is rejected but NO chat.postMessage is sent (draft revision)', async () => {
-            // In live mode, an owner-only thread replies in-channel to tell the
-            // wrong user why their message did nothing. Preview-mode draft
-            // revisions must NOT write to slack.com — the elevation outcome is
-            // still returned in the HTTP response body for the author to inspect.
-            const { cc, slackCalls } = await recorderCluster()
-            try {
-                const { application } = await cc.deployAgent({
-                    slug: 'preview-owner-only',
-                    spec: ownerThreadSpec(false),
-                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-preview-owner-only' },
-                })
-                const draftSpec = AgentSpecSchema.parse({
-                    model: 'faux/faux',
-                    ...ownerThreadSpec(false),
-                })
-                const draft = await cc.revisions.createRevision({
-                    application_id: application.id,
-                    parent_revision_id: null,
-                    created_by_id: null,
-                    bundle_uri: `s3://${TEST_S3_BUCKET}/${cc.bundlePrefix}/${application.id}/`,
-                    spec: draftSpec,
-                    encrypted_env: cc.encryption.encrypt(
-                        JSON.stringify({ ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-draft-owner-only' })
-                    ),
-                })
-                await cc.bundle.write(draft.id, 'agent.md', 'You are a draft owner-only agent.')
-                const sha = await cc.bundle.freeze(draft.id)
-                await cc.revisions.setRevisionState(draft.id, 'ready', sha)
-
-                cc.setScript([fauxText('alice first')])
-                // Non-live revision invokes require a valid preview JWT — see
-                // the preview-ack test above for the same pattern. Re-mintable
-                // per request; the harness's `slackPost` doesn't take headers,
-                // so we sign inline.
-                const previewToken = await mintInternalJwt({
-                    audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-                    signingKey: DEV_INTERNAL_SIGNING_KEY,
-                    claims: { app: application.id, rev: draft.id },
-                    ttlSec: 900,
-                })
-                const slug = `preview-owner-only-${draft.id.replace(/-/g, '')}`
-                const signedPreviewSlackPost = async (body: Record<string, unknown>): Promise<request.Response> => {
-                    const raw = JSON.stringify(body)
-                    const ts = String(Math.floor(Date.now() / 1000))
-                    const sig = `v0=${createHmac('sha256', SLACK_SECRET).update(`v0:${ts}:${raw}`).digest('hex')}`
-                    return request(cc.ingress)
-                        .post(`/agents/${slug}/slack/events`)
-                        .set('content-type', 'application/json')
-                        .set('x-slack-request-timestamp', ts)
-                        .set('x-slack-signature', sig)
-                        .set('x-agent-preview-token', previewToken)
-                        .send(raw)
-                }
-                const first = await signedPreviewSlackPost(
-                    slackEvent({ eventType: 'app_mention', user: 'U-ALICE', text: '<@U0BOT> open', ts: '700.0' })
-                )
-                expect(first.body.session_id).toBeTruthy()
-                await cc.drain()
-
-                const second = await signedPreviewSlackPost(
-                    slackEvent({
-                        eventType: 'message',
-                        user: 'U-BOB',
-                        text: 'bob barges in',
-                        ts: '701.0',
-                        thread_ts: '700.0',
-                    })
-                )
-                // Elevation is still signalled in the response body — the gate
-                // logic is unchanged in preview mode, only the side effect is
-                // suppressed.
-                expect(second.body.elevation_required).toBe(true)
-                expect(second.body.resumed).toBe(false)
-                const session = await cc.queue.get(first.body.session_id)
-                expect(session!.is_preview).toBe(true)
-                expect(session!.pending_inputs).toHaveLength(0)
-                // No external slack write in preview mode.
-                expect(slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(0)
             } finally {
                 await cc.teardown()
             }

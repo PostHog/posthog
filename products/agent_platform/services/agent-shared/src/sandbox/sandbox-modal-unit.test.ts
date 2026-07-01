@@ -29,7 +29,10 @@ describe('ModalSandboxPool: client-init failure recovery', () => {
 
     it('does NOT cache a rejected client promise — second acquire re-attempts the handshake', async () => {
         // Track every constructor call so we can prove re-init happens.
-        const clientCtor = vi.fn(() => {
+        // Regular `function` (not arrow) so the spy is constructable — the SUT
+        // does `new ModalClient()`, and vitest 4's tinyspy uses Reflect.construct
+        // on the impl, which throws on a non-constructable arrow.
+        const clientCtor = vi.fn(function () {
             throw new Error('transient modal auth blip')
         })
 
@@ -101,11 +104,13 @@ describe('ModalSandboxPool: client-init failure recovery', () => {
             poll: vi.fn().mockResolvedValue(null),
             terminate: vi.fn().mockResolvedValue(undefined),
         }
-        const clientCtor = vi.fn(() => ({
-            apps: { fromName: vi.fn().mockResolvedValue({}) },
-            images: { fromRegistry: vi.fn().mockReturnValue({}) },
-            sandboxes: { create: vi.fn().mockResolvedValue(handle) },
-        }))
+        const clientCtor = vi.fn(function () {
+            return {
+                apps: { fromName: vi.fn().mockResolvedValue({}) },
+                images: { fromRegistry: vi.fn().mockReturnValue({}) },
+                sandboxes: { create: vi.fn().mockResolvedValue(handle) },
+            }
+        })
         vi.doMock('modal', () => ({ ModalClient: clientCtor }))
 
         const pool = new ModalSandboxPool({ appName: 'unit-test-app' })
@@ -147,7 +152,7 @@ describe('ModalSandboxPool: client-init failure recovery', () => {
             terminate: vi.fn().mockResolvedValue(undefined),
         }
 
-        const clientCtor = vi.fn(() => {
+        const clientCtor = vi.fn(function () {
             callCount++
             if (callCount === 1) {
                 throw new Error('transient blip')
@@ -204,11 +209,13 @@ describe('ModalSandboxPool: egress policy', () => {
             terminate: vi.fn().mockResolvedValue(undefined),
         })
         vi.doMock('modal', () => ({
-            ModalClient: vi.fn(() => ({
-                apps: { fromName: vi.fn().mockResolvedValue({}) },
-                images: { fromRegistry: vi.fn().mockReturnValue({}) },
-                sandboxes: { create: createMock },
-            })),
+            ModalClient: vi.fn(function () {
+                return {
+                    apps: { fromName: vi.fn().mockResolvedValue({}) },
+                    images: { fromRegistry: vi.fn().mockReturnValue({}) },
+                    sandboxes: { create: createMock },
+                }
+            }),
         }))
         const pool = new ModalSandboxPool({ appName: 'unit-test-app', ...poolOpts })
         await pool.acquireForSession(ACQUIRE_INPUT)

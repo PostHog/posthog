@@ -49,7 +49,6 @@ DataWarehouseSavedQueryFolder
 DataWarehouseTable
 Dataset
 DatasetItem
-DesktopRecording
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -58,6 +57,7 @@ Endpoint
 EnterpriseEventDefinition
 EnterprisePropertyDefinition
 ErrorTrackingAssignmentRule
+ErrorTrackingBypassRule
 ErrorTrackingGroupingRule
 ErrorTrackingIssue
 ErrorTrackingIssueFingerprintV2
@@ -156,6 +156,7 @@ SignalTeamConfig
 SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
+SourceGroupLease
 Subscription
 SubscriptionDelivery
 Survey

@@ -1,8 +1,8 @@
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/api/middleware/internal-api-auth'
-import { setupExpressApp } from '~/api/router'
+import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
+import { setupExpressApp } from '~/common/api/router'
 
 export const TEST_INTERNAL_API_SECRET = 'test-internal-api-secret'
 

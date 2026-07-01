@@ -10,15 +10,15 @@ import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cd
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { authenticatedInternalApiRequest, setupInternalApiTestApp } from '~/tests/helpers/internal-api'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { UUIDT } from '~/utils/utils'
 
 import { GroupTypeIndex, TeamId } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
 
 describe('BatchExportHogFunctionService', () => {

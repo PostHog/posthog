@@ -7,7 +7,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 import structlog
 from google.genai import types
@@ -21,7 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
-from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -89,11 +89,11 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         logger.info("vision_action.synthesis.over_credit_budget", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_OVER_BUDGET)
 
-    lines = _fetch_observation_lines(team, action)
-    if not lines:
+    batch = _fetch_observations(team, action, run)
+    if not batch.lines:
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    markdown = _run_synthesis(team, action, lines)
+    markdown = _run_synthesis(team, action, batch.lines)
     if not markdown.strip():
         # The model returned nothing. Skip without persisting — an empty `synthesized_markdown` would
         # read as "not done" to the idempotency guard above and re-bill the LLM on every retry.
@@ -105,34 +105,75 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
 
     run.synthesized_markdown = markdown
     run.output = {"slack": slack_text}
-    run.observation_count = len(lines)
-    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "updated_at"])
+    run.observation_count = len(batch.lines)
+    run.observation_ids = batch.observation_ids
+    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "observation_ids", "updated_at"])
 
-    return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
+    return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(batch.lines))
 
 
-def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
-    """Fetch observations matching the action's `selection` and format them as untrusted-data lines.
+def _window_start(team: Team, action: VisionAction, run: VisionActionRun) -> datetime:
+    """Start of the observation window for this run: the previous successful run, else 24h back.
 
-    Models the summarizer fetch in `max_tools._fetch_and_format`, applying the selection window.
+    Each run summarizes everything new since the last delivered summary, so the cadence itself defines
+    the period (a daily action covers ~a day, a weekly one ~a week) with no manual lookback. The first
+    run — or the first after a gap of failures — looks back 24h. Anchoring on the last *completed* run
+    (not merely the previous run) means a failed run's observations are picked up by the next success
+    rather than dropped.
+    """
+    previous_run_at = (
+        VisionActionRun.objects.for_team(team.id)
+        .filter(vision_action_id=action.id, status=VisionActionRunStatus.COMPLETED, scheduled_at__isnull=False)
+        .exclude(pk=run.pk)
+        .order_by("-scheduled_at")
+        .values_list("scheduled_at", flat=True)
+        .first()
+    )
+    return previous_run_at or (datetime.now(UTC) - timedelta(hours=24))
+
+
+def _window_end(run: VisionActionRun) -> datetime:
+    """End of the observation window for this run: its scheduled tick (exclusive).
+
+    The next run anchors its window_start on this run's scheduled_at, so capping the upper bound on
+    the same value makes consecutive windows tile exactly: an observation created after a run's
+    scheduled tick but before the run actually executes (the scheduling/queue lag) is deferred to the
+    next run instead of being summarized by both. Falls back to now() when scheduled_at is unset
+    (non-scheduled runs), preserving the previous open-ended upper bound.
+    """
+    return run.scheduled_at or datetime.now(UTC)
+
+
+class _ObservationBatch(NamedTuple):
+    # Formatted summary lines fed to the LLM, and the ids of the observations they came from, in the
+    # same order — so the run persists exactly which observations its summary included.
+    lines: list[str]
+    observation_ids: list[str]
+
+
+def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
+    """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
+
+    Models the summarizer fetch in `max_tools._fetch_and_format`.
     """
     selection: dict[str, Any] = action.selection or {}
     scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
     if not scanner_ids:
-        return []
+        return _ObservationBatch(lines=[], observation_ids=[])
 
     observations_qs = ReplayObservation.objects.filter(
-        team_id=team.id, scanner_id__in=scanner_ids, status=ObservationStatus.SUCCEEDED
+        team_id=team.id,
+        scanner_id__in=scanner_ids,
+        status=ObservationStatus.SUCCEEDED,
+        created_at__gte=_window_start(team, action, run),
+        created_at__lt=_window_end(run),
     )
 
-    window_days = selection.get("window_days")
-    if isinstance(window_days, int) and window_days > 0:
-        observations_qs = observations_qs.filter(created_at__gte=datetime.now(UTC) - timedelta(days=window_days))
-
-    rows = observations_qs.order_by("-created_at").values_list("scanner_result", "created_at")[:MAX_OBSERVATIONS]
+    rows = observations_qs.order_by("-created_at").values_list("id", "scanner_result", "created_at")[:MAX_OBSERVATIONS]
 
     lines: list[str] = []
-    for scanner_result, created_at in rows:
+    observation_ids: list[str] = []
+    for observation_id, scanner_result, created_at in rows:
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
@@ -142,8 +183,10 @@ def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
         title = output.get("title") if isinstance(output.get("title"), str) else None
         clean = _EVENT_ID_CITATION_RE.sub("", summary).strip()
         lines.append(f"- ({created_at:%Y-%m-%d}) {f'{title}: ' if title else ''}{clean}")
+        # Recorded in lockstep with `lines`: only observations whose summary was actually included.
+        observation_ids.append(str(observation_id))
 
-    return lines
+    return _ObservationBatch(lines=lines, observation_ids=observation_ids)
 
 
 def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:

@@ -32,7 +32,7 @@ from posthog.dags.data_deletion_requests import (
     load_property_removal_request,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
-from posthog.models.person import Person
+from posthog.test.persons import create_person
 
 TEAM_ID = 99999
 
@@ -1563,7 +1563,7 @@ def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
 def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: ClickhouseCluster):
     # When the request was submitted by distinct_id, the events op must resolve to UUIDs
     # because the CH events table is keyed by person_id (UUID).
-    p = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+    p = create_person(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
     bystander_uuid = str(uuid4())
     now = datetime.now()
 
@@ -1597,7 +1597,7 @@ def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: Clickho
 @pytest.mark.django_db
 def test_delete_person_recordings_op_calls_helper_when_enabled():
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1633,7 +1633,7 @@ def test_delete_person_recordings_op_noop_when_disabled():
 @pytest.mark.django_db
 def test_delete_person_profiles_op_calls_helper_when_enabled():
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1671,7 +1671,7 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
     # logs, but the op returns normally so the request can finalize to COMPLETED and the
     # operator can issue a follow-up request for the failed UUIDs.
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1698,7 +1698,7 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
 @pytest.mark.django_db
 def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.PERSON_REMOVAL,

@@ -16,6 +16,7 @@ import {
     TAB_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 
 export const scene: SceneExport = {
@@ -45,13 +46,20 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             link: combineUrl(urls.engineeringAnalyticsWorkflows(), searchParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
         },
+        {
+            key: 'test-health',
+            label: 'Test health',
+            content: <EngineeringAnalyticsTestHealth />,
+            link: combineUrl(urls.engineeringAnalyticsTestHealth(), searchParams).url,
+            'data-attr': 'engineering-analytics-test-health-tab',
+        },
     ]
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent>
                 <SceneTitleSection
-                    name="CI analytics"
+                    name="Engineering analytics"
                     description={TAB_DESCRIPTIONS[activeTab]}
                     resourceType={{ type: 'health' }}
                     actions={
@@ -81,7 +89,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
-                    CI analytics is in alpha — metrics are limited to CI events, and details may change.
+                    Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
                 <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

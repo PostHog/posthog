@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
+import { HedgehogDirector } from '@posthog/brand/hoggies'
+
 import api from 'lib/api'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { toParams } from 'lib/utils/url'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -136,7 +137,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="session-replay-widget-empty-state"
                     >
-                        <FilmCameraHog className="size-20 shrink-0" />
+                        <HedgehogDirector className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
                         <p className="m-0 text-sm text-muted">No session recordings matched your filters.</p>
                     </div>
@@ -173,22 +174,32 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     )
 }
 
-// A saved filter overrides the widget's date range, so the header shows the filter's name in its place.
+// A collection or saved filter scopes the widget instead of its date range, so the header shows their
+// names in place — e.g. "My collection · My filter" when both are set.
 export function SessionReplayWidgetTopHeading({
     config,
     widgetTypeLabel,
     showWidgetType,
     dateText,
 }: DashboardWidgetTopHeadingProps): JSX.Element {
-    const rawSavedFilterId = config.savedFilterId
-    const savedFilterId = typeof rawSavedFilterId === 'string' && rawSavedFilterId.length > 0 ? rawSavedFilterId : null
-    const { savedFilterLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+    const asShortId = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null)
+    const savedFilterId = asShortId(config.savedFilterId)
+    const collectionId = asShortId(config.collectionId)
+    const { savedFilterLabelById, collectionLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+
+    const scopeParts: string[] = []
+    if (collectionId) {
+        scopeParts.push(collectionLabelById[collectionId] ?? 'Collection')
+    }
+    if (savedFilterId) {
+        scopeParts.push(savedFilterLabelById[savedFilterId] ?? 'Saved filter')
+    }
 
     return (
         <CardTopHeadingRow
             typeLabel={widgetTypeLabel}
             showTypeLabel={showWidgetType}
-            dateText={savedFilterId ? (savedFilterLabelById[savedFilterId] ?? 'Saved filter') : dateText}
+            dateText={scopeParts.length > 0 ? scopeParts.join(' · ') : dateText}
         />
     )
 }

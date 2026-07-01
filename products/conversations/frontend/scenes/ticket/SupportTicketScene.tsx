@@ -25,11 +25,18 @@ import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -42,10 +49,19 @@ export const scene: SceneExport<{ ticketId: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
+// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
+function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
+    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
+        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
+    }
+    return undefined
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -65,6 +81,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftContent,
         draftIsPrivate,
         snoozedUntil,
+        knowledgeGaps,
+        knowledgeGapsLoading,
     } = useValues(logic)
     const {
         setStatus,
@@ -77,6 +95,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        dismissKnowledgeGap,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -231,24 +250,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                                        <ChannelsTag
+                                            channel={ticket.channel_source}
+                                            detail={ticket.channel_detail}
+                                            to={getChannelThreadUrl(ticket)}
+                                        />
                                     </span>
                                 </div>
                             )}
-                            {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_channel_id &&
-                                ticket?.slack_thread_ts && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-muted-alt">Slack thread</span>
-                                        <Link
-                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            <LemonTag type="highlight">Open in Slack</LemonTag>
-                                        </Link>
-                                    </div>
-                                )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Subject</span>
@@ -390,11 +399,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
+                    {/* Related Groups Panel */}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
+
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
+                    {aiSuggestionsEnabled && ticket && (
+                        <AIPanel
+                            aiTriage={ticket.ai_triage}
+                            knowledgeGaps={knowledgeGaps}
+                            knowledgeGapsLoading={knowledgeGapsLoading}
+                            onDismissGap={dismissKnowledgeGap}
+                        />
+                    )}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

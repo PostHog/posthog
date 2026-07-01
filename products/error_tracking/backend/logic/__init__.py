@@ -15,6 +15,7 @@ from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssue,
@@ -80,9 +81,61 @@ SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
     }
 )
 
+EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS = {
+    Integration.IntegrationKind.GITHUB.value: ("repository", "title", "body"),
+    Integration.IntegrationKind.GITLAB.value: ("title", "body"),
+    Integration.IntegrationKind.LINEAR.value: ("team_id", "title", "description"),
+    Integration.IntegrationKind.JIRA.value: ("project_key", "title", "description"),
+}
+
+EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS = {
+    Integration.IntegrationKind.GITHUB.value: ("repository", "title"),
+    Integration.IntegrationKind.GITLAB.value: ("title",),
+    Integration.IntegrationKind.LINEAR.value: ("team_id", "title"),
+    Integration.IntegrationKind.JIRA.value: ("project_key", "title"),
+}
+
 
 def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+
+
+def _validate_external_reference_config(integration: Integration, config: Any) -> None:
+    if not isinstance(config, dict):
+        raise ErrorTrackingExternalReferenceValidationError("External reference config must be an object.")
+
+    required_fields = EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS.get(integration.kind)
+    if required_fields is None:
+        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+
+    missing_fields = [field for field in required_fields if field not in config]
+    if missing_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Missing required config fields for {integration.kind}: {', '.join(missing_fields)}."
+        )
+
+    non_string_fields = [field for field in required_fields if not isinstance(config[field], str)]
+    if non_string_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config fields for {integration.kind} must be strings: {', '.join(non_string_fields)}."
+        )
+
+    blank_fields = [
+        field for field in EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS[integration.kind] if not config[field].strip()
+    ]
+    if blank_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config fields for {integration.kind} cannot be blank: {', '.join(blank_fields)}."
+        )
+
+    if integration.kind == Integration.IntegrationKind.LINEAR:
+        team_id = config["team_id"]
+        teams = LinearIntegration(integration).list_teams() or []
+        valid_team_ids = {str(team["id"]) for team in teams if isinstance(team, dict) and team.get("id")}
+        if team_id not in valid_team_ids:
+            raise ErrorTrackingExternalReferenceValidationError(
+                "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
+            )
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -168,14 +221,17 @@ def create_external_reference(
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 
+    _validate_external_reference_config(integration, config)
+    provider_config = dict(config)
+
     if integration.kind == Integration.IntegrationKind.GITHUB:
-        external_context = GitHubIntegration(integration).create_issue(config)
+        external_context = GitHubIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.GITLAB:
-        external_context = GitLabIntegration(integration).create_issue(config)
+        external_context = GitLabIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.LINEAR:
-        external_context = LinearIntegration(integration).create_issue(str(team_id), issue.id, config)
+        external_context = LinearIntegration(integration).create_issue(str(team_id), issue.id, provider_config)
     elif integration.kind == Integration.IntegrationKind.JIRA:
-        external_context = JiraIntegration(integration).create_issue(config)
+        external_context = JiraIntegration(integration).create_issue(provider_config)
     else:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
@@ -471,6 +527,7 @@ def match_all_bytecode() -> list[Any]:
 _ReorderableRule = TypeVar(
     "_ReorderableRule",
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingSuppressionRule,
 )
@@ -515,13 +572,13 @@ def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRu
 
 
 def create_assignment_rule(
-    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID
+    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID, order_key: int = 0
 ) -> ErrorTrackingAssignmentRule:
     return ErrorTrackingAssignmentRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
+        order_key=order_key,
         user_id=cast(int, assignee_id) if assignee_type == "user" else None,
         role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
     )
@@ -659,6 +716,49 @@ def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+
+
+def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
+    return ErrorTrackingBypassRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        order_key=0,
+    )
+
+
+def update_bypass_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+) -> ErrorTrackingBypassRule | None:
+    rule = get_bypass_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
 
 
 def get_client_safe_filters(filters: dict) -> dict | None:

@@ -14,8 +14,8 @@ from posthog.api.file_system.deletion import (
     register_pre_delete_hook,
     register_pre_restore_hook,
 )
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.user import User
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
@@ -52,7 +52,7 @@ def _log_deletion_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="deleted",
@@ -82,7 +82,7 @@ def _log_restore_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="restored",
@@ -192,7 +192,7 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",
@@ -233,7 +233,7 @@ def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",

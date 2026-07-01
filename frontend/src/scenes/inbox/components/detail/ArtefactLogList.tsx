@@ -10,7 +10,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { Task } from 'products/tasks/frontend/types'
+import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
@@ -27,7 +27,9 @@ import {
     LineReferenceContent,
     NoteContent,
     SignalFindingContent,
+    SummaryChangeContent,
     TaskRunArtefactContent,
+    TitleChangeContent,
 } from './artefactTypes'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
@@ -149,6 +151,80 @@ function CollapsibleNote({ note, author }: { note: string; author?: string }): J
                     {author?.trim() ? <span className="mt-1 block text-tertiary text-[11px]">— {author}</span> : null}
                 </div>
             ) : null}
+        </div>
+    )
+}
+
+/**
+ * A `title_change` / `summary_change` artefact: shows the value the report now carries, with the
+ * previous value tucked behind a "Show previous" toggle (omitted when the field had no prior value).
+ * `markdown` renders the body as markdown — summaries are descriptions, titles are plain text.
+ * `collapse` hides the new value behind a one-line preview (summaries can be long; titles are short
+ * enough to show inline).
+ */
+function ContentChangeBody({
+    previous,
+    current,
+    markdown = false,
+    collapse = false,
+}: {
+    previous?: string | null
+    current: string
+    markdown?: boolean
+    collapse?: boolean
+}): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [showPrevious, setShowPrevious] = useState(false)
+    const renderText = (text: string, muted: boolean): JSX.Element => {
+        const color = muted ? 'text-secondary' : 'text-default'
+        return markdown ? (
+            <LemonMarkdown className={`text-xs leading-normal ${color}`} disableImages>
+                {text}
+            </LemonMarkdown>
+        ) : (
+            <span className={`text-xs ${color}`}>{text}</span>
+        )
+    }
+    const previousToggle = previous?.trim() ? (
+        <>
+            <button
+                type="button"
+                onClick={() => setShowPrevious((v) => !v)}
+                className="flex w-fit items-center gap-1 rounded px-1 py-0.5 text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
+            >
+                {showPrevious ? <IconChevronDown /> : <IconChevronRight />}
+                {showPrevious ? 'Hide previous' : 'Show previous'}
+            </button>
+            {showPrevious ? <div className="min-w-0">{renderText(previous, true)}</div> : null}
+        </>
+    ) : null
+
+    if (collapse) {
+        const preview = current.split('\n').find((line) => line.trim()) ?? current
+        return (
+            <div className="flex w-full min-w-0 flex-col gap-1">
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    className="flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
+                >
+                    {expanded ? <IconChevronDown className="shrink-0" /> : <IconChevronRight className="shrink-0" />}
+                    <span className="truncate">{expanded ? 'Hide new value' : preview}</span>
+                </button>
+                {expanded ? (
+                    <>
+                        <div className="min-w-0">{renderText(current, false)}</div>
+                        {previousToggle}
+                    </>
+                ) : null}
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex w-full min-w-0 flex-col gap-1">
+            <div className="min-w-0">{renderText(current, false)}</div>
+            {previousToggle}
         </div>
     )
 }
@@ -293,6 +369,14 @@ function ArtefactBody({
         }
         case 'suggested_reviewers':
             return <ReviewersBody reviewers={(content as unknown as EnrichedReviewer[]) ?? []} />
+        case 'title_change': {
+            const c = content as TitleChangeContent
+            return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />
+        }
+        case 'summary_change': {
+            const c = content as SummaryChangeContent
+            return <ContentChangeBody previous={c.old_summary} current={c.new_summary ?? ''} markdown collapse />
+        }
         case 'dismissal': {
             const c = content as DismissalContent
             return (

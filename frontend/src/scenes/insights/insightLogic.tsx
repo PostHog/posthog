@@ -52,6 +52,8 @@ import {
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardTile,
+    DashboardType,
     InsightLogicProps,
     InsightShortId,
     ItemMode,
@@ -305,8 +307,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // Note: setInsightMetadata state updates are handled by the loader
             setInsightMetadataLocal: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (
-                state,
-                { insight, extraDashboardIds, sourceDashboardId }
+                state: Partial<QueryBasedInsightModel>,
+                {
+                    insight,
+                    extraDashboardIds,
+                    sourceDashboardId,
+                }: { insight: QueryBasedInsightModel; extraDashboardIds?: number[]; sourceDashboardId?: number }
             ) => {
                 // Dashboard refresh responses merge that dashboard's filters into `query`; only the embedded
                 // insight for that dashboard (`props.dashboardId`) should apply them. Other dashboards or
@@ -328,25 +334,40 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name, description: item.description }
+                    // Also sync query (display-option saves); preserve result — bare PATCHes return result: null.
+                    return {
+                        ...state,
+                        name: item.name,
+                        description: item.description,
+                        query: (item.query ?? state.query) as QueryBasedInsightModel['query'],
+                    }
                 }
                 return state
             },
-            [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
-                if (insightIds.includes(state.id)) {
+            [insightsModel.actionTypes.insightsAddedToDashboard]: (
+                state: Partial<QueryBasedInsightModel>,
+                { dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }
+            ) => {
+                if (state.id != null && insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
                 }
                 return state
             },
-            [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
-                if (tile.insight?.id === state.id) {
-                    return { ...state, dashboards: state.dashboards?.filter((d) => d !== dashboardId) }
+            [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (
+                state: Partial<QueryBasedInsightModel>,
+                { tile, dashboardId }: { tile?: DashboardTile<QueryBasedInsightModel>; dashboardId?: number }
+            ) => {
+                if (tile?.insight?.id === state.id) {
+                    return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== dashboardId) }
                 }
                 return state
             },
-            [dashboardsModel.actionTypes.deleteDashboardSuccess]: (state, { dashboard }) => {
+            [dashboardsModel.actionTypes.deleteDashboardSuccess]: (
+                state: Partial<QueryBasedInsightModel>,
+                { dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }
+            ) => {
                 const { id } = dashboard
-                return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
+                return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
@@ -371,6 +392,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags: insight.tags,
                     favorited: insight.favorited,
                 }),
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) =>
+                    item.id === state.id
+                        ? { ...state, name: item.name, description: item.description, query: item.query ?? state.query }
+                        : state,
             },
         ],
         insightLoading: [
