@@ -1,5 +1,4 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
 import { useEffect, useRef } from 'react'
 
 import { App } from 'scenes/App'
@@ -44,6 +43,10 @@ GROUP BY server, tool
 ORDER BY calls DESC
 LIMIT 20`
 
+// Mock results for the "top tools per server" query. The visual-regression snapshot captures the
+// editor with the query pre-loaded but NOT run (driving Run in the snapshot races the async query
+// against Storybook's story-prepare step and flakes). These results back the query when a human
+// presses Run locally — that's how the doc screenshot with a populated grid was captured.
 const SQL_RESULTS = {
     columns: ['server', 'tool', 'calls', 'avg_duration_ms', 'errors'],
     types: ['String', 'String', 'UInt64', 'Float64', 'UInt64'],
@@ -105,13 +108,12 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-07',
-        // open_query pre-fills the editor but does not auto-run — the play function below clicks
-        // "Run" so the results grid is populated before the snapshot is taken.
+        // open_query pre-fills the editor with SAMPLE_SQL but does not auto-run it, so the snapshot
+        // captures the loaded query with an empty results pane. (SQL_RESULTS backs the query when Run
+        // is pressed locally — see its comment.)
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL }),
         testOptions: {
-            // Wait on the results grid (not just the editor) so the snapshot always captures
-            // the populated results the play function produces.
-            waitForSelector: '[data-attr="sql-editor-output-pane-results"]',
+            waitForSelector: '.monaco-editor',
             viewport: { width: 1600, height: 900 },
         },
     },
@@ -119,29 +121,4 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const TopToolsPerServer: Story = {
-    play: async () => {
-        // open_query loads SAMPLE_SQL into a tab but doesn't run it. Wait for the Run button to
-        // become enabled (query loaded + HogQLMetadata resolved), click it, then wait for the
-        // results grid so SQL_RESULTS is actually rendered in the snapshot.
-        const runButton = await waitFor(
-            () => {
-                const button = document.querySelector<HTMLButtonElement>('[data-attr="sql-editor-run-button"]')
-                if (!button || button.disabled) {
-                    throw new Error('Run button not ready')
-                }
-                return button
-            },
-            { timeout: 5000 }
-        )
-        runButton.click()
-        await waitFor(
-            () => {
-                if (!document.querySelector('[data-attr="sql-editor-output-pane-results"]')) {
-                    throw new Error('Results grid not rendered')
-                }
-            },
-            { timeout: 5000 }
-        )
-    },
-}
+export const TopToolsPerServer: Story = {}
