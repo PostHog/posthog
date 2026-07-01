@@ -1201,6 +1201,8 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
 #   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
+#   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
+#     restored on resume and where directory snapshots are mounted.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1213,6 +1215,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "inactivity_timeout_seconds",
         "wizard_config",
         "use_modal_directory_resume_snapshots",
+        "snapshot_external_id",
+        "snapshot_kind",
+        "snapshot_mount_path",
     }
 )
 

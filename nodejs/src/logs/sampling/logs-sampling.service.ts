@@ -113,7 +113,8 @@ export class LogsSamplingService {
         buffer: Buffer,
         settings: LogsSettings,
         ruleSet: CompiledRuleSet,
-        teamId?: number
+        teamId?: number,
+        headerBytesUncompressed: number = 0
     ): Promise<ProcessBufferWithSamplingResult> {
         const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
         if (!logRecordType) {
@@ -141,7 +142,14 @@ export class LogsSamplingService {
                     pendingByRule.set(c.ruleId, list)
                 }
             }
-            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule, records)
+            const rateKeep = await this.applyRateLimits(
+                teamId,
+                ruleSet,
+                pendingByRule,
+                records,
+                headerBytesUncompressed,
+                contentBytesTotal
+            )
 
             for (let i = 0; i < records.length; i++) {
                 const record = records[i]!
@@ -230,19 +238,31 @@ export class LogsSamplingService {
      * Maps a recordIndex -> keep (true) or drop (false) decision per rate_limit rule.
      * Each rule's pending lines share one Lua call; lines are admitted while their
      * accumulated cost stays within the pre-batch token budget. Cost is one token
-     * per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
-     * (`costUnit: 'bytes'`); rows missing the field contribute 0.
+     * per record (`costUnit: 'records'`) or, for `costUnit: 'bytes'`, each row's
+     * pro-rata share of the batch header `bytesUncompressed`
+     * (`headerBytesUncompressed × contentBytes(row) / contentBytesTotal`) — the same
+     * unit billing meters, so the limiter admits at the configured byte rate instead
+     * of over-counting the per-row `bytes_uncompressed` (which re-includes shared
+     * batch data on every row). Falls back to per-row `bytes_uncompressed` when the
+     * header is unavailable (older producers).
      */
     private async applyRateLimits(
         teamId: number,
         ruleSet: CompiledRuleSet,
         pendingByRule: RateLimitPendingByRule,
-        records: LogRecord[]
+        records: LogRecord[],
+        headerBytesUncompressed: number,
+        contentBytesTotal: number
     ): Promise<Map<number, boolean>> {
         const keepByIndex = new Map<number, boolean>()
         if (pendingByRule.size === 0) {
             return keepByIndex
         }
+
+        const proRataScale =
+            headerBytesUncompressed > 0 && contentBytesTotal > 0 ? headerBytesUncompressed / contentBytesTotal : 0
+        const byteCost = (idx: number): number =>
+            proRataScale > 0 ? contentBytes(records[idx]!) * proRataScale : recordBytes(records[idx]!)
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
@@ -253,8 +273,7 @@ export class LogsSamplingService {
             if (!rl || indices.length === 0) {
                 continue
             }
-            const costs =
-                rl.costUnit === 'bytes' ? indices.map((idx) => recordBytes(records[idx]!)) : indices.map(() => 1)
+            const costs = rl.costUnit === 'bytes' ? indices.map(byteCost) : indices.map(() => 1)
             const totalCost = costs.reduce((a, b) => a + b, 0)
             entries.push({
                 indices,
