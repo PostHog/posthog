@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.models.util import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -202,13 +202,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return self.name[len(prefix) :]
 
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
-        """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
+        """Synced columns as `[{name, raw_name, data_type, is_nullable}]`, skipping plumbing columns.
 
         Reads the universal `columns` store (populated after every sync for every source type), so it
         works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
         `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
         legacy plain-string column shapes.
+
+        Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL
+        (`created` -> `created_at`, `customer` -> `customer_id`), so `name` is the HogQL-visible name
+        that callers surface to users and the AI agent (the Descriptions UI, semantic enrichment),
+        while `raw_name` is the underlying synced column (used to match canonical descriptions, which
+        are keyed by raw name). Columns with no rename have `name == raw_name`.
         """
+        hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
             if name in HIDDEN_COLUMNS:
@@ -219,7 +226,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_type = definition or ""
             result.append(
                 {
-                    "name": name,
+                    "name": hogql_by_raw.get(name, name),
+                    "raw_name": name,
                     "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
                     "is_nullable": "Nullable(" in clickhouse_type,
                 }
