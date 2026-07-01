@@ -144,6 +144,8 @@ def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):
             drain_rebuild_requests()
 
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=3)) is None
+    # Cooldown released on wind-down so the next drain retries promptly (~1 min).
+    assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=3))
 
 
 def test_gauges_reflect_queue_and_circuit_state(fake_redis):

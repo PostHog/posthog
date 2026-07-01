@@ -128,7 +128,19 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
 
         eligible.append(team_id)
 
-    for ok in _rebuild_batch(redis, eligible).values():
+    try:
+        results = _rebuild_batch(redis, eligible)
+    except SoftTimeLimitExceeded:
+        # Winding down mid-batch. The cooldown was set up front (it doubles as a mutex
+        # against overlapping drains), so un-rebuilt teams would otherwise wait out the
+        # full 5-minute cooldown. Release the whole batch's cooldowns so the next drain
+        # retries them in ~1 minute; already-rebuilt teams won't re-enqueue, so clearing
+        # theirs too is harmless.
+        for team_id in eligible:
+            redis.delete(COOLDOWN_KEY.format(team_id=team_id))
+        raise
+
+    for ok in results.values():
         result = "success" if ok else "failure"
         stats[result] += 1
         REBUILD_PROCESSED.labels(result=result).inc()
