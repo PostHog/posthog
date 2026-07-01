@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { type ComponentType } from 'react'
+import React, { type ComponentType, Suspense } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -191,12 +191,14 @@ export function WidgetCardHeader({
             // saved filter name in place of the now-overridden date range); otherwise fall back to the
             // type + date range.
             TopHeading ? (
-                <TopHeading
-                    config={config ?? {}}
-                    widgetTypeLabel={widgetTypeLabel}
-                    showWidgetType={showWidgetType}
-                    dateText={dateText}
-                />
+                <Suspense fallback={null}>
+                    <TopHeading
+                        config={config ?? {}}
+                        widgetTypeLabel={widgetTypeLabel}
+                        showWidgetType={showWidgetType}
+                        dateText={dateText}
+                    />
+                </Suspense>
             ) : (
                 <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
             )
