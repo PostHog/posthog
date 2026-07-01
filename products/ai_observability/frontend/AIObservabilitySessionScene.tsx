@@ -150,10 +150,9 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
     // Idle/paused: render only the loaded prefix and grow it on scroll (infinite
     // scroll), so turns past the loaded edge never render as a "Show conversation"
     // button — the sentinel below the prefix pulls the next batch in as you approach.
-    const isScrubbing = playing || currentMs > 0
-    const revealedTurnCount = isScrubbing
-        ? built.turnRevealsMs.reduce((n, revealMs) => (revealMs <= currentMs ? n + 1 : n), 0)
-        : sessionTurns.length
+    // Only meaningful while playing (that's the only place it's read); a fixed idle
+    // fallback would be dead code, so just track the playhead unconditionally.
+    const revealedTurnCount = built.turnRevealsMs.reduce((n, revealMs) => (revealMs <= currentMs ? n + 1 : n), 0)
     const shownTurnCount = playing ? revealedTurnCount : autoLoadLimit
     const phaseOf = (i: number): TurnPhase =>
         currentMs < built.turnStartsMs[i]
@@ -183,10 +182,12 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         } else {
             latestTurnRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' })
         }
-        // currentMs/durationMs are read for the end-of-playback check but intentionally
-        // omitted from deps — including currentMs would fire this every 50ms tick.
+        // `durationMs` is a dep (it changes only when a late trace extends the timeline,
+        // never per tick). `currentMs` is intentionally omitted — including it would fire
+        // this every 50ms tick; `revealedTurnCount` already advances with it at turn
+        // boundaries, which is when the scroll is actually needed.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [playing, revealedTurnCount])
+    }, [playing, revealedTurnCount, durationMs])
 
     // Progressive turn loading: extend the loaded prefix as the sentinel below the
     // list nears the viewport. Refs let the observer read fresh state without being
