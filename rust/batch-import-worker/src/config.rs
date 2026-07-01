@@ -102,6 +102,36 @@ pub struct Config {
     // the staging volume capacity in deployment.
     #[envconfig(from = "STAGING_DIR_MAX_BYTES", default = "0")]
     pub staging_dir_max_bytes: u64,
+
+    // Where compressed sources stage decompressed part plaintext: `local_disk`
+    // (default, per-pod disk) or `temp_bucket` (internal S3). Selects the
+    // StagingBackend; nothing branches on it until routing lands.
+    #[envconfig(from = "STAGING_BACKEND", default = "local_disk")]
+    pub staging_backend: String,
+
+    // Internal S3 "temp bucket" used when STAGING_BACKEND=temp_bucket. Empty
+    // string means unset. TEMP_BUCKET_NAME is required in that mode.
+    #[envconfig(from = "TEMP_BUCKET_NAME", default = "")]
+    pub temp_bucket_name: String,
+    #[envconfig(from = "TEMP_BUCKET_ENDPOINT", default = "")]
+    pub temp_bucket_endpoint: String,
+    #[envconfig(from = "TEMP_BUCKET_REGION", default = "")]
+    pub temp_bucket_region: String,
+    #[envconfig(from = "TEMP_BUCKET_PREFIX", default = "batch-import-staging/")]
+    pub temp_bucket_prefix: String,
+
+    // Per-part decompressed-byte ceiling enforced by the fetch+decompress pipeline
+    // (decompression-bomb / cost guard). 0 disables it. Breaching it pauses the job
+    // with an actionable error rather than staging unbounded plaintext.
+    #[envconfig(from = "STAGED_PLAINTEXT_MAX_BYTES", default = "0")]
+    pub staged_plaintext_max_bytes: u64,
+}
+
+/// Which staging backend a job's compressed sources use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StagingBackendKind {
+    LocalDisk,
+    TempBucket,
 }
 
 impl Config {
@@ -118,6 +148,37 @@ impl Config {
 
     pub fn staging_dir(&self) -> PathBuf {
         PathBuf::from(&self.staging_dir)
+    }
+
+    /// Resolve and validate the configured staging backend. Fails fast when
+    /// `temp_bucket` is selected without a bucket name, or on an unknown value.
+    pub fn staging_backend(&self) -> Result<StagingBackendKind, anyhow::Error> {
+        match self.staging_backend.as_str() {
+            "local_disk" => Ok(StagingBackendKind::LocalDisk),
+            "temp_bucket" => {
+                if self.temp_bucket_name.trim().is_empty() {
+                    return Err(anyhow::Error::msg(
+                        "STAGING_BACKEND=temp_bucket requires TEMP_BUCKET_NAME to be set",
+                    ));
+                }
+                Ok(StagingBackendKind::TempBucket)
+            }
+            other => Err(anyhow::Error::msg(format!(
+                "Unknown STAGING_BACKEND '{other}' (expected 'local_disk' or 'temp_bucket')"
+            ))),
+        }
+    }
+
+    /// Optional custom S3 endpoint (local dev / SeaweedFS). `None` when unset.
+    pub fn temp_bucket_endpoint(&self) -> Option<&str> {
+        let e = self.temp_bucket_endpoint.trim();
+        (!e.is_empty()).then_some(e)
+    }
+
+    /// Optional S3 region override. `None` when unset.
+    pub fn temp_bucket_region(&self) -> Option<&str> {
+        let r = self.temp_bucket_region.trim();
+        (!r.is_empty()).then_some(r)
     }
 
     pub fn backoff_policy(&self) -> BackoffPolicy {
@@ -194,5 +255,66 @@ mod tests {
         assert_eq!(p.initial_delay.as_secs(), 60);
         assert_eq!(p.max_delay.as_secs(), 3600);
         assert!((p.multiplier - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_staging_backend_defaults_to_local_disk() {
+        let config = Config::init_from_env().unwrap();
+        assert_eq!(config.staging_backend, "local_disk");
+        assert_eq!(
+            config.staging_backend().unwrap(),
+            StagingBackendKind::LocalDisk
+        );
+        assert_eq!(config.staged_plaintext_max_bytes, 0);
+        assert_eq!(config.temp_bucket_prefix, "batch-import-staging/");
+        assert_eq!(config.temp_bucket_endpoint(), None);
+        assert_eq!(config.temp_bucket_region(), None);
+    }
+
+    fn config_for_backend(backend: &str, bucket: &str) -> Config {
+        let mut config = Config::init_from_env().unwrap();
+        config.staging_backend = backend.to_string();
+        config.temp_bucket_name = bucket.to_string();
+        config
+    }
+
+    #[test]
+    fn test_staging_backend_temp_bucket_requires_name() {
+        let config = config_for_backend("temp_bucket", "");
+        let err = config.staging_backend().unwrap_err().to_string();
+        assert!(err.contains("TEMP_BUCKET_NAME"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_staging_backend_temp_bucket_ok_with_name() {
+        let config = config_for_backend("temp_bucket", "my-bucket");
+        assert_eq!(
+            config.staging_backend().unwrap(),
+            StagingBackendKind::TempBucket
+        );
+    }
+
+    #[test]
+    fn test_staging_backend_unknown_value_errors() {
+        let config = config_for_backend("nfs", "");
+        let err = config.staging_backend().unwrap_err().to_string();
+        assert!(
+            err.contains("Unknown STAGING_BACKEND"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_temp_bucket_endpoint_and_region_optional() {
+        let mut config = Config::init_from_env().unwrap();
+        config.temp_bucket_endpoint = "  ".to_string();
+        config.temp_bucket_region = "".to_string();
+        assert_eq!(config.temp_bucket_endpoint(), None);
+        assert_eq!(config.temp_bucket_region(), None);
+
+        config.temp_bucket_endpoint = "http://localhost:8333".to_string();
+        config.temp_bucket_region = "us-east-1".to_string();
+        assert_eq!(config.temp_bucket_endpoint(), Some("http://localhost:8333"));
+        assert_eq!(config.temp_bucket_region(), Some("us-east-1"));
     }
 }

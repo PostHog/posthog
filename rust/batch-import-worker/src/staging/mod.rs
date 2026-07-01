@@ -80,6 +80,10 @@ impl StagingGuard {
     }
 }
 
+pub mod backend;
+
+pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {
     tokio::fs::create_dir_all(path)
