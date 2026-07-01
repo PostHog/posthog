@@ -205,14 +205,15 @@ class DuckgresBatchQueue:
         Intra-run head-of-line: LIVE batches stay strictly ordered — a batch is
         ineligible until every lower batch_index in its run has an apply marker
         (inserts/merges must apply in order). Backfill CHUNKS relax this: a
-        pending predecessor blocks a chunk only when it cannot be returned in
-        this same fetch (not delta-succeeded, executing, waiting_retry inside
-        its backoff window, or succeeded-without-marker — the latter states are
-        anomalous and fail closed).
-        Predecessors that are claimable sort earlier in the same poll window,
-        land in the same (team_id, schema_id) group, and the consumer processes
-        a group strictly in order and halts on the first non-success — so chunk
-        0's CREATE still applies before any insert and a whole run's chunks can
+        pending predecessor blocks a chunk only when it cannot be returned
+        AHEAD of it in this same fetch — not delta-succeeded, sorting after the
+        chunk in the fetch's (created_at, batch_index) order (a reconcile
+        replay re-inserts dropped chunks with a fresh created_at), executing,
+        waiting_retry inside its backoff window, or succeeded-without-marker.
+        Co-claimable predecessors sort earlier in the same poll window, land in
+        the same (team_id, schema_id) group, and the consumer processes a group
+        strictly in order and halts on the first non-success — so chunk 0's
+        CREATE still applies before any insert and a whole run's chunks can
         drain in one claim instead of one chunk per poll cycle.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
@@ -301,6 +302,12 @@ class DuckgresBatchQueue:
                                     -- state should not exist — fail closed rather than
                                     -- lean on that invariant from here.
                                     OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
+                                    -- A predecessor that sorts AFTER this chunk in the
+                                    -- fetch's (created_at, batch_index) order cannot be
+                                    -- relied on to apply first (a reconcile replay
+                                    -- re-inserts dropped chunks with a fresh created_at)
+                                    -- — keep blocking until it actually applies.
+                                    OR (prev.created_at, prev.batch_index) > (b.created_at, b.batch_index)
                                     OR dgs_prev.job_state = 'executing'
                                     OR dgs_prev.job_state = 'succeeded'
                                     OR (

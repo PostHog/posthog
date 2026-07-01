@@ -678,6 +678,27 @@ class TestBackfillChunkClaiming:
         assert batches == []
 
     @pytest.mark.asyncio
+    async def test_replayed_predecessor_with_newer_created_at_blocks_successor(self, conn):
+        # Reconcile replay re-inserts a dropped chunk with a fresh created_at,
+        # so chunk 0 can sort AFTER chunk 1 in the fetch order. Co-claiming
+        # chunk 1 would apply it before chunk 0's CREATE (marker-then-wipe data
+        # loss); it must stay blocked until chunk 0 actually applies.
+        await _insert_chunk(conn, batch_index=1, chunk_count=2)
+        chunk0 = await _insert_chunk(conn, batch_index=0, chunk_count=2)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert [b.batch_index for b in batches] == [0]
+
+        await _mark_applied_raw(
+            conn, batch_id=chunk0, run_uuid="duckgres-backfill-schema-1-v1-g00000000", batch_index=0
+        )
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert [b.batch_index for b in batches] == [1]
+
+    @pytest.mark.asyncio
     async def test_chunks_blocked_behind_non_delta_succeeded_predecessor(self, conn):
         # enqueue_chunks writes every chunk pre-succeeded atomically, so this
         # state shouldn't exist — but the gate must fail closed rather than let
