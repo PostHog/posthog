@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { IconPerson } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
@@ -10,7 +11,7 @@ import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActorType } from '~/types'
+import { ActorType, GroupActorType } from '~/types'
 
 export interface RelatedGroupsProps {
     groupTypeIndex: number | null
@@ -28,6 +29,8 @@ export interface RelatedGroupsProps {
     highlightStaleTooltip?: string
     /** Extra group rows to append (deduped by id), e.g. a group not in the live related list. */
     extraActors?: ActorType[]
+    /** Optional extra link rendered after a group row's display (e.g. a staff-only billing admin link). Return null for rows that shouldn't get one. */
+    groupRowLink?: (actor: GroupActorType) => { to: string; label: string } | null
 }
 
 export function RelatedGroups({
@@ -41,6 +44,7 @@ export function RelatedGroups({
     highlightStale = false,
     highlightStaleTooltip,
     extraActors,
+    groupRowLink,
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const { aggregationLabel } = useValues(groupsModel)
@@ -69,6 +73,7 @@ export function RelatedGroups({
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
                     const isHighlighted = highlightGroupKey != null && actor.group_key === highlightGroupKey
+                    const extraLink = groupRowLink?.(actor)
                     return (
                         <div className="flex items-center gap-2">
                             <GroupActorDisplay actor={actor} />
@@ -83,6 +88,11 @@ export function RelatedGroups({
                                         Stale
                                     </LemonTag>
                                 </Tooltip>
+                            )}
+                            {extraLink && (
+                                <Link to={extraLink.to} target="_blank">
+                                    {extraLink.label}
+                                </Link>
                             )}
                         </div>
                     )

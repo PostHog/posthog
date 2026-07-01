@@ -4,6 +4,7 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActorType, GroupActorType } from '~/types'
@@ -13,6 +14,22 @@ import { creationGroupLogic } from './creationGroupLogic'
 const HIGHLIGHT_LABEL = 'Ticket origin'
 const STALE_TOOLTIP =
     "This group was active when the ticket was created, but it's no longer in the person's recent related groups."
+const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
+
+// Staff-only: link an organization group row to its billing customer in billing admin. The org group's key is the
+// organization UUID, so we search billing admin by org id (the same `?q=` lookup PostHog's org admin uses) — this
+// resolves the customer even when no Stripe/billing id is recorded on the account. Returns null for non-org rows
+// or non-staff users so the internal URL never renders for customers.
+export function orgBillingCustomerLink(
+    actor: GroupActorType,
+    orgGroupTypeIndex: number | null,
+    isStaff: boolean
+): { to: string; label: string } | null {
+    if (!isStaff || orgGroupTypeIndex === null || actor.group_type_index !== orgGroupTypeIndex) {
+        return null
+    }
+    return { to: `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/?q=${actor.group_key}`, label: 'Billing →' }
+}
 
 interface RelatedGroupsPanelProps {
     personUuid: string
@@ -40,6 +57,7 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
         relatedGroupsLogic({ groupTypeIndex: null, id: personUuid })
     )
     const { groupTypes } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
 
     // `organization_id` is always a key of the "organization" group type (set that way at creation),
     // so we can resolve its index by name when the group has dropped out of the live related list.
@@ -91,6 +109,7 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
                             highlightStale={showFallback}
                             highlightStaleTooltip={STALE_TOOLTIP}
                             extraActors={extraActors}
+                            groupRowLink={(actor) => orgBillingCustomerLink(actor, orgGroupTypeIndex, !!user?.is_staff)}
                         />
                     ),
                 },
