@@ -340,7 +340,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean): boolean =>
                 signalRunsResponse === null && signalRunsResponseLoading,
         ],
-        runsCount: [(s) => [s.signalRuns], (signalRuns: SignalRun[]): number => signalRuns.length],
         selectedReport: [
             (s) => [s.selectedReportResponse],
             (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,

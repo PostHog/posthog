@@ -2,8 +2,33 @@ import clsx from 'clsx'
 
 import { LemonTagType } from '@posthog/lemon-ui'
 
+import { SignalScoutRunStatus } from '../../types'
+
 /** The four-bucket lifecycle every run-shaped card collapses its status into. */
 export type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
+
+/** Single source of truth mapping a run status to its lifecycle variant. Shared by the card (badge +
+ * orb) and the Runs tab (Live vs Past split), so the two can't drift on which statuses are terminal. */
+export function resolveRunVariant(status: SignalScoutRunStatus | null): RunVariant {
+    switch (status) {
+        case 'in_progress':
+            return 'live'
+        case 'completed':
+            return 'completed'
+        case 'failed':
+        case 'cancelled':
+            return 'failed'
+        default:
+            // queued / not_started / null
+            return 'queued'
+    }
+}
+
+/** Whether a run is still live (running or pending) rather than in a terminal state. */
+export function isRunLive(status: SignalScoutRunStatus | null): boolean {
+    const variant = resolveRunVariant(status)
+    return variant === 'live' || variant === 'queued'
+}
 
 export interface VariantMeta {
     label: string

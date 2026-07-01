@@ -7,23 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
-import { RunStatusOrb, RunVariant, VARIANT_META } from './runStatusVariant'
-
-/** Map a task run status to the four-bucket lifecycle the card renders. */
-function resolveRunVariant(status: SignalRun['status']): RunVariant {
-    switch (status) {
-        case 'in_progress':
-            return 'live'
-        case 'completed':
-            return 'completed'
-        case 'failed':
-        case 'cancelled':
-            return 'failed'
-        default:
-            // queued / not_started / null
-            return 'queued'
-    }
-}
+import { RunStatusOrb, resolveRunVariant, VARIANT_META } from './runStatusVariant'
 
 export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
     const variant = resolveRunVariant(run.status)

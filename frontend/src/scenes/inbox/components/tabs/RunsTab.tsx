@@ -1,15 +1,9 @@
 import { IconBrain } from '@posthog/icons'
 
-import { SignalRun, SignalScoutRunStatus } from '../../types'
+import { SignalRun } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
+import { isRunLive } from '../cards/runStatusVariant'
 import { SignalRunCard } from '../cards/SignalRunCard'
-
-const TERMINAL_STATUSES: SignalScoutRunStatus[] = ['completed', 'failed', 'cancelled']
-
-/** A run is "live" until it reaches a terminal status. A task with no run yet (null) is still pending. */
-function isLiveRun(run: SignalRun): boolean {
-    return run.status === null || !TERMINAL_STATUSES.includes(run.status)
-}
 
 /**
  * Runs tab: the project's scout and signals-pipeline tasks, split into what's happening now ("Live")
@@ -18,8 +12,11 @@ function isLiveRun(run: SignalRun): boolean {
  * skeleton covers the first load so the empty state doesn't flash before any data has been fetched.
  */
 export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean }): JSX.Element {
-    const liveRuns = runs.filter(isLiveRun)
-    const pastRuns = runs.filter((run) => !isLiveRun(run))
+    const liveRuns: SignalRun[] = []
+    const pastRuns: SignalRun[] = []
+    for (const run of runs) {
+        ;(isRunLive(run.status) ? liveRuns : pastRuns).push(run)
+    }
 
     return (
         <div className="mx-auto max-w-3xl flex flex-col gap-5 px-6 py-4">
