@@ -32,14 +32,16 @@ export interface TraceSummary {
     error: string | null
 }
 
-// Eager-load the first N traces on mount; later turns render a "Show conversation"
-// button. Picking first N and not first and last N, because cross-trace dedup walks
+// Eager-load the first N turns on mount; scrolling toward the end extends the
+// loaded prefix by LOAD_MORE_BATCH more at a time (see `loadMoreTurns`). Picking a
+// contiguous prefix and not first-and-last-N, because cross-trace dedup walks
 // chronologically and accumulates `seenSignatures`; any gap in loaded turns would
 // let the later turns' running history show as "new" content.
 // Kept small because each trace is a separate query fired in parallel — a single
 // session open must stay well under the per-org concurrent-query budget. The proper
 // fix is one bulk query for the first N traces' events.
-const AUTO_LOAD_LIMIT = 5
+const INITIAL_AUTO_LOAD = 5
+const LOAD_MORE_BATCH = 5
 
 type SessionDateRange = { dateFrom: string | null; dateTo: string | null } | null
 
@@ -138,6 +140,8 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             dateRangeCacheKey,
         }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
+        loadMoreTurns: true,
+        setAutoLoadLimit: (limit: number) => ({ limit }),
         loadCachedSummaries: (traceIds: string[]) => ({ traceIds }),
         loadCachedSummariesSuccess: (summaries: Array<{ trace_id: string; title: string }>) => ({ summaries }),
         summarizeAllTraces: true,
@@ -190,6 +194,15 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     [traceId]: trace,
                 }),
                 clearTraceDetails: () => ({}),
+            },
+        ],
+        autoLoadLimit: [
+            // Widen from the literal `5` so `setAutoLoadLimit`'s number payload type-checks.
+            INITIAL_AUTO_LOAD as number,
+            {
+                setAutoLoadLimit: (_, { limit }) => limit,
+                // Trace list is re-fetched on date-range change — restart the prefix.
+                clearTraceDetails: () => INITIAL_AUTO_LOAD,
             },
         ],
         fullTraceDateRangeCacheKeys: [
@@ -275,7 +288,19 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
         initialLoading: [
             (s) => [s.responseLoading, s.traces, s.loadingFullTraces],
             (responseLoading: boolean, traces: LLMTrace[], loadingFullTraces: Set<string>): boolean =>
-                responseLoading || traces.slice(0, AUTO_LOAD_LIMIT).some((t) => loadingFullTraces.has(t.id)),
+                responseLoading || traces.slice(0, INITIAL_AUTO_LOAD).some((t) => loadingFullTraces.has(t.id)),
+        ],
+        hasMoreTurns: [
+            (s) => [s.autoLoadLimit, s.traces],
+            (autoLoadLimit: number, traces: LLMTrace[]): boolean => autoLoadLimit < traces.length,
+        ],
+        // Any trace within the currently-revealed prefix is still fetching. Drives the
+        // in-flight gate in `loadMoreTurns` and the scene's loading row. Reads
+        // `loadingFullTraces`, which the `loadFullTrace` reducer updates synchronously.
+        turnsLoading: [
+            (s) => [s.autoLoadLimit, s.traces, s.loadingFullTraces],
+            (autoLoadLimit: number, traces: LLMTrace[], loadingFullTraces: Set<string>): boolean =>
+                traces.slice(0, autoLoadLimit).some((t) => loadingFullTraces.has(t.id)),
         ],
     }),
 
@@ -319,6 +344,23 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     }
                 } catch {
                     // Silently fail - this is just a cache optimization
+                }
+            },
+            loadMoreTurns: () => {
+                // Race-safe without a React ref: `turnsLoading` reads `loadingFullTraces`,
+                // which the `loadFullTrace` reducer sets synchronously on dispatch — so a
+                // second same-frame call sees the in-flight batch and no-ops. Peak
+                // concurrency therefore stays at LOAD_MORE_BATCH, matching the eager load.
+                if (values.turnsLoading || !values.hasMoreTurns) {
+                    return
+                }
+                const prevLimit = values.autoLoadLimit
+                const nextLimit = Math.min(prevLimit + LOAD_MORE_BATCH, values.traces.length)
+                actions.setAutoLoadLimit(nextLimit)
+                for (const trace of values.traces.slice(prevLimit, nextLimit)) {
+                    if (!values.fullTraces[trace.id] && !values.loadingFullTraces.has(trace.id)) {
+                        actions.loadFullTrace(trace.id)
+                    }
                 }
             },
             loadFullTrace: async ({ traceId }) => {
@@ -449,7 +491,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             if (Object.keys(values.traceSummaries).length === 0) {
                 actions.loadCachedSummaries(traces.map((t) => t.id))
             }
-            for (const trace of traces.slice(0, AUTO_LOAD_LIMIT)) {
+            for (const trace of traces.slice(0, INITIAL_AUTO_LOAD)) {
                 if (!values.fullTraces[trace.id] && !values.loadingFullTraces.has(trace.id)) {
                     actions.loadFullTrace(trace.id)
                 }

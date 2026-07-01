@@ -25,6 +25,10 @@ describe('aiObservabilitySessionDataLogic', () => {
         } as LLMTrace
     }
 
+    function traceWithId(id: string): LLMTrace {
+        return { ...traceWithEvents(), id }
+    }
+
     function traceQueryCalls(): TraceQuery[] {
         return querySpy.mock.calls
             .map(([query]) => query)
@@ -90,5 +94,36 @@ describe('aiObservabilitySessionDataLogic', () => {
         await settleListeners()
 
         expect(logic.values.expandedGenerationIds).toEqual(new Set(['first-event']))
+    })
+
+    it('extends the loaded prefix in bounded batches and gates concurrent batches', async () => {
+        // Re-mount on a session with more traces than the initial eager window.
+        logic.unmount()
+        const traces = Array.from({ length: 12 }, (_, i) => traceWithId(`trace-${i}`))
+        logic = aiObservabilitySessionDataLogic({
+            sessionId: 'session-1',
+            query: sessionLogic.values.query,
+            cachedResults: { results: traces } as any,
+        })
+        logic.mount()
+        await settleListeners()
+
+        // Initial eager load fires exactly the first batch; more turns remain.
+        expect(traceQueryCalls()).toHaveLength(5)
+        expect(logic.values.hasMoreTurns).toBe(true)
+
+        // One batch extends the prefix by 5 (5 -> 10). A second call while that batch
+        // is still in flight must not fire more queries — this is the concurrency gate.
+        logic.actions.loadMoreTurns()
+        logic.actions.loadMoreTurns()
+        expect(traceQueryCalls()).toHaveLength(10)
+
+        await settleListeners()
+
+        // Final batch loads the remaining 2 (10 -> 12); then nothing is left to load.
+        logic.actions.loadMoreTurns()
+        await settleListeners()
+        expect(traceQueryCalls()).toHaveLength(12)
+        expect(logic.values.hasMoreTurns).toBe(false)
     })
 })
