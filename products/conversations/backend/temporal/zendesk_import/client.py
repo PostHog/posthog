@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import time
 import base64
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import structlog
 from requests import Response
@@ -28,6 +30,11 @@ TICKETS_SHOW_MANY_BATCH = 100
 MAX_RATE_LIMIT_RETRIES = 3
 MAX_RATE_LIMIT_SLEEP_SECONDS = 30
 
+# A Zendesk subdomain is a single DNS label: alphanumerics + hyphens, no leading/trailing
+# hyphen, <= 63 chars. Pinning to this stops a crafted subdomain (e.g. "attacker.example#")
+# from resolving the base host to something other than "<label>.zendesk.com" (SSRF).
+_SUBDOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+
 
 class ZendeskRateLimitError(Exception):
     """Raised when Zendesk keeps rate-limiting beyond the in-thread retry budget.
@@ -47,7 +54,13 @@ class ZendeskCredentials:
 class ZendeskImportClient:
     def __init__(self, credentials: ZendeskCredentials) -> None:
         subdomain = normalize_subdomain(credentials.subdomain)
-        self._base_url = f"https://{subdomain}.zendesk.com"
+        if not _SUBDOMAIN_LABEL_RE.match(subdomain):
+            raise ValueError(f"Invalid Zendesk subdomain: {credentials.subdomain!r}")
+        # Pin every request (including absolute next_page / attachment URLs echoed back by
+        # the API) to this host so a malicious/compromised API response can't redirect us at
+        # internal services.
+        self._host = f"{subdomain}.zendesk.com".lower()
+        self._base_url = f"https://{self._host}"
         token = base64.b64encode(f"{credentials.email_address}/token:{credentials.api_token}".encode("ascii")).decode(
             "ascii"
         )
@@ -76,8 +89,18 @@ class ZendeskImportClient:
         logger.warning("zendesk_import_rate_limited", retry_after=retry_after, path=path, attempt=attempt)
         time.sleep(retry_after)
 
+    def _assert_expected_host(self, url: str) -> None:
+        """Reject absolute URLs whose host isn't the pinned Zendesk host (SSRF guard)."""
+        host = urlsplit(url).hostname
+        if host is None or host.lower() != self._host:
+            raise ValueError(f"Refusing to fetch URL outside Zendesk host {self._host!r}: {url!r}")
+
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        url = path if path.startswith("http") else f"{self._base_url}{path}"
+        if path.startswith("http"):
+            self._assert_expected_host(path)
+            url = path
+        else:
+            url = f"{self._base_url}{path}"
         attempt = 0
         while True:
             response = self._session.request(method, url, headers=self._headers, params=params, timeout=60)
@@ -151,6 +174,7 @@ class ZendeskImportClient:
         return comments
 
     def download_attachment(self, content_url: str) -> bytes:
+        self._assert_expected_host(content_url)
         attempt = 0
         while True:
             response = self._session.get(content_url, headers=self._headers, timeout=120)
