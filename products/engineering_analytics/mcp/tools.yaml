@@ -170,8 +170,8 @@ tools:
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
             and CI duration trends. By default p50/p95 match the legacy completed-run percentile, which includes
             cancelled/skipped completed runs. For honest PR-branch CI duration, pass run_scope=pull_request and
-            duration_filter=successful so superseded cancels and failed runs do not bias the percentile. To get a
-            trend, call this over two adjacent windows and compare.
+            duration_filter=successful so superseded cancels and failed runs do not bias the percentile. To get a trend,
+            call this over two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
