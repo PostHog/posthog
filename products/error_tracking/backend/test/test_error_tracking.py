@@ -1,11 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from threading import Barrier
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 
 from products.error_tracking.backend.models import (
@@ -17,13 +20,15 @@ from products.error_tracking.backend.models import (
 )
 
 
-class TestErrorTracking(BaseTest):
-    def create_issue(self, fingerprints) -> ErrorTrackingIssue:
+class ErrorTrackingIssueTestMixin:
+    def create_issue(self, fingerprints: list[str]) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
+
+class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_defaults(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
 
@@ -257,3 +262,52 @@ class TestErrorTracking(BaseTest):
 
                 # Verify object storage delete was called with correct path
                 mock_delete.assert_called_once_with(file_name="test-storage-path")
+
+
+class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBaseTest):
+    def _run_merge(self, *, start_barrier: Barrier, target_issue_id: UUID, source_issue_ids: list[UUID]) -> bool:
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '10s'")
+                cursor.execute("SET statement_timeout = '15s'")
+            start_barrier.wait(timeout=5)
+            return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=source_issue_ids)
+        finally:
+            close_old_connections()
+
+    def test_opposite_concurrent_merges_do_not_deadlock(self):
+        source_issue_one = self.create_issue(["source_fingerprint_one"])
+        source_issue_two = self.create_issue(["source_fingerprint_two"])
+        target_issue_one = self.create_issue(["target_fingerprint_one"])
+        target_issue_two = self.create_issue(["target_fingerprint_two"])
+        start_barrier = Barrier(2)
+
+        with (
+            patch("products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides"),
+            patch("products.error_tracking.backend.models.sync_issues_to_clickhouse"),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            merge_to_target_one = executor.submit(
+                self._run_merge,
+                start_barrier=start_barrier,
+                target_issue_id=target_issue_one.id,
+                source_issue_ids=[source_issue_one.id, source_issue_two.id],
+            )
+            merge_to_target_two = executor.submit(
+                self._run_merge,
+                start_barrier=start_barrier,
+                target_issue_id=target_issue_two.id,
+                source_issue_ids=[source_issue_two.id, source_issue_one.id],
+            )
+
+            merge_results = [merge_to_target_one.result(timeout=20), merge_to_target_two.result(timeout=20)]
+
+        assert sorted(merge_results) == [False, True]
+        assert not ErrorTrackingIssue.objects.filter(id__in=[source_issue_one.id, source_issue_two.id]).exists()
+        assert ErrorTrackingIssue.objects.filter(id__in=[target_issue_one.id, target_issue_two.id]).count() == 2
+
+        source_fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(
+            fingerprint__in=["source_fingerprint_one", "source_fingerprint_two"]
+        ).values_list("issue_id", flat=True)
+        assert len(set(source_fingerprints)) == 1
