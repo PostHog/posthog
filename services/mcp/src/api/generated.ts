@@ -14114,60 +14114,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * A place that uses a custom property definition (read-only).
-     */
-    export interface CustomPropertyReference {
-      /** Id of the referring entity (e.g. the workflow id). */
-      readonly id: string;
-      /** Display name of the referring entity. */
-      readonly name: string;
-      /** Status of the referring entity (e.g. workflow status). */
-      readonly status: string;
-      /** Kind of reference. Currently always 'workflow'. */
-      readonly type: string;
-    }
-
-    /**
-     * A team-scoped definition of a custom account property — the attribute side of the model.
-     *
-     * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
-     */
-    export interface CustomPropertyDefinition {
-      readonly id: string;
-      /**
-         * Human-readable name of the custom property. Unique within the team.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * Optional description of what the property represents.
-         * @nullable
-         */
-      description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
-       *
-       * * `text` - text
-       * * `number` - number
-       * * `currency` - currency
-       * * `percent` - percent
-       * * `date` - date
-       * * `datetime` - datetime
-       * * `boolean` - boolean */
-      display_type: CustomPropertyDisplayTypeEnum;
-      /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
-      is_big_number?: boolean;
-      readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** Workflows that use this property, resolved by definition id. */
-      readonly references: readonly CustomPropertyReference[];
-    }
-
-    /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
      * values are synced onto matching accounts on each materialization.
      */
@@ -14206,6 +14152,61 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * A place that uses a custom property definition (read-only).
+     */
+    export interface CustomPropertyReference {
+      /** Id of the referring entity (e.g. the workflow id). */
+      readonly id: string;
+      /** Display name of the referring entity. */
+      readonly name: string;
+      /** Status of the referring entity (e.g. workflow status). */
+      readonly status: string;
+      /** Kind of reference. Currently always 'workflow'. */
+      readonly type: string;
+    }
+
+    /**
+     * A team-scoped definition of a custom account property — the attribute side of the model.
+     *
+     * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+     * stored separately, so this serializer never reads or writes account values.
+     */
+    export interface CustomPropertyDefinition {
+      readonly id: string;
+      /**
+         * Human-readable name of the custom property. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Optional description of what the property represents.
+         * @nullable
+         */
+      description?: string | null;
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+       *
+       * * `text` - text
+       * * `number` - number
+       * * `currency` - currency
+       * * `percent` - percent
+       * * `date` - date
+       * * `datetime` - datetime
+       * * `boolean` - boolean */
+      display_type: CustomPropertyDisplayTypeEnum;
+      /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+      is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source: CustomPropertySource | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Workflows that use this property, resolved by definition id. */
+      readonly references: readonly CustomPropertyReference[];
     }
 
     /**
@@ -36312,8 +36313,7 @@ export namespace Schemas {
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
+     * stored separately, so this serializer never reads or writes account values.
      */
     export interface PatchedCustomPropertyDefinition {
       readonly id?: string;
@@ -36339,6 +36339,8 @@ export namespace Schemas {
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;

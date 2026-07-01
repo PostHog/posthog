@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
@@ -573,3 +575,76 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
 
         assert facade.delete_custom_property_source(team_id=self.team.id, source_id=source.id) is True
         assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
+
+    @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
+    def test_create_enqueues_initial_sync_only_when_enabled(self, _name, is_enabled, expect_enqueued):
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            self._create(is_enabled=is_enabled)
+
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once_with(
+                "customer_analytics.process_custom_property_sync",
+                kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+            )
+        else:
+            mock_app.send_task.assert_not_called()
+
+    def test_reenabling_a_source_enqueues_a_sync(self):
+        source = self._create(is_enabled=False)
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields={"is_enabled": True})
+
+        mock_app.send_task.assert_called_once_with(
+            "customer_analytics.process_custom_property_sync",
+            kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+        )
+
+    @parameterized.expand(
+        [
+            ("noop", {}, False),
+            ("already_enabled", {"is_enabled": True}, False),
+            ("column_change", {"source_column": "org_id"}, True),
+        ]
+    )
+    def test_update_enqueues_only_on_meaningful_change(self, _name, fields, expect_enqueued):
+        source = self._create()
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields=fields)
+
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once()
+        else:
+            mock_app.send_task.assert_not_called()
+
+    def test_external_batch_rejects_source_backed_definition(self):
+        self._create()
+        create_account(team_id=self.team.id, name="Acme", external_id="acme")
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme", properties={str(self.definition.id): 100}
+        )
+
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED
+        assert result.values is None
+
+    def test_get_definition_carries_source(self):
+        uac = UserAccessControl(user=self.user, team=self.team)
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        assert view is not None
+        assert view.source is None
+
+        source = self._create()
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        assert view is not None
+        assert view.source is not None
+        assert view.source.id == source.id
+        assert view.source.source_column == "mrr"
+
+    def test_manual_value_write_rejected_on_source_backed_definition(self):
+        self._create()
+        account = create_account(team_id=self.team.id, external_id="org_1")
+
+        with pytest.raises(facade.CustomPropertyValueSourceManaged):
+            facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)

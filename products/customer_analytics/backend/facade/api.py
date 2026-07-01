@@ -15,6 +15,7 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
 
+from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -380,6 +382,13 @@ def set_external_account_custom_properties(
             error=contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND
         )
 
+    source_backed = _source_backed_definition_ids(team_id, list(properties.keys()))
+    if source_backed:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED,
+            error_field=str(next(iter(source_backed))),
+        )
+
     try:
         with transaction.atomic():
             rows = _custom_property_values_logic.set_account_custom_properties_by_id(
@@ -674,6 +683,7 @@ def _to_custom_property_definition_view(
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
         references=references or [],
+        source=_definition_source_view(definition),
     )
 
 
@@ -705,6 +715,16 @@ def _custom_property_references_by_definition_id(
     }
 
 
+def _definition_source_view(definition: CustomPropertyDefinition) -> contracts.CustomPropertySourceView | None:
+    """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
+    ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query."""
+    try:
+        source = definition.source  # type: ignore[attr-defined]
+    except CustomPropertySource.DoesNotExist:
+        return None
+    return _to_custom_property_source_view(source)
+
+
 def list_custom_property_definitions(
     team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
@@ -712,7 +732,7 @@ def list_custom_property_definitions(
 
     ``references`` (the workflows referencing each definition) is included only when the caller can
     read workflows — see ``_can_read_workflow_references``."""
-    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
+    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
     references = (
@@ -868,6 +888,26 @@ def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
     return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
 
 
+def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
+    """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
+    try:
+        current_app.send_task(
+            "customer_analytics.process_custom_property_sync",
+            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
+def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
+    """Run an initial sync after the source is saved so its values populate immediately rather than
+    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
+    if not source.is_enabled or source.saved_query_id is None:
+        return
+    team_id, saved_query_id = source.team_id, str(source.saved_query_id)
+    transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+
+
 def list_custom_property_sources(
     team_id: int, offset: int, limit: int
 ) -> tuple[list[contracts.CustomPropertySourceView], int]:
@@ -913,6 +953,7 @@ def create_custom_property_source(
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
+    _enqueue_sync_if_enabled(source)
     return _to_custom_property_source_view(source)
 
 
@@ -926,12 +967,18 @@ def update_custom_property_source(
     if source is None:
         return None
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    columns_changed = any(
+        attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
+    )
     for attr, value in fields.items():
         setattr(source, attr, value)
     if reenabling:
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
+    # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
+    if reenabling or columns_changed:
+        _enqueue_sync_if_enabled(source)
     return _to_custom_property_source_view(source)
 
 
@@ -1499,6 +1546,23 @@ CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueC
 InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
 
 
+def _source_backed_definition_ids(team_id: int, definition_ids: Iterable[str | UUID]) -> set[UUID]:
+    """Definition ids from ``definition_ids`` that are backed by a view sync. Manual writes to these
+    are closed at the API layer (the sync writes them through the logic directly), so callers can't
+    fight the sync over the value."""
+    return set(
+        CustomPropertySource.objects.for_team(team_id)
+        .filter(definition_id__in=definition_ids)
+        .values_list("definition_id", flat=True)
+    )
+
+
+class CustomPropertyValueSourceManaged(Exception):
+    """Raised when a manual write targets a source-backed definition. The view sync writes such
+    definitions through the logic layer directly; the manual API path is closed so the two can't
+    fight over the value (→ 400)."""
+
+
 def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPropertyValue:
     return contracts.CustomPropertyValue(
         id=row.id,
@@ -1518,6 +1582,10 @@ def set_custom_property_value(
     *,
     created_by_id: int | None = None,
 ) -> contracts.CustomPropertyValue:
+    if _source_backed_definition_ids(team_id, [definition_id]):
+        raise CustomPropertyValueSourceManaged(
+            "This custom property is managed by a data warehouse source and can't be set manually."
+        )
     row = _custom_property_values_logic.set_custom_property_value(
         team_id=team_id,
         account_id=account_id,
