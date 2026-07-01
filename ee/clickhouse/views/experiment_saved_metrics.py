@@ -172,10 +172,12 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
             return queryset
         event = self.request.query_params.get("event")
         if event:
-            # One group per saved metric: (pk, [its query]).
+            # One group per saved metric: (pk, [its query]). `.order_by()` drops the class-level
+            # ordering for this internal fetch — the result is matched in Python, so ordering is
+            # irrelevant, and it avoids a needless sort (and the DISTINCT+ORDER BY column injection).
             groups = [
                 (pk, [query] if query else [])
-                for pk, query in queryset.filter(team_id=self.team.pk).values_list("pk", "query")
+                for pk, query in queryset.filter(team_id=self.team.pk).order_by().values_list("pk", "query")
             ]
             queryset = queryset.filter(pk__in=filter_metric_group_ids_by_event(groups, event, self.team))
         return queryset
