@@ -269,7 +269,6 @@ export const HogFunctionTypeEnumApi = {
  * * `posthog_ticket_tags` - posthog_ticket_tags
  * * `posthog_business_hours` - posthog_business_hours
  * * `non_failure_status_codes` - non_failure_status_codes
- * * `fetch_timeout_ms` - fetch_timeout_ms
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
@@ -289,7 +288,6 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogTicketTags: 'posthog_ticket_tags',
     PosthogBusinessHours: 'posthog_business_hours',
     NonFailureStatusCodes: 'non_failure_status_codes',
-    FetchTimeoutMs: 'fetch_timeout_ms',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
 } as const
 

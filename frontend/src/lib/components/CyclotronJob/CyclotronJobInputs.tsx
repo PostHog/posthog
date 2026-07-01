@@ -82,7 +82,6 @@ const INPUT_TYPE_LIST = [
     'email',
     'native_email',
     'non_failure_status_codes',
-    'fetch_timeout_ms',
 ] as const
 
 // Keyed by the full CyclotronJobInputSchemaType['type'] union — the schema editor's LemonSelect
@@ -91,14 +90,11 @@ const INPUT_TYPE_LIST = [
 const INPUT_TYPE_LABELS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
     native_email: 'Native email',
     non_failure_status_codes: 'Non-failure codes',
-    fetch_timeout_ms: 'Fetch timeout (ms)',
 }
 
 const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
     non_failure_status_codes:
         'HTTP response codes that should NOT mark the invocation as failed. Accepts specific codes (e.g. 409, 422) or the wildcards 4xx and 5xx. Useful when an API returns 4xx for expected non-error states.',
-    fetch_timeout_ms:
-        'Per-request timeout in milliseconds for HTTP calls from this destination, between 1000 and 30000. Raise it for slow or distant endpoints that exceed the default. Leave unset to use the platform default.',
 }
 
 const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
@@ -697,20 +693,6 @@ function CyclotronJobInputRenderer({
             )
         case 'non_failure_status_codes':
             return <NonFailureStatusCodesField value={input.value} onChange={onValueChange} disabled={disabled} />
-        case 'fetch_timeout_ms':
-            return (
-                <LemonInput
-                    type="number"
-                    min={1000}
-                    max={30000}
-                    step={500}
-                    suffix={<span className="text-secondary">ms</span>}
-                    value={input.value}
-                    onChange={onValueChange}
-                    disabled={disabled}
-                    className="ph-no-capture"
-                />
-            )
         default: {
             const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
             if (CustomRenderer) {

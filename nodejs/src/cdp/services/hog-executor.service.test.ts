@@ -75,6 +75,7 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                fetchTimeoutMsOverrides: hub.CDP_FETCH_TIMEOUT_MS_OVERRIDES,
                 selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
@@ -2200,14 +2201,19 @@ describe('Hog Executor', () => {
     })
 
     describe('resolveFetchTimeoutMs', () => {
-        const withTimeoutInput = (value: unknown): HogFunctionType =>
-            createHogFunction({
-                inputs_schema: [{ key: 'to', type: 'fetch_timeout_ms' }],
-                inputs: { to: { value } as any },
-            })
+        const fn = createHogFunction({})
+        const overridesFor = (value: unknown): string => JSON.stringify({ [fn.id]: value })
 
-        it('returns undefined when no fetch_timeout_ms input is present', () => {
-            expect(resolveFetchTimeoutMs(createHogFunction({}))).toBeUndefined()
+        it('returns undefined when the destination is not in the allowlist', () => {
+            expect(resolveFetchTimeoutMs(fn, JSON.stringify({ 'some-other-id': 5000 }))).toBeUndefined()
+        })
+
+        it.each([
+            ['unset', undefined],
+            ['empty', ''],
+            ['malformed json', 'not json'],
+        ])('returns undefined when overrides are %s', (_name, raw) => {
+            expect(resolveFetchTimeoutMs(fn, raw)).toBeUndefined()
         })
 
         it.each([
@@ -2217,16 +2223,15 @@ describe('Hog Executor', () => {
             ['above max is clamped down', 999999, 30000],
             ['fractional is rounded', 4999.6, 5000],
         ])('%s', (_name, value, expected) => {
-            expect(resolveFetchTimeoutMs(withTimeoutInput(value))).toBe(expected)
+            expect(resolveFetchTimeoutMs(fn, overridesFor(value))).toBe(expected)
         })
 
         it.each([
-            ['unset', undefined],
             ['non-numeric string', 'soon'],
-            ['NaN', NaN],
             ['null', null],
+            ['boolean', true],
         ])('returns undefined for %s so the global default applies', (_name, value) => {
-            expect(resolveFetchTimeoutMs(withTimeoutInput(value))).toBeUndefined()
+            expect(resolveFetchTimeoutMs(fn, overridesFor(value))).toBeUndefined()
         })
     })
 

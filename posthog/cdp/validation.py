@@ -247,7 +247,6 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_ticket_tags",
             "posthog_business_hours",
             "non_failure_status_codes",
-            "fetch_timeout_ms",
             "customer_analytics_account_properties",
         ]
     )
@@ -355,12 +354,6 @@ class InputsItemSerializer(serializers.Serializer):
                 else:
                     if not re.fullmatch(r"[4-5]xx", entry, re.IGNORECASE):
                         raise serializers.ValidationError({"input": "Wildcards must be '4xx' or '5xx'."})
-        elif item_type == "fetch_timeout_ms":
-            # Bounds kept in sync with MIN/MAX_FETCH_TIMEOUT_MS in nodejs hog-executor.service.ts.
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise serializers.ValidationError({"input": "Value must be a number of milliseconds."})
-            if not (1000 <= value <= 30000):
-                raise serializers.ValidationError({"input": "Timeout must be between 1000 and 30000 milliseconds."})
 
         try:
             if value and schema.get("templating", True):

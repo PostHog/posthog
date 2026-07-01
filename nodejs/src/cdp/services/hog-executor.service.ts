@@ -48,7 +48,7 @@ import {
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
     PluginsServerConfig,
-    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS' | 'CDP_FETCH_TIMEOUT_MS_OVERRIDES'
 >
 
 export interface HogExecutorConfig {
@@ -57,6 +57,7 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    fetchTimeoutMsOverrides: string
     selfLoopGuardMode: SelfLoopGuardMode
 }
 
@@ -168,21 +169,46 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 
-// Bounds for a per-destination fetch timeout override (input type `fetch_timeout_ms`).
-// The upper bound stops a single destination from pinning an undici connection far longer
-// than the shared pool can afford; keep these in sync with posthog/cdp/validation.py.
+// Bounds for the operator-controlled per-destination fetch timeout allowlist. The upper bound
+// stops an allowlisted destination from pinning an undici connection far longer than the shared
+// pool can afford.
 export const MIN_FETCH_TIMEOUT_MS = 1000
 export const MAX_FETCH_TIMEOUT_MS = 30000
 
-// Resolve a destination's optional per-request fetch timeout. Found by input *type* (not a
-// magic key), mirroring `non_failure_status_codes`. Returns undefined when unset or unusable,
-// letting `_fetch` fall back to the global EXTERNAL_REQUEST_TIMEOUT_MS.
-export function resolveFetchTimeoutMs(hogFunction: HogFunctionType): number | undefined {
-    const schemaEntry = hogFunction.inputs_schema?.find((s) => s.type === 'fetch_timeout_ms')
-    if (!schemaEntry) {
-        return undefined
+// ponytail: process-wide cache keyed on the raw JSON so the allowlist is parsed once, not per
+// fetch. All executors in a process share one config value, so last-write-wins stays coherent.
+let fetchTimeoutOverridesCache: { raw: string; map: Record<string, unknown> } | null = null
+
+function parseFetchTimeoutOverrides(raw: string | undefined): Record<string, unknown> {
+    if (!raw) {
+        return {}
     }
-    const raw = hogFunction.inputs?.[schemaEntry.key]?.value
+    if (fetchTimeoutOverridesCache?.raw === raw) {
+        return fetchTimeoutOverridesCache.map
+    }
+    let map: Record<string, unknown> = {}
+    try {
+        const parsed = parseJSON(raw)
+        if (parsed && typeof parsed === 'object') {
+            map = parsed as Record<string, unknown>
+        }
+    } catch {
+        logger.warn('🦔', '[resolveFetchTimeoutMs] Ignoring malformed CDP_FETCH_TIMEOUT_MS_OVERRIDES', { raw })
+    }
+    fetchTimeoutOverridesCache = { raw, map }
+    return map
+}
+
+// Resolve an operator-set per-destination fetch timeout from the CDP_FETCH_TIMEOUT_MS_OVERRIDES
+// allowlist (a JSON map of hog function id -> timeout ms). Deliberately not user-configurable: a
+// destination author must not be able to hold a pooled connection open and starve other tenants.
+// Returns undefined when the destination is not allowlisted, so `_fetch` falls back to the global
+// EXTERNAL_REQUEST_TIMEOUT_MS.
+export function resolveFetchTimeoutMs(
+    hogFunction: HogFunctionType,
+    rawOverrides: string | undefined
+): number | undefined {
+    const raw = parseFetchTimeoutOverrides(rawOverrides)[hogFunction.id]
     const value = typeof raw === 'string' ? Number(raw) : raw
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return undefined
@@ -858,7 +884,7 @@ export class HogExecutorService {
         const fetchParams: FetchOptions = {
             method,
             headers: signedHeaders,
-            timeoutMs: resolveFetchTimeoutMs(invocation.hogFunction),
+            timeoutMs: resolveFetchTimeoutMs(invocation.hogFunction, this.config.fetchTimeoutMsOverrides),
         }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
