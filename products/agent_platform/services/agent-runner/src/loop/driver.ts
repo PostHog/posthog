@@ -53,9 +53,11 @@ import {
     ConversationMessage,
     CredentialBroker,
     createLogger,
+    extractGatewayRequestId,
     FRAMEWORK_PROMPT_VERSION,
     GatewayCatalog,
     GatewayClient,
+    gatewaySettledCost,
     generationSpanId,
     HttpFetcher,
     IdentityCredentialStore,
@@ -860,11 +862,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                     phc: deps.gatewayUsage.phc,
                                 })
                                 if (usage) {
-                                    const cost = Number(usage.cost_usd)
-                                    if (Number.isFinite(cost)) {
+                                    const settled = gatewaySettledCost(usage)
+                                    if (settled) {
                                         session.usage_total = {
                                             ...session.usage_total,
-                                            cost_total: session.usage_total.cost_total + cost,
+                                            cost_total: session.usage_total.cost_total + settled.usd,
                                         }
                                     } else {
                                         runLog.warn(
@@ -976,12 +978,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             phc: deps.gatewayUsage.phc,
                         })
                         if (usage) {
-                            const cost = Number(usage.cost_usd)
+                            const settled = gatewaySettledCost(usage)
                             session.usage_total = {
                                 ...session.usage_total,
                                 tokens_in: session.usage_total.tokens_in + (usage.input_tokens ?? 0),
                                 tokens_out: session.usage_total.tokens_out + (usage.output_tokens ?? 0),
-                                cost_total: session.usage_total.cost_total + (Number.isFinite(cost) ? cost : 0),
+                                cost_total: session.usage_total.cost_total + (settled?.usd ?? 0),
                             }
                         }
                     } catch (err) {
@@ -1466,11 +1468,13 @@ export function translateAssistantNamesBack(
  *
  * The usage lookup keys off the GATEWAY's id, not ours. The gateway mints its
  * own settlement reference server-side — a client-chosen id would let a caller
- * collapse every debit as a duplicate — and returns it in the `X-Request-ID`
- * response header; it ignores any inbound `X-Request-Id`. We read it back via
- * pi-ai's `onResponse` (header keys are lowercased). Keying off the
- * runner-chosen id never matched the ledger → `getUsage` 404'd every turn and
- * cost stayed $0. A missing header (no `onResponse`, gateway misroute) just
+ * collapse every debit as a duplicate — and returns it in the response header
+ * named by `GATEWAY_REQUEST_ID_HEADER` (agent-shared's `gateway-wire`); it
+ * ignores any inbound `X-Request-Id`. We read it back via
+ * `extractGatewayRequestId` off pi-ai's `onResponse` (header keys are
+ * lowercased) — the SAME function `gateway-client.ts`'s settled-cost lookup
+ * builds its URL from (`gatewayUsagePath`), so the two sides can't key on
+ * different ids. A missing header (no `onResponse`, gateway misroute) just
  * leaves the turn's entry unset → cost merge is skipped (fail-open).
  */
 function gatewayMetadataStreamFn(
@@ -1489,7 +1493,7 @@ function gatewayMetadataStreamFn(
             ...options,
             headers: { ...gatewayHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey },
             onResponse: async (response, m) => {
-                const id = response.headers['x-request-id']
+                const id = extractGatewayRequestId(response.headers)
                 if (id) {
                     turnRequestIds.set(turnIndex, id)
                 }

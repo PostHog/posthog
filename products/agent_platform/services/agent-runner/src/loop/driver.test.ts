@@ -1233,7 +1233,7 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
             expect(gens).toHaveLength(1)
-            expect(gens[0].cost_usd).toBeUndefined()
+            expect(gens[0].cost).toBeUndefined()
         })
     })
 
