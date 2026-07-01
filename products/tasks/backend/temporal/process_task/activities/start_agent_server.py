@@ -25,7 +25,9 @@ from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
+    is_slack_interaction_state,
     mark_mcp_token_issued,
 )
 
@@ -165,8 +167,14 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        access_token = create_oauth_access_token(
+            task,
+            scopes=scopes,
+            user=actor_user,
+            allow_task_creator_fallback=not is_slack_interaction_state(ctx.state),
+        )
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -200,11 +208,11 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if task.created_by_id:
+    if actor_user and actor_user.id:
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=ctx.team_id,
-            user_id=task.created_by_id,
+            user_id=actor_user.id,
             interaction_origin=ctx.interaction_origin,
         )
         if user_mcp_configs:
@@ -279,6 +287,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,

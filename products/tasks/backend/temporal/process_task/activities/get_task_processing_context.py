@@ -30,7 +30,10 @@ from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
+    get_actor_distinct_id,
     get_pr_authorship_mode,
+    get_task_run_actor_user,
+    is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
 
@@ -123,6 +126,11 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def initial_permission_mode(self) -> str | None:
+        value = (self.state or {}).get("initial_permission_mode")
+        return value if isinstance(value, str) else None
+
+    @property
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
@@ -203,6 +211,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "initial_permission_mode": self.initial_permission_mode,
         }
 
 
@@ -518,8 +527,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     assert task.created_by is not None
 
-    distinct_id = task.created_by.distinct_id or "process_task_workflow"
     state = task_run.state or {}
+    actor_user = get_task_run_actor_user(
+        task,
+        state,
+        allow_task_creator_fallback=not is_slack_interaction_state(state),
+    )
+    if is_slack_interaction_state(state) and actor_user is None:
+        raise TaskInvalidStateError(
+            f"Task {task.id} has no valid Slack actor",
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(f"Task {task.id} missing Slack actor for task run {run_id}"),
+        )
+    distinct_id = (
+        get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"
+    )
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
@@ -657,9 +679,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
     )
-    user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
-    if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
-        user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    pr_authorship_mode = get_pr_authorship_mode(task, state)
+    user_github_integration_id = None
+    if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
+        user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
+    if user_github_integration_id is None and pr_authorship_mode.value == "user":
+        user_github_integration = resolve_user_github_integration_for_task(
+            task,
+            actor_user=actor_user,
+            allow_refresh=False,
+        )
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 

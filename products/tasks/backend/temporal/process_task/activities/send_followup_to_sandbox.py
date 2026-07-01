@@ -26,8 +26,11 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
+    is_slack_interaction_state,
     mark_mcp_token_issued,
     should_refresh_mcp_token,
 )
@@ -105,7 +108,7 @@ def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
 
 def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
         error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
@@ -115,10 +118,15 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    actor_user = get_task_run_credential_user(task_run.task, task_run.state)
+    if is_slack_interaction_state(task_run.state) and actor_user is None:
+        error_msg = "Slack actor unavailable for this run"
+        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        raise RuntimeError(f"send_followup failed: {error_msg}")
+    if actor_user and actor_user.id:
+        auth_token = create_sandbox_connection_token(
+            task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+        )
 
     # Push a fresh MCP config before the turn so the agent-server rebinds its
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
@@ -228,7 +236,13 @@ def _refresh_sandbox_mcp(
 
     task = task_run.task
     try:
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        actor_user = get_task_run_credential_user(task, task_run.state)
+        access_token = create_oauth_access_token(
+            task,
+            scopes=scopes,
+            user=actor_user,
+            allow_task_creator_fallback=not is_slack_interaction_state(task_run.state),
+        )
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
         return
@@ -240,11 +254,11 @@ def _refresh_sandbox_mcp(
         interaction_origin=(task_run.state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
     )
-    if task.created_by_id:
+    if actor_user and actor_user.id:
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=task_run.team_id,
-            user_id=task.created_by_id,
+            user_id=actor_user.id,
             interaction_origin=(task_run.state or {}).get("interaction_origin"),
         )
         if user_mcp_configs:

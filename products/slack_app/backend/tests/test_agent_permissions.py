@@ -118,6 +118,8 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert context["expected_slack_user_id"] == "U_ACTOR"
         assert context["default_option_id"] == "allow"
         assert context["reject_option_id"] == "reject"
+        assert context["tool_label"] == "Check available PDF generation tools"
+        assert context["tool_detail"] == 'python3 -c "import reportlab"'
         assert [option["label"] for option in context["options"]] == [
             "Allow once",
             "Always allow this command",

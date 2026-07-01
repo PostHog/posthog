@@ -11,6 +11,7 @@ from django.conf import settings
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
@@ -24,11 +25,18 @@ from products.tasks.backend.constants import (
     SnapshotKind,
     filter_user_sandbox_env_vars,
 )
+
+# Re-exported so existing activity/workflow imports keep working after the move to
+# logic/services (non-temporal callers import run_actor directly).
+from products.tasks.backend.logic.services.run_actor import (
+    get_actor_distinct_id as get_actor_distinct_id,
+    get_task_run_actor_user as get_task_run_actor_user,
+    get_task_run_credential_user as get_task_run_credential_user,
+    is_slack_interaction_state as is_slack_interaction_state,
+)
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
-    from posthog.models.user import User
-
     from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
@@ -42,7 +50,7 @@ class PrAuthorshipMode(StrEnum):
 class GitHubCredentialSource(StrEnum):
     # Caller-supplied static token on the run request; owned by the caller, un-refreshable by us.
     CALLER_TOKEN = "caller_token"
-    # Task creator's refreshable server-side UserIntegration.
+    # Acting user's refreshable server-side UserIntegration.
     SERVER_INTEGRATION = "server_integration"
 
 
@@ -573,17 +581,19 @@ def get_user_github_integration(
 def resolve_user_github_integration_for_task(
     task: Task,
     *,
+    actor_user: User | None = None,
     repository: str | None = None,
     allow_refresh: bool = False,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
-    if task.created_by is None:
+    user = actor_user or task.created_by
+    if user is None:
         return None
 
     normalized_repository = _normalize_repository(repository or task.repository)
     selected_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     user_github_integration = get_user_github_integration(
-        task.created_by,
+        user,
         github_user_integration_id=selected_id,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
@@ -598,7 +608,7 @@ def resolve_user_github_integration_for_task(
     if team_installation_id:
         integration = (
             UserIntegration.objects.filter(
-                user=task.created_by,
+                user=user,
                 kind="github",
                 integration_id=team_installation_id,
             )
@@ -613,7 +623,7 @@ def resolve_user_github_integration_for_task(
             return UserGitHubIntegration(integration)
 
     return get_user_github_integration(
-        task.created_by,
+        user,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
     )
@@ -666,6 +676,7 @@ def get_sandbox_github_token(
     run_id: str,
     state: dict[str, Any] | None = None,
     created_by: User | None = None,
+    actor_user: User | None = None,
     task: Task | None = None,
     github_user_integration_id: str | None = None,
     repository: str | None = None,
@@ -676,14 +687,18 @@ def get_sandbox_github_token(
 
     1. Caller-supplied token cached at run-create time (backward compat for the
        PostHog Code CLI — wins when present so self-managed tokens still work).
-    2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
+    2. Server-side ``UserIntegration`` for the acting user, refreshing on demand.
     3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
     pr_authorship_mode: PrAuthorshipMode | None
+    slack_interaction = is_slack_interaction_state(state)
+    created_by = actor_user or created_by
     if task is not None:
-        created_by = task.created_by
+        if actor_user is None and slack_interaction:
+            actor_user = get_task_run_credential_user(task, state)
+        created_by = actor_user or (task.created_by if not slack_interaction else None)
         repository = repository or task.repository
         github_user_integration_id = github_user_integration_id or (
             str(task.github_user_integration_id) if task.github_user_integration_id else None
@@ -694,6 +709,8 @@ def get_sandbox_github_token(
         pr_authorship_mode = run_state.pr_authorship_mode
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
+        if task is not None and slack_interaction and created_by is None:
+            raise ReauthorizationRequired(f"Slack run {run_id} requires an acting user with GitHub repo access.")
         cached = get_cached_github_user_token(run_id)
         if cached:
             return cached
@@ -708,6 +725,7 @@ def get_sandbox_github_token(
         if task is not None:
             user_github_integration = resolve_user_github_integration_for_task(
                 task,
+                actor_user=created_by,
                 repository=repository,
                 allow_refresh=True,
             )
@@ -719,7 +737,7 @@ def get_sandbox_github_token(
                 allow_refresh=True,
             )
         if user_github_integration is None:
-            if github_integration_id is None:
+            if github_integration_id is None or slack_interaction:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
@@ -740,9 +758,15 @@ def get_sandbox_github_token(
         try:
             token: str | None = resolve_coordinated_user_token(user_github_integration)
         except ReauthorizationRequired:
+            if slack_interaction:
+                raise
             token = None
         if token is not None:
             return token
+        if slack_interaction:
+            raise ReauthorizationRequired(
+                f"User-authored run {run_id} requires a linked GitHub account with repo access."
+            )
         return get_github_token(github_integration_id)
     elif pr_authorship_mode == PrAuthorshipMode.BOT:
         if github_integration_id is not None:
@@ -838,14 +862,14 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:
     """Return git author/committer env vars for the sandbox.
 
-    Runs with user authorship are attributed to the user who created the task.
+    Runs with user authorship are attributed to the acting user.
     Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
     code@posthog.com).
     """
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return {}
 
-    user = task.created_by
+    user = get_task_run_credential_user(task, state)
     if user is None:
         return {}
 

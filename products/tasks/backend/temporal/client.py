@@ -427,6 +427,31 @@ def signal_agent_text_delta(workflow_id: str, text: str) -> None:
     asyncio.run(handle.signal("agent_text_delta", text))
 
 
+def signal_task_permission_response(
+    workflow_id: str,
+    *,
+    request_id: str,
+    option_id: str,
+    actor_user_id: int,
+    actor_slack_user_id: str | None = None,
+    is_denial: bool = False,
+    denial_message: str | None = None,
+    broker_reason: str | None = None,
+) -> None:
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "option_id": option_id,
+        "actor_user_id": actor_user_id,
+        "actor_slack_user_id": actor_slack_user_id,
+        "is_denial": is_denial,
+        "denial_message": denial_message,
+        "broker_reason": broker_reason,
+    }
+    asyncio.run(handle.signal("send_permission_response", arg=payload))
+
+
 def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,

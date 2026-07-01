@@ -43,6 +43,10 @@ def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConf
 def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state: dict | None = None) -> MagicMock:
     task = MagicMock()
     task.created_by_id = created_by_id
+    if created_by_id is not None:
+        task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
+    else:
+        task.created_by = None
     task_run = MagicMock()
     task_run.id = "run-1"
     task_run.team_id = team_id
@@ -73,7 +77,12 @@ class TestRefreshSandboxMcp:
         task_run = _make_task_run_mock()
         _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
 
-        mock_oauth.assert_called_once_with(task_run.task, scopes="read_only")
+        mock_oauth.assert_called_once_with(
+            task_run.task,
+            scopes="read_only",
+            user=task_run.task.created_by,
+            allow_task_creator_fallback=True,
+        )
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
@@ -209,7 +218,12 @@ class TestRefreshSandboxMcp:
 
         _refresh_sandbox_mcp(_make_task_run_mock(), "full", auth_token=None)
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], scopes="full")
+        mock_oauth.assert_called_once_with(
+            mock_oauth.call_args.args[0],
+            scopes="full",
+            user=mock_oauth.call_args.args[0].created_by,
+            allow_task_creator_fallback=True,
+        )
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
         )

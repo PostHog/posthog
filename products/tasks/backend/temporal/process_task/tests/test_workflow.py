@@ -17,7 +17,8 @@ from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -25,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,
     GetSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
+    SendPermissionResponseToSandboxInput,
     StartAgentServerOutput,
     TaskProcessingContext,
     checkout_branch_in_sandbox,
@@ -37,6 +39,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
@@ -47,6 +50,7 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
 )
 from products.tasks.backend.temporal.process_task.workflow import (
     PendingFollowup,
+    PendingPermissionResponse,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
@@ -235,8 +239,8 @@ class TestProcessTaskWorkflow:
 
             await asyncio.sleep(10)
 
-            sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+            with pytest.raises(SandboxNotFoundError):
+                Sandbox.get_by_id(result.sandbox_id)
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -319,6 +323,78 @@ class TestProcessTaskWorkflowUnit:
             },
         )
         assert logger.info.call_count == 2
+
+    async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
+        logger = Mock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow.send_permission_response(
+            {
+                "request_id": "perm-1",
+                "option_id": "allow",
+                "actor_user_id": 42,
+                "actor_slack_user_id": "U123",
+                "broker_reason": "destructive_policy_auto_allow",
+            }
+        )
+
+        assert workflow._pending_permission_responses == [
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="allow",
+                actor_user_id=42,
+                actor_slack_user_id="U123",
+                broker_reason="destructive_policy_auto_allow",
+            )
+        ]
+        logger.info.assert_called_once_with(
+            "permission_response_signal_received",
+            extra={
+                "run_id": None,
+                "request_id": "perm-1",
+                "option_id": "allow",
+                "actor_user_id": 42,
+                "is_denial": False,
+            },
+        )
+
+    async def test_send_permission_response_to_sandbox_activity_scheduled(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[tuple[object, SendPermissionResponseToSandboxInput]] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            activity_calls.append((activity_fn, activity_input))
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="reject",
+                actor_user_id=42,
+                actor_slack_user_id="U123",
+                is_denial=True,
+                denial_message="Please choose another path.",
+                broker_reason="slack_human_response",
+            )
+        )
+
+        assert len(activity_calls) == 1
+        activity_fn, activity_input = activity_calls[0]
+        assert activity_fn is send_permission_response_to_sandbox
+        assert activity_input == SendPermissionResponseToSandboxInput(
+            run_id="run-id",
+            request_id="perm-1",
+            option_id="reject",
+            actor_user_id=42,
+            actor_slack_user_id="U123",
+            is_denial=True,
+            denial_message="Please choose another path.",
+            broker_reason="slack_human_response",
+        )
 
     @pytest.mark.parametrize(
         "state, expected",

@@ -20,6 +20,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -70,6 +72,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         if ctx.has_github_credentials:
             try:
@@ -79,6 +82,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=ctx.repository,
                     )
@@ -97,7 +101,11 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token(
+                task,
+                user=actor_user,
+                allow_task_creator_fallback=not is_slack_interaction_state(ctx.state),
+            )
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",

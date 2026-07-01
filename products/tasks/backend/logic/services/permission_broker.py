@@ -3,9 +3,16 @@
 The sandbox agent session starts with an ``initial_permission_mode`` and raises a
 ``permission_request`` event for any tool call that mode doesn't already cover. For
 runs whose origin surface recorded a broker permission mode on the run state
-(``slack_permission_mode``, written at Slack task creation), the relay activity
-answers read-only requests here so only decisions that genuinely need a human are
-surfaced to the origin (e.g. as a Slack approval card).
+(``slack_permission_mode``, written at Slack task creation and updated from the Slack
+approval card), the relay activity answers safe requests here — read-only tool calls
+always, and everything except customer-facing runs in ``full_auto`` — so only
+decisions that genuinely need a human are surfaced to the origin (e.g. as a Slack
+approval card). Human responses are delivered on the durable workflow signal path
+instead (see ``send_permission_response_to_sandbox``).
+
+Auto-responses deliberately skip the workflow: they fire on every allowed tool call,
+so routing them through Temporal would bloat history and add latency for no
+durability benefit (a lost allow just re-prompts).
 """
 
 import re
@@ -22,6 +29,7 @@ import structlog
 
 from products.tasks.backend.logic.services.agent_command import send_agent_command
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -30,6 +38,9 @@ logger = structlog.get_logger(__name__)
 
 POSTHOG_PERMISSION_REQUEST_METHOD = "_posthog/permission_request"
 PERMISSION_MODE_STATE_KEY = "slack_permission_mode"
+CUSTOMER_FACING_APPROVAL_STATE_KEY = "slack_customer_facing_approval_required"
+# Values written by the origin surface (products/slack_app SlackPermissionMode).
+FULL_AUTO_PERMISSION_MODE = "full_auto"
 # Must comfortably outlive the run so a replayed relay event can't double-answer.
 AUTO_RESPONSE_DEDUPE_SECONDS = 24 * 60 * 60
 
@@ -330,7 +341,19 @@ def _broker_permission_mode(task_run: "TaskRun") -> str | None:
     return mode if isinstance(mode, str) and mode else None
 
 
+def _run_uses_full_auto(task_run: "TaskRun") -> bool:
+    state = _run_state(task_run)
+    # Customer-facing (externally shared) channels always keep a human in the loop
+    # for non-read-only actions, no matter the user's permission mode.
+    if state.get(CUSTOMER_FACING_APPROVAL_STATE_KEY):
+        return False
+    return state.get(PERMISSION_MODE_STATE_KEY) == FULL_AUTO_PERMISSION_MODE
+
+
 def _should_auto_allow(task_run: "TaskRun", permission_request: dict[str, Any]) -> bool:
+    if _run_uses_full_auto(task_run):
+        return True
+
     tool_call = permission_request["tool_call"]
     tool_name = _tool_call_name(tool_call)
     if tool_name is None:
@@ -379,12 +402,17 @@ def try_auto_respond_permission_request(task_run: "TaskRun", permission_request:
         logger.info("permission_broker_no_allow_option", run_id=run_id, request_id=request_id)
         return False
 
-    auth_token = None
-    created_by = getattr(getattr(task_run, "task", None), "created_by", None)
-    if created_by and getattr(created_by, "id", None):
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    actor = get_task_run_credential_user(task_run.task, _run_state(task_run))
+    if actor is None:
+        logger.info("permission_broker_no_credential_actor", run_id=run_id, request_id=request_id)
+        return False
 
+    broker_reason = "full_auto" if _run_uses_full_auto(task_run) else "read_only_policy"
+    auth_token = create_sandbox_connection_token(
+        task_run,
+        user_id=actor.id,
+        distinct_id=get_actor_distinct_id(actor),
+    )
     result = send_agent_command(
         task_run,
         method="permission_response",
@@ -397,6 +425,7 @@ def try_auto_respond_permission_request(task_run: "TaskRun", permission_request:
             run_id=run_id,
             request_id=request_id,
             option_id=option_id,
+            actor_user_id=actor.id,
             status_code=result.status_code,
             error=result.error,
         )
@@ -408,5 +437,7 @@ def try_auto_respond_permission_request(task_run: "TaskRun", permission_request:
         run_id=run_id,
         request_id=request_id,
         option_id=option_id,
+        actor_user_id=actor.id,
+        broker_reason=broker_reason,
     )
     return True

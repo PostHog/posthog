@@ -4,7 +4,7 @@ The decision of whether a request needs a human at all is made in the task run
 (``products/tasks/backend/logic/services/permission_broker.py``); this module only
 renders the Slack prompt for requests the broker escalated, and the interactivity
 handlers in ``products/slack_app/backend/api.py`` translate the resulting clicks
-into the run's permission response.
+into the run's durable permission-response workflow signal.
 """
 
 import time
@@ -22,7 +22,9 @@ from posthog.models.integration import SlackIntegration
 logger = structlog.get_logger(__name__)
 
 SLACK_PERMISSION_CONTEXT_KIND = "task_permission_request"
-SLACK_PERMISSION_CONTEXT_TTL_SECONDS = 15 * 60
+# Must comfortably outlive the run's inactivity window (1h for user-origin runs)
+# so a late click gets a "run already finished" reply instead of dead buttons.
+SLACK_PERMISSION_CONTEXT_TTL_SECONDS = 24 * 60 * 60
 SLACK_PERMISSION_PROMPT_DEDUPE_SECONDS = SLACK_PERMISSION_CONTEXT_TTL_SECONDS
 SLACK_PERMISSION_PROMPT_INFLIGHT_SECONDS = 30
 SLACK_CARD_BODY_MAX_LENGTH = 200
@@ -170,6 +172,7 @@ def post_slack_permission_request_for_task_run(
             return
 
         context_token = uuid.uuid4().hex
+        tool_label, tool_detail = _extract_tool_summary(permission_request["tool_call"])
         cache.set(
             _interactivity_context_cache_key(context_token),
             {
@@ -185,12 +188,13 @@ def post_slack_permission_request_for_task_run(
                 "default_option_id": default_option["optionId"],
                 "reject_option_id": reject_option_id,
                 "options": options,
+                "tool_label": tool_label,
+                "tool_detail": tool_detail,
                 "created_at": int(time.time()),
             },
             timeout=SLACK_PERMISSION_CONTEXT_TTL_SECONDS,
         )
 
-        tool_label, tool_detail = _extract_tool_summary(permission_request["tool_call"])
         text = f"<@{target_slack_user_id}> the agent needs permission to continue: *{tool_label}*"
         current_permission_mode = _current_permission_mode(task_run, SlackPermissionMode.ASK_BEFORE_WRITE)
         permission_mode_options = [

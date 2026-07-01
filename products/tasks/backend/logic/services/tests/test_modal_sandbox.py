@@ -436,6 +436,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            initial_permission_mode="plan",
             event_ingest_token="ingest-token",
             event_ingest_url="https://agent-proxy.example.com",
         )
@@ -445,6 +446,7 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
