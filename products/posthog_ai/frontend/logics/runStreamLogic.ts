@@ -68,6 +68,25 @@ import { debugLogsLogic } from './debugLogsLogic'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
+interface LiveStreamRegistryHost {
+    __posthogAiLiveStreamControllers?: Set<AbortController>
+}
+
+// Dev-only guard against orphaned SSE readers: an HMR swap re-evaluates this module in the same page,
+// and the old build's logic gets discarded with a fresh kea `cache` — its 'event-source' disposable
+// never runs teardown, so its reader keeps the connection open (pinning a granian dev worker) until
+// the tab closes. A fresh evaluation finding controllers in the page-global registry therefore means
+// an HMR swap just replaced their build — abort them (an aborted signal is the silent teardown path,
+// so the old logic won't schedule a reconnect). On first load the registry is empty, and a full page
+// load needs none of this: the browser aborts in-flight fetches itself. `import.meta.hot.dispose`
+// would be the idiomatic hook, but `import.meta` is a parse error in Jest's CJS transform.
+const liveStreamControllers = new Set<AbortController>()
+if (process.env.NODE_ENV === 'development') {
+    const registryHost = globalThis as LiveStreamRegistryHost
+    registryHost.__posthogAiLiveStreamControllers?.forEach((controller) => controller.abort())
+    registryHost.__posthogAiLiveStreamControllers = liveStreamControllers
+}
+
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type RunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 
@@ -2495,17 +2514,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
 
             // Replace any prior connection. A hot reload can orphan the previous build's reader (its
-            // `cache`, and thus this disposable, is discarded before teardown runs), but the keyed
-            // log store makes duplicate ingestion idempotent — a lingering orphan can no longer
-            // double the thread, so the old `EventSource` registry is gone.
+            // `cache`, and thus this disposable, is discarded before teardown runs) — the keyed
+            // log store makes duplicate ingestion idempotent, and the module-level
+            // `liveStreamControllers` HMR hook aborts the orphan's connection itself.
             cache.disposables.dispose('event-source')
             // pauseOnPageHidden: false — a live stream must survive tab hides; re-running setup on
             // show would reopen the stream and re-fold thread state.
             cache.disposables.add(
                 (): (() => void) => {
                     const controller = new AbortController()
+                    liveStreamControllers.add(controller)
                     void streamRun(controller.signal)
-                    return () => controller.abort()
+                    return () => {
+                        liveStreamControllers.delete(controller)
+                        controller.abort()
+                    }
                 },
                 'event-source',
                 { pauseOnPageHidden: false }

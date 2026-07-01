@@ -26,6 +26,7 @@ jest.mock('./runStreamLogic', () => {
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: true,
+            setCurrentMode: (mode: string) => ({ mode }),
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
         }),
@@ -44,6 +45,12 @@ jest.mock('./runStreamLogic', () => {
             ],
             pendingPermissionRequest: [null, {}],
             respondingToPermission: [false, {}],
+            currentMode: [
+                null,
+                {
+                    setCurrentMode: (_: string | null, { mode }: { mode: string }) => mode,
+                },
+            ],
         }),
     ])
     return {
@@ -143,20 +150,20 @@ describe('runInteractionLogic', () => {
 
     it('does not send any command when the model or effort is picked', async () => {
         setThinking(false)
-        logic.actions.setModel('claude-sonnet-4-6')
+        logic.actions.setModel('claude-opus-4-8')
         logic.actions.setEffort('low')
 
         await expectLogic(logic).toFinishAllListeners()
 
         // Picking is client-side only now — nothing is synced until the message is sent.
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-        expect(logic.values.selectedModel).toBe('claude-sonnet-4-6')
+        expect(logic.values.selectedModel).toBe('claude-opus-4-8')
         expect(logic.values.selectedEffort).toBe('low')
     })
 
     it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
         setThinking(false)
-        logic.actions.setModel('claude-sonnet-4-6')
+        logic.actions.setModel('claude-opus-4-8')
         logic.actions.setComposerFormValues({ draft: 'ship it' })
 
         await expectLogic(logic, () => {
@@ -165,7 +172,7 @@ describe('runInteractionLogic', () => {
 
         // The config sync lands before the message, never inside it.
         expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
-            setConfigCommand('model', 'claude-sonnet-4-6'),
+            setConfigCommand('model', 'claude-opus-4-8'),
             userMessageCommand('ship it'),
         ])
 
@@ -178,6 +185,81 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
 
         expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('again')])
+    })
+
+    it('syncs a changed permission mode to the agent right before the message, and only when it changed', async () => {
+        setThinking(false)
+        logic.actions.setMode('plan')
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        // The mode sync is a `set_config_option { configId: 'mode' }` command that lands before the message.
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+            setConfigCommand('mode', 'plan'),
+            userMessageCommand('ship it'),
+        ])
+
+        // A follow-up with the same mode re-syncs nothing — just the message.
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+        logic.actions.setComposerFormValues({ draft: 'again' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('again')])
+    })
+
+    it('adopts the agent-confirmed mode over a stale manual pick and stays in sync at send time', async () => {
+        setThinking(false)
+        logic.actions.setMode('plan')
+        expect(logic.values.selectedMode).toBe('plan')
+
+        // The agent transitions autonomously (e.g. a plan approval leaves Plan mode) and confirms via a
+        // `current_mode_update` frame — the live mode replaces the earlier pick.
+        stream.actions.setCurrentMode('acceptEdits')
+        expect(logic.values.selectedMode).toBe('acceptEdits')
+
+        logic.actions.setComposerFormValues({ draft: 'go on' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        // Already in sync with the agent — only the message goes out, no stale mode re-sync.
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('go on')])
+    })
+
+    it('seeds the picker from the stored launch mode and ignores unrecognized wire modes', () => {
+        // No live `current_mode_update` yet — the run's REST-stored launch mode drives the display.
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted, currentMode: 'plan' })
+        expect(logic.values.selectedMode).toBe('plan')
+
+        // An unrecognized wire mode (a future mode, another runtime's vocabulary) must not leak out as a
+        // fake PermissionMode — it degrades to the stored launch mode.
+        stream.actions.setCurrentMode('full-access')
+        expect(logic.values.selectedMode).toBe('plan')
+
+        stream.actions.setCurrentMode('acceptEdits')
+        expect(logic.values.selectedMode).toBe('acceptEdits')
+    })
+
+    it('seeds a fresh run with the picked permission mode when the run is terminal', async () => {
+        setStatus('completed')
+        logic.actions.setMode('acceptEdits')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ initial_permission_mode: 'acceptEdits' })
+        )
     })
 
     it('stages the message in the queue while the agent is busy', async () => {
@@ -252,8 +334,9 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(tasksRunCreate).toHaveBeenCalledWith('997', TASK_ID, {
             runtime_adapter: 'claude',
-            model: 'claude-opus-4-8',
+            model: 'claude-sonnet-5',
             reasoning_effort: 'high',
+            initial_permission_mode: 'auto',
             resume_from_run_id: RUN_ID,
             pending_user_message: 'continue from here',
         })
