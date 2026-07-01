@@ -19,14 +19,6 @@ import { cn } from 'lib/utils/css-classes'
 const BOTTOM_THRESHOLD = 32
 
 /**
- * At or within this many px of the bottom counts as "already there", so `maybeStickToBottom` skips re-issuing
- * a scroll — doing so at the final position cancels macOS's native overscroll bounce and reads as a shake.
- * Kept tiny (a scroll snaps exactly to the bottom, so a resting reader is at distance 0); just wide enough to
- * absorb fractional-pixel scroll positions. Growth past this still re-pins to the true bottom.
- */
-const AT_BOTTOM_EPSILON = 2
-
-/**
  * Frames the initial settle-to-bottom keeps re-issuing the scroll. With variable row heights a single
  * scroll on first content lands short (rows below the fold are estimated until rendered + measured), so a
  * freshly refreshed/opened thread needs a few correction frames to reach the true bottom. Bounded so a
@@ -125,6 +117,10 @@ function Root<T>({
 
     const pinnedRef = useRef(stickToBottom)
     const didInitialScrollRef = useRef(false)
+    // Height we last pinned the bottom to. `maybeStickToBottom` re-scrolls only when the content grows past
+    // this, so once we've snapped to the current bottom the scroll can't re-trigger itself. -1 means "unset"
+    // (next pin scrolls unconditionally); reset to -1 whenever the user re-pins in `handleScroll`.
+    const lastScrollHeightRef = useRef(-1)
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -147,26 +143,34 @@ function Root<T>({
         if (rowCount === 0) {
             return
         }
-        listRef.current?.scrollToRow({ index: rowCount - 1, align: 'end' })
-        // `scrollToRow` lands a hair short with dynamic row heights, leaving the last line a few px out of
-        // view; snap to the exact maximum (the browser clamps `scrollTop` to its valid range).
+        // Snap straight to the scrollable extent (the browser clamps `scrollTop` to its valid range). We
+        // deliberately do NOT also call react-window's `scrollToRow`: it targets a position derived from the
+        // cached/estimated row bounds, which disagrees with `scrollHeight` (= itemCount × average estimate) on
+        // a long, partially-measured thread. Chasing both bottoms is what let stick-to-bottom re-scroll forever.
         const el = listRef.current?.element
         if (el) {
             el.scrollTop = el.scrollHeight
+            lastScrollHeightRef.current = el.scrollHeight
         }
     }, [listRef, rowCount])
 
-    // Re-assert the bottom only when content has pushed it out of view (streaming growth, measurement
-    // settle, initial open) — so the open scroll converges to the true bottom as rows are measured, while
-    // a user resting at the final position is left alone. Skipping when already there is what stops the
-    // re-issued scroll from cancelling macOS's native overscroll bounce (the "shake"). No element yet (the
-    // first pass before mount) ⇒ scroll unconditionally.
+    // Follow the bottom only when content has grown since we last pinned (streaming append, measurement settle,
+    // initial open) — the open scroll converges to the true bottom as rows are measured, while a user resting at
+    // the final position is left alone. When it shrank instead (e.g. a completed tool card collapsed) the browser
+    // has already clamped us to the new, smaller bottom, so we just track the lower height — a later append that
+    // grows past it re-pins. Gating on a *change* in height, never on a distance-to-bottom threshold, is what
+    // makes this converge and stops re-issuing at the resting bottom (which also preserves macOS's native
+    // overscroll bounce): once we've snapped to the bottom `scrollHeight` holds steady, so the scroll can't
+    // re-trigger itself. A distance check never held on a long thread — the `itemCount × average` height estimate
+    // swings by thousands of px as rows measure, re-firing every frame → max-update-depth crash. No element yet
+    // (first pass before mount) ⇒ scroll unconditionally.
     const maybeStickToBottom = useCallback((): void => {
         if (!stickToBottom || !pinnedRef.current) {
             return
         }
         const el = listRef.current?.element
-        if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_EPSILON) {
+        if (el && el.scrollHeight <= lastScrollHeightRef.current) {
+            lastScrollHeightRef.current = el.scrollHeight
             return
         }
         scrollToBottom()
@@ -178,7 +182,13 @@ function Root<T>({
                 return
             }
             const el = event.currentTarget
-            pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD
+            const nowPinned = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD
+            // On (re-)pinning, forget the last pinned height so the next append/measurement snaps to the true
+            // bottom instead of being suppressed by the growth gate.
+            if (nowPinned && !pinnedRef.current) {
+                lastScrollHeightRef.current = -1
+            }
+            pinnedRef.current = nowPinned
         },
         [stickToBottom]
     )
