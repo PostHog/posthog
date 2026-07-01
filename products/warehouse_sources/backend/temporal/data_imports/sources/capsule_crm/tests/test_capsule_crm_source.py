@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.capsule_crm import (
     CapsuleCRMResumeConfig,
 )
@@ -27,9 +29,11 @@ class TestCapsuleCRMSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/capsule-crm"
         field_names = [f.name for f in config.fields]
         assert field_names == ["access_token"]
+        field = config.fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
         # The token is a secret so it must render as a password input.
-        assert config.fields[0].type == "password"
-        assert config.fields[0].required is True
+        assert field.type == "password"
+        assert field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs catalog can render.
@@ -94,35 +98,27 @@ class TestCapsuleCRMSource:
         inputs.schema_name = "parties"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "updatedAt"
         manager = mock.MagicMock()
 
         captured: dict[str, Any] = {}
 
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.capsule_crm_source",
-            side_effect=fake_source,
+            side_effect=lambda **kwargs: captured.update(kwargs),
         ):
-            result = self.source.source_for_pipeline(self.config, manager, inputs)
+            self.source.source_for_pipeline(self.config, manager, inputs)
 
-        assert result == "response"
         assert captured["access_token"] == "tok"
         assert captured["endpoint"] == "parties"
         assert captured["resumable_source_manager"] is manager
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert captured["incremental_field"] == "updatedAt"
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "tasks"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = None
 
         captured: dict[str, Any] = {}
 

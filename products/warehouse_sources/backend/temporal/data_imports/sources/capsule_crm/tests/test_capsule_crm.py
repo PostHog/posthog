@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -12,11 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_cr
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.capsule_crm import (
     CAPSULE_CRM_BASE_URL,
     CapsuleCRMResumeConfig,
+    CapsuleCRMUntrustedURLError,
     _build_initial_url,
     _clamp_future_value_to_now,
     _format_since_value,
+    _validate_pagination_url,
     capsule_crm_source,
     get_rows,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.settings import CAPSULE_CRM_ENDPOINTS
 
@@ -197,6 +200,76 @@ class TestGetRows:
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="lost_reasons")
         assert rows == [{"id": 7, "name": "No budget"}]
 
+    def test_hostile_upstream_next_url_is_rejected(self, monkeypatch: Any) -> None:
+        # An upstream Link header pointing at another host must abort before the bearer token is sent
+        # there, and the poisoned URL must not be persisted as resume state.
+        start = _build_initial_url(CAPSULE_CRM_ENDPOINTS["parties"], False, None)
+        pages = {start: ({"parties": [{"id": 1}]}, "https://evil.example.com/api/v2/parties")}
+        manager = _FakeResumableManager()
+        with pytest.raises(CapsuleCRMUntrustedURLError):
+            _collect(manager, monkeypatch, pages)
+        assert manager.saved == []
+
+    def test_hostile_resumed_next_url_is_rejected(self, monkeypatch: Any) -> None:
+        # A poisoned resume state from Redis must never be requested with the bearer token.
+        manager = _FakeResumableManager(CapsuleCRMResumeConfig(next_url="https://evil.example.com/api/v2/parties"))
+        with pytest.raises(CapsuleCRMUntrustedURLError):
+            _collect(manager, monkeypatch, {})
+
+
+class TestValidatePaginationUrl:
+    @parameterized.expand(
+        [
+            ("first_page", f"{CAPSULE_CRM_BASE_URL}/parties?perPage=100"),
+            ("next_page", f"{CAPSULE_CRM_BASE_URL}/parties?perPage=100&page=2"),
+            ("other_endpoint", f"{CAPSULE_CRM_BASE_URL}/opportunities?page=3"),
+        ]
+    )
+    def test_trusted_urls_pass_through(self, _name: str, url: str) -> None:
+        assert _validate_pagination_url(url) == url
+
+    @parameterized.expand(
+        [
+            ("foreign_host", "https://evil.example.com/api/v2/parties"),
+            ("subdomain_lookalike", "https://api.capsulecrm.com.evil.example.com/api/v2/parties"),
+            ("http_scheme", "http://api.capsulecrm.com/api/v2/parties"),
+            ("wrong_path_prefix", "https://api.capsulecrm.com/internal/parties"),
+            ("missing_path", "https://api.capsulecrm.com"),
+            ("metadata_endpoint", "http://169.254.169.254/latest/meta-data/"),
+        ]
+    )
+    def test_untrusted_urls_raise(self, _name: str, url: str) -> None:
+        with pytest.raises(CapsuleCRMUntrustedURLError):
+            _validate_pagination_url(url)
+
+
+class TestTokenRedaction:
+    def test_validate_credentials_redacts_token_and_disables_redirects(self) -> None:
+        session = MagicMock()
+        response = MagicMock()
+        response.status_code = 200
+        session.get.return_value = response
+        with patch.object(capsule_crm, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("secret-token")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_get_rows_redacts_token_and_disables_redirects(self, monkeypatch: Any) -> None:
+        session = MagicMock()
+        make_session = MagicMock(return_value=session)
+        monkeypatch.setattr(capsule_crm, "make_tracked_session", make_session)
+        monkeypatch.setattr(capsule_crm, "_fetch_page", lambda *a, **k: ({"parties": []}, None))
+        list(
+            get_rows(
+                access_token="secret-token",
+                endpoint="parties",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
 
 class TestSourceResponse:
     @parameterized.expand(
@@ -227,24 +300,30 @@ class TestSourceResponse:
         assert response.partition_keys is None
 
 
+def _response_with(status_code: int) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = b"{}"
+    response.url = "https://api.capsulecrm.com/api/v2/users"
+    return response
+
+
+# The undecorated function behind tenacity's retry wrapper — call it to exercise status handling
+# without the retry/backoff loop actually sleeping.
+_fetch_page_unwrapped = capsule_crm._fetch_page.__wrapped__  # type: ignore[attr-defined]
+
+
 class TestRetryableErrorClassification:
     @parameterized.expand([(429,), (500,), (503,)])
     def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
         session = MagicMock()
-        response = MagicMock()
-        response.status_code = status
-        session.get.return_value = response
+        session.get.return_value = _response_with(status)
         with pytest.raises(capsule_crm.CapsuleCRMRetryableError):
-            # Bypass tenacity's retry wrapper to assert the raised type directly.
-            capsule_crm._fetch_page.__wrapped__(session, "https://api.capsulecrm.com/api/v2/users", {}, MagicMock())
+            _fetch_page_unwrapped(session, "https://api.capsulecrm.com/api/v2/users", {}, MagicMock())
 
     @parameterized.expand([(401,), (403,), (404,)])
     def test_client_errors_raise_for_status(self, status: int) -> None:
         session = MagicMock()
-        response = MagicMock()
-        response.status_code = status
-        response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
-        session.get.return_value = response
+        session.get.return_value = _response_with(status)
         with pytest.raises(requests.HTTPError):
-            capsule_crm._fetch_page.__wrapped__(session, "https://api.capsulecrm.com/api/v2/users", {}, MagicMock())
+            _fetch_page_unwrapped(session, "https://api.capsulecrm.com/api/v2/users", {}, MagicMock())

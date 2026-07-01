@@ -137,5 +137,4 @@ The token inherits your user's permissions, so make sure your user can see the r
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            incremental_field=inputs.incremental_field,
         )

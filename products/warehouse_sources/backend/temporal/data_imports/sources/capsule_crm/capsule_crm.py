@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 CAPSULE_CRM_BASE_URL = "https://api.capsulecrm.com/api/v2"
+CAPSULE_CRM_HOST = "api.capsulecrm.com"
+CAPSULE_CRM_PATH_PREFIX = "/api/v2/"
 
 # Capsule caps perPage at 100; always request the max to minimise round-trips.
 PAGE_SIZE = 100
@@ -26,6 +28,27 @@ REQUEST_TIMEOUT_SECONDS = 60
 
 class CapsuleCRMRetryableError(Exception):
     pass
+
+
+class CapsuleCRMUntrustedURLError(Exception):
+    """A pagination URL (resumed or upstream) pointed somewhere other than the Capsule CRM API."""
+
+
+def _validate_pagination_url(url: str) -> str:
+    """Pin every authenticated request to the Capsule CRM API origin.
+
+    Both resumed `next_url` values (loaded from Redis) and upstream `Link` header URLs are followed
+    verbatim with the customer's bearer token. Validating the scheme, host, and `/api/v2/` path prefix
+    keeps a poisoned resume state or a hostile upstream response from retargeting the request at another
+    host and leaking the token (SSRF). Returns the URL unchanged when it is trusted.
+    """
+    parts = urlsplit(url)
+    is_trusted = (
+        parts.scheme == "https" and parts.netloc == CAPSULE_CRM_HOST and parts.path.startswith(CAPSULE_CRM_PATH_PREFIX)
+    )
+    if not is_trusted:
+        raise CapsuleCRMUntrustedURLError(f"Refusing to follow pagination URL outside {CAPSULE_CRM_BASE_URL}/")
+    return url
 
 
 @dataclasses.dataclass
@@ -118,16 +141,18 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[CapsuleCRMResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[list[dict]]:
     config = CAPSULE_CRM_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
+    # masks the bearer token in logged URLs and captured request samples. `allow_redirects=False`
+    # stops a redirect response from sending the bearer token to another host.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        # Resume state comes from Redis — validate before sending the token to it.
+        url = _validate_pagination_url(resume.next_url)
         logger.debug(f"Capsule CRM: resuming from URL: {url}")
     else:
         url = _build_initial_url(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -141,6 +166,10 @@ def get_rows(
         if not next_url:
             break
 
+        # The upstream-supplied next-page URL is followed verbatim with the bearer token — pin it to
+        # the Capsule CRM API so a hostile response can't retarget the authenticated request.
+        next_url = _validate_pagination_url(next_url)
+
         # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last page
         # rather than skipping it — merge dedupes on the primary key.
         resumable_source_manager.save_state(CapsuleCRMResumeConfig(next_url=next_url))
@@ -151,7 +180,8 @@ def validate_credentials(access_token: str) -> bool:
     """Probe a cheap, always-available endpoint to confirm the access token is genuine."""
     url = f"{CAPSULE_CRM_BASE_URL}/users?perPage=1"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=10)
+        session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
+        response = session.get(url, headers=_get_headers(access_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -164,7 +194,6 @@ def capsule_crm_source(
     resumable_source_manager: ResumableSourceManager[CapsuleCRMResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = CAPSULE_CRM_ENDPOINTS[endpoint]
 
@@ -177,7 +206,6 @@ def capsule_crm_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
