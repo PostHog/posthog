@@ -122,9 +122,8 @@ declare -A last_status=()
 declare -A last_container_id=()
 
 while [ ${#pending[@]} -gt 0 ]; do
-    declare -A ps_health=()
-    declare -A ps_state=()
-    declare -A ps_id=()
+    unset ps_health ps_state ps_id
+    declare -A ps_health ps_state ps_id
 
     while IFS='|' read -r svc health state container_id; do
         [ -z "$svc" ] && continue
