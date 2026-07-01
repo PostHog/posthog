@@ -250,7 +250,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
@@ -260,6 +260,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
             // integrations already cached by an earlier mount.
             actions.maybeAutoSelectIntegration()
+        },
+        beforeUnmount: () => {
+            // Release the manually-mounted optimistic stream if the whole scene unmounts mid-create — the
+            // `clearActiveCreation` release only fires on navigation between runs, so leaving the tasks
+            // scene entirely (before the creation resolves) would otherwise leak the mounted instance.
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
         },
     })),
 
