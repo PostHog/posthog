@@ -140,9 +140,6 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     if (yData?.some((series) => series.settings?.display?.trendLine)) {
         return false
     }
-    if (yData?.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
-        return false
-    }
     return true
 }
 
@@ -439,17 +436,28 @@ export function buildBarChartConfig({
 }: BuildBarConfigArgs): TimeSeriesBarChartConfig {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const leftSeries = seriesForAxis(ySeriesData, 'left')
+    const rightSeries = seriesForAxis(ySeriesData, 'right')
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(
-            chartSettings.leftYAxisSettings,
-            seriesForAxis(ySeriesData, 'left'),
-            chartSettings.yAxisAtZero,
-            {
-                forceLinear: barLayout === 'percent',
-            }
-        ),
+        yAxis:
+            rightSeries.length > 0
+                ? [
+                      buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                          id: 'left',
+                          position: 'left',
+                          forceLinear: barLayout === 'percent',
+                      }),
+                      buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
+                          id: 'right',
+                          position: 'right',
+                          forceLinear: barLayout === 'percent',
+                      }),
+                  ]
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                      forceLinear: barLayout === 'percent',
+                  }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
         legend: buildLegendConfig(chartSettings),
