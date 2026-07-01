@@ -37,11 +37,6 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
     labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
 })
 
-// Job-level lifecycle counter — one increment per job at each lifecycle event.
-// `started` fires once per job on the first dequeue; `completed`/`failed` fire
-// once per job when the terminal write is acked (or the job is abandoned via
-// job.fail()). Ratio of started vs completed+failed gives the per-day success
-// rate; drift between started and completed+failed indicates jobs still in flight.
 const counterBatchHogFlowResolverJobs = new Counter({
     name: 'cdp_batch_hog_flow_resolver_jobs',
     help: 'Batch hog flow resolver jobs by lifecycle outcome',
@@ -120,10 +115,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         }
 
         // First-dequeue detection: the initial cyclotron invocation of a batch
-        // resolver job arrives with cursor=null, no pending terminal, and zero
-        // pages processed. Every subsequent dequeue of the same job has at
-        // least one of those advanced, so this fires exactly once per job.
-        if (!state.pendingTerminal && state.cursor === null && state.pagesProcessed === 0) {
+        // resolver job arrives with cursor=null, no pending terminal, zero
+        // pages processed, and zero attempts. `attempts` is required in the
+        // guard because a first-page fetch failure reschedules with the same
+        // cursor/pagesProcessed/pendingTerminal but bumps attempts — without
+        // it, `started` would fire again on every retry of the first page.
+        if (!state.pendingTerminal && state.cursor === null && state.pagesProcessed === 0 && state.attempts === 0) {
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
@@ -350,7 +347,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
     private async processTerminalWrite(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         if (!state.pendingTerminal) {
-            counterBatchHogFlowResolverJobs.labels({ outcome: 'failed' }).inc()
             await job.fail()
             return
         }
