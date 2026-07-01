@@ -32,10 +32,18 @@ def _bootstrap_team_with_evaluation() -> int:
     return team.id
 
 
+# NOTE: test_evaluation_recurses_when_loaded_deferred and test_team_cascade_recurses_without_predelete
+# are regression diagnostics for an upstream Evaluation model bug (deferred load of enabled/status
+# recurses). When the AI observability team fixes that model bug, these two tests will start failing
+# because the RecursionError they assert on will no longer be raised — remove or update them then.
+# The pre-delete behaviour itself is covered by test_predelete_evaluations_unblocks_team_deletion.
+
+
 def test_evaluation_recurses_when_loaded_deferred():
     """Documents the upstream model bug the pre-delete works around."""
     team_id = _bootstrap_team_with_evaluation()
     evaluation_id = Evaluation.objects.filter(team_id=team_id).values_list("id", flat=True).first()
+    assert evaluation_id is not None
     with pytest.raises(RecursionError):
         # from_db reads enabled/status to snapshot a baseline; with them deferred, that read
         # re-fetches the row and re-enters from_db forever.
