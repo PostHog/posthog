@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
 import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
@@ -50,7 +51,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
-        deleteScoutConfig: (configId: string) => ({ configId }),
+        deleteScout: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
         setExpanded: (expanded: boolean) => ({ expanded }),
@@ -293,16 +294,38 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
             }
         },
-        deleteScoutConfig: async ({ configId }) => {
+        deleteScout: async ({ configId }) => {
             const config = values.scoutConfigs?.find((c) => c.id === configId)
+            if (!config) {
+                return
+            }
+            const displayName = prettifyScoutSkillName(config.skill_name)
+            const teamId = teamLogic.values.currentTeamId
             try {
+                // Archiving the skill is the permanent off switch: the coordinator won't re-seed a
+                // tombstoned skill or re-create its config. Only custom scouts are deletable — the UI
+                // offers canonical ones disable instead, since a deleted canonical scout can't be re-added.
+                if (teamId && getScoutOrigin(config.skill_name) === 'custom') {
+                    try {
+                        await llmSkillsNameArchiveCreate(String(teamId), config.skill_name)
+                    } catch (error: any) {
+                        // Already archived (e.g. retrying after a partial failure) — fall through to
+                        // clear the leftover config rather than dead-ending on a 404.
+                        if (error?.status !== 404) {
+                            throw error
+                        }
+                    }
+                }
                 await api.signalScout.configs.delete(configId)
                 // Remove only after the backend confirms — deletion is irreversible, so no optimistic
                 // drop that would have to be re-inserted (and re-sorted) on failure.
                 actions.removeScoutConfigLocally(configId)
-                lemonToast.success(`Deleted ${config ? prettifyScoutSkillName(config.skill_name) : 'scout'} config`)
+                lemonToast.success(`Deleted ${displayName}`)
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to delete scout config')
+                lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
+                // A partial failure (skill archived but config delete failed) could desync the list
+                // from the backend — reload the truth so the row reflects reality.
+                actions.loadScoutConfigs()
             }
         },
         startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {

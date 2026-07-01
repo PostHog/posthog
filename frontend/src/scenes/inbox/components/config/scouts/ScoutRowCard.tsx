@@ -29,7 +29,8 @@ export function ScoutRowCard({
     config: SignalScoutConfig
     rollup: ScoutRollup | undefined
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
-    /** Delete the whole config row. Omitted where deletion isn't offered (e.g. the detail header). */
+    /** Delete the scout (archives its skill + removes the config). Omitted where deletion isn't
+     *  offered, e.g. the detail header; the form also hides it for canonical scouts. */
     onDelete?: (configId: string) => void
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
