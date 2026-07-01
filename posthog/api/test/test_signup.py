@@ -603,14 +603,9 @@ class TestSignupAPI(APIBaseTest):
                 "attr": "password",
             }, [password, res.json()]
 
-    @mock.patch(
-        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-        return_value="test",
-    )
-    def test_default_dashboard_is_created_on_signup(self, _mock_variant):
+    def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
-        Note: This feature is currently behind a feature flag.
         """
 
         response = self.client.post(
@@ -1001,7 +996,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")
@@ -1044,7 +1039,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")

@@ -1592,6 +1592,7 @@ export interface CredentialApi {
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
  * * `Baserow` - Baserow
+ * * `Plunk` - Plunk
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2246,6 +2247,7 @@ export const ExternalDataSourceTypeEnumApi = {
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
     Baserow: 'Baserow',
+    Plunk: 'Plunk',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

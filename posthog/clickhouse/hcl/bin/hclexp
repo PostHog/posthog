@@ -10,12 +10,12 @@
 # (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
 set -euo pipefail
 
-# Pinned to a concrete build (not :latest) for reproducibility. sha-1871283 adds
-# file()/heredoc query refs with beautify-canonical normalization on the layer
-# loader (chschema #68/#69) and beautified dump-sql (#70); it retains structured
-# JSON diff (#66), the plan command (#67), and the modifier-aware diff (#59).
+# Pinned to a concrete build (not :latest) for reproducibility. sha-c0affa0 adds
+# `introspect -exclude` (chschema #79), which the live convergence gate
+# (dump-live.sh) requires; it retains file()/heredoc query refs (#68/#69),
+# structured JSON diff (#66), and the modifier-aware diff (#59).
 # Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-1871283}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-c0affa0}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"

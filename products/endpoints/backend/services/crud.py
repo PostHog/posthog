@@ -12,7 +12,6 @@ from typing import Union, cast
 from django.db import transaction
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 
@@ -22,11 +21,12 @@ from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.clickhouse.query_tagging import Product
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+from products.data_modeling.backend.facade.api import delete_node_from_dag
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -72,7 +72,7 @@ class EndpointCrudService:
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
             user=self.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=item_id,
             scope=scope,
             activity=activity,
@@ -199,8 +199,12 @@ class EndpointCrudService:
             if data.is_active is not None and not version_targeted:
                 endpoint.is_active = data.is_active
             endpoint.save()
-            if not version_targeted and not endpoint.is_active and was_materialized:
-                self.materialization.disable_materialization(endpoint, current_version)
+            if not version_targeted and not endpoint.is_active:
+                # A deactivated endpoint serves no version, so none should keep a
+                # materialization schedule running — tear down every materialized
+                # version, not just the current one.
+                for materialized_version in endpoint.versions.filter(saved_query__isnull=False):
+                    self.materialization.disable_materialization(endpoint, materialized_version)
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
@@ -336,14 +340,15 @@ class EndpointCrudService:
         Returns a materialization error message when enabling failed after a new
         version was already committed (the update itself still succeeds).
         """
-        if not endpoint.is_active:
-            # Endpoint-level deactivation already tore down the current version's materialization.
-            return None
-
         if version_targeted and not target_version.is_active:
             # Deactivating a version: tear down its own materialization, never enable.
+            # Checked before the endpoint-active guard so this holds even on an inactive endpoint.
             if target_version.saved_query_id is not None:
                 self.materialization.disable_materialization(endpoint, target_version)
+            return None
+
+        if not endpoint.is_active:
+            # Endpoint-level deactivation already tore down every version's materialization.
             return None
 
         # When targeting a specific version, check that version's materialization state.

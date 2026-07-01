@@ -20,6 +20,7 @@ import {
     scoutRunsWindowLabel,
 } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
+import { FleetFindingsCallout } from './FleetFindingsCallout'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
@@ -33,7 +34,7 @@ import { ScoutRowCard } from './ScoutRowCard'
 export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
-    const { setScratchpadOpen } = useActions(inboxSceneLogic)
+    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
 
     // Poll the runs window only while the fleet list is open — the always-mounted setup
@@ -76,6 +77,14 @@ export function ScoutsFleetSection(): JSX.Element {
         <div className="flex flex-col gap-3">
             <ScoutAlphaBanner />
             <FleetStatsHeader />
+            <FleetFindingsCallout
+                onOpen={() => {
+                    // This section can render inside the scout-troop setup modal; dismiss it so the
+                    // findings view isn't left hidden behind the portal'd modal. No-op outside a modal.
+                    closeSetupModal()
+                    setFindingsOpen(true)
+                }}
+            />
             <FleetMemoryCallout
                 onOpen={() => {
                     // This section can render inside the scout-troop setup modal; dismiss it so the
@@ -151,8 +160,8 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
+    const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -175,6 +184,8 @@ function ScoutsFleetList(): JSX.Element {
                         config={config}
                         rollup={rollups.get(config.skill_name)}
                         onUpdate={updateScoutConfig}
+                        onDelete={deleteScout}
+                        deleting={deletingScoutIds.includes(config.id)}
                     />
                 ))}
             </div>
@@ -198,14 +209,16 @@ function ScoutsFleetList(): JSX.Element {
  */
 function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { chatTaskRunning } = useValues(scoutFleetLogic)
+    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const isRunning = runningChatPrompt === prompt
+    const anyRunning = runningChatPrompt !== null
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={icon ?? <IconSparkles />}
-            loading={chatTaskRunning}
-            disabledReason={chatTaskRunning ? 'Starting a task…' : undefined}
+            loading={isRunning}
+            disabledReason={anyRunning ? 'Starting a task…' : undefined}
             onClick={() => startScoutChatTask(prompt, label, label)}
         >
             {label}

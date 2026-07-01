@@ -5,19 +5,20 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
-from products.data_modeling.backend.models.node import NodeType
-from products.data_modeling.backend.services.saved_query_dag_sync import (
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
+    ManagedDAGError,
     delete_node_from_dag,
     get_dag_id,
     get_dependent_saved_queries,
     sync_saved_query_to_dag,
     update_node_type,
 )
+from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import ResolutionCycleError
+from products.data_modeling.backend.models.node import NodeType
 
 
 @pytest.mark.django_db
@@ -40,6 +41,32 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(dag.name, DEFAULT_DAG_NAME)
+
+    def test_sync_rejects_managed_dag_for_user_initiated_call(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="sneaky_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        with self.assertRaises(ManagedDAGError):
+            sync_saved_query_to_dag(saved_query, dag=managed_dag)
+
+        self.assertFalse(Node.objects.filter(team=self.team, dag=managed_dag).exists())
+
+    def test_sync_allows_managed_dag_for_internal_call(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="managed_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node = sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+
+        assert node is not None
+        self.assertEqual(node.dag_id, managed_dag.id)
 
     def test_sync_reuses_existing_dag_model(self):
         existing_dag = DAG.objects.create(team=self.team, name=DEFAULT_DAG_NAME)

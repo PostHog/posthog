@@ -23,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 
 class ViewLinkValidationMixin:
@@ -34,6 +34,9 @@ class ViewLinkValidationMixin:
                 team_id=team_id,
                 user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
             )
+            # Cache on the shared context so a list response builds the database at most
+            # once instead of once per serialized row.
+            self.context["database"] = database  # type: ignore[attr-defined]
         return database
 
     def get_table_name(self, table_name: str) -> str:
@@ -178,12 +181,6 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        user = cast(User, self.request.user)
-        context["database"] = Database.create_for(team_id=self.team_id, user=user)
-        return context
-
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").order_by(self.ordering)
 
@@ -210,7 +207,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
         serializer.is_valid(raise_exception=True)
 
         join = DataWarehouseJoin(**request.data)
-        database = serializer.context["database"]
+        # is_valid() builds and caches the database via the serializer's lazy fallback;
+        # fall back to an explicit build to stay correct if that ever stops happening.
+        database = serializer.context.get("database") or Database.create_for(
+            team_id=self.team_id, user=cast(User, request.user)
+        )
 
         source_table_name = serializer.validated_data["source_table_name"]
         source_table = database.get_table(source_table_name)

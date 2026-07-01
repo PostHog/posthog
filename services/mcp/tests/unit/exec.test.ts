@@ -204,7 +204,8 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
+        // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code'], ['posthog_ai']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
             async (consumer) => {
                 const tool = makeMockTool({
@@ -784,6 +785,7 @@ describe('exec tool', () => {
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
             ['properties-list', 'read-data-schema'],

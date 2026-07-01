@@ -294,11 +294,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     listeners(({ actions, values, props }) => ({
         persistDisplayOptions: async ({ query }, breakpoint) => {
+            // Never auto-persist while the user is editing this insight in the insight scene.
+            // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
+            // opened from a dashboard shares its instance with the dashboard tile — which wired
+            // props.setQuery to persistDisplayOptions. Without this guard, any edit in the scene
+            // (a display toggle or removing a filter) would PATCH the insight before the user
+            // clicks Save. Edits there must persist only through an explicit save.
+            if (isInsightSceneInstance(props)) {
+                return
+            }
             // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
             // only cancels concurrent saves for THIS insight — not unrelated tiles.
             await breakpoint(700)
             const insightId = values.insight.id
             if (!insightId) {
+                return
+            }
+            // Only persist when the query actually differs from what's saved. The setQuery →
+            // props.setQuery path fires for any InsightVizNode change, including programmatic
+            // re-syncs (tile re-renders, results refreshes) that carry an unchanged query —
+            // persisting those produces spurious saves and activity-log churn.
+            if (objectsEqual(query, values.savedInsight.query)) {
                 return
             }
             try {
