@@ -671,10 +671,10 @@ describe('the property definitions model', () => {
 
             jest.restoreAllMocks()
 
-            // Polling terminated on its own after the initial request plus the capped follow-up polls.
+            // Polling terminated on its own: the initial request plus exactly PROPERTY_VALUES_MAX_POLLS
+            // (8) capped follow-up polls = 9. A weaker lower bound would still pass if the cap dropped.
             expect(scheduledPolls).toHaveLength(0)
-            expect(requestUrls.length).toBeGreaterThan(1)
-            expect(requestUrls.length).toBeLessThanOrEqual(9)
+            expect(requestUrls).toHaveLength(9)
         })
     })
 })

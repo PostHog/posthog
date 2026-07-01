@@ -241,8 +241,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
             refresh?: string
-            /** Set internally when this call is a background-refresh poll; drives poll backoff and the poll cap. */
-            pollAttempt?: number
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
@@ -438,7 +436,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async (
-            { endpoint, type, newInput, propertyKey, eventNames, properties, refresh, pollAttempt },
+            { endpoint, type, newInput, propertyKey, eventNames, properties, refresh },
             breakpoint
         ) => {
             if (!endpoint && ['cohort', 'log', 'span', 'workflow_variable'].includes(type)) {
@@ -460,6 +458,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             await breakpoint(300)
             actions.setOptionsLoading(propertyKey)
             actions.abortAnyRunningQuery()
+
+            // Track background-refresh poll attempts per key so we can back off and cap them. A poll
+            // re-dispatches with refresh 'force_cache'; any other (caller-initiated) load is a fresh
+            // request that resets the count so it can poll again from scratch.
+            cache.pollAttempts = cache.pollAttempts || {}
+            if (refresh !== 'force_cache') {
+                cache.pollAttempts[propertyKey] = 0
+            }
 
             cache.abortController = new AbortController()
             const methodOptions: ApiMethodOptions = {
@@ -507,10 +513,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     clearTimeout(cache.pollingTimeouts[propertyKey])
                     delete cache.pollingTimeouts[propertyKey]
                 }
-                const nextPollAttempt = (pollAttempt ?? 0) + 1
-                if (refreshing && nextPollAttempt <= PROPERTY_VALUES_MAX_POLLS) {
+                const attemptsSoFar = cache.pollAttempts[propertyKey] ?? 0
+                if (refreshing && attemptsSoFar < PROPERTY_VALUES_MAX_POLLS) {
+                    cache.pollAttempts[propertyKey] = attemptsSoFar + 1
                     const pollDelayMs = Math.min(
-                        PROPERTY_VALUES_POLL_BASE_MS * PROPERTY_VALUES_POLL_BACKOFF ** (pollAttempt ?? 0),
+                        PROPERTY_VALUES_POLL_BASE_MS * PROPERTY_VALUES_POLL_BACKOFF ** attemptsSoFar,
                         PROPERTY_VALUES_POLL_MAX_MS
                     )
                     cache.pollingTimeouts[propertyKey] = setTimeout(() => {
@@ -522,9 +529,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                             eventNames,
                             properties,
                             refresh: 'force_cache',
-                            pollAttempt: nextPollAttempt,
                         })
                     }, pollDelayMs)
+                } else if (!refreshing) {
+                    // Settled — reset so a later refresh for this key starts a fresh poll budget.
+                    cache.pollAttempts[propertyKey] = 0
                 }
             } catch (e) {
                 // Bail if a newer listener invocation has superseded this one
@@ -534,6 +543,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 if (cache.pollingTimeouts?.[propertyKey]) {
                     clearTimeout(cache.pollingTimeouts[propertyKey])
                     delete cache.pollingTimeouts[propertyKey]
+                }
+                if (cache.pollAttempts) {
+                    cache.pollAttempts[propertyKey] = 0
                 }
 
                 // Don't show error for aborted requests (user typed new search query)
