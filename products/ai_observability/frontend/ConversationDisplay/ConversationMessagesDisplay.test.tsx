@@ -12,6 +12,10 @@ import {
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
 
+// react-json-view is loaded via React.lazy, so the first render suspends on a code-split chunk.
+// Under CI contention that resolve can exceed waitFor's 1s default, so give it headroom.
+const JSON_VIEWER_TIMEOUT_MS = 5000
+
 describe('LLMMessageDisplay', () => {
     beforeEach(() => {
         initKeaTests()
@@ -70,9 +74,12 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
 
-        await waitFor(() => {
-            expect(container.querySelector('.react-json-view')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(container.querySelector('.react-json-view')).toBeInTheDocument()
+            },
+            { timeout: JSON_VIEWER_TIMEOUT_MS }
+        )
         expect(container.textContent).toContain(expectedSubstring)
     })
 

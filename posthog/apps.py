@@ -26,6 +26,12 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Route all JSONField (jsonb) decode through orjson before any query runs.
+        if settings.JSONFIELD_ORJSON_DECODE:
+            from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
+
+            apply_orjson_jsonfield()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,

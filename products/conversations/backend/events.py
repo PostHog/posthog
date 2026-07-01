@@ -280,6 +280,7 @@ def capture_ticket_status_changed(
     properties["old_status"] = old_status
     properties["new_status"] = new_status
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -302,6 +303,7 @@ def capture_ticket_priority_changed(
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -324,6 +326,7 @@ def capture_ticket_assigned(
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,

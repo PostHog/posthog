@@ -1,9 +1,9 @@
 import { clsx } from 'clsx'
 import posthog from 'posthog-js'
 
+import { HedgehogExperiment } from '@posthog/brand/hoggies'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -126,7 +126,7 @@ export function ExperimentsListWidget({ tileId, config, result, loading }: Dashb
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="experiments-list-widget-empty-state"
                     >
-                        <ExperimentsHog className="size-20 shrink-0" />
+                        <HedgehogExperiment className="size-20 shrink-0" />
                         {hasActiveFilters ? (
                             <>
                                 <p className="m-0 text-base font-semibold text-primary">No experiments found</p>

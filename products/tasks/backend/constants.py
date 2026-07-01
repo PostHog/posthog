@@ -1,10 +1,19 @@
 from typing import Literal, get_args
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+
+SnapshotKind = Literal["filesystem", "directory"]
+SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
+SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
+DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
+DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = "/tmp"
+DEFAULT_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
@@ -208,6 +217,7 @@ DEFAULT_TRUSTED_DOMAINS = [
 RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
     {
         "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_WIZARD_API_KEY",
         "POSTHOG_API_URL",
         "POSTHOG_PROJECT_ID",
         "JWT_PUBLIC_KEY",
