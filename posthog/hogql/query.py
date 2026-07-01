@@ -604,9 +604,17 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
-        assert self.clickhouse_sql
+        # The query can compile down to empty ClickHouse SQL when its prepared AST is None
+        # (see _generate_clickhouse_sql). There's nothing to run, so return empty results
+        # rather than tripping a bare, message-less assert. execute() guards this case too,
+        # but direct callers (e.g. the web-analytics events prefilter) land here as well.
+        if not self.clickhouse_sql:
+            self.results = []
+            self.types = []
+            return
         clickhouse_context = self.clickhouse_context
-        assert clickhouse_context is not None
+        if clickhouse_context is None:
+            raise ValueError("Cannot execute ClickHouse query: HogQL context was not prepared")
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
