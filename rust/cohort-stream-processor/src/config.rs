@@ -259,6 +259,11 @@ pub struct Config {
     #[envconfig(default = "300000")]
     pub sweep_safety_margin_ms: u64,
 
+    /// How often the store-stats publisher and Tokio runtime monitor sample and emit their gauges
+    /// (seconds).
+    #[envconfig(from = "COHORT_STATS_PUBLISH_INTERVAL_SECS", default = "15")]
+    pub stats_publish_interval_secs: u64,
+
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
     pub store_path: String,
@@ -267,6 +272,16 @@ pub struct Config {
     /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
+
+    /// Enable RocksDB statistics so the store-stats publisher can report cache tickers and per-CF
+    /// sizes. See [`StoreConfig::statistics_enabled`].
+    #[envconfig(from = "COHORT_STORE_STATISTICS_ENABLED", default = "true")]
+    pub store_statistics_enabled: bool,
+
+    /// Sample 1-in-N reads into the read-latency histogram; the read counter stays exact. See
+    /// [`StoreConfig::read_sample_ratio`]. `1` records every read; `0` floors to `1`.
+    #[envconfig(from = "COHORT_STORE_READ_SAMPLE_RATIO", default = "64")]
+    pub store_read_sample_ratio: u32,
 
     /// RocksDB block-cache size in bytes, shared across all column families.
     #[envconfig(from = "COHORT_BLOCK_CACHE_BYTES", default = "134217728")]
@@ -443,6 +458,11 @@ impl Config {
         Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
+    pub fn stats_publish_interval(&self) -> Duration {
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_secs(self.stats_publish_interval_secs).max(Duration::from_secs(1))
+    }
+
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
         TransferRetryPolicy {
             max_retries: self.merge_transfer_max_retries,
@@ -563,6 +583,8 @@ impl Config {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
+            statistics_enabled: self.store_statistics_enabled,
+            read_sample_ratio: self.store_read_sample_ratio,
             block_cache_bytes: self.cohort_block_cache_bytes,
             tuned_block_options: self.cohort_tuned_block_options_enabled,
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
@@ -751,8 +773,11 @@ mod tests {
             tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
             sweep_safety_margin_ms: 300000,
+            stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            store_statistics_enabled: true,
+            store_read_sample_ratio: 64,
             cohort_block_cache_bytes: 134_217_728,
             cohort_tuned_block_options_enabled: true,
             cohort_compact_on_deletion_enabled: true,
@@ -889,6 +914,50 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn stats_knobs_default_on_and_thread_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(defaults.store_statistics_enabled);
+        assert!(defaults.store_config().statistics_enabled);
+        assert_eq!(defaults.stats_publish_interval(), Duration::from_secs(15));
+        assert_eq!(defaults.store_read_sample_ratio, 64);
+        assert_eq!(defaults.store_config().read_sample_ratio, 64);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_STATISTICS_ENABLED", "false"),
+            ("COHORT_STATS_PUBLISH_INTERVAL_SECS", "30"),
+            ("COHORT_STORE_READ_SAMPLE_RATIO", "8"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(!config.store_statistics_enabled);
+        assert!(
+            !config.store_config().statistics_enabled,
+            "the flag reaches StoreConfig",
+        );
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(30));
+        assert_eq!(config.store_read_sample_ratio, 8);
+        assert_eq!(
+            config.store_config().read_sample_ratio,
+            8,
+            "the sample ratio reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn stats_publish_interval_floors_zero_at_one_second() {
+        // Zero would panic `tokio::time::interval`; the accessor clamps to 1s.
+        let env: std::collections::HashMap<String, String> =
+            [("COHORT_STATS_PUBLISH_INTERVAL_SECS", "0")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(1));
     }
 
     #[test]
