@@ -30,7 +30,7 @@ export interface ComboChartPrivate {
 
 export interface CreateComboScalesOptions {
     scaleType?: 'linear' | 'log'
-    barLayout?: 'stacked' | 'grouped'
+    barLayout?: 'stacked' | 'grouped' | 'percent'
     bandPadding?: number
     groupPadding?: number
     seriesTypeOf: (series: Series) => SeriesType
@@ -96,7 +96,7 @@ export function createComboScales(
         // otherwise; lines/areas always contribute raw. The value scale spans the union.
         const axisValueSeries: Series[] = axisSeries.map((s) => {
             const stacked = barStackedData?.get(s.key)
-            if (seriesTypeOf(s) === 'bar' && barLayout === 'stacked' && stacked) {
+            if (seriesTypeOf(s) === 'bar' && (barLayout === 'stacked' || barLayout === 'percent') && stacked) {
                 return { ...s, data: stacked.top }
             }
             return s
@@ -105,6 +105,7 @@ export function createComboScales(
         // guard, log fallback, and `{ include }` goal-line domain extension — primary axis only.
         const scale = createYScale(axisValueSeries, dimensions, {
             scaleType,
+            percentStack: barLayout === 'percent',
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
         })
         yAxes[axisId] = { scale, position }

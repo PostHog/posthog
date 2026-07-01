@@ -145,7 +145,7 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
  * formatter can't honor a second gutter's settings yet) still fall back to legacy chart.js.
  */
 export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData, chartSettings } = props
+    const { visualizationType, yData } = props
 
     if (
         visualizationType !== ChartDisplayType.ActionsLineGraph &&
@@ -156,10 +156,6 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
         return false
     }
     if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
-        return false
-    }
-    // ComboChart supports only stacked/grouped bars, not percent (stackBars100).
-    if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
         return false
     }
     return true
@@ -175,12 +171,15 @@ export function barLayoutForDisplay(
     return 'grouped'
 }
 
-/** Bar layout for the combo path — stacked for stacked-bar charts, grouped otherwise. ComboChart
- *  doesn't support percent, so {@link canRenderSqlComboGraph} keeps stackBars100 on the legacy path. */
+/** Bar layout for the combo path. */
 export function comboBarLayoutForDisplay(
-    visualizationType: ChartDisplayType
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings
 ): NonNullable<TimeSeriesComboChartConfig['barLayout']> {
-    return visualizationType === ChartDisplayType.ActionsStackedBar ? 'stacked' : 'grouped'
+    if (visualizationType === ChartDisplayType.ActionsStackedBar) {
+        return chartSettings.stackBars100 ? 'percent' : 'stacked'
+    }
+    return 'grouped'
 }
 
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
@@ -470,6 +469,8 @@ export function buildComboChartConfig({
 
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
+    const barLayout = comboBarLayoutForDisplay(visualizationType, chartSettings)
+    const isPercent = barLayout === 'percent'
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -479,15 +480,19 @@ export function buildComboChartConfig({
                       buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
                           id: 'left',
                           position: 'left',
+                          forceLinear: isPercent,
                       }),
                       buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
                           id: 'right',
                           position: 'right',
+                          forceLinear: isPercent,
                       }),
                   ]
-                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                      forceLinear: isPercent,
+                  }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
-        barLayout: comboBarLayoutForDisplay(visualizationType),
+        barLayout,
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
