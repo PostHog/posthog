@@ -857,6 +857,8 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueSourceManaged as exc:
+            raise ValidationError({"definition": str(exc)})
         except api.InvalidCustomPropertyValue as exc:
             raise ValidationError({"value": str(exc)})
         except api.CustomPropertyValueConflict as exc:

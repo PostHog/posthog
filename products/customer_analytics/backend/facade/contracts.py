@@ -257,7 +257,8 @@ class CustomPropertyDefinitionView:
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
     the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
-    property is used (workflows), resolved by definition id.
+    property is used (workflows), resolved by definition id. ``source`` is the read-only
+    view-sync binding when one is configured for this definition, else ``None``.
     """
 
     id: UUID | None = None
@@ -269,6 +270,7 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    source: "CustomPropertySourceView | None" = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -388,6 +390,7 @@ class ExternalAccountCustomPropertiesError(Enum):
     INVALID_VALUE = "invalid_value"
     CONFLICT = "conflict"
     UPDATE_FAILED = "update_failed"
+    SOURCE_MANAGED = "source_managed"
 
 
 @dataclass(frozen=True)
@@ -396,7 +399,8 @@ class ExternalAccountCustomPropertiesResult:
     case to its exact HTTP status and error string without holding write logic.
 
     Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
-    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` failures; it is None otherwise.
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` / ``SOURCE_MANAGED`` failures;
+    it is None otherwise.
     """
 
     values: list[CustomPropertyValue] | None = None
