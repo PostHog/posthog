@@ -97,6 +97,7 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
     if not isinstance(triggers, list):
         return out
     seen_keys: set[str] = set()
+    seen_unknown: set[str] = set()
 
     def consider(requirement: dict[str, Any], trigger_type: str) -> None:
         if not requirement.get("required"):
@@ -114,7 +115,27 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
         trigger_type = trigger.get("type")
         if not isinstance(trigger_type, str):
             continue
-        for requirement in TRIGGER_REQUIRED_SECRETS.get(trigger_type, []):
+        requirements = TRIGGER_REQUIRED_SECRETS.get(trigger_type)
+        if requirements is None:
+            # Fail closed: a type absent from this registry means Django's secret contract
+            # drifted behind the zod `TriggerType` enum. Block promote loudly rather than pass
+            # with zero required secrets.
+            if trigger_type not in seen_unknown:
+                seen_unknown.add(trigger_type)
+                out.append(
+                    {
+                        "key": f"<no secret contract for '{trigger_type}' trigger>",
+                        "label": "Unregistered trigger type",
+                        "description": (
+                            f"The '{trigger_type}' trigger has no entry in TRIGGER_REQUIRED_SECRETS; "
+                            "add its required-secret contract in spec_schema.py before promoting."
+                        ),
+                        "required": True,
+                        "trigger": trigger_type,
+                    }
+                )
+            continue
+        for requirement in requirements:
             consider(requirement, trigger_type)
         auth = trigger.get("auth")
         modes = auth.get("modes") if isinstance(auth, dict) else None

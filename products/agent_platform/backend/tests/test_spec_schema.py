@@ -127,6 +127,12 @@ def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
     assert missing_required_secrets(spec, {}) == []
 
 
+def test_missing_required_secrets_fails_closed_on_unregistered_trigger() -> None:
+    spec = {"triggers": [{"type": "github", "config": {}}]}
+    missing = missing_required_secrets(spec, {})
+    assert [entry["trigger"] for entry in missing] == ["github"]
+
+
 # AgentSpecField coerces a stringified-JSON-object spec back to an object. The MCP
 # write tools expose `spec` as an opaque arg, so an authoring model sometimes
 # passes the whole spec as a JSON string; stored verbatim it's the characters of a
