@@ -13,6 +13,10 @@ class FireHydrantEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
+    # Fields stripped from every row before it's emitted, to keep credential-bearing values out of
+    # the warehouse. Dotted paths (e.g. `spec.url`) reach nested fields; a bare name targets a
+    # top-level field.
+    redact_keys: list[str] = field(default_factory=list)
 
 
 # Endpoint catalog. Paths are the FireHydrant v1 REST collection endpoints (verified against the
@@ -44,7 +48,9 @@ FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
     "integrations": FireHydrantEndpointConfig(path="/v1/integrations", partition_key="created_at"),
     "runbooks": FireHydrantEndpointConfig(path="/v1/runbooks", partition_key="created_at"),
     "runbook_executions": FireHydrantEndpointConfig(path="/v1/runbooks/executions", partition_key="created_at"),
-    "webhooks": FireHydrantEndpointConfig(path="/v1/webhooks", partition_key="created_at"),
+    # A webhook's `url` is the customer's destination endpoint; for Slack/Teams/custom receivers it
+    # embeds a bearer token, so strip it rather than land a credential in the warehouse.
+    "webhooks": FireHydrantEndpointConfig(path="/v1/webhooks", partition_key="created_at", redact_keys=["url"]),
     # Undocumented response shape in the spec; handled defensively in transport. No created_at to partition on.
     "signals_on_call": FireHydrantEndpointConfig(path="/v1/signals_on_call"),
     "post_mortem_reports": FireHydrantEndpointConfig(path="/v1/post_mortems/reports", partition_key="created_at"),

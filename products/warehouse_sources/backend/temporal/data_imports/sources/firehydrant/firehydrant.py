@@ -121,6 +121,27 @@ def validate_credentials(api_key: str, region: str | None = None) -> tuple[bool,
     return False, f"FireHydrant API returned an unexpected status: {response.status_code}"
 
 
+def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    """Return ``row`` with a possibly-nested field removed. ``"url"`` drops a top-level field;
+    ``"spec.url"`` walks into ``spec`` and drops its ``url``. Only the nodes on the path are copied,
+    so the upstream item is left unmodified; a missing or non-dict node is a no-op."""
+    head, _, rest = dotted_key.partition(".")
+    if head not in row:
+        return row
+    if not rest:
+        return {k: v for k, v in row.items() if k != head}
+    nested = row[head]
+    if not isinstance(nested, dict):
+        return row
+    return {**row, head: _redact_key(nested, rest)}
+
+
+def _redact_row(row: dict[str, Any], redact_keys: list[str]) -> dict[str, Any]:
+    for key in redact_keys:
+        row = _redact_key(row, key)
+    return row
+
+
 def _extract_items(payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
     """Pull the row list out of a FireHydrant response.
 
@@ -158,6 +179,8 @@ def get_rows(
     while True:
         payload = _fetch_page(session, _build_url(base_url, config.path, page), headers, logger)
         items = _extract_items(payload)
+        if config.redact_keys:
+            items = [_redact_row(item, config.redact_keys) for item in items]
         if items:
             yield items
 
