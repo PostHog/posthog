@@ -76,6 +76,18 @@ class TestErrorTracking(BaseTest):
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
+    def test_merge_missing_source_issue_is_noop(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+        stale_issue_id = self.create_issue(["fingerprint_three"]).id
+        ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
+
+        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) is False
+
+        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
+
     def test_merge_syncs_target_issue_to_clickhouse(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])

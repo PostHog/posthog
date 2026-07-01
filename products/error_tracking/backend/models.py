@@ -214,7 +214,12 @@ def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids:
     }
     if target_issue_id not in locked_issue_ids:
         return []
-    return [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+
+    locked_source_issue_ids = [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+    if len(locked_source_issue_ids) != len(source_issue_ids):
+        return []
+
+    return locked_source_issue_ids
 
 
 def _sync_error_tracking_issue_changes_on_commit(
