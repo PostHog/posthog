@@ -1,12 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { TooltipContext } from '@posthog/quill-charts'
+import type { Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
 import type { TrendsSeriesMeta } from '../trends/shared/trendsSeriesMeta'
-import { InsightSeriesTooltip } from './InsightSeriesTooltip'
+import { InsightSeriesTooltip, type InsightSeriesTooltipProps } from './InsightSeriesTooltip'
 
 const meta: Meta = {
     title: 'Insights/InsightSeriesTooltip',
@@ -27,8 +27,8 @@ function Chart({
     series,
     tooltipProps,
 }: {
-    series: Parameters<typeof TimeSeriesLineChart<TrendsSeriesMeta>>[0]['series']
-    tooltipProps: Omit<React.ComponentProps<typeof InsightSeriesTooltip>, 'context'>
+    series: Series<TrendsSeriesMeta>[]
+    tooltipProps: Omit<InsightSeriesTooltipProps<TrendsSeriesMeta>, 'context'>
 }): JSX.Element {
     const theme = buildTheme()
     return (
