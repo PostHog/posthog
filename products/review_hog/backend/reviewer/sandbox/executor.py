@@ -56,6 +56,10 @@ async def run_sandbox_review(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str = "",
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -67,9 +71,24 @@ async def run_sandbox_review(
     worker boundaries cleanly and can't bleed between tenants. Throttling is the caller's job (the
     Temporal fan-out bounds concurrency per child workflow); persistence is the caller's job too —
     this helper holds no filesystem state.
+
+    ``runtime_adapter`` / ``model`` / ``reasoning_effort`` pin the sandbox LLM (e.g. Codex ``gpt-5.5``
+    at ``xhigh`` for the perspective review); left ``None`` the step runs on the agent server's
+    default (Claude). ``model_to_validate`` is the output *schema*, unrelated to ``model``.
+    ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
+    under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
+    not auto-approve MCP tool calls).
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
-    context = CustomPromptSandboxContext(team_id=team_id, user_id=user_id, repository=repository)
+    context = CustomPromptSandboxContext(
+        team_id=team_id,
+        user_id=user_id,
+        repository=repository,
+        model=model,
+        runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
+        initial_permission_mode=initial_permission_mode,
+    )
     return await _run_prompt(full_prompt, context, model_to_validate, branch=branch, step_name=step_name)
 
 

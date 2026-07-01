@@ -28,6 +28,12 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_INITIAL_PERMISSION_MODE,
+    REVIEW_MODEL,
+    REVIEW_REASONING_EFFORT,
+    REVIEW_RUNTIME_ADAPTER,
+)
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives, sync_canonical_validation
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
@@ -555,6 +561,10 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             system_prompt=REVIEW_SYSTEM_PROMPT,
             model_to_validate=IssuesReview,
             step_name=f"issues-review-p{input.pass_number}-c{input.chunk_id}",
+            runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+            model=REVIEW_MODEL,
+            reasoning_effort=REVIEW_REASONING_EFFORT,
+            initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
         )
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.

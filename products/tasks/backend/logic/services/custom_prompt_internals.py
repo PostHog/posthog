@@ -100,6 +100,15 @@ class CustomPromptSandboxContext:
     Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
     so a model handed over with no runtime can't be routed and falls back to the server default.
     ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    reasoning_effort: str | None = None
+    """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
+    ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
+    depend on the (runtime, model) pair — see ``get_reasoning_effort_error``."""
+    initial_permission_mode: str | None = None
+    """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
+    headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
+    (Claude) — ``"auto"`` does NOT auto-approve MCP tool calls, so the agent stalls on an approval
+    prompt no one can answer."""
     sandbox_resources: SandboxResources | None = None
     """Override the sandbox's compute (CPU / memory). Unset fields keep the
     SandboxConfig defaults (4 cores / 16 GB)."""
@@ -149,6 +158,8 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        reasoning_effort=context.reasoning_effort,
+        initial_permission_mode=context.initial_permission_mode,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,

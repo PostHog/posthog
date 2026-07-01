@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
@@ -65,6 +66,44 @@ class TestRunSandboxReview:
 
         context = mock_start.call_args.kwargs["context"]
         assert (context.team_id, context.user_id, context.repository) == (7, 9, "acme/app")
+
+    @parameterized.expand(
+        [
+            ("codex_pinned", "codex", "gpt-5.5", "xhigh", "full-access"),
+            ("server_default", None, None, None, None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_model_pins_thread_into_context(
+        self, _name, runtime_adapter, model, reasoning_effort, initial_permission_mode
+    ) -> None:
+        # The perspective review pins Codex + full-access on the sandbox context; a refactor that drops
+        # one silently reverts the step to the agent server's default (Claude / prompting "auto"). The
+        # unset case (chunk/dedup, which pass none) must stay None so those steps keep the default.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await run_sandbox_review(
+                team_id=1,
+                user_id=2,
+                repository="test/repo",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                runtime_adapter=runtime_adapter,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                initial_permission_mode=initial_permission_mode,
+            )
+
+        context = mock_start.call_args.kwargs["context"]
+        assert (context.runtime_adapter, context.model, context.reasoning_effort, context.initial_permission_mode) == (
+            runtime_adapter,
+            model,
+            reasoning_effort,
+            initial_permission_mode,
+        )
 
     @pytest.mark.asyncio
     async def test_start_failure_propagates(self) -> None:
