@@ -148,7 +148,7 @@ class TestShadowComparison(APIBaseTest):
             return_value=DuckLakeQueryResult(
                 columns=["cnt"], types=["20"], results=[[1]], sql="", hogql=None, connect_ms=8.0, query_ms=4.0
             ),
-        ):
+        ) as mock_execute:
             ducklake_shadow.run_ducklake_shadow_comparison(
                 team_id=self.team.pk,
                 endpoint_id=str(endpoint.id),
@@ -162,6 +162,7 @@ class TestShadowComparison(APIBaseTest):
                 offset=None,
             )
 
+        assert mock_execute.call_args.kwargs["bypass_warehouse_access_control"] is True
         assert len(captured) == 1
         assert captured[0]["event"] == ducklake_shadow.SHADOW_EVENT
         props = captured[0]["properties"]

@@ -2,24 +2,24 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '~/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
 import type {
     GetGroupRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdsRequest,
     GetGroupsBatchRequest,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import type {
     GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
-} from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/person_pb'
 
 import {
     PersonHogClient,

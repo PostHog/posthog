@@ -98,6 +98,9 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
+    # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
+    organization_id = models.CharField(max_length=400, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

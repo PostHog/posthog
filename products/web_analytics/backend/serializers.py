@@ -58,3 +58,36 @@ class WeeklyDigestResponseSerializer(serializers.Serializer):
     top_sources = TopSourceSerializer(many=True, help_text="Top 5 traffic sources by unique visitors.")
     goals = GoalSerializer(many=True, help_text="Goal conversions.")
     dashboard_url = serializers.URLField(help_text="Link to the Web analytics dashboard for this project.")
+
+
+class RecapPersonaSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text=(
+            "Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, "
+            "crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog."
+        )
+    )
+    name = serializers.CharField(help_text="Display name for the persona, e.g. 'Traffic Magnet'.")
+    emoji = serializers.CharField(help_text="Emoji representing the persona.")
+    blurb = serializers.CharField(help_text="One-line explanation of why this persona was assigned this week.")
+    color = serializers.CharField(help_text="Hex accent color for rendering the persona card.")
+
+
+class RecapHighlightSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'.")
+    emoji = serializers.CharField(help_text="Emoji for the highlight.")
+    title = serializers.CharField(help_text="Short headline for the highlight, e.g. 'Rising star page'.")
+    value = serializers.CharField(help_text="The standout value, e.g. a page path or visitor count.")
+    detail = serializers.CharField(allow_blank=True, help_text="Supporting sentence for the highlight.")
+
+
+class WebAnalyticsRecapResponseSerializer(WeeklyDigestResponseSerializer):
+    persona = RecapPersonaSerializer(help_text="The single weekly persona assigned from this week's data.")
+    highlights = RecapHighlightSerializer(
+        many=True, help_text="Up to three screenshot-worthy superlatives for the week."
+    )
+    period_label = serializers.CharField(help_text="Human-readable period label, e.g. 'Last 7 days'.")
+    period_start = serializers.DateField(help_text="First date included in the recap period, in the project timezone.")
+    period_end = serializers.DateField(help_text="Final date included in the recap period, in the project timezone.")
+    project_name = serializers.CharField(help_text="Name of the project this recap is for.")
+    recap_url = serializers.URLField(help_text="Canonical link to this project's weekly recap.")

@@ -1,0 +1,213 @@
+import re
+import dataclasses
+from typing import Any
+
+from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.queries import (
+    OPTIONAL_QUERY_FIELDS,
+    QUERIES,
+    VIEWER_QUERY,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+    BUILDBETTER_API_URL,
+    BUILDBETTER_ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+_MISSING_FIELD_RE = re.compile(r"field '([^']+)' not found in type")
+
+
+class BuildBetterRetryableError(Exception):
+    pass
+
+
+class BuildBetterMissingFieldError(Exception):
+    def __init__(self, field_name: str) -> None:
+        self.field_name = field_name
+        super().__init__(field_name)
+
+
+@dataclasses.dataclass
+class BuildBetterResumeConfig:
+    offset: int
+
+
+def _make_paginated_request(
+    api_key: str,
+    endpoint_name: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+    incremental_field: str | None = None,
+    incremental_field_last_value: str | None = None,
+):
+    endpoint_config = BUILDBETTER_ENDPOINTS.get(endpoint_name)
+    if not endpoint_config:
+        raise ValueError(f"Unknown BuildBetter endpoint: {endpoint_name}")
+
+    query = QUERIES.get(endpoint_name)
+    if not query:
+        raise ValueError(f"No GraphQL query for endpoint: {endpoint_name}")
+
+    # Nested fields still present in the query that we will drop if the account's schema rejects them.
+    droppable_fields = dict(OPTIONAL_QUERY_FIELDS.get(endpoint_name, {}))
+
+    graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
+
+    sess = make_tracked_session(
+        headers={
+            "X-Buildbetter-API-Key": api_key,
+            "Content-Type": "application/json",
+        }
+    )
+
+    @retry(
+        retry=retry_if_exception_type(BuildBetterRetryableError),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def execute(variables: dict[str, Any]) -> dict:
+        response = sess.post(BUILDBETTER_API_URL, json={"query": query, "variables": variables}, timeout=60)
+
+        if response.status_code >= 500:
+            raise BuildBetterRetryableError(f"BuildBetter: server error {response.status_code}")
+
+        if response.status_code == 429:
+            raise BuildBetterRetryableError("BuildBetter: rate limited")
+
+        try:
+            payload = response.json()
+        except Exception:
+            if not response.ok:
+                raise Exception(
+                    f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {response.text})"
+                )
+            raise Exception(f"Unexpected BuildBetter response: {response.text}")
+
+        if "errors" in payload:
+            error_messages = [e.get("message", "") for e in payload["errors"]]
+            joined = "; ".join(error_messages)
+            if not response.ok:
+                raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {joined})")
+            for msg in error_messages:
+                match = _MISSING_FIELD_RE.search(msg)
+                if match and (field := match.group(1)) in droppable_fields:
+                    raise BuildBetterMissingFieldError(field)
+            raise Exception(f"BuildBetter GraphQL error: {joined}")
+
+        if not response.ok:
+            raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {payload})")
+
+        if "data" not in payload:
+            raise Exception(f"Unexpected BuildBetter response format. Keys: {list(payload.keys())}")
+
+        return payload
+
+    page_size = endpoint_config.page_size
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_offset = resume_config.offset if resume_config is not None else 0
+    if resume_config is not None:
+        logger.debug(f"BuildBetter: resuming {endpoint_name} from offset {initial_offset}")
+
+    variables: dict[str, Any] = {
+        "limit": page_size,
+        "offset": initial_offset,
+    }
+
+    if incremental_field and incremental_field_last_value:
+        variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
+
+    try:
+        while True:
+            logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
+            try:
+                payload = execute(variables)
+            except BuildBetterMissingFieldError as e:
+                query = query.replace(droppable_fields.pop(e.field_name), "")
+                logger.warning(
+                    f"BuildBetter: field '{e.field_name}' not available for {endpoint_name}, retrying without it"
+                )
+                continue
+
+            data = payload["data"][graphql_query_name]
+            if not data:
+                break
+
+            yield data
+
+            if len(data) < page_size:
+                break
+
+            variables["offset"] = variables["offset"] + len(data)
+            resumable_source_manager.save_state(BuildBetterResumeConfig(offset=variables["offset"]))
+    finally:
+        sess.close()
+
+
+def buildbetter_source(
+    api_key: str,
+    endpoint_name: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+    incremental_field: str | None = None,
+    incremental_field_last_value: str | None = None,
+) -> SourceResponse:
+    endpoint_config = BUILDBETTER_ENDPOINTS.get(endpoint_name)
+    if not endpoint_config:
+        raise ValueError(f"Unknown BuildBetter endpoint: {endpoint_name}")
+
+    def get_rows():
+        if incremental_field and incremental_field_last_value:
+            logger.debug(
+                f"BuildBetter: incremental sync for {endpoint_name} on {incremental_field} since {incremental_field_last_value}"
+            )
+
+        yield from _make_paginated_request(
+            api_key=api_key,
+            endpoint_name=endpoint_name,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            incremental_field=incremental_field,
+            incremental_field_last_value=incremental_field_last_value,
+        )
+
+    return SourceResponse(
+        items=get_rows,
+        primary_keys=[endpoint_config.primary_key],
+        name=endpoint_name,
+        partition_count=endpoint_config.partition_count,
+        partition_size=endpoint_config.partition_size,
+        partition_mode=endpoint_config.partition_mode,
+        partition_format=endpoint_config.partition_format,
+        partition_keys=endpoint_config.partition_keys,
+    )
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    try:
+        sess = make_tracked_session(
+            headers={
+                "X-Buildbetter-API-Key": api_key,
+                "Content-Type": "application/json",
+            }
+        )
+        response = sess.post(
+            BUILDBETTER_API_URL,
+            json={"query": VIEWER_QUERY},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if "errors" in data:
+            return False, f"BuildBetter API error: {data['errors']}"
+        if "data" in data and data["data"].get("interview") is not None:
+            return True, None
+        return False, "Could not verify BuildBetter credentials"
+    except Exception as e:
+        return False, str(e)

@@ -17,7 +17,7 @@ import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
-import { isSlackTriggerMetadata, SlackTriggerMetadata } from './slack-reply'
+import type { SlackTriggerMetadata } from './trigger-metadata'
 
 export interface SlackFailureNotifierDeps {
     http: HttpFetcher
@@ -33,23 +33,7 @@ export class SlackFailureNotifier implements FailureNotifier {
 
     async notify(input: FailureNotifierInput): Promise<void> {
         const meta = input.session.trigger_metadata
-        if (!isSlackTriggerMetadata(meta)) {
-            return
-        }
-        // Preview-mode sessions never post failure notices into Slack —
-        // an author iterating on a draft must not have a failed run leak
-        // a synthetic error message into the live channel attached to the
-        // production revision. Log + return; the preview UI surfaces the
-        // failure to the author through the standard `failed` SSE event.
-        if (input.session.is_preview) {
-            this.deps.logger?.info?.(
-                {
-                    session_id: input.session.id,
-                    channel: meta.channel,
-                    thread_ts: meta.thread_ts,
-                },
-                'slack_failure_notifier_skipped_preview'
-            )
+        if (meta?.kind !== 'slack') {
             return
         }
         const token = await this.resolveTokenSafely(input.revision, input.application, input.session.id)

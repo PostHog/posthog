@@ -1,10 +1,10 @@
 import { Counter } from 'prom-client'
 
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
+import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
 import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
 
 export const ingestionOverflowingMessagesTotal = new Counter({
     name: 'ingestion_overflowing_messages_total',

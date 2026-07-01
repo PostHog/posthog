@@ -11,6 +11,13 @@
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
 
+# Dev/on-demand load generator for the capture /batch endpoint. Built and
+# pushed for use as a Kubernetes Job; not deployed as a standing service, so
+# it has no entry in the deploy matrix of rust-docker-build.yml.
+- image: capture-load-gen
+  dockerfile: ./rust/Dockerfile
+  project: wrsq3rsc1b
+
 - image: sqlx-migrate
   dockerfile: ./rust/Dockerfile.sqlx-migrate
   project: jmsz6gms8g
@@ -54,6 +61,14 @@
   features: flags-cache-builder
 
 - image: flags-consumer
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: cohort-event-shuffler
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 

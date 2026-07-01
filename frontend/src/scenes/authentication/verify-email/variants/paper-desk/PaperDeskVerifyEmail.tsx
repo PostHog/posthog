@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { DetectiveHog, ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+
+import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -220,12 +222,12 @@ function VerifyEmail(): JSX.Element {
                 }
             >
                 <div className="flex flex-col items-center text-center">
-                    <DetectiveHog className="block w-auto mx-auto h-28" />
+                    <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         Check your inbox
                     </h1>
                     <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We sent you a verification link. Click the link inside and you're in — it's valid for 24 hours.
+                        We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
                     </p>
                     <NotSeeingIt />
                 </div>

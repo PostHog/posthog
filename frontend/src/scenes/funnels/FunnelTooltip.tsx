@@ -1,3 +1,7 @@
+// .FunnelTooltip styles live in FunnelBarVertical.scss; import here so they load on the quill funnel
+// charts that reuse this tooltip (the old FunnelBarVertical that used to pull them in is gone).
+import './FunnelBarVertical/FunnelBarVertical.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
@@ -36,6 +40,8 @@ export interface FunnelTooltipProps {
     embedded?: boolean
     /** Date range of the hovered series' compare period; shown when the series is compare-tagged. */
     comparePeriodDateRange?: string | null
+    /** Baseline conversion rate across all breakdown values; shown only for breakdown variants past the first step. */
+    aggregateConversionRate?: number | null
 }
 
 export function FunnelTooltip({
@@ -46,6 +52,7 @@ export function FunnelTooltip({
     breakdownFilter,
     embedded = false,
     comparePeriodDateRange,
+    aggregateConversionRate,
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -96,6 +103,12 @@ export function FunnelTooltip({
                         <td>Conversion so far</td>
                         <td>{percentage(series.conversionRates.total, 2, true)}</td>
                     </tr>
+                    {stepIndex > 0 && aggregateConversionRate != null && (
+                        <tr>
+                            <td>Baseline conversion rate</td>
+                            <td>{percentage(aggregateConversionRate, 2, true)}</td>
+                        </tr>
+                    )}
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>
