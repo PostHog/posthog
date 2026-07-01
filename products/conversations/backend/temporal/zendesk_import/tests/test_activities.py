@@ -16,6 +16,7 @@ from products.conversations.backend.temporal.zendesk_import.activities import (
     UpdateJobProgressInput,
     UpdateJobStatusInput,
     _import_ticket_batch_sync,
+    _parse_zendesk_datetime,
     _update_job_progress_sync,
     _update_job_status_sync,
 )
@@ -156,8 +157,10 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(ticket.email_subject, "Help")
         self.assertEqual(ticket.email_from, "requester@x.com")
         self.assertEqual(ticket.last_message_text, "internal note")
-        # auto_now_add must not clobber the Zendesk creation date.
-        self.assertEqual(ticket.created_at.year, 2020)
+        # auto_now_add / auto_now must not clobber the historical Zendesk timestamps.
+        self.assertEqual(ticket.created_at, _parse_zendesk_datetime("2020-01-02T03:04:05Z"))
+        self.assertEqual(ticket.updated_at, _parse_zendesk_datetime("2020-01-03T04:05:06Z"))
+        self.assertEqual(ticket.last_message_at, _parse_zendesk_datetime("2020-01-02T03:04:05Z"))
 
         stored = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
         self.assertEqual(stored.count(), 3)

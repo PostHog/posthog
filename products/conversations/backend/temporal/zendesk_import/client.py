@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import normalize_subdomain
@@ -18,6 +19,22 @@ TICKETS_PER_PAGE = 1000
 COMMENTS_PER_PAGE = 100
 USERS_SHOW_MANY_BATCH = 100
 TICKETS_SHOW_MANY_BATCH = 100
+
+# Rate-limit handling: this client runs inside a Temporal activity thread
+# (database_sync_to_async, thread_sensitive=False). Sleeping the full Retry-After
+# in-thread ties up a thread-pool slot, so bound both how many times and how long
+# we wait before handing the backoff to Temporal's RetryPolicy (which waits between
+# activity attempts without holding a thread).
+MAX_RATE_LIMIT_RETRIES = 3
+MAX_RATE_LIMIT_SLEEP_SECONDS = 30
+
+
+class ZendeskRateLimitError(Exception):
+    """Raised when Zendesk keeps rate-limiting beyond the in-thread retry budget.
+
+    Retryable by default, so Temporal's RetryPolicy reschedules the activity and
+    absorbs the longer wait out-of-thread.
+    """
 
 
 @dataclass(frozen=True)
@@ -44,14 +61,29 @@ class ZendeskImportClient:
         )
         self._headers = {"Authorization": f"Basic {token}"}
 
+    def _handle_rate_limit(self, response: Response, path: str, attempt: int) -> None:
+        """Sleep for a bounded Retry-After, or raise once the budget is spent.
+
+        Raising (instead of sleeping indefinitely) hands the backoff to Temporal so a
+        long Retry-After can't pin a thread-pool slot for minutes.
+        """
+        retry_after = int(response.headers.get("Retry-After", "5"))
+        if attempt >= MAX_RATE_LIMIT_RETRIES or retry_after > MAX_RATE_LIMIT_SLEEP_SECONDS:
+            logger.warning("zendesk_import_rate_limited_giving_up", retry_after=retry_after, path=path, attempt=attempt)
+            raise ZendeskRateLimitError(
+                f"Zendesk rate limit exceeded in-thread retry budget (Retry-After={retry_after}s, attempt={attempt})"
+            )
+        logger.warning("zendesk_import_rate_limited", retry_after=retry_after, path=path, attempt=attempt)
+        time.sleep(retry_after)
+
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = path if path.startswith("http") else f"{self._base_url}{path}"
+        attempt = 0
         while True:
             response = self._session.request(method, url, headers=self._headers, params=params, timeout=60)
             if response.status_code == 429:
-                retry_after = int(response.headers.get("Retry-After", "5"))
-                logger.warning("zendesk_import_rate_limited", retry_after=retry_after, path=path)
-                time.sleep(retry_after)
+                self._handle_rate_limit(response, path, attempt)
+                attempt += 1
                 continue
             response.raise_for_status()
             return response.json()
@@ -119,11 +151,12 @@ class ZendeskImportClient:
         return comments
 
     def download_attachment(self, content_url: str) -> bytes:
+        attempt = 0
         while True:
             response = self._session.get(content_url, headers=self._headers, timeout=120)
             if response.status_code == 429:
-                retry_after = int(response.headers.get("Retry-After", "5"))
-                time.sleep(retry_after)
+                self._handle_rate_limit(response, content_url, attempt)
+                attempt += 1
                 continue
             response.raise_for_status()
             return response.content

@@ -8,7 +8,8 @@ from datetime import datetime
 from typing import Any
 
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import F, Func, Max, Value
+from django.db.models.fields.json import JSONField
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
@@ -99,9 +100,9 @@ def _parse_zendesk_datetime(value: str | None) -> datetime | None:
 
 def _credentials_from_job(job: ZendeskImportJob) -> ZendeskCredentials:
     inputs = job.job_inputs or {}
-    subdomain = str(inputs.get("subdomain", ""))
-    email_address = str(inputs.get("email_address", ""))
-    api_token = str(inputs.get("api_token", ""))
+    subdomain = str(inputs.get("subdomain") or "")
+    email_address = str(inputs.get("email_address") or "")
+    api_token = str(inputs.get("api_token") or "")
     if not subdomain or not email_address or not api_token:
         raise ValueError("Zendesk import job is missing credentials")
     return ZendeskCredentials(subdomain=subdomain, email_address=email_address, api_token=api_token)
@@ -168,6 +169,20 @@ def _process_attachments(
     return build_content_with_images(content, rich_content, images)
 
 
+class _JSONBConcat(Func):
+    """Atomic ``jsonb || jsonb`` merge (right-hand keys win).
+
+    Up to ``MAX_CONCURRENT_BATCH_WORKFLOWS`` batch activities run at once and each
+    updates ``email_distinct_id_cache``. A full-object ``save()`` is last-writer-wins
+    and silently drops every other batch's newly-resolved keys. Merging at the DB in a
+    single row-locked ``UPDATE`` serializes concurrent writers, so no entries are lost.
+    """
+
+    function = None
+    arg_joiner = " || "
+    template = "%(expressions)s"
+
+
 def _resolve_distinct_ids(
     team: Team,
     emails: set[str],
@@ -221,9 +236,18 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             emails.add(email)
 
     cache: dict[str, str] = dict(job.email_distinct_id_cache or {})
+    resolved_before = set(cache)
     cache = _resolve_distinct_ids(team, emails, cache)
-    job.email_distinct_id_cache = cache
-    job.save(update_fields=["email_distinct_id_cache", "updated_at"])
+    new_entries = {key: cache[key] for key in cache.keys() - resolved_before}
+    if new_entries:
+        ZendeskImportJob.objects.for_team(input.team_id).filter(id=input.job_id).update(
+            email_distinct_id_cache=_JSONBConcat(
+                F("email_distinct_id_cache"),
+                Value(new_entries, output_field=JSONField()),
+                output_field=JSONField(),
+            ),
+            updated_at=timezone.now(),
+        )
 
     imported = 0
     failed = 0
