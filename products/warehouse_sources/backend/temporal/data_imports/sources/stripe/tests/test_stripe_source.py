@@ -311,7 +311,7 @@ class TestStripeNestedResourceGetRows:
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
 
 
-class TestSubscriptionPageSize:
+class TestResourcePageSizeCaps:
     def test_build_resources_caps_subscription_page_size(self):
         # Subscriptions expand discounts at two levels, so a full DEFAULT_LIMIT page can grow past the
         # size that transfers intact and arrives truncated mid-stream. The endpoint must request a
