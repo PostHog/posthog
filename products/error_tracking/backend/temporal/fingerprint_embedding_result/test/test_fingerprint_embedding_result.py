@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -7,6 +8,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import ProgrammingError
 from django.test import override_settings
 
 from temporalio import activity
@@ -368,6 +370,51 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["merge_source"] == "auto"
         assert properties["source_issue_id"] == str(source_issue_id)
         assert properties["target_issue_id"] == str(target_issue_id)
+
+    def test_merge_fingerprint_evicts_connection_and_surfaces_cancellation_on_interrupted_commit(self) -> None:
+        source_fingerprint = MagicMock(issue_id=uuid.uuid4(), fingerprint="test-fingerprint")
+        target_fingerprint = MagicMock(issue_id=uuid.uuid4(), issue=MagicMock(), fingerprint="fingerprint-1")
+        fingerprint_query = MagicMock()
+        fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = [
+            target_fingerprint,
+            source_fingerprint,
+        ]
+
+        # Mirrors Django's atomic() cleanup when a cancellation interrupts the COMMIT: the
+        # still-ACTIVE connection makes the autocommit restore raise a ProgrammingError that
+        # chains the original CancelledError as __context__.
+        class _InterruptedCommitAtomic:
+            def __enter__(self) -> "_InterruptedCommitAtomic":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                try:
+                    raise asyncio.CancelledError()
+                except asyncio.CancelledError:
+                    raise ProgrammingError("can't change 'autocommit' now: connection in transaction status ACTIVE")
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
+                return_value=fingerprint_query,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.transaction.atomic",
+                return_value=_InterruptedCommitAtomic(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.connection"
+            ) as mock_connection,
+            pytest.raises(asyncio.CancelledError),
+        ):
+            _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+            )
+
+        mock_connection.close.assert_called_once_with()
 
 
 class TestMergeFingerprintCrossTeamIsolation(BaseTest):

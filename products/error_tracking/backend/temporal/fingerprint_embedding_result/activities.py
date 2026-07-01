@@ -2,7 +2,7 @@ import time
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.db import Error, connection, transaction
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
@@ -272,6 +272,23 @@ def _report_closest_fingerprint_metrics(
         )
 
 
+def _interrupt_that_broke_commit(error: BaseException) -> BaseException | None:
+    """Return the control-flow interrupt a DB error was raised while handling, if any.
+
+    When a commit is interrupted by a ``BaseException`` like ``asyncio.CancelledError`` (worker
+    shutdown, deploy, or activity timeout), ``transaction.atomic()``'s cleanup raises a follow-on
+    ``ProgrammingError`` while restoring autocommit on a still-ACTIVE connection, chaining the
+    original interrupt as ``__context__``. Surfacing that interrupt instead of the cleanup artifact
+    keeps a routine cancellation from masquerading as database-error noise.
+    """
+    cause: BaseException | None = error.__context__
+    while cause is not None:
+        if not isinstance(cause, Exception):
+            return cause
+        cause = cause.__context__
+    return None
+
+
 def _merge_fingerprint_into_closest_issue(
     team: Team,
     fingerprint: str,
@@ -284,30 +301,40 @@ def _merge_fingerprint_into_closest_issue(
     if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
         return 0
 
-    with transaction.atomic():
-        # Lock both fingerprints together so reciprocal auto-merge attempts re-check the post-merge state.
-        locked_fingerprints = {
-            row.fingerprint: row
-            for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
-            .filter(team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint])
-            .select_related("issue")
-            .order_by("fingerprint", "id")
-        }
-        source_fingerprint = locked_fingerprints.get(fingerprint)
-        if source_fingerprint is None:
-            raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
+    try:
+        with transaction.atomic():
+            # Lock both fingerprints together so reciprocal auto-merge attempts re-check the post-merge state.
+            locked_fingerprints = {
+                row.fingerprint: row
+                for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+                .filter(team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint])
+                .select_related("issue")
+                .order_by("fingerprint", "id")
+            }
+            source_fingerprint = locked_fingerprints.get(fingerprint)
+            if source_fingerprint is None:
+                raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
 
-        target_fingerprint = locked_fingerprints.get(closest_fingerprint.fingerprint)
-        if target_fingerprint is None:
-            raise FingerprintIssueNotFoundError(
-                f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
-            )
-        if source_fingerprint.issue_id == target_fingerprint.issue_id:
-            return 0
+            target_fingerprint = locked_fingerprints.get(closest_fingerprint.fingerprint)
+            if target_fingerprint is None:
+                raise FingerprintIssueNotFoundError(
+                    f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
+                )
+            if source_fingerprint.issue_id == target_fingerprint.issue_id:
+                return 0
 
-        source_issue_id = source_fingerprint.issue_id
-        target_issue_id = target_fingerprint.issue_id
-        target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)])
+            source_issue_id = source_fingerprint.issue_id
+            target_issue_id = target_fingerprint.issue_id
+            target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)])
+    except Error as err:
+        interrupt = _interrupt_that_broke_commit(err)
+        if interrupt is None:
+            raise
+        # The commit was interrupted mid-flight, leaving the connection stuck in an ACTIVE
+        # transaction. Evict it so the pool can't hand back a poisoned connection, then re-raise
+        # the original interrupt rather than the misleading autocommit-restore failure.
+        connection.close()
+        raise interrupt from None
 
     with ph_scoped_capture() as capture:
         capture(
