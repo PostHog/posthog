@@ -218,10 +218,7 @@ export class SegmentDestinationExecutorService {
                         method,
                         headers,
                         body,
-                        timeoutMs: resolveFetchTimeoutMs(
-                            invocation.hogFunction,
-                            this.serverConfig.CDP_FETCH_TIMEOUT_MS_OVERRIDES
-                        ),
+                        timeoutMs: resolveFetchTimeoutMs(endpoint, this.serverConfig.CDP_FETCH_TIMEOUT_MS_OVERRIDES),
                     }
 
                     result.metrics!.push({

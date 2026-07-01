@@ -2201,19 +2201,24 @@ describe('Hog Executor', () => {
     })
 
     describe('resolveFetchTimeoutMs', () => {
-        const fn = createHogFunction({})
-        const overridesFor = (value: unknown): string => JSON.stringify({ [fn.id]: value })
+        const overrides = JSON.stringify({ 'in.accoil.com': 5000 })
+        const overridesFor = (value: unknown): string => JSON.stringify({ 'slow.example.com': value })
 
-        it('returns undefined when the destination is not in the allowlist', () => {
-            expect(resolveFetchTimeoutMs(fn, JSON.stringify({ 'some-other-id': 5000 }))).toBeUndefined()
+        it('returns undefined when the host is not in the allowlist', () => {
+            expect(resolveFetchTimeoutMs('https://example.com/segment', overrides)).toBeUndefined()
+        })
+
+        it('matches the host regardless of path, query, or case', () => {
+            expect(resolveFetchTimeoutMs('https://IN.accoil.com/segment?x=1', overrides)).toBe(5000)
         })
 
         it.each([
-            ['unset', undefined],
-            ['empty', ''],
-            ['malformed json', 'not json'],
-        ])('returns undefined when overrides are %s', (_name, raw) => {
-            expect(resolveFetchTimeoutMs(fn, raw)).toBeUndefined()
+            ['unset', undefined, 'https://in.accoil.com/segment'],
+            ['empty', '', 'https://in.accoil.com/segment'],
+            ['malformed json', 'not json', 'https://in.accoil.com/segment'],
+            ['unparseable url', overrides, 'not a url'],
+        ])('returns undefined when overrides are %s', (_name, raw, url) => {
+            expect(resolveFetchTimeoutMs(url as string, raw as string | undefined)).toBeUndefined()
         })
 
         it.each([
@@ -2223,7 +2228,7 @@ describe('Hog Executor', () => {
             ['above max is clamped down', 999999, 10000],
             ['fractional is rounded', 4999.6, 5000],
         ])('%s', (_name, value, expected) => {
-            expect(resolveFetchTimeoutMs(fn, overridesFor(value))).toBe(expected)
+            expect(resolveFetchTimeoutMs('https://slow.example.com/x', overridesFor(value))).toBe(expected)
         })
 
         it.each([
@@ -2231,7 +2236,7 @@ describe('Hog Executor', () => {
             ['null', null],
             ['boolean', true],
         ])('returns undefined for %s so the global default applies', (_name, value) => {
-            expect(resolveFetchTimeoutMs(fn, overridesFor(value))).toBeUndefined()
+            expect(resolveFetchTimeoutMs('https://slow.example.com/x', overridesFor(value))).toBeUndefined()
         })
     })
 

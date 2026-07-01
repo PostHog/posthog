@@ -96,8 +96,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    // Operator-controlled allowlist: JSON map of hog function id -> per-request fetch timeout ms.
-    // Not user-configurable - lets us grant a longer timeout to a specific slow/distant destination.
+    // Operator-controlled allowlist: JSON map of destination host -> per-request fetch timeout ms.
+    // Not user-configurable - lets us grant a longer timeout to every destination hitting a known
+    // slow/distant endpoint.
     CDP_FETCH_TIMEOUT_MS_OVERRIDES: string
     CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean

@@ -169,9 +169,8 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 
-// Bounds for the operator-controlled per-destination fetch timeout allowlist. The upper bound
-// stops an allowlisted destination from pinning an undici connection far longer than the shared
-// pool can afford.
+// Bounds for the operator-controlled per-host fetch timeout allowlist. The upper bound stops an
+// allowlisted host from pinning an undici connection far longer than the shared pool can afford.
 export const MIN_FETCH_TIMEOUT_MS = 1000
 export const MAX_FETCH_TIMEOUT_MS = 10000
 
@@ -199,16 +198,21 @@ function parseFetchTimeoutOverrides(raw: string | undefined): Record<string, unk
     return map
 }
 
-// Resolve an operator-set per-destination fetch timeout from the CDP_FETCH_TIMEOUT_MS_OVERRIDES
-// allowlist (a JSON map of hog function id -> timeout ms). Deliberately not user-configurable: a
-// destination author must not be able to hold a pooled connection open and starve other tenants.
-// Returns undefined when the destination is not allowlisted, so `_fetch` falls back to the global
+// Resolve an operator-set fetch timeout for a request's target host from the
+// CDP_FETCH_TIMEOUT_MS_OVERRIDES allowlist (a JSON map of host -> timeout ms). Keyed by host so
+// every destination hitting a known-slow endpoint gets the longer budget, regardless of which
+// function or team owns it. Deliberately not user-configurable: a destination author must not be
+// able to hold a pooled connection open and starve other tenants. Returns undefined when the host
+// is not allowlisted (or the url is unparseable), so `_fetch` falls back to the global
 // EXTERNAL_REQUEST_TIMEOUT_MS.
-export function resolveFetchTimeoutMs(
-    hogFunction: HogFunctionType,
-    rawOverrides: string | undefined
-): number | undefined {
-    const raw = parseFetchTimeoutOverrides(rawOverrides)[hogFunction.id]
+export function resolveFetchTimeoutMs(url: string, rawOverrides: string | undefined): number | undefined {
+    let host: string
+    try {
+        host = new URL(url).hostname.toLowerCase()
+    } catch {
+        return undefined
+    }
+    const raw = parseFetchTimeoutOverrides(rawOverrides)[host]
     const value = typeof raw === 'string' ? Number(raw) : raw
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return undefined
@@ -884,7 +888,7 @@ export class HogExecutorService {
         const fetchParams: FetchOptions = {
             method,
             headers: signedHeaders,
-            timeoutMs: resolveFetchTimeoutMs(invocation.hogFunction, this.config.fetchTimeoutMsOverrides),
+            timeoutMs: resolveFetchTimeoutMs(params.url, this.config.fetchTimeoutMsOverrides),
         }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
