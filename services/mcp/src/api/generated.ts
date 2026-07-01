@@ -42581,6 +42581,38 @@ export namespace Schemas {
     }
 
     /**
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `session_replay` - session_replay
+     */
+    export type ProductsEnum = typeof ProductsEnum[keyof typeof ProductsEnum];
+
+
+    export const ProductsEnum = {
+      Conversations: 'conversations',
+      ErrorTracking: 'error_tracking',
+      SessionReplay: 'session_replay',
+    } as const;
+
+    export interface ProductEnablement {
+      /**
+         * Products to turn on for this project, each enabled with server-owned conservative defaults.
+         * @minItems 1
+         */
+      products: ProductsEnum[];
+    }
+
+    /**
+     * Per requested product: "enabled" (just turned on) or "already_enabled".
+     */
+    export type ProductEnablementResultResults = {[key: string]: string};
+
+    export interface ProductEnablementResult {
+      /** Per requested product: "enabled" (just turned on) or "already_enabled". */
+      results: ProductEnablementResultResults;
+    }
+
+    /**
      * One row in `inventory.product_intents`.
      */
     export interface ProductIntentEntry {
