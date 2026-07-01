@@ -182,6 +182,47 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("activitylog", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
+    def test_modulo_renders_as_mod_function(self):
+        # A bare `%` in the printed SQL is read by psycopg as a client-side parameter
+        # placeholder and blows up before the query runs, so modulo must render as MOD(a, b).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id % 2 FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("MOD(", sql)
+        self.assertNotIn("%", sql)
+
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

@@ -494,7 +494,10 @@ class PostgresPrinter(BasePrinter):
         elif node.op == ast.ArithmeticOperationOp.Div:
             return f"({self.visit(node.left)} / {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Mod:
-            return f"({self.visit(node.left)} % {self.visit(node.right)})"
+            # `%` cannot appear in printed SQL (psycopg treats it as a parameter
+            # placeholder during client-side binding), so modulo renders as MOD(a, b).
+            # Both Postgres and DuckDB (which subclasses this printer) support MOD().
+            return f"MOD({self.visit(node.left)}, {self.visit(node.right)})"
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
