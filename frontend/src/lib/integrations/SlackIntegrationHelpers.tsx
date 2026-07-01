@@ -225,7 +225,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                                 channel isn't enough on its own.{' '}
                             </>
                         ) : (
-                            <>Make sure the PostHog Slack App is installed in the channel. </>
+                            <>No channels found. Make sure the PostHog Slack App is installed in the channel. </>
                         )}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
@@ -251,11 +251,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     Only the first page of channels is shown — type to search for a specific channel.
                 </p>
             ) : null}
-
-            <p className="text-secondary text-xs mt-1 mb-0">
-                Private channels only appear if the Slack user who connected PostHog is a member of them — adding the
-                PostHog Slack App to a private channel isn't enough on its own.
-            </p>
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
