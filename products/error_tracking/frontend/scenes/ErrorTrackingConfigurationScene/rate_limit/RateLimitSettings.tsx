@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconRefresh } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -17,6 +18,11 @@ import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimula
 
 export function RateLimitSettings(): JSX.Element {
     const hasPerIssueRateLimit = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_PER_ISSUE')
+    const { noAccess } = useValues(rateLimitConfigLogic)
+
+    if (noAccess) {
+        return <AccessDenied reason="You do not have viewer access to error tracking for this project." inline />
+    }
 
     return (
         <div className="space-y-8">
