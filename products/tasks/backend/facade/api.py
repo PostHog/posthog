@@ -161,6 +161,7 @@ __all__ = [
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_title",
     "signal_report_queryset",
     "signal_task_run_user_message",
     "signal_workflow_completion",
@@ -2743,6 +2744,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
+    """Set a task's title, team-scoped. For automated relabels — e.g. backfilling a Signals research
+    task with ``"Research: <report title>"`` once research produces the title. Leaves
+    ``title_manually_set`` untouched (this isn't a user edit) and clamps to the column length. Returns
+    whether a row was updated.
+    """
+    return bool(Task.objects.filter(id=task_id, team_id=team_id).update(title=title[:255]))
 
 
 def update_task(
