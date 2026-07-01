@@ -173,7 +173,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         query_serializer=MCPSessionListQuerySerializer,
-        responses={200: MCPSessionSerializer(many=True)},
+        responses={200: OpenApiResponse(response=MCPSessionSerializer(many=True))},
         operation_id="mcp_analytics_sessions_list",
         description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
     )
