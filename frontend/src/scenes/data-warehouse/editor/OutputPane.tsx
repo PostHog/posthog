@@ -18,6 +18,7 @@ import {
     IconPlus,
     IconShare,
     IconScreen,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
@@ -1043,10 +1044,11 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 const EmptyResultsState = (): JSX.Element => {
     return (
         <div
-            className="flex flex-1 justify-center items-center border-t px-4 py-6 text-center"
+            className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
             data-attr="sql-editor-output-pane-no-rows-state"
         >
-            <span className="text-secondary">No rows</span>
+            <IconWarning className="text-warning text-lg" />
+            <span className="text-secondary">Query produced no results</span>
         </div>
     )
 }
