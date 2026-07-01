@@ -57,6 +57,7 @@ import {
     GatewayCatalog,
     ApprovalStore,
     applyApprovalDecision,
+    serializeApprovalRequest,
     BundleEntry,
     BundleStore,
     buildSlackManifest,
@@ -686,28 +687,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         return true
     }
 
-    const summariseApproval = (r: ApprovalRequest): Record<string, unknown> => ({
-        id: r.id,
-        session_id: r.session_id,
-        application_id: r.application_id,
-        team_id: r.team_id,
-        revision_id: r.revision_id,
-        turn: r.turn,
-        tool_call_id: r.tool_call_id,
-        tool_name: r.tool_name,
-        proposed_args: r.proposed_args,
-        decided_args: r.decided_args,
-        assistant_message: r.assistant_message,
-        approver_scope: r.approver_scope,
-        state: r.state,
-        decision_by: r.decision_by,
-        decision_at: r.decision_at,
-        decision_reason: r.decision_reason,
-        dispatch_outcome: r.dispatch_outcome,
-        created_at: r.created_at,
-        expires_at: r.expires_at,
-    })
-
     app.get(
         '/approvals',
         asyncHandler(async (req, res) => {
@@ -720,7 +699,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 limit: q.limit,
                 offset: q.offset,
             })
-            res.json({ results: rows.map(summariseApproval) })
+            res.json({ results: rows.map(serializeApprovalRequest) })
         })
     )
 
@@ -742,7 +721,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 limit: q.limit,
                 offset: q.offset,
             })
-            res.json({ results: rows.map(summariseApproval) })
+            res.json({ results: rows.map(serializeApprovalRequest) })
         })
     )
 
@@ -757,7 +736,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 res.status(404).json({ error: 'not_found' })
                 return
             }
-            res.json(summariseApproval(row))
+            res.json(serializeApprovalRequest(row))
         })
     )
 
