@@ -1022,6 +1022,36 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "child_events": StringJSONDatabaseField(name="child_events"),
         "merged_ticket_ids": StringJSONDatabaseField(name="merged_ticket_ids"),
     },
+    "zendesk_ticket_comments": {
+        "id": IntegerDatabaseField(name="id"),
+        "ticket_id": IntegerDatabaseField(name="ticket_id"),
+        "author_id": IntegerDatabaseField(name="author_id"),
+        "audit_id": IntegerDatabaseField(name="audit_id"),
+        "via_reference_id": IntegerDatabaseField(name="via_reference_id"),
+        "type": StringDatabaseField(name="type"),
+        "event_type": StringDatabaseField(name="event_type"),
+        "body": StringDatabaseField(name="body"),
+        "html_body": StringDatabaseField(name="html_body"),
+        "plain_body": StringDatabaseField(name="plain_body"),
+        # false marks an internal/private agent note; true is a reply visible to the requester.
+        "public": BooleanDatabaseField(name="public"),
+        "timestamp": IntegerDatabaseField(name="timestamp"),
+        "via": StringJSONDatabaseField(name="via"),
+        "attachments": StringJSONDatabaseField(name="attachments"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "uploads": StringJSONDatabaseField(name="uploads"),
+        "__created_at": StringDatabaseField(name="created_at", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Field(chain=["__created_at"]),
+                ],
+            ),
+            name="created_at",
+        ),
+    },
     "zendesk_ticket_fields": {
         "id": IntegerDatabaseField(name="id"),
         "url": StringDatabaseField(name="url"),

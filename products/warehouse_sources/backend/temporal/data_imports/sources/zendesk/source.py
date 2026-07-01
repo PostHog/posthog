@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     SUPPORT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
+    flatten_ticket_comments,
     normalize_subdomain,
     validate_credentials,
     zendesk_source,
@@ -149,9 +150,17 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
         )
+        # ticket_comments reuses the ticket_events export; flatten each event's child_events
+        # into one row per comment before the pipeline consumes them.
+        items = (
+            (lambda: flatten_ticket_comments(resource))
+            if inputs.schema_name == "ticket_comments"
+            else (lambda: resource)
+        )
+
         response = SourceResponse(
             name=resource.name,
-            items=lambda: resource,
+            items=items,
             primary_keys=["id"],
             column_hints=resource.column_hints,
         )

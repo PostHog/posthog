@@ -1,5 +1,6 @@
 import re
 import base64
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -26,6 +27,32 @@ def to_zendesk_start_time(value: Any) -> int:
         dt = value if value.tzinfo else value.replace(tzinfo=UTC)
         return int(dt.timestamp())
     return int(value)
+
+
+def flatten_ticket_comments(pages: Iterable[list[dict[str, Any]]]) -> Iterator[list[dict[str, Any]]]:
+    """Flatten the `include=comment_events` ticket-events export into one row per comment.
+
+    Each ticket event's `child_events` holds its comments (public replies and internal
+    notes) with the full body; other child event types (Change, Notification, VoiceComment)
+    are dropped. Comments carry no `ticket_id` of their own, so the parent's `ticket_id`,
+    `created_at`, and `timestamp` are stamped onto each row — using the parent `created_at`
+    also keeps the incremental watermark in lock-step with the export's server-side
+    `start_time` cursor.
+    """
+    for page in pages:
+        comments = [
+            {
+                **child,
+                "ticket_id": event.get("ticket_id"),
+                "created_at": event.get("created_at"),
+                "timestamp": event.get("timestamp"),
+            }
+            for event in page
+            for child in (event.get("child_events") or [])
+            if child.get("event_type") == "Comment"
+        ]
+        if comments:
+            yield comments
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -182,6 +209,36 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
                     "per_page": 1000,
+                    "start_time": {
+                        "type": "incremental",
+                        "cursor_path": "created_at",
+                        "initial_value": 0,
+                        "convert": to_zendesk_start_time,
+                    },
+                },
+            },
+            "table_format": "delta",
+        },
+        "ticket_comments": {
+            "name": "ticket_comments",
+            "table_name": "ticket_comments",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_comments"),
+            "endpoint": {
+                # Same incremental ticket-events export as `ticket_events`, but `include=comment_events`
+                # enriches each event's `child_events` with the full comment body. We select the
+                # ticket_events list here and flatten to one row per comment in `flatten_ticket_comments`.
+                "data_selector": "ticket_events",
+                "path": "/api/v2/incremental/ticket_events",
+                "paginator": ZendeskIncrementalEndpointPaginator(),
+                "params": {
+                    "per_page": 1000,
+                    "include": "comment_events",
                     "start_time": {
                         "type": "incremental",
                         "cursor_path": "created_at",

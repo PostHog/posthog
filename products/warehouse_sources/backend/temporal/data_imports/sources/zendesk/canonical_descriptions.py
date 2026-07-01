@@ -74,6 +74,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             event_type="Type of the event.",
         ),
     },
+    "ticket_comments": {
+        "description": (
+            "Individual public replies and internal notes on tickets, flattened from the ticket-events "
+            "comment export. Includes private agent-only note bodies — the `public` column marks which."
+        ),
+        "docs_url": "https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-ticket-event-export",
+        "columns": {
+            "id": "Unique identifier of the comment event.",
+            "ticket_id": "ID of the ticket this comment belongs to.",
+            "author_id": "ID of the user who wrote the comment.",
+            "audit_id": "ID of the audit the comment is part of.",
+            "via_reference_id": "ID of the channel-specific reference the comment came through, if any.",
+            "type": "The child event type (Comment for rows in this table).",
+            "event_type": "The child event type as reported by the export (Comment).",
+            "body": "The comment body, in the format shown to the agent (may be HTML or plain text).",
+            "html_body": "The comment body formatted as HTML.",
+            "plain_body": "The comment body as plain text, with formatting stripped.",
+            "public": "false for an internal/private agent note; true for a reply visible to the requester.",
+            "timestamp": "Time the parent ticket event occurred, as a Unix timestamp.",
+            "via": "How and where the comment was created (channel and source).",
+            "attachments": "Files attached to the comment.",
+            "metadata": "System-recorded metadata about the comment (e.g. client, IP address).",
+            "uploads": "Tokens for files uploaded with the comment.",
+            "created_at": "Time the comment was created (from the parent ticket event).",
+        },
+    },
     "ticket_metric_events": {
         "description": "Time-series events for ticket metrics such as reply time and resolution time.",
         "docs_url": "https://developer.zendesk.com/api-reference/ticketing/ticket-management/ticket_metric_events/",
