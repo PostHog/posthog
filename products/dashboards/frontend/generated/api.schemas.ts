@@ -1186,6 +1186,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -1375,6 +1384,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -1750,6 +1760,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1797,6 +1808,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1831,6 +1843,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1876,6 +1889,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1912,6 +1926,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1958,6 +1973,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1994,6 +2010,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2045,6 +2062,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2315,6 +2333,7 @@ export interface TrendsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2369,6 +2388,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2418,6 +2438,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2452,6 +2473,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2499,6 +2521,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2626,6 +2649,8 @@ export interface FunnelsQueryResponseApi {
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+    total_median_conversion_time?: number | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -2641,6 +2666,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2687,6 +2713,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2739,6 +2766,7 @@ export interface FunnelsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2892,6 +2920,7 @@ export interface RetentionEntityApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2980,6 +3009,7 @@ export interface RetentionQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3111,6 +3141,7 @@ export interface PathsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3230,6 +3261,7 @@ export interface StickinessQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3317,6 +3349,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3362,6 +3395,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3412,6 +3446,7 @@ export interface LifecycleQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4367,6 +4402,8 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Postgresql: 'postgresql',
+    AwsS3: 'aws-s3',
+    S3Compatible: 's3-compatible',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4726,6 +4763,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Cohorts: 'cohorts',
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
+    DataWarehouseSourceTables: 'data_warehouse_source_tables',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4737,6 +4775,7 @@ export const TaxonomicFilterGroupTypeApi = {
     EventMetadata: 'event_metadata',
     NumericalEventProperties: 'numerical_event_properties',
     PersonProperties: 'person_properties',
+    PersonMetadata: 'person_metadata',
     PageviewUrls: 'pageview_urls',
     PageviewEvents: 'pageview_events',
     Screens: 'screens',
@@ -4810,6 +4849,7 @@ export interface EventsQueryActionStepApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4947,6 +4987,7 @@ export interface EventsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4983,6 +5024,7 @@ export interface EventsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5025,6 +5067,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5055,6 +5098,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5186,6 +5230,7 @@ export interface FunnelCorrelationActorsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5225,6 +5270,7 @@ export interface ExperimentEventExposureConfigApi {
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -5274,6 +5320,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5318,6 +5365,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5641,6 +5689,7 @@ export interface HogQLFiltersApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5741,7 +5790,13 @@ export interface HogQLQueryApi {
 export interface ActorsQueryApi {
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | null
     kind?: 'ActorsQuery'
     limit?: number | null
@@ -5751,7 +5806,13 @@ export interface ActorsQueryApi {
     orderBy?: string[] | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | PropertyGroupFilterValueApi
         | null
     response?: ActorsQueryResponseApi | null
@@ -6159,6 +6220,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6188,6 +6250,7 @@ export interface SessionsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6224,6 +6287,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6534,6 +6598,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6581,6 +6646,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6620,6 +6686,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6665,6 +6732,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6706,6 +6774,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6752,6 +6821,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7262,6 +7332,7 @@ export interface TracesQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7327,6 +7398,7 @@ export interface TraceQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7675,6 +7747,30 @@ export interface YAxisSettingsApi {
     startAtZero?: boolean | null
 }
 
+export type SliceContentApi = (typeof SliceContentApi)[keyof typeof SliceContentApi]
+
+export const SliceContentApi = {
+    Labels: 'labels',
+    Values: 'values',
+    None: 'none',
+} as const
+
+export type ValueDisplayApi = (typeof ValueDisplayApi)[keyof typeof ValueDisplayApi]
+
+export const ValueDisplayApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface PieChartSettingsApi {
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean | null
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: SliceContentApi | null
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
+    valueDisplay?: ValueDisplayApi | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7734,6 +7830,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null

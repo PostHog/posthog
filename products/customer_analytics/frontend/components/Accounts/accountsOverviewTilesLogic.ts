@@ -7,7 +7,10 @@ import { objectsEqual } from 'lib/utils/objects'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
+import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
@@ -53,7 +56,11 @@ export function stripHogqlAlias(expression: string): string {
 }
 
 export function isNumericColumnType(type: string | undefined): boolean {
-    return !!type && NUMERIC_FIELD_TYPES.has(type)
+    if (!type) {
+        return false
+    }
+    // Regular columns carry a HogQL field type; custom-property columns carry a display type.
+    return NUMERIC_FIELD_TYPES.has(type) || isNumericDisplayType(type as CustomPropertyDisplayTypeEnumApi)
 }
 
 export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColumnOption[] {
@@ -62,10 +69,14 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         .flatMap((group) =>
             group.options
                 .filter((option) => isNumericColumnType(option.type))
-                .map((option) => ({
-                    ...option,
-                    expression: stripHogqlAlias(option.expression),
-                }))
+                .map((option) => {
+                    const expression = stripHogqlAlias(option.expression)
+                    return {
+                        ...option,
+                        // Custom-property values are stored as coalesced strings; cast so sum/avg aggregate numerically.
+                        expression: group.key === 'custom_properties' ? `toFloatOrNull(${expression})` : expression,
+                    }
+                })
         )
 }
 
@@ -182,7 +193,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         values: [
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
-            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {} as DataNode }),
+            dataNodeLogic({ key: ACCOUNTS_METRICS_DATA_NODE_KEY, query: {} as DataNode }),
             ['response as accountsResponse', 'responseLoading as accountsResponseLoading'],
         ],
     })),

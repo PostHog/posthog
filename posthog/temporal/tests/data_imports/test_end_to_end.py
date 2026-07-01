@@ -57,8 +57,7 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
+from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -2116,6 +2115,103 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
     assert schema.partition_mode == "datetime"
     assert schema.partition_format == "week"
     assert schema.partition_count is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_in_place_repartition_to_finer_datetime_format(team, postgres_config, postgres_connection, minio_client):
+    # A datetime-partitioned table that has outgrown its scheme is repartitioned in place to a finer
+    # (daily) layout from the data already in S3 — no source re-pull — and the next incremental merge
+    # then runs against the new layout. Runs the whole pipeline (V2 + V3 via the pipeline_mode fixture).
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_repartition (id uuid PRIMARY KEY, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    for ts in ("2025-01-15", "2025-01-20", "2025-02-10", "2025-02-15"):
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.test_repartition (id, created_at) VALUES ('{id}', '{ts}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], id=uuid.uuid4(), ts=ts
+            )
+        )
+    await postgres_connection.commit()
+
+    job_inputs = {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+    # First sync → datetime partitioning on created_at (week format is the default).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_repartition",
+        table_name="postgres_test_repartition",
+        source_type="Postgres",
+        job_inputs=job_inputs,
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "week"
+
+    count_before = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
+    assert count_before.results[0][0] == 4
+
+    # Queue an in-place repartition to a finer (daily) format, then add a new row and re-sync. The
+    # pre-extraction activity rewrites the four existing rows to daily partitions; the incremental
+    # merge then folds in the new March row on that new layout.
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            "partition_mode": "datetime",
+            "partition_format": "day",
+            "partition_keys": ["created_at"],
+            "partition_count": None,
+            "partition_size": None,
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_repartition (id, created_at) VALUES ('{id}', '2025-03-05T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], id=uuid.uuid4()
+        )
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "day", "repartition should have switched the table to daily partitions"
+    assert schema.repartition_pending is None, "the activity should have consumed the pending repartition"
+
+    job = await sync_to_async(
+        lambda: (
+            ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+            .order_by("-created_at")
+            .first()
+        )
+    )()
+    assert job is not None
+    folder_path = await sync_to_async(job.folder_path)()
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_repartition/")
+    keys = [obj["Key"] for obj in s3_objects["Contents"]]
+    # Live data is now in daily partition folders (%Y-%m-%d); the old weekly (%G-wWW) folders are gone.
+    assert any(f"{PARTITION_KEY}=2025-01-15" in k for k in keys), keys
+    assert not any(f"{PARTITION_KEY}=2025-w" in k for k in keys), keys
+
+    # No rows lost or duplicated by the rewrite + the subsequent merge.
+    count_after = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
+    assert count_after.results[0][0] == 5
 
 
 @pytest.mark.django_db(transaction=True)

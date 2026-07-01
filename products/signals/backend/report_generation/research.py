@@ -65,7 +65,9 @@ Write this the way a sharp colleague would explain it to you – first person, p
 
 The bar to clear: if someone dropped this report (or the PR) on you and said nothing else, this summary alone should make you get it – what's wrong, why it's worth caring about, and what the fix is. They don't need the line-by-line (the code diff is right there); they need the high-level rationale and the gist of the change.
 
-Give it light structure so a busy reader can scan it, three short sections under H2 headings:
+Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
+
+Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
 - '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
 - '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
 - '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
@@ -328,6 +330,8 @@ We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 We never use the em-dash, only the en-dash (–).
+When naming a PostHog product, we use its real name (for example "error tracking", not a third-party equivalent like "Sentry"). We only name an external vendor if the source data explicitly does.
+Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 </writing_guide>
 
 You have two investigation tools:

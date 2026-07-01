@@ -28,7 +28,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import _transform_trends
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -61,10 +61,10 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
             return_value=False,
         )
         self.sync_workflow_patcher.start()

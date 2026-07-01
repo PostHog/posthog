@@ -1517,6 +1517,20 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (1038, "Out of sort memory, consider increasing server sort buffer size")',
+        ],
+    )
+    def test_out_of_sort_memory_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Out-of-sort-memory error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",

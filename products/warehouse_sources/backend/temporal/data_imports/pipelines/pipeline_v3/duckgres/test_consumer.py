@@ -49,7 +49,7 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> DuckgresBatchConsumer:
         **kwargs,
     )
     consumer = DuckgresBatchConsumer(config=config, process_batch=AsyncMock())
-    consumer._conn = _make_healthy_conn()
+    consumer._poll_conn = _make_healthy_conn()
     consumer._recovery_conn = _make_healthy_conn()
     return consumer
 
@@ -186,7 +186,9 @@ class TestDuckgresEnablementGating:
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
             new_callable=AsyncMock,
         ) as mock_fetch:
-            batches = await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=0)
+            batches = await adapter.fetch_and_lock(
+                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+            )
 
         assert batches == []
         mock_fetch.assert_not_called()
@@ -212,15 +214,108 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None),
+                return_value=(0, None, 0, None),
             ) as mock_backlog,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+            ) as mock_planner,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_blocked_schema_ids",
+                return_value=["blocked-schema"],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_eligible_schema_ids",
+                return_value=["eligible-schema"],
+            ),
         ):
-            await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=30)
+            await adapter.fetch_and_lock(
+                conn, limit=50, retry_backoff_base_seconds=30, owner_token="test-owner", lease_ttl_seconds=300
+            )
 
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
         assert mock_fetch.call_args[1]["retry_backoff_base_seconds"] == 30
+        assert mock_fetch.call_args[1]["blocked_schema_ids"] == ["blocked-schema"]
+        assert mock_fetch.call_args[1]["eligible_schema_ids"] == ["eligible-schema"]
         mock_supersede.assert_called_once()
         mock_backlog.assert_called_once()
+        mock_planner.assert_called_once_with([1, 2])
+
+    @pytest.mark.asyncio
+    async def test_fetch_claims_nothing_until_planner_succeeds(self):
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1]
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.supersede_replaced_runs",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
+                new_callable=AsyncMock,
+                return_value=(0, None, 0, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+                side_effect=RuntimeError("app DB down"),
+            ),
+        ):
+            batches = await adapter.fetch_and_lock(
+                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+            )
+
+        assert batches == []
+        mock_fetch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fetch_claims_nothing_until_eligible_list_ready(self):
+        # Prod fail-closed: even with the block list computed, an uncomputed v3
+        # allow-list must halt claiming so non-v3 source types can't be applied.
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1]
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.supersede_replaced_runs",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
+                new_callable=AsyncMock,
+                return_value=(0, None, 0, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_blocked_schema_ids",
+                return_value=["blocked-schema"],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_eligible_schema_ids",
+                side_effect=RuntimeError("flag eval down"),
+            ),
+        ):
+            batches = await adapter.fetch_and_lock(
+                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+            )
+
+        assert batches == []
+        mock_fetch.assert_not_called()
 
 
 class TestStuckBatchWatchdog:

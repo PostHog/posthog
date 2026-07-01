@@ -63,6 +63,7 @@ _STRING = "string"
 _NULLABLE_STRING = "nullable_string"
 _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
+_NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
 
 
@@ -86,6 +87,8 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="toIntOrZero", args=[source])
     if kind == _NULLABLE_INTEGER:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Int64")])
+    if kind == _NULLABLE_FLOAT:
+        return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
     raise ValueError(f"Unknown information_schema column kind: {kind}")
@@ -174,31 +177,42 @@ def _visible_table_names(database: "Database") -> list[str]:
     return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
 
 
+# Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
+_ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
+
+
 def _warehouse_metadata(
     team_id: Optional[int],
-) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]], dict[str, Optional[int]]]:
-    """Lazily load warehouse semantic descriptions and row counts for the team.
+) -> tuple[
+    dict[tuple[str, str], str], dict[str, Optional[int]], dict[str, Optional[int]], dict[tuple[str, str], _ColumnStats]
+]:
+    """Lazily load warehouse semantic descriptions, row counts, and column statistics for the team.
 
-    Returns `(descriptions, row_counts, view_row_counts)`. Descriptions are keyed by
+    Returns `(descriptions, row_counts, view_row_counts, column_stats)`. Descriptions are keyed by
     `(table_id, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
-    by warehouse table name, `view_row_counts` by saved-query (view) name. Only runs when an
-    information_schema table is actually queried, so it never touches the hot
-    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
-    the SQL-editor schema agree.
+    by warehouse table name, `view_row_counts` by saved-query (view) name. `column_stats` is keyed by
+    `(table_id, column_name)` and carries `(null_fraction, min_value, max_value)` from the Delta-log
+    profiling. Only runs when an information_schema table is actually queried, so it never touches the
+    hot `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog
+    and the SQL-editor schema agree.
     """
     descriptions: dict[tuple[str, str], str] = {}
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
+    column_stats: dict[tuple[str, str], _ColumnStats] = {}
     if team_id is None:
-        return descriptions, row_counts, view_row_counts
+        return descriptions, row_counts, view_row_counts, column_stats
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
-    from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
+        DataWarehouseTable,
+        WarehouseColumnAnnotation,
+        WarehouseColumnStatistics,
+    )
 
     try:
         with team_scope(team_id):
@@ -230,13 +244,25 @@ def _warehouse_metadata(
                 .values_list("name", "table__row_count")
             ):
                 view_row_counts[view_name] = row_count
+            # Per-column profiling stats (keyed by table UUID + column, like descriptions). Only the
+            # columns that have been profiled appear; everything else stays absent (NULL in the catalog).
+            for (
+                table_id,
+                column_name,
+                null_fraction,
+                min_value,
+                max_value,
+            ) in WarehouseColumnStatistics.objects.values_list(
+                "table_id", "column_name", "null_fraction", "min_value", "max_value"
+            ):
+                column_stats[(str(table_id), column_name)] = (null_fraction, min_value, max_value)
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
-    return descriptions, row_counts, view_row_counts
+    return descriptions, row_counts, view_row_counts, column_stats
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -325,6 +351,7 @@ _KIND_TO_CLICKHOUSE: dict[str, str] = {
     _NULLABLE_STRING: "Nullable(String)",
     _INTEGER: "Int64",
     _NULLABLE_INTEGER: "Nullable(Int64)",
+    _NULLABLE_FLOAT: "Nullable(Float64)",
     # HogQL's BooleanDatabaseField maps to ClickHouse UInt8; Python bool serializes to it directly.
     _BOOLEAN: "UInt8",
 }
@@ -339,6 +366,8 @@ def _column_field(name: str, kind: str) -> DatabaseField:
         return IntegerDatabaseField(name=name, nullable=False)
     if kind == _NULLABLE_INTEGER:
         return IntegerDatabaseField(name=name, nullable=True)
+    if kind == _NULLABLE_FLOAT:
+        return FloatDatabaseField(name=name, nullable=True)
     if kind == _BOOLEAN:
         return BooleanDatabaseField(name=name, nullable=False)
     raise ValueError(f"Unknown information_schema column kind: {kind}")
@@ -419,7 +448,9 @@ class _Introspection:
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        self.descriptions, self.row_counts, self.view_row_counts = _warehouse_metadata(context.team_id)
+        self.descriptions, self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(
+            context.team_id
+        )
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -492,6 +523,14 @@ class _Introspection:
             return self.descriptions.get((str(table_id), column_name))
         return None
 
+    def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
+        """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
+        if table_type == "data_warehouse":
+            table_id = getattr(table, "table_id", None)
+            if table_id:
+                return self.column_stats.get((str(table_id), column_name), (None, None, None))
+        return (None, None, None)
+
     def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
         table_rows: list[list[Any]] = []
         column_rows: list[list[Any]] = []
@@ -540,6 +579,7 @@ class _Introspection:
 
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
+                null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
                 column_rows.append(
                     [
                         table_schema,
@@ -551,6 +591,9 @@ class _Introspection:
                         bool(field.array),
                         kind,
                         self._column_description(table, table_type, qualified, field),
+                        null_fraction,
+                        min_value,
+                        max_value,
                     ]
                 )
                 ordinal += 1
@@ -580,7 +623,20 @@ class _Introspection:
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
-                    [table_schema, table_name, qualified, ordinal, "VirtualTable", False, False, "virtual_table", None]
+                    [
+                        table_schema,
+                        table_name,
+                        qualified,
+                        ordinal,
+                        "VirtualTable",
+                        False,
+                        False,
+                        "virtual_table",
+                        None,
+                        None,
+                        None,
+                        None,
+                    ]
                 )
                 ordinal += 1
                 ordinal = self._collect_fields(
@@ -640,6 +696,9 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("is_array", _BOOLEAN),
     ("field_kind", _STRING),
     ("description", _NULLABLE_STRING),
+    ("null_fraction", _NULLABLE_FLOAT),
+    ("min_value", _NULLABLE_STRING),
+    ("max_value", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -669,18 +728,40 @@ _DATA_TYPES: list[tuple[str, str]] = [
 ]
 
 
-def _string_field(name: str, nullable: bool = False) -> StringDatabaseField:
-    return StringDatabaseField(name=name, nullable=nullable)
+def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
+    return StringDatabaseField(name=name, nullable=nullable, description=description)
 
 
 class InformationSchemaTablesTable(LazyTable):
+    description: str = (
+        "SQL-standard catalog of every table, view, system table, and data warehouse table visible "
+        "to the caller; one row per table. Start here to discover what is queryable."
+    )
     fields: dict[str, FieldOrTable] = {
-        "table_catalog": _string_field("table_catalog", nullable=False),
-        "table_schema": _string_field("table_schema", nullable=False),
-        "table_name": _string_field("table_name", nullable=False),
-        "table_type": _string_field("table_type", nullable=False),
-        "description": _string_field("description", nullable=True),
-        "row_count": IntegerDatabaseField(name="row_count", nullable=True),
+        "table_catalog": _string_field(
+            "table_catalog",
+            nullable=False,
+            description="Table name (same as table_name); PostHog does not use a separate catalog identifier.",
+        ),
+        "table_schema": _string_field(
+            "table_schema",
+            nullable=False,
+            description="Schema bucket the table sits in: 'public', 'system', 'information_schema', 'warehouse', or 'views'.",
+        ),
+        "table_name": _string_field("table_name", nullable=False, description="The table's name, used to query it."),
+        "table_type": _string_field(
+            "table_type",
+            nullable=False,
+            description="Origin of the table: 'posthog', 'system', 'information_schema', 'data_warehouse', or 'view'.",
+        ),
+        "description": _string_field(
+            "description", nullable=True, description="Human/agent-facing description of what the table holds."
+        ),
+        "row_count": IntegerDatabaseField(
+            name="row_count",
+            nullable=True,
+            description="Approximate row count; only populated for data warehouse tables and views, NULL otherwise.",
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -696,16 +777,70 @@ class InformationSchemaTablesTable(LazyTable):
 
 
 class InformationSchemaColumnsTable(LazyTable):
+    description: str = (
+        "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
+        "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
+        "tables) profiling statistics: null_fraction, min_value, max_value."
+    )
     fields: dict[str, FieldOrTable] = {
-        "table_schema": _string_field("table_schema", nullable=False),
-        "table_name": _string_field("table_name", nullable=False),
-        "column_name": _string_field("column_name", nullable=False),
-        "ordinal_position": IntegerDatabaseField(name="ordinal_position", nullable=False),
-        "data_type": _string_field("data_type", nullable=False),
-        "is_nullable": BooleanDatabaseField(name="is_nullable", nullable=False),
-        "is_array": BooleanDatabaseField(name="is_array", nullable=False),
-        "field_kind": _string_field("field_kind", nullable=False),
-        "description": _string_field("description", nullable=True),
+        "table_schema": _string_field(
+            "table_schema", nullable=False, description="Schema bucket the column's table belongs to."
+        ),
+        "table_name": _string_field(
+            "table_name", nullable=False, description="Name of the table the column belongs to."
+        ),
+        "column_name": _string_field(
+            "column_name",
+            nullable=False,
+            description="Column name; nested virtual-table columns appear as 'parent.child'.",
+        ),
+        "ordinal_position": IntegerDatabaseField(
+            name="ordinal_position", nullable=False, description="1-based position of the column within its table."
+        ),
+        "data_type": _string_field(
+            "data_type",
+            nullable=False,
+            description="HogQL data type, e.g. String, Integer, DateTime, JSON; see information_schema.data_types.",
+        ),
+        "is_nullable": BooleanDatabaseField(
+            name="is_nullable", nullable=False, description="Whether the column can hold NULL values."
+        ),
+        "is_array": BooleanDatabaseField(
+            name="is_array", nullable=False, description="Whether the column is an array type."
+        ),
+        "field_kind": _string_field(
+            "field_kind",
+            nullable=False,
+            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+        ),
+        "description": _string_field(
+            "description", nullable=True, description="Human/agent-facing description of what the column holds."
+        ),
+        "null_fraction": FloatDatabaseField(
+            name="null_fraction",
+            nullable=True,
+            description=(
+                "Fraction of values that are NULL (0.0–1.0), from data warehouse column statistics. "
+                "Use it to avoid or special-case null-heavy columns. NULL for non-warehouse tables and "
+                "for warehouse columns not yet profiled."
+            ),
+        ),
+        "min_value": _string_field(
+            "min_value",
+            nullable=True,
+            description=(
+                "Minimum value observed in this column (from the Delta-log statistics), as a string. "
+                "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
+        ),
+        "max_value": _string_field(
+            "max_value",
+            nullable=True,
+            description=(
+                "Maximum value observed in this column (from the Delta-log statistics), as a string. "
+                "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -721,13 +856,27 @@ class InformationSchemaColumnsTable(LazyTable):
 
 
 class InformationSchemaRelationshipsTable(LazyTable):
+    description: str = (
+        "Joinable relationships between tables (lazy joins and field traversers); one row per "
+        "relationship. Use it to discover how to join from one table to another in HogQL."
+    )
     fields: dict[str, FieldOrTable] = {
-        "source_table": _string_field("source_table", nullable=False),
-        "source_column": _string_field("source_column", nullable=False),
-        "target_table": _string_field("target_table", nullable=False),
-        "target_column": _string_field("target_column", nullable=True),
-        "relationship_kind": _string_field("relationship_kind", nullable=False),
-        "via": _string_field("via", nullable=True),
+        "source_table": _string_field(
+            "source_table", nullable=False, description="Table the relationship is defined on."
+        ),
+        "source_column": _string_field(
+            "source_column", nullable=False, description="Column (or field path) on the source table that joins out."
+        ),
+        "target_table": _string_field("target_table", nullable=False, description="Table the relationship points to."),
+        "target_column": _string_field(
+            "target_column", nullable=True, description="Column (or field path) on the target table that is joined to."
+        ),
+        "relationship_kind": _string_field(
+            "relationship_kind", nullable=False, description="Kind of relationship: 'lazy_join' or 'field_traverser'."
+        ),
+        "via": _string_field(
+            "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -743,9 +892,15 @@ class InformationSchemaRelationshipsTable(LazyTable):
 
 
 class InformationSchemaDataTypesTable(LazyTable):
+    description: str = (
+        "Reference list of the HogQL data types reported in information_schema.columns, with a short "
+        "explanation of each; one row per type."
+    )
     fields: dict[str, FieldOrTable] = {
-        "type_name": _string_field("type_name", nullable=False),
-        "description": _string_field("description", nullable=False),
+        "type_name": _string_field(
+            "type_name", nullable=False, description="Type name as it appears in columns.data_type."
+        ),
+        "description": _string_field("description", nullable=False, description="What values of this type represent."),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:

@@ -390,18 +390,37 @@ def test_permission_error_is_non_retryable():
     assert any(key in error_msg for key in non_retryable_errors)
 
 
-def test_not_found_api_error_is_non_retryable():
-    """gspread raises a 404 APIError when the spreadsheet has been deleted/moved — it
-    must match a non-retryable pattern so we stop retrying a permanent failure."""
-    mock_response = mock.MagicMock()
-    mock_response.json.return_value = {
-        "error": {"code": 404, "message": "Requested entity was not found.", "status": "NOT_FOUND"}
-    }
-    error_msg = str(gspread.exceptions.APIError(mock_response))
+@pytest.mark.parametrize(
+    "call_site",
+    [
+        pytest.param(
+            lambda: get_schemas(
+                GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+            ),
+            id="get_schemas",
+        ),
+        # Use a unique url/id to avoid the module-level TTLCache returning a prior result
+        pytest.param(lambda: _get_worksheet("not-found-url", 998), id="_get_worksheet"),
+    ],
+)
+def test_reraises_spreadsheet_not_found_with_non_retryable_message(call_site):
+    """gspread converts the Sheets API 404 (deleted/moved/unshared sheet) into
+    `SpreadsheetNotFound`, whose `str()` is only `<Response [404]>` — so the non-retryable matcher
+    (substring over `str(e)`) never fires and a permanent failure is retried forever. We must
+    re-raise it with a stable message that matches one of the source's non-retryable keys."""
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+    ) as mock_google_sheets_client:
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.side_effect = gspread.exceptions.SpreadsheetNotFound(mock.MagicMock())
 
+        with pytest.raises(gspread.exceptions.SpreadsheetNotFound) as exc_info:
+            call_site()
+
+    error_msg = str(exc_info.value)
     non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
     assert any(key in error_msg for key in non_retryable_errors), (
-        f"Google Sheets 404 error {error_msg!r} did not match any non-retryable pattern"
+        f"Re-raised SpreadsheetNotFound {error_msg!r} did not match any non-retryable pattern"
     )
 
 

@@ -1,0 +1,114 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actionability": {
+            "description": "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n* `immediately_actionable` - immediately_actionable\n* `requires_human_input` - requires_human_input\n* `not_actionable` - not_actionable",
+            "enum": ["immediately_actionable", "requires_human_input", "not_actionable"],
+            "type": "string"
+        },
+        "actionability_explanation": {
+            "description": "2-3 sentence evidence-grounded justification for the actionability call below.",
+            "type": "string"
+        },
+        "already_addressed": {
+            "default": false,
+            "description": "Whether the issue already appears fixed in recent changes (tracked separately).",
+            "type": "boolean"
+        },
+        "evidence": {
+            "description": "The observations backing the report — each becomes a bound signal. At least one.",
+            "items": {
+                "description": "One observation backing an authored report — becomes a bound signal row on the report.",
+                "properties": {
+                    "description": {
+                        "description": "Prose for this observation. Embedded and rendered to the safety/research surfaces.",
+                        "type": "string"
+                    },
+                    "source_id": {
+                        "description": "Stable id for this observation within the report (lets a later edit address it).",
+                        "type": "string"
+                    },
+                    "weight": {
+                        "description": "Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
+                        "minimum": 0,
+                        "type": "number"
+                    }
+                },
+                "required": ["description", "source_id"],
+                "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "priority": {
+            "anyOf": [
+                {
+                    "description": "* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
+        },
+        "priority_explanation": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "2-3 sentence justification for `priority`. Required when `priority` is set."
+        },
+        "repository": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it."
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        },
+        "suggested_reviewers": {
+            "description": "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.",
+            "items": {
+                "description": "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped.",
+                "properties": {
+                    "github_login": {
+                        "description": "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "user_uuid": {
+                        "description": "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "summary": {
+            "description": "The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view.",
+            "type": "string"
+        },
+        "title": {
+            "description": "One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.",
+            "maxLength": 300,
+            "type": "string"
+        }
+    },
+    "required": ["run_id", "title", "summary", "evidence", "actionability_explanation", "actionability"],
+    "type": "object"
+}

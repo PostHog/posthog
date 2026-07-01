@@ -59,11 +59,14 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEv
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
     output_config: {},
     conditions: [{ id: `cond-${id}`, rollout_percentage: 100, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: providerKeyId
         ? {
               provider: 'openai',
@@ -173,7 +176,14 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
 
             await expectLogic(logic).toMatchValues({
-                evaluations: [expect.objectContaining({ enabled: true, status: 'active', status_reason: null })],
+                evaluations: [
+                    expect.objectContaining({
+                        enabled: true,
+                        status: 'active',
+                        status_reason: null,
+                        status_reason_detail: null,
+                    }),
+                ],
             })
         })
 

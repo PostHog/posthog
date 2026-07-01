@@ -59,9 +59,7 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
-Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
-Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
 
 ### Rules
 
@@ -85,7 +83,7 @@ It is advisory (it never blocks): fix the `✗ fail` lines and act on the `→ a
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
 
-- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Never mention internal-only systems, private incidents, customer data, Slack thread contents, unreleased roadmap details, or security-sensitive implementation details. Slack thread links and channel references are fine to include — they sit behind PostHog auth and are useful as origin context — but do not quote or paraphrase what was said in the thread.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
@@ -93,8 +91,10 @@ This repository is public and all commit messages, pull request titles, and pull
 Examples:
 
 - ✅ `fix(insights): handle missing series color in trend export`
+- ✅ A PR description that links to the originating Slack thread for context
 - ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
 - ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
+- ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 
 ## CI / GitHub Actions
 
@@ -127,6 +127,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
 - Python imports: keep imports at module level — not inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow hot paths with repeated lookups, and mask circular-import problems instead of fixing them; ruff's `PLC0415` enforces this. Defer an import only to (1) break a true unavoidable circular import (fix the structure first if you can), (2) reference types under `TYPE_CHECKING`, or (3) keep a heavy/optional dependency off the import path so it loads only when its code runs. For (3), add a justified `# noqa: PLC0415` on the import line (e.g. `# noqa: PLC0415 — keeps the heavy dep off the import path`) — never blanket-suppress the rule
+- Frontend: for any frontend work — the main app (`frontend/src/`) **or** a product frontend (`products/*/frontend/`) — follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md): reuse existing Lemon/quill components instead of hand-rolling tables/badges/labels, import generated `*Api` types instead of handwriting them, and run typecheck/typegen at the right moments. Product frontends share the same components and generated types, so the same rules apply there
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
@@ -167,7 +168,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Always invoke:**
 
 - `/improving-drf-endpoints` — any DRF viewset or serializer change
-- `/django-migrations` — any Django migration
+- `/django-migrations` — any Django migration, including deleting a model, table, column, or whole product/app (even when no migration file is written, e.g. removing a product folder)
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)

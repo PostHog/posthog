@@ -70,7 +70,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -238,9 +237,13 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
-import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -250,8 +253,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
-import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type {
+    ClaudeTaskRunCreateSchemaApi,
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -614,15 +619,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -1581,6 +1577,10 @@ export class ApiRequest {
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
+    }
+
+    public integrationGitHubBranches(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('github_branches')
     }
 
     public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -2595,27 +2595,12 @@ const api = {
         },
     },
 
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
-        },
-    },
-
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
         async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().withAction('seed').create()
-        },
-        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
-            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
@@ -2634,7 +2619,10 @@ const api = {
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{ success: FeatureFlagType[]; failed: any }> {
+        ): Promise<{
+            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
+            failed: any
+        }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
@@ -2964,6 +2952,9 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // false (default) groups by trace_id and returns root spans; true returns every
+                // matching span (root and child) flat. See products/tracing/backend logic.py.
+                flatSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2999,12 +2990,25 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true counts root spans only (Traces view); false/absent counts every span (Spans view).
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async count(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{ count: number; traceCount: number }> {
+            return new ApiRequest().tracingSpans().withAction('count').create({ signal, data: { query } })
         },
         async durationHistogram(
             query: {
@@ -5229,6 +5233,22 @@ const api = {
             async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
                 return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
             },
+            // Batched form of `emissions`: every run's findings in one request, flat newest-first
+            // (each row carries its `run_id`). POST since the run-id set can be large.
+            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
+            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
+            // in a single ClickHouse round-trip, instead of one query per run.
+            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/reports/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
         },
         configs: {
             // Newest-first raw array, ordered by skill_name.
@@ -5237,6 +5257,9 @@ const api = {
             },
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },
@@ -5301,8 +5324,11 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).withAction('run').create()
+        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
+            return await new ApiRequest()
+                .task(id)
+                .withAction('run')
+                .create(data ? { data } : undefined)
         },
         runs: {
             async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
@@ -5700,7 +5726,7 @@ const api = {
                 savedQueryId: DataWarehouseSavedQuery['id'],
                 pageSize: number,
                 offset: number
-            ): Promise<PaginatedResponse<DataModelingJob>> {
+            ): Promise<CountedPaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
         },
@@ -5872,18 +5898,9 @@ const api = {
         },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
-            schemas: Pick<
-                ExternalDataSourceSchema,
-                | 'id'
-                | 'should_sync'
-                | 'sync_type'
-                | 'incremental_field'
-                | 'incremental_field_type'
-                | 'sync_frequency'
-                | 'sync_time_of_day'
-                | 'cdc_table_mode'
-                | 'enabled_columns'
-            >[]
+            // Callers send a minimal diff — only `id` is required; the backend writes just the fields
+            // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
+            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6198,9 +6215,15 @@ const api = {
         },
         async githubRepositories(
             id: IntegrationType['id'],
-            params?: { limit?: number; offset?: number }
+            params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubBranches(
+            id: IntegrationType['id'],
+            params: { repo: string; limit?: number; offset?: number; search?: string }
+        ): Promise<GitHubBranchesResponseApi> {
+            return await new ApiRequest().integrationGitHubBranches(id).withQueryString(params).get()
         },
         async githubLinkExisting(
             data: {
@@ -6576,7 +6599,12 @@ const api = {
         async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
             return await new ApiRequest().hogFlows().create({ data })
         },
-        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+        async updateHogFlow(
+            hogFlowId: HogFlow['id'],
+            // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
+            // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
+            data: Partial<HogFlow> & { base_updated_at?: string | null }
+        ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {

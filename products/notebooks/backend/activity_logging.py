@@ -5,9 +5,10 @@ delete/restore hooks it registers at ready() without importing the API module â€
 module-scope imports reach the kernel runtime and the tasks sandbox (modal SDK).
 """
 
+from datetime import datetime
 from typing import Optional
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
@@ -22,9 +23,10 @@ def log_notebook_activity(
     user: User,
     was_impersonated: bool,
     changes: Optional[list[Change]] = None,
-) -> None:
+    created_at: datetime | None = None,
+) -> ActivityLog | None:
     short_id = str(notebook.short_id)
-    log_activity(
+    log = log_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
@@ -34,3 +36,7 @@ def log_notebook_activity(
         activity=activity,
         detail=Detail(changes=changes, short_id=short_id, name=notebook.title),
     )
+    if log is not None and created_at is not None:
+        ActivityLog.objects.filter(pk=log.pk).update(created_at=created_at)
+        log.created_at = created_at
+    return log

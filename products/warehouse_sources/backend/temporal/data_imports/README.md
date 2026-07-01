@@ -32,6 +32,26 @@ If the `partition_mode` is either `md5` or `numerical`, then you'll want to do a
 
 If the table has no partitions, but it could be partitioned, then again just resync the table following below.
 
+### Automated in-place repartitioning
+
+The manual flow above re-pulls every row from the source. We also have an automated path that repartitions the data **already in S3**, so it never re-extracts from the source and never materialises an oversized partition. It lives in `pipelines/pipeline/repartition.py` (the streaming rewrite + crash-safe swap), `pipelines/pipeline/repartition_controller.py` (size-aware detection + gating), and `workflow_activities/repartition_table.py` (the pre-extraction activity that runs it).
+
+How it works:
+
+- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. When the largest partition is over the budget it records a `repartition_pending` target on the schema: the next finer tier (md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`).
+- **Rewrite.** On the next run, a pre-extraction activity streams the live Delta table one record-batch at a time, recomputes `_ph_partition_key` under the finer scheme, and writes a sibling temp table. It then does a crash-safe swap: delete live → server-side copy temp → verify row count → delete temp. Memory is bounded by batch size, independent of partition size. Temp stays the source of truth until the swap is verified, so a worker death at any point loses wasted compute, never data.
+- **Safety.** The repartition is the sole writer (the schedule's `OnlyOne` overlap policy plus the v3 pipeline lock), so it needs no new locking. A repartition failure never fails the sync — it's swallowed, retried on a later run, and capped at `MAX_REPARTITION_ATTEMPTS` (3) consecutive failures before it gives up and alerts.
+
+Tuning and gating:
+
+- Gated by the `data-warehouse-auto-repartition` feature flag plus a 24h per-table cooldown. The flag can be released to a single schema (`schema_id = <id>`) before rolling out by team/org/project.
+- The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~1 GB at-rest → ~20 GB worst-case merge, under the 29 GB pod limit with headroom).
+- CDC tables are excluded for now.
+
+Observability: `warehouse_repartition_flagged` / `started` / `completed` / `failed` / `skipped` PostHog events (with full team/schema/source/table context, before→after scheme, sizes, durations, and trigger reason) plus `DELTA_REPARTITION_*` Prometheus metrics.
+
+The existing admin repartition action now stages a `repartition_pending` target and triggers this cheap in-place path (no reset, no source re-pull) instead of a reset + resync.
+
 ## How to resync
 
 When we resync a table, we do so from a k8s pod. We have the ability to disable billing for a sync via this method meaning that a user won't be charged for us repartitioning their data.

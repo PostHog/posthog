@@ -26,6 +26,7 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
     AgentFleetApprovalsListParams,
@@ -1325,7 +1326,7 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 }
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
  * secret has a value set in this revision's env block. Returns
@@ -1965,6 +1966,53 @@ export const agentApplicationsUsersConnectionDelete = async (
     return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsModelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_applications/models/`
+}
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const agentApplicationsModels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsSpecSchemaUrl = (projectId: string, params?: AgentApplicationsSpecSchemaParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/spec_schema/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/spec_schema/`
+}
+
+/**
+ * The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against (fields with a default are optional on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of guessing the shape. Pass `section` to fetch just one part.
+ */
+export const agentApplicationsSpecSchema = async (
+    projectId: string,
+    params?: AgentApplicationsSpecSchemaParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSpecSchemaUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

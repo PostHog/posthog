@@ -1,4 +1,5 @@
 import decimal
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -26,6 +27,7 @@ def _make_event(
     position: str = "0/100",
     columns: dict | None = None,
     timestamp: datetime | None = None,
+    column_types: Mapping[str, pa.DataType] | None = None,
 ) -> ChangeEvent:
     return ChangeEvent(
         operation=op,
@@ -33,6 +35,7 @@ def _make_event(
         position_serialized=position,
         timestamp=timestamp or datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC),
         columns=columns or {"id": 1, "name": "Alice"},
+        column_types=column_types,
     )
 
 
@@ -211,6 +214,45 @@ class TestEventsToTableEdgeCases:
 
         table = tables["users"]
         assert table.column("val").type == pa.string()
+
+    def test_source_type_overrides_all_null_inference(self):
+        # A column that is all-null in a micro-batch must keep its declared source type
+        # rather than being inferred as null/string.
+        types = {"id": pa.int64(), "seats": pa.int64()}
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(op="D", columns={"id": 1, "seats": None}, column_types=types))
+        batcher.add(_make_event(op="D", columns={"id": 2, "seats": None}, column_types=types))
+
+        table = batcher.flush()["users"]
+        assert table.column("seats").type == pa.int64()
+
+    def test_all_null_and_concrete_flushes_merge(self):
+        # Reproduces the prod crash: one flush sees `seats` all-null, a later flush sees
+        # concrete ints. Without a declared source type the first is string and the
+        # second int64, and S3BatchWriter's unify_schemas raises int64-vs-string.
+        types = {"id": pa.int64(), "seats": pa.int64()}
+
+        b1 = ChangeEventBatcher()
+        b1.add(_make_event(op="D", columns={"id": 1, "seats": None}, column_types=types))
+        flush1 = b1.flush()["users"]
+
+        b2 = ChangeEventBatcher()
+        b2.add(_make_event(op="I", columns={"id": 2, "seats": 5}, column_types=types))
+        flush2 = b2.flush()["users"]
+
+        # Both Parquet schemas agree, so the cross-flush merge succeeds.
+        merged = pa.unify_schemas([flush1.schema, flush2.schema])
+        assert merged.field("seats").type == pa.int64()
+
+    def test_source_type_falls_back_when_value_does_not_fit(self):
+        # If a value can't be cast to the declared type (e.g. a mid-WAL type change),
+        # the batch must still build rather than raise.
+        types = {"id": pa.int64(), "seats": pa.int64()}
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(op="I", columns={"id": 1, "seats": "not-a-number"}, column_types=types))
+
+        table = batcher.flush()["users"]
+        assert table.column("seats").type == pa.string()
 
 
 class TestDeduplicateTable:

@@ -576,7 +576,7 @@ class ConversionGoalProcessor:
             return None
 
         array_collection = self._build_array_collection_from_precomputes(
-            touchpoints_result.job_ids, conversions_result.job_ids
+            touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
         )
         return self.build_attribution_pipeline(array_collection)
 
@@ -584,14 +584,22 @@ class ConversionGoalProcessor:
         self,
         touchpoint_job_ids: Sequence[str | uuid.UUID],
         conversion_job_ids: Sequence[str | uuid.UUID],
+        date_from: datetime,
+        date_to: datetime,
+        window: timedelta,
     ) -> ast.SelectQuery:
         """Reusable-precompute analogue of build_array_collection_query: identical per-person array
         contract, but conversion arrays come from the precomputed marketing_conversions table and
         touchpoint arrays from the precomputed marketing_touchpoints table (joined on person_id),
         instead of inline events scans. build_attribution_pipeline runs unchanged for every mode.
+
+        Each side is bounded to the same window it was materialized for (conversions span the query
+        range; touchpoints extend back by the attribution window), mirroring the ensure_precomputed
+        calls above — a reused job can cover a wider window than the request, so the job_id filter
+        alone would over-count out-of-range rows into the per-person arrays.
         """
-        conversions = self._build_conversion_arrays_from_table(conversion_job_ids)
-        touchpoints = self._build_touchpoint_arrays_from_table(touchpoint_job_ids)
+        conversions = self._build_conversion_arrays_from_table(conversion_job_ids, date_from, date_to)
+        touchpoints = self._build_touchpoint_arrays_from_table(touchpoint_job_ids, date_from - window, date_to)
 
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
@@ -672,11 +680,22 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_conversion_arrays_from_table(self, job_ids: Sequence[str | uuid.UUID]) -> ast.SelectQuery:
+    def _build_conversion_arrays_from_table(
+        self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
+    ) -> ast.SelectQuery:
         """Per-person conversion arrays read from the precomputed marketing_conversions table, matching
         the array shape _build_conversion_only_arrays produces from a live events scan. Each table row is
         already a single conversion (event filtered at INSERT time), so we just groupArray per person —
         the same arrayFilter sentinels are kept so the result is row-for-row identical to the fallback.
+
+        The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, conversion_timestamp);
+        because job_id is part of the dedup key, the same physical conversion materialized under several
+        job_ids (overlapping windows, compare-period, re-materialization on TTL) survives as distinct rows
+        even with FINAL. Reading across multiple job_ids would therefore double-count. We deduplicate by the
+        FULL conversion identity — (person_id, conversion_timestamp, conversion_math_value, all UTM dims) —
+        ignoring job_id/computed_at, so only true duplicates (same row under a different job_id) collapse;
+        two genuinely distinct conversions of one person at the same timestamp with the same math value but
+        different dims (or vice versa) are preserved.
         """
         positive = ast.Lambda(
             args=["x"],
@@ -726,32 +745,39 @@ class ConversionGoalProcessor:
                 )
             )
 
+        deduped_rows = self._build_distinct_preagg_rows(
+            table="marketing_conversions_preaggregated",
+            job_ids=job_ids,
+            row_columns=[
+                ast.Field(chain=["person_id"]),
+                ast.Field(chain=["conversion_timestamp"]),
+                ast.Field(chain=["conversion_math_value"]),
+                *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
+            ],
+            date_from=date_from,
+            date_to=date_to,
+            timestamp_column="conversion_timestamp",
+        )
+
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_conversions_preaggregated"])),
-            where=ast.And(
-                exprs=[
-                    ast.Call(
-                        name="in",
-                        args=[
-                            ast.Field(chain=["job_id"]),
-                            ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
-                        ],
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["team_id"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=self.team.pk),
-                    ),
-                ]
-            ),
+            select_from=ast.JoinExpr(table=deduped_rows),
             group_by=[ast.Field(chain=["person_id"])],
         )
 
-    def _build_touchpoint_arrays_from_table(self, job_ids: Sequence[str | uuid.UUID]) -> ast.SelectQuery:
+    def _build_touchpoint_arrays_from_table(
+        self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
+    ) -> ast.SelectQuery:
         """Per-person touchpoint arrays (utm_timestamps + per-field UTM arrays) read from the
         precomputed marketing_touchpoints table, matching the array shape build_array_collection_query
         produces from a UTM-pageview scan.
+
+        The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, touchpoint_timestamp);
+        job_id being in the dedup key means the same physical touchpoint materialized under several job_ids
+        (overlapping windows, compare-period, re-materialization on TTL) survives as distinct rows even with
+        FINAL. groupArray-ing across those job_ids would inflate the touchpoint arrays and over-credit the
+        conversion. We deduplicate by the FULL touchpoint identity — (person_id, touchpoint_timestamp, all
+        UTM dims) — ignoring job_id/computed_at, so only true duplicates collapse.
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
@@ -777,9 +803,49 @@ class ConversionGoalProcessor:
                 )
             )
 
+        deduped_rows = self._build_distinct_preagg_rows(
+            table="marketing_touchpoints_preaggregated",
+            job_ids=job_ids,
+            row_columns=[
+                ast.Field(chain=["person_id"]),
+                ast.Field(chain=["touchpoint_timestamp"]),
+                *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
+            ],
+            date_from=date_from,
+            date_to=date_to,
+            timestamp_column="touchpoint_timestamp",
+        )
+
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_touchpoints_preaggregated"])),
+            select_from=ast.JoinExpr(table=deduped_rows),
+            group_by=[ast.Field(chain=["person_id"])],
+        )
+
+    def _build_distinct_preagg_rows(
+        self,
+        table: str,
+        job_ids: Sequence[str | uuid.UUID],
+        row_columns: list[ast.Expr],
+        date_from: datetime,
+        date_to: datetime,
+        timestamp_column: str,
+    ) -> ast.SelectQuery:
+        """SELECT DISTINCT over the full row identity (excluding job_id/computed_at) for one team across
+        the given job_ids. Collapses rows that are physically identical but materialized under different
+        job_ids, which the ReplacingMergeTree dedup key (which includes job_id) cannot merge away. The
+        downstream groupArray then sees each real touchpoint/conversion exactly once.
+
+        The job_id filter alone is not enough: the lazy framework reuses a job whose materialized window
+        can be wider than the request (TTL bands merge daily windows, compare-period reuse, …), so the
+        rows for those job_ids span more than the requested range. We bound `timestamp_column` to
+        [date_from, date_to] — matching the ensure_precomputed window and the live events scan
+        (`_build_conversion_only_arrays`) — so the per-person arrays don't pull in out-of-range rows.
+        """
+        return ast.SelectQuery(
+            select=row_columns,
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", table])),
             where=ast.And(
                 exprs=[
                     ast.Call(
@@ -790,13 +856,22 @@ class ConversionGoalProcessor:
                         ],
                     ),
                     ast.CompareOperation(
+                        left=ast.Field(chain=[timestamp_column]),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.Constant(value=date_from),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=[timestamp_column]),
+                        op=ast.CompareOperationOp.LtEq,
+                        right=ast.Constant(value=date_to),
+                    ),
+                    ast.CompareOperation(
                         left=ast.Field(chain=["team_id"]),
                         op=ast.CompareOperationOp.Eq,
                         right=ast.Constant(value=self.team.pk),
                     ),
                 ]
             ),
-            group_by=[ast.Field(chain=["person_id"])],
         )
 
     def build_attributed_source_from_precomputed(

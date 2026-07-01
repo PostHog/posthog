@@ -52,12 +52,14 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
-from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     Dismissal,
     SuggestedReviewers,
+    SummaryChange,
+    TitleChange,
     parse_artefact_content,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -401,6 +403,11 @@ SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
 # Upper bound on how many reports a single bulk transition may touch. Keeps one call
 # from fanning out into an unbounded write; callers page through larger sets.
 SIGNAL_REPORT_BULK_STATE_MAX_IDS = 100
+# Bounds on the editable human-facing report fields. `title`/`summary` are TextFields on the
+# model (so unbounded in the DB), but the write API caps them to keep an edit from storing an
+# absurdly long title or summary.
+SIGNAL_REPORT_TITLE_MAX_LENGTH = 300
+SIGNAL_REPORT_SUMMARY_MAX_LENGTH = 10_000
 
 # Canonical dismissal reason codes, mirrored from the inbox UI source of truth at
 # frontend/src/scenes/inbox/utils/dismissalReasons.ts (itself a port of desktop's
@@ -514,6 +521,43 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportContentUpdateSerializer(serializers.Serializer):
+    """Editable human-facing fields on a signal report (PATCH).
+
+    Both fields are optional so a caller can change either independently, but at least one
+    must be supplied. Every other report field — status, weights, judgments — is owned by the
+    signals pipeline and is deliberately not writable here.
+    """
+
+    # min_length=1 (not just allow_blank=False) so the non-empty constraint surfaces as
+    # `minLength: 1` in the generated OpenAPI/Zod schema — otherwise clients only learn an
+    # empty string is invalid when the server rejects it.
+    title = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        min_length=1,
+        max_length=SIGNAL_REPORT_TITLE_MAX_LENGTH,
+        help_text="New human-facing title for the report. Omit to leave the title unchanged.",
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        min_length=1,
+        max_length=SIGNAL_REPORT_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "New summary (the report's description) explaining what the report is about. "
+            "Omit to leave the summary unchanged."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if "title" not in attrs and "summary" not in attrs:
+            raise serializers.ValidationError("Provide at least one of 'title' or 'summary' to update.")
+        return attrs
 
 
 @extend_schema_view(
@@ -991,6 +1035,57 @@ class SignalReportViewSet(
         report = self.get_object()
         serializer = self.get_serializer(report, context=self._enriched_report_context(report))
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=SignalReportContentUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report updated."),
+            400: OpenApiResponse(description="Neither title nor summary supplied, or a value failed validation."),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Edit a report's title or summary",
+        description=(
+            "Edit the human-facing title and/or summary (description) of a signal report, addressed "
+            "by id. Both fields are optional — supply only the ones you want to change; at least one "
+            "is required. Every other report field (status, weights, judgments) is managed by the "
+            "signals pipeline and cannot be set here. Returns the full updated report."
+        ),
+        operation_id="signals_reports_partial_update",
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        # Attribution mirrors the other artefact-writing paths (suggested reviewers, commit/task_run):
+        # the edit is the agent's task when an `X-PostHog-Task-Id` header is present, otherwise the
+        # requesting user. Resolved up front so a bad task header 400s before we mutate anything.
+        attribution = resolve_request_attribution(request, self.team.id)
+        update_fields: list[str] = []
+        # Each real change is logged as its own append-only edit-history artefact capturing the
+        # before/after, so the report carries an audit trail of human/agent title & summary edits.
+        edit_artefacts: list[TitleChange | SummaryChange] = []
+        if "title" in data and data["title"] != report.title:
+            edit_artefacts.append(TitleChange(old_title=report.title, new_title=data["title"]))
+            report.title = data["title"]
+            update_fields.append("title")
+        if "summary" in data and data["summary"] != report.summary:
+            edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
+            report.summary = data["summary"]
+            update_fields.append("summary")
+
+        if update_fields:
+            # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
+            # explicitly to keep the edit timestamped.
+            update_fields.append("updated_at")
+            with transaction.atomic():
+                report.save(update_fields=update_fields)
+                for content in edit_artefacts:
+                    SignalReportArtefact.add_log(
+                        team_id=self.team.id,
+                        report_id=str(report.id),
+                        content=content,
+                        attribution=attribution,
+                    )
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(
         parameters=[

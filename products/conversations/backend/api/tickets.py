@@ -14,7 +14,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
     serializers,
@@ -30,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
@@ -474,6 +474,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             except json.JSONDecodeError:
                 pass
 
+        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
+        if ai_triage_result_param:
+            valid_results = {
+                "persisted",
+                "escalated_with_best",
+                "escalated_no_reply",
+                "skipped_unactionable",
+                "blocked_unsafe",
+                "blocked_unsafe_reply",
+                "in_progress",
+            }
+            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
+            if results:
+                q = Q()
+                normal_results = results - {"in_progress"}
+                if normal_results:
+                    q |= Q(ai_triage__result__in=normal_results)
+                if "in_progress" in results:
+                    q |= Q(ai_triage__status="in_progress")
+                queryset = queryset.filter(q)
+
         allowed_orderings = {
             "updated_at",
             "-updated_at",
@@ -770,7 +791,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self.organization,
                 request.user,
                 self.team_id,
-                is_impersonated_session(request),
+                is_impersonated(request),
             )
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
@@ -848,7 +869,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     organization_id=self.organization.id,
                     team_id=self.team_id,
                     user=request.user,
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(request),
                     item_id=str(instance.id),
                     scope="Ticket",
                     activity="updated",
@@ -897,7 +918,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=str(ticket.id),
                 scope="Ticket",
                 activity="updated",

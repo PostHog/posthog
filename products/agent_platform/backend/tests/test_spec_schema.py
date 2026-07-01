@@ -1,38 +1,25 @@
 """
-Sanity tests for `validate_spec` on AgentRevisionSerializer.
+Tests for `AgentRevisionSerializer.validate_spec` + the trigger-secrets helper.
 
-The JSON Schema in `spec_schema.py` is a hand-copied snapshot of the zod
-`AgentSpecSchema`. These tests cover the cases that matter for the
-authoring flow — known-bad specs that should be rejected before they hit
-the DB, and the minimal valid spec that should pass.
-
-Drift against zod is checked the next time someone touches the spec, not
-on every test run — the cost of a more aggressive check isn't worth it
-for a small surface that moves rarely.
+Structural spec validation is the janitor's job now (the zod `AgentSpecSchema`,
+parsed at the explicit `validate` action, at freeze, and by the runner) — Django
+no longer carries a JSON Schema mirror, so there are no shape-rejection cases
+here. What `validate_spec` still owns is the cross-field MCP-tool-name
+uniqueness check (which JSON Schema can't express across the string/object
+union) and pinning server-derived `skills`. We also cover `missing_required_secrets`.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
-import jsonschema
 from rest_framework.exceptions import ValidationError
 
-from ..logic.spec_schema import (
-    AGENT_SPEC_JSON_SCHEMA_FOR_WRITE,
-    SLACK_BOT_TOKEN_KEY,
-    SLACK_SIGNING_SECRET_KEY,
-    missing_required_secrets,
-)
-from ..presentation.serializers import AgentRevisionSerializer
+from ..logic.spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
+from ..presentation.serializers import AgentRevisionSerializer, AgentSpecField
 
-# Auth is per-trigger now (no top-level spec.auth). These fixtures focus on
-# other fields, so give every declarative trigger a minimal public auth block
-# rather than repeat it in each case. Public exposure carries the explicit ack
-# field per AuthModeSchema in services/agent-shared/src/spec/spec.ts.
+# Declarative triggers carry a per-trigger auth block; give them a minimal
+# public one so these fixtures can focus on the field under test.
 _PUBLIC_AUTH = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
 
 
@@ -52,60 +39,11 @@ def _with_auth(spec: dict) -> dict:
 @pytest.mark.parametrize(
     ("name", "spec"),
     [
-        ("minimal", {"model": "anthropic/claude-haiku-4-5"}),
+        ("empty", {}),
+        # Unique MCP tool names (bare string + object form) — accepted.
         (
-            "with_chat_trigger",
+            "unique_mcp_tools",
             {
-                "model": "test/x",
-                "triggers": [{"type": "chat", "config": {}}],
-            },
-        ),
-        (
-            "kitchen_sink",
-            {
-                "model": "test/x",
-                "triggers": [
-                    {"type": "chat", "config": {}},
-                    {"type": "webhook", "config": {"path": "/hook"}},
-                ],
-                "tools": [{"kind": "native", "id": "@posthog/query"}],
-                "skills": [{"id": "research", "path": "skills/research.md"}],
-                "entrypoint": "agent.md",
-            },
-        ),
-        # Nested defaults must mirror zod: omitting fields with defaults at
-        # any depth is fine. These were the rough edges I hit when I first
-        # tried to spec the slack / cron triggers — both have config fields
-        # with `.default(...)` in zod that the JSON Schema lists as required.
-        (
-            "slack_omits_mention_only",
-            {
-                "model": "test/x",
-                "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
-            },
-        ),
-        (
-            "cron_omits_timezone",
-            {
-                "model": "test/x",
-                "triggers": [
-                    {"type": "cron", "config": {"name": "hourly", "schedule": "0 * * * *", "prompt": "run it"}}
-                ],
-            },
-        ),
-        (
-            "mcp_omits_config",
-            {
-                "model": "test/x",
-                "triggers": [{"type": "mcp", "config": {}}],
-            },
-        ),
-        # External MCP ref with a mix of bare-string and object tool entries,
-        # all distinct names — accepted.
-        (
-            "external_mcp_unique_tools",
-            {
-                "model": "test/x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -115,162 +53,31 @@ def _with_auth(spec: dict) -> dict:
                 ],
             },
         ),
-        # BYO bearer token: author drops a PAT into spec.secrets, references
-        # it from mcps[].headers. Mirrors @posthog/http-request's shape; the
-        # runner walks `headers` and substitutes `${NAME}` at session start.
-        (
-            "external_mcp_byo_headers_with_secret",
-            {
-                "model": "test/x",
-                "secrets": ["GITHUB_TOKEN"],
-                "mcps": [
-                    {
-                        "id": "github",
-                        "url": "https://api.githubcopilot.com/mcp",
-                        "secrets": ["GITHUB_TOKEN"],
-                        "headers": {
-                            "Authorization": "Bearer ${GITHUB_TOKEN}",
-                            "X-GitHub-Api-Version": "2022-11-28",
-                        },
-                    }
-                ],
-            },
-        ),
-        # Registry-pin shapes the freeze pipeline resolves: a skill carrying
-        # `from_template` + `alias` (+ optional `version`) alongside the
-        # runtime id/path, and a `custom_template` tool ref. Before these
-        # were added to the schema, authoring either was rejected.
-        (
-            "skill_from_template",
-            {
-                "model": "test/x",
-                "skills": [
-                    {
-                        "id": "research",
-                        "path": "skills/research/SKILL.md",
-                        "from_template": "019e7fb7-f4c0-75e2-9055-7c29a5cbb923",
-                        "alias": "research",
-                        "version": 3,
-                    }
-                ],
-            },
-        ),
-        (
-            "custom_template_tool",
-            {
-                "model": "test/x",
-                "tools": [
-                    {
-                        "kind": "custom_template",
-                        "from_template": "019e7fb7-f4c0-75e2-9055-7c29a5cbb924",
-                        "alias": "stripe_lookup",
-                        "version": 4,
-                    }
-                ],
-            },
-        ),
-        # max_output_tokens is optional; runner picks a reasoning-aware default.
-        (
-            "limits_max_output_tokens",
-            {"model": "test/x", "limits": {"max_output_tokens": 16384}},
-        ),
-        # Bare-string secrets keep parsing (back-compat path); the runtime
-        # http-request refuses to substitute them, but the spec itself is
-        # still valid.
-        (
-            "secrets_bare_string",
-            {"model": "test/x", "secrets": ["GITHUB_TOKEN"]},
-        ),
-        # Object-form secret with allowed_hosts — the egress-binding shape.
-        (
-            "secrets_with_allowed_hosts",
-            {"model": "test/x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
-        ),
-        # Mixed bare + object forms in the same spec — common during migration.
-        (
-            "secrets_mixed_forms",
-            {
-                "model": "test/x",
-                "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
-            },
-        ),
-        # identity_providers: the per-asker `principal` binding is accepted (the
-        # only one implemented at runtime). `client_id` is backend-injected on
-        # promote, so authors may omit it.
-        (
-            "identity_provider_principal_binding",
-            {"model": "test/x", "identity_providers": [{"kind": "posthog", "binding": "principal"}]},
-        ),
     ],
 )
-def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
+def test_validate_spec_accepts(name: str, spec: dict) -> None:
+    # validate_spec no longer does structural schema validation (that runs
+    # node-side); it should accept any spec whose MCP tool names are unique.
     AgentRevisionSerializer().validate_spec(_with_auth(spec))
 
 
 @pytest.mark.parametrize(
-    ("name", "spec", "expected_substring"),
+    ("name", "spec"),
     [
-        # The exact case we hit today: a spec that looks like an application
-        # row (name/description) instead of a runtime config (model).
-        ("missing_model", {"name": "Hedgebox Helper"}, "model"),
-        # `model` must be a non-empty string. zod uses min(1); JSON Schema
-        # mirrors that via minLength.
-        ("empty_model", {"model": ""}, "model"),
-        # `model` must match `<provider>/<model-id>`; the runtime resolver
-        # demands the prefix and would otherwise crash sessions at first
-        # turn against any spec that slipped through with a bare id.
-        ("bare_model_id", {"model": "claude-haiku-4-5"}, "model"),
-        ("uppercase_provider", {"model": "Anthropic/claude-haiku-4-5"}, "model"),
-        ("missing_model_id", {"model": "anthropic/"}, "model"),
-        # `triggers` must be an array if present, not a string.
-        ("triggers_wrong_type", {"model": "test/x", "triggers": "all"}, "triggers"),
-        # Discriminated union: an unknown trigger type doesn't match any of
-        # the chat/slack/webhook/cron/mcp variants.
+        # Bare-string duplicate.
         (
-            "unknown_trigger_type",
-            {"model": "test/x", "triggers": [{"type": "carrier_pigeon", "config": {}}]},
-            "triggers",
-        ),
-        # Top-level `additionalProperties: false` should reject extra keys —
-        # exactly the `name` / `description` case I tripped earlier.
-        ("extra_top_level_key", {"model": "test/x", "description": "agent"}, "description"),
-        # Non-defaulted nested fields must still be rejected when missing —
-        # the relaxation only removes required-with-defaults, not all required.
-        # jsonschema's `oneOf` error doesn't surface which arm failed for what
-        # reason; we just assert the trigger element itself is flagged.
-        (
-            "slack_missing_trusted_workspaces",
-            {"model": "test/x", "triggers": [{"type": "slack", "config": {"mention_only": False}}]},
-            "triggers.0",
-        ),
-        (
-            "cron_missing_schedule",
-            {"model": "test/x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
-            "triggers.0",
-        ),
-        # Duplicate tool names in `mcps[].external.tools[]` — JSON Schema can't
-        # express this across the string/object union, so the Python-level
-        # check mirrors the zod `.refine()`. Bare-string vs bare-string.
-        (
-            "external_mcp_duplicate_tool_strings",
+            "duplicate_tool_strings",
             {
-                "model": "test/x",
                 "mcps": [
-                    {
-                        "id": "linear",
-                        "url": "https://mcp.linear.app/sse",
-                        "tools": ["create-issue", "create-issue"],
-                    }
+                    {"id": "linear", "url": "https://mcp.linear.app/sse", "tools": ["create-issue", "create-issue"]}
                 ],
             },
-            "unique names",
         ),
         # Bare-string colliding with an object of the same name — the case
-        # JSON Schema's `uniqueItems` would miss entirely.
+        # JSON Schema's uniqueItems would miss; the serializer enforces it.
         (
-            "external_mcp_duplicate_tool_string_and_object",
+            "duplicate_tool_string_and_object",
             {
-                "model": "test/x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -279,57 +86,16 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
                     }
                 ],
             },
-            "unique names",
-        ),
-        # The exact drift that poisoned the cron sweep: a cron trigger without
-        # the now-required `prompt` (or `name`). The node schema rejects these
-        # at freeze; the Django mirror must reject them at write so a poisoned
-        # spec never reaches the DB in the first place.
-        (
-            "cron_missing_prompt",
-            {"model": "test/x", "triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
-            "triggers.0",
-        ),
-        (
-            "cron_missing_name",
-            {"model": "test/x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
-            "triggers.0",
-        ),
-        # spec.secrets[] object form must declare allowed_hosts. An object
-        # without it is rejected so a half-migrated entry can't quietly
-        # behave as "name only, no binding" — the bare-string form is the
-        # explicit way to say that.
-        (
-            "secrets_object_missing_allowed_hosts",
-            {"model": "test/x", "secrets": [{"name": "GH_PAT"}]},
-            "secrets",
-        ),
-        # An empty allowed_hosts means "bound to nothing" — not what an
-        # author meant. Force them to either pin a host or drop to the
-        # bare-string form.
-        (
-            "secrets_empty_allowed_hosts",
-            {"model": "test/x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
-            "secrets",
-        ),
-        # identity_providers: the `agent` binding (one app-scoped credential
-        # shared by every asker) isn't implemented at runtime yet, so the schema
-        # rejects it until it lands — kept in lockstep with the zod enum.
-        (
-            "identity_provider_agent_binding_rejected",
-            {"model": "test/x", "identity_providers": [{"kind": "posthog", "binding": "agent"}]},
-            "identity_providers",
         ),
     ],
 )
-def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_substring: str) -> None:
+def test_validate_spec_rejects_duplicate_mcp_tool_names(name: str, spec: dict) -> None:
     with pytest.raises(ValidationError) as exc_info:
         AgentRevisionSerializer().validate_spec(_with_auth(spec))
-    assert expected_substring in str(exc_info.value)
+    assert "unique names" in str(exc_info.value)
 
 
 _SLACK_SPEC = {
-    "model": "test/x",
     "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
 }
 
@@ -357,20 +123,26 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 
 
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
-    spec = {"model": "test/x", "triggers": [{"type": "chat", "config": {}}]}
+    spec = {"triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []
 
 
-# Every shipped example bundle must validate against the write schema exactly
-# as authored. This is the guard against the drift class that bit us: a field
-# added to the zod schema (e.g. `allow_direct_messages`, `resume`) but not
-# mirrored here would let an example carry it while the platform silently
-# rejects/drops it. The example seeder no longer maintains its own allowlist —
-# this schema is the single gate — so a missing mirror now fails here, loudly.
-_EXAMPLES_DIR = Path(__file__).parents[2] / "services" / "agent-tests" / "src" / "examples"
-_EXAMPLE_SPECS = sorted(p for p in _EXAMPLES_DIR.glob("*/spec.json"))
+# AgentSpecField coerces a stringified-JSON-object spec back to an object. The MCP
+# write tools expose `spec` as an opaque arg, so an authoring model sometimes
+# passes the whole spec as a JSON string; stored verbatim it's the characters of a
+# string and the janitor rejects it (`invalid_request`).
 
 
-@pytest.mark.parametrize("spec_file", _EXAMPLE_SPECS, ids=lambda p: p.parent.name)
-def test_example_bundles_validate_against_write_schema(spec_file: Path) -> None:
-    jsonschema.validate(json.loads(spec_file.read_text()), AGENT_SPEC_JSON_SCHEMA_FOR_WRITE)
+def test_agent_spec_field_coerces_stringified_object() -> None:
+    field = AgentSpecField()
+    assert field.to_internal_value('{"models": {"mode": "auto"}}') == {"models": {"mode": "auto"}}
+    # A real object passes through untouched.
+    assert field.to_internal_value({"models": {"mode": "auto"}}) == {"models": {"mode": "auto"}}
+
+
+@pytest.mark.parametrize("bad", ["not json at all", "[1, 2, 3]", '"a string"', "42"])
+def test_agent_spec_field_rejects_non_object_string(bad: str) -> None:
+    # Non-JSON, or JSON that isn't an object, is rejected with a clear message
+    # rather than stored as a string that later fails freeze.
+    with pytest.raises(ValidationError):
+        AgentSpecField().to_internal_value(bad)
