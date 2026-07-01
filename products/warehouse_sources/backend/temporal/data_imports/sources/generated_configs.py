@@ -170,7 +170,8 @@ class AgileCRMSourceConfig(config.Config):
 
 @config.config
 class AhaSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -289,7 +290,7 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppfiguresSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -451,7 +452,8 @@ class BluetallySourceConfig(config.Config):
 
 @config.config
 class BoldSignSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -542,7 +544,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CallRailSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str | None = None
 
 
 @config.config
@@ -752,7 +755,7 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodefreshSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1077,7 +1080,7 @@ class EventbriteSourceConfig(config.Config):
 
 @config.config
 class EventeeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

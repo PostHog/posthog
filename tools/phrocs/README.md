@@ -119,6 +119,7 @@ Prefers `htop` (tree view + PID filter), falls back to `btop` (unfiltered), then
 
 Press `g` to cycle through grouping dimensions defined in the config.
 Each process can declare a `groups` map and an optional top-level `group_order` controls display order.
+The top-level `default_group` names the dimension the sidebar starts grouped by (omit it to start ungrouped).
 See `bin/mprocs.yaml` for the config format.
 
 Processes without a matching group appear under Ungrouped.
