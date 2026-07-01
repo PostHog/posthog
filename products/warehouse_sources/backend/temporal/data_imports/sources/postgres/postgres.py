@@ -3,9 +3,15 @@ from __future__ import annotations
 import re
 import math
 import time
+import socket
+import ipaddress
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
 from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
@@ -549,6 +555,54 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str | None:
+    """Resolve `host` to an IP under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
+
+    psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
+    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved address
+    to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so a stalled
+    or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as long as the
+    OS resolver takes. It never trips `connect_timeout`; the activity instead runs until Temporal's
+    `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a misleading
+    `CancelledError` and burning the whole activity's retry budget. Resolving here and passing the
+    address via `hostaddr` (which makes psycopg skip its own lookup) turns a stalled resolver into a
+    fast, retryable error instead.
+
+    Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
+    already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
+    re-raises that failure) exactly as before and the existing "Name or service not known"
+    classification still applies. Only a resolver that exceeds `timeout` becomes an `OperationalError`;
+    its message deliberately avoids the non-retryable "could not translate host name" /
+    "Name or service not known" fragments because a stalled resolver is usually transient.
+    """
+    if not host or host.startswith("/") or _is_ip_literal(host):
+        return None
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(socket.getaddrinfo, host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM)
+        try:
+            addrinfo = future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
+        except OSError:
+            return None
+    finally:
+        # Never join the lookup thread — a stalled getaddrinfo would re-block us here. Let it finish
+        # in the background; the OS resolver bounds it on its own.
+        executor.shutdown(wait=False)
+
+    return addrinfo[0][4][0] if addrinfo else None
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -586,6 +640,12 @@ def _connect_to_postgres(
     # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
+    # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
+    # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
+    if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
+        hostaddr = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
+        if hostaddr is not None:
+            kwargs["hostaddr"] = hostaddr
     try:
         return _connect_with_options_fallback(
             host=host,
