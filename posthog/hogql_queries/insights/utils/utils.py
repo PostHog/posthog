@@ -14,8 +14,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.visitor import clone_expr
 
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
@@ -81,5 +84,14 @@ def get_response_hogql(
 
     response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
+    # This only prints the query for the response payload — it never executes — and access to the
+    # underlying warehouse tables is already enforced on the insight's executed query. Build the printer
+    # context here with warehouse access control bypassed so it doesn't fail closed in userless contexts.
     with timings.measure("printing_hogql_for_response"):
-        return to_printed_hogql(response_hogql_query, team, modifiers)
+        context = HogQLContext(
+            team_id=team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
+            bypass_warehouse_access_control=True,
+        )
+        return prepare_and_print_ast(clone_expr(response_hogql_query), context=context, dialect="hogql", pretty=True)[0]
