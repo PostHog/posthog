@@ -786,7 +786,7 @@ const config = {
                 ],
                 title: [
                     'Emoji Flags Polyfill',
-                    'MatterSQ',
+                    'RoundHog',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
