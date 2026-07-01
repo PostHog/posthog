@@ -333,19 +333,26 @@ jobs:
             - name: Ignore Markdown-only changes for backend
               id: backend_docs
               if: github.event_name != 'push'
+              # If this step ever errors, the job output falls back to
+              # backend='true', so a failure here can only over-run the
+              # backend suite, never wrongly skip it.
+              continue-on-error: true
               env:
                   BACKEND: ${{ steps.filter.outputs.backend }}
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
               run: |
                   backend="$BACKEND"
                   if [ "$backend" = "true" ] && [ -n "$BACKEND_FILES" ]; then
-                      backend=false
-                      for f in $BACKEND_FILES; do
-                          case "$f" in
-                              *.md|*.mdx) ;;
-                              *) backend=true; break ;;
-                          esac
-                      done
+                      # backend_files is in dorny/paths-filter's "escape" format
+                      # (space-delimited, backslash-escaped). Decode it with xargs
+                      # so paths containing whitespace stay intact and a very long
+                      # list can't overflow the argument list, then skip the backend
+                      # suite only when every changed file is Markdown.
+                      if files=$(printf '%s' "$BACKEND_FILES" | xargs -n1); then
+                          if ! printf '%s\n' "$files" | grep -qvE '\.(md|mdx)$'; then
+                              backend=false
+                          fi
+                      fi
                   fi
                   echo "backend=$backend" >> "$GITHUB_OUTPUT"
                   echo "Backend tests needed: $backend"
