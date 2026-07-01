@@ -1,3 +1,4 @@
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -7,15 +8,25 @@ from typing import Any, Generic, ParamSpec, TypeVar, cast
 from django.utils.timezone import now
 
 import orjson
+import structlog
+import redis.exceptions
 from django_redis.serializers.base import BaseSerializer
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.settings import TEST
 
+logger = structlog.get_logger(__name__)
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
 CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
+
+# Transient Redis connectivity blips (master failover, brief outage) are infrastructure noise,
+# not code defects. On a background refresh the last cached value is still being served, so these
+# are logged and skipped rather than raised — letting them escape the daemon thread would capture
+# a spurious error-tracking issue on every Redis hiccup. Genuine bugs still surface as before.
+TRANSIENT_REDIS_ERRORS = (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)
 
 
 @dataclass()
@@ -35,11 +46,23 @@ class CachedFunction(Generic[P, R]):
         current_time = now()
         key: CacheKey = (args, frozenset(sorted(kwargs.items())))
 
-        def refresh():
+        def refresh(background: bool = False):
             try:
                 value = self._fn(*args, **kwargs)
                 self._cache[key] = (now(), value)
                 self._refreshing[key] = None
+            except TRANSIENT_REDIS_ERRORS as e:
+                self._refreshing[key] = None
+                # A background refresh runs on a daemon thread with no caller to handle the error,
+                # and a previously cached value is still being served, so log and skip. On the
+                # synchronous path there is no fallback, so let the error propagate to the caller.
+                if not background:
+                    raise
+                logger.warning(
+                    "cache_for background refresh hit a transient Redis error; serving stale cached value",
+                    fn=getattr(self._fn, "__name__", repr(self._fn)),
+                    error=str(e),
+                )
             except Exception:
                 self._refreshing[key] = None
                 raise
@@ -50,7 +73,7 @@ class CachedFunction(Generic[P, R]):
             if self._background_refresh:
                 if not self._refreshing.get(key):
                     self._refreshing[key] = current_time
-                    t = threading.Thread(target=refresh)
+                    t = threading.Thread(target=functools.partial(refresh, background=True))
                     t.start()
             else:
                 refresh()

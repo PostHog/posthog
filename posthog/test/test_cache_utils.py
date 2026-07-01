@@ -1,9 +1,12 @@
+import threading
 from datetime import timedelta
-from time import sleep
+from time import sleep, time
 from typing import Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+import redis.exceptions
 
 from posthog.cache_utils import cache_for
 
@@ -11,6 +14,8 @@ mocked_dependency = Mock()
 mocked_dependency.return_value = 1
 
 order_of_events = Mock(side_effect=lambda x: print(x))  # noqa T201
+
+redis_dependency = Mock()
 
 
 @cache_for(timedelta(seconds=1))
@@ -29,11 +34,35 @@ def fn_background(number: float) -> int:
     return value
 
 
+# TTL of 0 means every call after the initial priming call is considered stale, so a background
+# refresh is triggered deterministically without sleeping to wait out a timer.
+@cache_for(timedelta(seconds=0), background_refresh=True)
+def fn_redis_background() -> list[str]:
+    return redis_dependency()
+
+
+@cache_for(timedelta(seconds=1))
+def fn_redis_sync() -> list[str]:
+    return redis_dependency()
+
+
+def _wait_until(predicate, timeout: float = 2.0) -> bool:
+    deadline = time() + timeout
+    while time() < deadline:
+        if predicate():
+            return True
+        sleep(0.01)
+    return predicate()
+
+
 class TestCacheUtils(APIBaseTest):
     def setUp(self):
         mocked_dependency.reset_mock()
         mocked_dependency.return_value = 1
         order_of_events.reset_mock()
+        redis_dependency.reset_mock(return_value=True, side_effect=True)
+        fn_redis_background.clear_cache()
+        fn_redis_sync.clear_cache()
 
     def test_cache_for_with_different_passed_arguments_styles_when_skipping_cache(self) -> None:
         assert 1 == fn(use_cache=False)
@@ -94,3 +123,33 @@ class TestCacheUtils(APIBaseTest):
             "Background task finished",
             "Post refresh call 1",
         ]
+
+    def test_background_refresh_swallows_transient_redis_connection_error(self) -> None:
+        # Prime the cache with a good value while Redis is healthy.
+        redis_dependency.return_value = ["team_a"]
+        assert fn_redis_background(use_cache=True) == ["team_a"]
+
+        # Redis master briefly refuses connections; the background refresh now hits a ConnectionError.
+        redis_dependency.side_effect = redis.exceptions.ConnectionError("Connection closed by server")
+
+        unhandled_thread_exceptions: list = []
+        original_excepthook = threading.excepthook
+        threading.excepthook = lambda args: unhandled_thread_exceptions.append(args)
+        try:
+            with patch("posthog.cache_utils.logger") as mock_logger:
+                # Call while stale: this kicks off the background refresh and must keep serving the cached value.
+                assert fn_redis_background(use_cache=True) == ["team_a"]
+                assert _wait_until(lambda: mock_logger.warning.called), "background refresh should log and skip"
+        finally:
+            threading.excepthook = original_excepthook
+
+        # The transient error must not escape the daemon thread (which would capture a spurious issue).
+        assert unhandled_thread_exceptions == []
+        # And the last cached value keeps being served.
+        assert fn_redis_background(use_cache=True) == ["team_a"]
+
+    def test_synchronous_refresh_propagates_redis_connection_error(self) -> None:
+        # With no cached value to fall back on, the error must reach the caller rather than be swallowed.
+        redis_dependency.side_effect = redis.exceptions.ConnectionError("Connection closed by server")
+        with self.assertRaises(redis.exceptions.ConnectionError):
+            fn_redis_sync(use_cache=True)
