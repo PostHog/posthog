@@ -139,12 +139,14 @@ the row lists both.
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
+| ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
+| firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -390,7 +392,6 @@ doesn't conflict with concurrent PRs.
 - encharge
 - eventzilla
 - expensify
-- ezofficeinventory
 - facebook_pages
 - fastbill
 - fastly
@@ -399,7 +400,6 @@ doesn't conflict with concurrent PRs.
 - finage
 - firebase
 - firebolt
-- firehydrant
 - flexmail
 - flexport
 - float_app

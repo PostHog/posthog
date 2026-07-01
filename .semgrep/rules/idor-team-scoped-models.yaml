@@ -106,6 +106,7 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
@@ -376,6 +377,7 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
