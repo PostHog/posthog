@@ -6,8 +6,11 @@ from parameterized import parameterized
 
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
+    InvalidTarget,
     UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
     compute_effective_cadences,
+    find_invalid_targets,
     frequency_target_bounds,
     validate_frequency_target,
 )
@@ -60,6 +63,19 @@ class TestComputeEffectiveCadences(TestCase):
     )
     def test_effective_cadence(self, _name, nodes, edges, targets, expected):
         self.assertEqual(compute_effective_cadences(nodes=nodes, edges=edges, targets=targets), expected)
+
+    def test_deep_chain_does_not_overflow(self):
+        # prod DAGs can chain far past Python's recursion limit; propagation must stay iterative
+        depth = 5000
+        nodes = {f"n{i}" for i in range(depth)}
+        edges = [(f"n{i}", f"n{i + 1}") for i in range(depth - 1)]
+        result = compute_effective_cadences(nodes=nodes, edges=edges, targets={f"n{depth - 1}": H1})
+        self.assertEqual(result["n0"], H1)
+
+    def test_cycle_raises_instead_of_hanging(self):
+        # corrupt graphs exist in prod; a cycle must fail loud, not loop or overflow
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            compute_effective_cadences(nodes={"a", "b"}, edges=[("a", "b"), ("b", "a")], targets={"a": H1})
 
 
 class TestFrequencyTargetBounds(TestCase):
@@ -138,6 +154,18 @@ class TestValidateFrequencyTarget(TestCase):
                     node_id=node_id, target=target, edges=edges, targets=targets, source_intervals=source_intervals
                 )
 
+    @parameterized.expand(
+        [
+            # 45min would silently degrade to hourly in the spec builder
+            ("non_divisor_of_hour", timedelta(minutes=45)),
+            # sub-minute would crash the spec builder with a zero-division
+            ("sub_minute", timedelta(seconds=30)),
+        ]
+    )
+    def test_non_bucket_target_is_rejected(self, _name, target):
+        with self.assertRaises(UnsupportedFrequencyTargetError):
+            validate_frequency_target(node_id="a", target=target, edges=[], targets={}, source_intervals={})
+
     def test_unsatisfiable_node_rejects_both_ends(self):
         edges = [("src", "a"), ("a", "ep")]
         targets = {"ep": M15}
@@ -152,3 +180,40 @@ class TestValidateFrequencyTarget(TestCase):
             validate_frequency_target(
                 node_id="a", target=M15, edges=edges, targets=targets, source_intervals=source_intervals
             )
+
+
+class TestFindInvalidTargets(TestCase):
+    @parameterized.expand(
+        [
+            # a descendant declaring 15min lowers the ancestor's ceiling below its declared 6h:
+            # the write that caused it validated fine on the descendant, so only a whole-graph
+            # re-validation catches the ancestor's drift
+            (
+                "ancestor_invalidated_by_descendant_target",
+                [("src", "a"), ("a", "ep")],
+                {"a": H6, "ep": M15},
+                {"src": STREAMING},
+                [InvalidTarget(node_id="a", target=H6, floor=STREAMING, ceiling=M15)],
+            ),
+            # a source slowing down (6h import) pushes the floor above an existing 15min target
+            (
+                "target_below_drifted_source_floor",
+                [("src", "a")],
+                {"a": M15},
+                {"src": H6},
+                [InvalidTarget(node_id="a", target=M15, floor=H6, ceiling=None)],
+            ),
+            # everything within bounds -> nothing flagged
+            (
+                "all_valid",
+                [("src", "a"), ("a", "ep")],
+                {"a": M15, "ep": M15},
+                {"src": STREAMING},
+                [],
+            ),
+        ]
+    )
+    def test_find_invalid_targets(self, _name, edges, targets, source_intervals, expected):
+        self.assertEqual(
+            find_invalid_targets(edges=edges, targets=targets, source_intervals=source_intervals), expected
+        )

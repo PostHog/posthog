@@ -17,6 +17,7 @@ from datetime import timedelta
 
 from django.conf import settings
 
+import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -40,10 +41,19 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
-from products.data_modeling.backend.logic.freshness import compute_effective_cadences, frequency_target_bounds
+from products.data_modeling.backend.logic.freshness import (
+    SUPPORTED_TARGETS,
+    InvalidTarget,
+    UnsupportedFrequencyTargetError,
+    compute_effective_cadences,
+    find_invalid_targets,
+    frequency_target_bounds,
+)
 from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, build_frequency_graph, seed_targets
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
+
+logger = structlog.get_logger(__name__)
 
 
 def reconcile_dag_schedules(dag: DAG) -> None:
@@ -79,6 +89,8 @@ class DagSchedulePreview:
     plan: ScheduleReconcilePlan
     best_effort_source_ids: set[str]  # sources whose freshness is not actually guaranteed
     unsatisfiable: list[UnsatisfiableTier]  # effective finer than the source floor can honor
+    invalid_targets: list[InvalidTarget]  # declared targets that drifted outside their bounds
+    unsupported_tiers: list[timedelta]  # tiers reconcile would refuse (non-bucket cadence)
     seeded: bool  # whether targets were seeded in-memory from current cadence
 
 
@@ -102,6 +114,10 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         plan=plan,
         best_effort_source_ids=graph.best_effort_source_ids,
         unsatisfiable=_find_unsatisfiable(graph, effective, targets),
+        invalid_targets=find_invalid_targets(
+            edges=graph.edges, targets=targets, source_intervals=graph.source_intervals
+        ),
+        unsupported_tiers=sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS),
         seeded=seed,
     )
 
@@ -137,6 +153,12 @@ async def _apply_reconciliation(
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
 ) -> None:
+    unsupported = sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS)
+    if unsupported:
+        raise UnsupportedFrequencyTargetError(
+            f"refusing to reconcile DAG {dag_id}: tiers {unsupported} are not schedulable cadence buckets"
+        )
+
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
@@ -150,8 +172,10 @@ async def _apply_reconciliation(
     )
 
     # Create/update every desired tier before deleting any stale schedule, so nodes are never left
-    # uncovered; on failure, roll back the tiers we created and keep the existing schedules, returning
-    # the DAG to its current state (a re-run then reconciles cleanly). A coverage gap is worse.
+    # uncovered. On failure, delete the tiers we created; creates run before updates, so a failure
+    # on the first update leaves the pre-existing schedules untouched and the DAG at its prior
+    # state. Updates already applied are not reverted — a re-run converges the rest. Best-effort
+    # rollback: a failed delete must not mask the original error.
     created: list[str] = []
     try:
         for schedule_id, (interval, node_ids) in plan.to_create.items():
@@ -163,7 +187,10 @@ async def _apply_reconciliation(
             await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
     except Exception:
         for schedule_id in created:
-            await a_delete_schedule(temporal, schedule_id=schedule_id)
+            try:
+                await a_delete_schedule(temporal, schedule_id=schedule_id)
+            except Exception:
+                logger.exception("Failed to roll back created schedule", schedule_id=schedule_id, dag_id=dag_id)
         raise
 
     for schedule_id in plan.to_delete:

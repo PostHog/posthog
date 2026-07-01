@@ -15,7 +15,8 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 "children"/descendants are reached by following edges forward.
 """
 
-from collections import defaultdict
+import dataclasses
+from collections import defaultdict, deque
 from datetime import timedelta
 
 from products.data_modeling.backend.logic.graph_traversal import reachable
@@ -25,9 +26,32 @@ from products.data_modeling.backend.logic.graph_traversal import reachable
 # carry their real sync interval.
 STREAMING = timedelta(0)
 
+# The only intervals build_schedule_spec can realize exactly: minute buckets must divide 60
+# and hour buckets 24, then weekly/monthly. Anything else silently degrades there (45min
+# becomes hourly, 48h becomes weekly) or crashes (sub-minute), so targets are gated to this
+# set — it mirrors sync_frequency_to_sync_frequency_interval's label set.
+SUPPORTED_TARGETS: frozenset[timedelta] = frozenset(
+    {
+        timedelta(minutes=1),
+        timedelta(minutes=5),
+        timedelta(minutes=15),
+        timedelta(minutes=30),
+        timedelta(hours=1),
+        timedelta(hours=6),
+        timedelta(hours=12),
+        timedelta(hours=24),
+        timedelta(days=7),
+        timedelta(days=30),
+    }
+)
+
 
 class UnsatisfiableFrequencyError(ValueError):
     """A target falls outside the node's legal [floor, ceiling] range."""
+
+
+class UnsupportedFrequencyTargetError(ValueError):
+    """A target is not one of the schedulable cadence buckets (SUPPORTED_TARGETS)."""
 
 
 def _adjacency(edges: list[tuple[str, str]]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -52,26 +76,31 @@ def compute_effective_cadences(
     no declared target and no scheduled descendant demanding freshness (the
     ride-downstream opt-out). Source nodes are not expected in `nodes`.
     """
-    children, _ = _adjacency(edges)
+    children, parents = _adjacency(edges)
+    # Iterative reverse-topological (Kahn) pass: leaves first, then everything whose
+    # in-`nodes` children are all resolved. Recursion would overflow on deep chains.
+    out_degree = {node: sum(1 for child in children.get(node, []) if child in nodes) for node in nodes}
+    queue = deque(node for node in nodes if out_degree[node] == 0)
     memo: dict[str, timedelta | None] = {}
-
-    def effective(node: str) -> timedelta | None:
-        if node in memo:
-            return memo[node]
+    while queue:
+        node = queue.popleft()
         candidates: list[timedelta] = []
         if node in targets:
             candidates.append(targets[node])
         for child in children.get(node, []):
-            if child not in nodes:
-                continue
-            child_effective = effective(child)
-            if child_effective is not None:
+            if child in nodes and (child_effective := memo[child]) is not None:
                 candidates.append(child_effective)
-        result = min(candidates) if candidates else None
-        memo[node] = result
-        return result
+        memo[node] = min(candidates) if candidates else None
+        for parent in parents.get(node, []):
+            if parent in nodes:
+                out_degree[parent] -= 1
+                if out_degree[parent] == 0:
+                    queue.append(parent)
 
-    return {node: effective(node) for node in nodes}
+    if len(memo) != len(nodes):
+        unresolved = sorted(nodes - memo.keys())
+        raise ValueError(f"cycle detected in DAG; unresolved nodes: {unresolved}")
+    return memo
 
 
 def frequency_target_bounds(
@@ -108,7 +137,11 @@ def validate_frequency_target(
     targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
 ) -> None:
-    """Raise UnsatisfiableFrequencyError if `target` is outside the node's [floor, ceiling]."""
+    """Raise if `target` is not a supported bucket or falls outside the node's [floor, ceiling]."""
+    if target not in SUPPORTED_TARGETS:
+        raise UnsupportedFrequencyTargetError(
+            f"target {target} is not a supported cadence; pick one of the standard buckets"
+        )
     floor, ceiling = frequency_target_bounds(
         node_id=node_id, edges=edges, targets=targets, source_intervals=source_intervals
     )
@@ -118,3 +151,37 @@ def validate_frequency_target(
         )
     if ceiling is not None and target > ceiling:
         raise UnsatisfiableFrequencyError(f"target {target} is staler than a downstream consumer requires ({ceiling})")
+
+
+@dataclasses.dataclass
+class InvalidTarget:
+    """A declared target that currently sits outside its node's legal [floor, ceiling] range."""
+
+    node_id: str
+    target: timedelta
+    floor: timedelta
+    ceiling: timedelta | None
+
+
+def find_invalid_targets(
+    *,
+    edges: list[tuple[str, str]],
+    targets: dict[str, timedelta],
+    source_intervals: dict[str, timedelta],
+) -> list[InvalidTarget]:
+    """Re-validate every declared target against its current bounds.
+
+    A target valid when written can drift invalid later: a descendant declaring a tighter
+    target lowers this node's ceiling, and graph edits move its floor. The scheduler still
+    honors the tightest demand at runtime, so a stale declared target doesn't break
+    freshness — it breaks the declared == effective honesty invariant. Callers run this on
+    any graph mutation (target write, node/edge change) and surface what it returns.
+    """
+    invalid: list[InvalidTarget] = []
+    for node_id, target in targets.items():
+        floor, ceiling = frequency_target_bounds(
+            node_id=node_id, edges=edges, targets=targets, source_intervals=source_intervals
+        )
+        if target < floor or (ceiling is not None and target > ceiling):
+            invalid.append(InvalidTarget(node_id=node_id, target=target, floor=floor, ceiling=ceiling))
+    return invalid
