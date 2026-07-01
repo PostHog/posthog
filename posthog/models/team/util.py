@@ -377,12 +377,13 @@ def _team_cascade_json_columns(team_ids: list[int]) -> list[tuple[str, list[str]
     cascade_children: dict[type[models.Model], list[tuple[type[models.Model], models.Field]]] = {}
     for model in apps.get_models():
         for field in model._meta.concrete_fields:
+            related = field.related_model
             if (
                 field.is_relation
                 and getattr(field.remote_field, "on_delete", None) is models.CASCADE
-                and field.related_model is not None
+                and isinstance(related, type)  # a resolved model class, not the "self" sentinel or None
             ):
-                cascade_children.setdefault(field.related_model, []).append((model, field))
+                cascade_children.setdefault(related, []).append((model, field))
 
     # BFS from Team over reverse-CASCADE edges to find every model in the cascade graph.
     in_cascade: set[type[models.Model]] = {Team}
@@ -403,13 +404,14 @@ def _team_cascade_json_columns(team_ids: list[int]) -> list[tuple[str, list[str]
         clauses: list[str] = []
         params: list[Any] = []
         for field in model._meta.concrete_fields:
+            parent = field.related_model
             if not (
                 field.is_relation
                 and getattr(field.remote_field, "on_delete", None) is models.CASCADE
-                and field.related_model in in_cascade
+                and isinstance(parent, type)
+                and parent in in_cascade
             ):
                 continue
-            parent = field.related_model
             if parent in path:
                 continue  # cyclic edge (self-ref / diamond) — skip to avoid infinite recursion
             if parent is Team:
