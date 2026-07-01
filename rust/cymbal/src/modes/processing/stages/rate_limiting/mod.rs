@@ -524,7 +524,11 @@ fn evaluate_bypass_rules<'a>(
     rules_by_team: &'a HashMap<i32, Vec<BypassRule>>,
     settings: &HashMap<i32, RateLimitSettings>,
     match_fn: impl Fn(&BypassRule, &serde_json::Value) -> Result<bool, VmError>,
-) -> (HashSet<usize>, HashMap<OutcomeKey, u32>, Vec<RuleToDisable<'a>>) {
+) -> (
+    HashSet<usize>,
+    HashMap<OutcomeKey, u32>,
+    Vec<RuleToDisable<'a>>,
+) {
     let mut bypassed: HashSet<usize> = HashSet::new();
     let mut outcomes: HashMap<OutcomeKey, u32> = HashMap::new();
     let mut to_disable: Vec<RuleToDisable<'a>> = Vec::new();
