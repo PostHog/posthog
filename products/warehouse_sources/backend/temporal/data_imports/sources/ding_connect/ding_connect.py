@@ -64,7 +64,9 @@ def _request(
         raise DingConnectRetryableError(f"DingConnect API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"DingConnect API error: status={response.status_code}, body={response.text}, url={url}")
+        # Truncate the body: DingConnect error responses can echo row data (e.g. AccountNumber from
+        # TransferRecords), so we log only a short preview to avoid persisting PII in logs.
+        logger.error(f"DingConnect API error: status={response.status_code}, body={response.text[:500]}, url={url}")
         response.raise_for_status()
 
     return response.json()
