@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
@@ -17,6 +18,17 @@ import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
 import type { sourceConnectSceneLogicType } from './sourceConnectSceneLogicType'
 
+// Carries the field whose file failed to read/parse so the submit handler can name it in the toast.
+class FileUploadParseError extends Error {
+    constructor(
+        readonly fieldName: string,
+        cause: unknown
+    ) {
+        super(`Could not read the "${fieldName}" file as JSON`, { cause })
+        this.name = 'FileUploadParseError'
+    }
+}
+
 const buildCredentialsPayload = async (
     fields: SourceFieldConfig[],
     formPayload: Record<string, any>
@@ -26,14 +38,18 @@ const buildCredentialsPayload = async (
         const value = formPayload[field.name]
         if (field.type === 'file-upload') {
             if (value?.[0]) {
-                // Assumes we're loading a JSON file, same as the wizard's submit
-                const loadedFile: string = await new Promise((resolve, reject) => {
-                    const fileReader = new FileReader()
-                    fileReader.onload = (e) => resolve(e.target?.result as string)
-                    fileReader.onerror = (e) => reject(e)
-                    fileReader.readAsText(value[0])
-                })
-                payload[field.name] = JSON.parse(loadedFile)
+                try {
+                    // Assumes we're loading a JSON file, same as the wizard's submit
+                    const loadedFile: string = await new Promise((resolve, reject) => {
+                        const fileReader = new FileReader()
+                        fileReader.onload = (e) => resolve(e.target?.result as string)
+                        fileReader.onerror = (e) => reject(e)
+                        fileReader.readAsText(value[0])
+                    })
+                    payload[field.name] = JSON.parse(loadedFile)
+                } catch (e) {
+                    throw new FileUploadParseError(field.name, e)
+                }
             }
         } else {
             payload[field.name] = value
@@ -114,8 +130,14 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                         values.sourceConfig.fields,
                         (formValues.payload ?? {}) as Record<string, any>
                     )
-                } catch {
-                    lemonToast.error('File is not valid')
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    const fieldName = e instanceof FileUploadParseError ? e.fieldName : null
+                    lemonToast.error(
+                        fieldName
+                            ? `The "${fieldName}" file is not valid — it must be a readable JSON file.`
+                            : 'The uploaded file is not valid — it must be a readable JSON file.'
+                    )
                     return
                 }
                 const credential = await externalDataSourcesStoreCredentialsCreate(

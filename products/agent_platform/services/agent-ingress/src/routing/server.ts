@@ -25,6 +25,7 @@ import {
     handleMetricsRequest,
     isDev,
     RevisionStore,
+    serializeApprovalRequest,
     type SessionPrincipal,
     SessionQueue,
     triggerAuthConfig,
@@ -186,6 +187,17 @@ async function authenticatePrincipalDecider(
         }
     }
     return null
+}
+
+/**
+ * A real, identifiable caller — not the shared `anonymous` principal a
+ * public-auth agent hands every caller. `principalsMatch` treats all anonymous
+ * principals as equal, so it's no gate on a public agent: the principal-authed
+ * read surfaces (transcript, approval detail) require an identified principal,
+ * else one anonymous caller could read another anonymous session's data.
+ */
+function isIdentifiedPrincipal(p: SessionPrincipal): boolean {
+    return p.kind !== 'anonymous'
 }
 
 /** Stable id of the decider, by principal kind — stored as the approval's `decided_by`. */
@@ -420,6 +432,100 @@ export function buildApp(opts: BuildAppOpts): Express {
             res.json({ ok: true, state: result.state })
         })
     )
+
+    // Read side of the principal-decision surface — the deep-link approval modal
+    // fetches one approval straight from the ingress, authenticated as the session
+    // principal, so it never touches the project-scoped Django endpoint. This is
+    // what makes the approval loop work from any project (the ingress is
+    // slug-routed, the row is resolved under the route's resolved application).
+    // The inline chat card doesn't use this — it's fed by `approval_required` /
+    // `approval_resolved` frames on `/listen` (push, no poll). Only
+    // principal-decidable rows are returned — `agent`-scope stays in the console.
+    const respondWithApproval = async (req: Request, res: Response): Promise<void> => {
+        if (!opts.approvals) {
+            res.status(500).json({ error: 'approvals_not_configured' })
+            return
+        }
+        const resolved = await resolveAgent(resolver, req, res)
+        if (!resolved) {
+            return
+        }
+        // Tenant-scope the lookup to the resolved application so a leaked id can't
+        // resolve another agent's request; `agent`-scope collapses to not-found,
+        // exactly as the decide route does.
+        const row = await opts.approvals.getForApplication(req.params.id, resolved.application.id)
+        if (!row || effectiveApprovalType(row.approver_scope) === 'agent') {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const session = await opts.queue.getForApplication(row.session_id, resolved.application.id)
+        if (!session) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const caller = await authenticatePrincipalDecider(req, resolved.application, resolved.revision, authProvider)
+        if (!caller) {
+            res.status(401).json({ error: 'unauthenticated' })
+            return
+        }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
+            return
+        }
+        if (!principalsMatch(session.principal, caller)) {
+            res.status(403).json({ error: 'not_session_principal' })
+            return
+        }
+        res.json(serializeApprovalRequest(row))
+    }
+    app.get(`${mount}/approvals/:id`, asyncHandler(respondWithApproval))
+
+    // Transcript reload, principal-authed: "prove you own the session" lets a
+    // client rehydrate a session's conversation from any project (the dock on
+    // reopen, a web chat-list opening a past session, repainting a pending
+    // approval card after a reconnect). Mirrors the janitor session-detail shape
+    // (`AgentApplicationSessionDetail`) so the same client mapper consumes it,
+    // including the optional `?last_n=` tail. Read-only — does not attach to or
+    // resume the live `/listen` stream; that stays a separate concern.
+    const respondWithSession = async (req: Request, res: Response): Promise<void> => {
+        const resolved = await resolveAgent(resolver, req, res)
+        if (!resolved) {
+            return
+        }
+        const session = await opts.queue.getForApplication(req.params.id, resolved.application.id)
+        if (!session) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const caller = await authenticatePrincipalDecider(req, resolved.application, resolved.revision, authProvider)
+        if (!caller) {
+            res.status(401).json({ error: 'unauthenticated' })
+            return
+        }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
+            return
+        }
+        if (!principalsMatch(session.principal, caller)) {
+            res.status(403).json({ error: 'not_session_principal' })
+            return
+        }
+        const lastNRaw = typeof req.query.last_n === 'string' ? Number.parseInt(req.query.last_n, 10) : undefined
+        // `> 0`, not `>= 0`: `slice(-0)` is `slice(0)` (the whole array), so a
+        // `last_n=0` must fall through to the no-trim branch, not "return zero".
+        const lastN = lastNRaw !== undefined && Number.isFinite(lastNRaw) && lastNRaw > 0 ? lastNRaw : undefined
+        if (lastN !== undefined && lastN < session.conversation.length) {
+            res.json({
+                ...session,
+                conversation: session.conversation.slice(-lastN),
+                conversation_total_turns: session.conversation.length,
+                conversation_trimmed: true,
+            })
+            return
+        }
+        res.json({ ...session, conversation_trimmed: false })
+    }
+    app.get(`${mount}/sessions/:id`, asyncHandler(respondWithSession))
 
     // Self-describing schemas. The response cascades from `spec.triggers` ∩
     // `TRIGGER_MODULES`: only modules whose type is configured on this agent

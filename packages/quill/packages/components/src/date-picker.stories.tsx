@@ -40,6 +40,14 @@ export const WithTime: Story = {
     },
 }
 
+export const FixedTime: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<Date>(initialValue)
+        return <DatePicker value={value} onApply={setValue} showTime showTimeToggle={false} />
+    },
+}
+
 export const InPopover: Story = {
     args: baseArgs,
     render: () => {

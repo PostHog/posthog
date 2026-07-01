@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
@@ -11,7 +12,10 @@ from django.test import Client as DjangoClient
 from django.urls import reverse
 from django.utils import timezone
 
+from posthog.api.authentication import password_reset_token_generator
+from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import session_public_id
 from posthog.session.models import Session
 
@@ -66,6 +70,26 @@ class TestUserAuthSessionAPI(APIBaseTest):
         self.assertEqual(len(data), 2)
         self.assertEqual(sum(1 for s in data if s["is_current"]), 1)
         self.assertTrue(data[0]["is_current"])  # current session listed first
+
+    def test_list_includes_created_at_from_session_payload(self):
+        session = self._other_session()
+        store = self.engine.SessionStore(session_key=session.session_key)
+        store[settings.SESSION_COOKIE_CREATED_AT_KEY] = 1_700_000_000  # 2023-11-14T22:13:20+00:00
+        store.save()
+
+        data = self.client.get("/api/users/@me/login_sessions/").json()
+        entry = next(s for s in data if s["id"] == str(session_public_id(session.session_key)))
+
+        self.assertEqual(entry["created_at"], "2023-11-14T22:13:20+00:00")
+
+    def test_list_created_at_is_null_when_session_has_no_created_timestamp(self):
+        # _other_session() never runs through SessionAgeMiddleware, so it carries no created-at stamp.
+        session = self._other_session()
+
+        data = self.client.get("/api/users/@me/login_sessions/").json()
+        entry = next(s for s in data if s["id"] == str(session_public_id(session.session_key)))
+
+        self.assertIsNone(entry["created_at"])
 
     def test_list_excludes_sensitive_fields(self):
         self._other_session()
@@ -217,3 +241,115 @@ class TestUserAuthSessionImpersonation(APIBaseTest):
         response = self.client.post("/api/users/@me/login_sessions/revoke_others/")
 
         self.assertEqual(response.status_code, 403, response.content)
+
+
+class TestRevokeOnCredentialChange(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.engine = import_module(settings.SESSION_ENGINE)
+        self.user.set_password("test-password-123")
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def _other_session(self) -> Session:
+        store = self.engine.SessionStore()
+        store[SESSION_KEY] = str(self.user.pk)
+        store[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+        store.create()
+        return Session.objects.get(session_key=store.session_key)
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_password_change_revokes_other_sessions(self, _mock_email):
+        other = self._other_session()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": "test-password-123", "password": "Str0ng-New-Pass-789"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, 200)  # current session still works
+
+    @patch("posthog.tasks.email.send_two_factor_auth_disabled_email.delay")
+    def test_two_factor_disable_does_not_revoke_other_sessions(self, _mock_email):
+        # Disabling 2FA is a security downgrade — deliberately does NOT revoke other sessions.
+        other = self._other_session()
+
+        response = self.client.post("/api/users/@me/two_factor_disable/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(Session.objects.filter(session_key=other.session_key).exists())
+
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_revokes_other_sessions(self, _mock_email):
+        other = self._other_session()
+        self.user.pending_email = "changed@example.com"
+        self.user.save()
+        token = email_verification_token_generator.make_token(self.user)
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": str(self.user.uuid), "token": token})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+
+    def test_password_reset_revokes_all_sessions(self):
+        # The reset flow doesn't log the user in, so every session is revoked (compromise recovery).
+        user = User.objects.create(email="reset-target@example.com", distinct_id="reset-target")
+        user.set_password("old-password-123")
+        user.save()
+        for _ in range(2):
+            store = self.engine.SessionStore()
+            store[SESSION_KEY] = str(user.pk)
+            store.create()
+        token = password_reset_token_generator.make_token(user)
+
+        response = self.client.post(f"/api/reset/{user.uuid}/", {"token": token, "password": "Str0ng-Reset-Pass-1"})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Session.objects.filter(user_id=user.pk).exists())
+
+    @patch("posthog.api.user.send_two_factor_auth_enabled_email")
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_enabling_2fa_revokes_other_sessions(self, mock_totp_form, _mock_email):
+        mock_totp_form.return_value.is_valid.return_value = True
+        session = self.client.session
+        session["django_two_factor-hex"] = "1234567890abcdef1234"
+        session.save()
+        other = self._other_session()
+
+        response = self.client.post("/api/users/@me/two_factor_validate/", {"token": "123456"})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+
+    def test_enabling_passkey_2fa_revokes_other_sessions(self):
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"pk-cred",
+            label="PK",
+            public_key=b"pk",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        other = self._other_session()
+
+        response = self.client.patch("/api/users/@me/", {"passkeys_enabled_for_2fa": True})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+
+    def test_disabling_passkey_2fa_does_not_revoke_other_sessions(self):
+        # Disabling passkeys-for-2FA is a downgrade — deliberately does NOT revoke other sessions.
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+        other = self._other_session()
+
+        response = self.client.patch("/api/users/@me/", {"passkeys_enabled_for_2fa": False})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.passkeys_enabled_for_2fa)  # the downgrade actually took effect
+        self.assertTrue(Session.objects.filter(session_key=other.session_key).exists())

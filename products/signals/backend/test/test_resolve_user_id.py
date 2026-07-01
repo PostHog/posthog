@@ -5,7 +5,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.temporal.agentic import resolve_user_id_for_team
+from products.signals.backend.temporal.agentic import resolve_acting_user_id_for_team, resolve_user_id_for_team
 
 
 @pytest.fixture
@@ -20,9 +20,15 @@ def team(organization):
     return Team.objects.create(organization=organization, name="test-resolve-user-team")
 
 
-def _create_user(email: str, organization: Organization, *, is_active: bool = True) -> User:
+def _create_user(
+    email: str,
+    organization: Organization,
+    *,
+    is_active: bool = True,
+    level: OrganizationMembership.Level = OrganizationMembership.Level.OWNER,
+) -> User:
     user = User.objects.create(email=email, is_active=is_active)
-    OrganizationMembership.objects.create(user=user, organization=organization)
+    OrganizationMembership.objects.create(user=user, organization=organization, level=level)
     return user
 
 
@@ -131,3 +137,33 @@ def test_raises_when_team_has_no_github_source_at_all(organization, team):
 
     with pytest.raises(RuntimeError, match="No GitHub integration"):
         resolve_user_id_for_team(team.id)
+
+
+@pytest.mark.django_db
+def test_acting_user_falls_back_to_active_member_without_github(organization, team):
+    # The scout path has no repo to clone, so it must NOT require GitHub: a team with an active
+    # org member but no integration resolves that member instead of failing. This is the fix for
+    # the teams that were crashing every scheduled run on the GitHub precondition.
+    member = _create_user("member@example.com", organization)
+
+    assert resolve_acting_user_id_for_team(team.id) == member.id
+
+
+@pytest.mark.django_db
+def test_acting_user_returns_none_when_no_active_member(organization, team):
+    # The only genuine "can't run" case — no active user to act as. Returning None (not raising)
+    # is what lets the scheduled caller short-circuit to a skip instead of a bogus failed run.
+    _create_user("inactive@example.com", organization, is_active=False)
+
+    assert resolve_acting_user_id_for_team(team.id) is None
+
+
+@pytest.mark.django_db
+def test_acting_user_prefers_github_creator_when_present(organization, team):
+    # When GitHub IS connected, keep the existing attribution: act as the integration creator,
+    # not an arbitrary member — so the decoupling doesn't change behavior for set-up teams.
+    _create_user("member@example.com", organization)
+    creator = _create_user("creator@example.com", organization)
+    _create_github_integration(team, created_by=creator)
+
+    assert resolve_acting_user_id_for_team(team.id) == creator.id

@@ -22,18 +22,20 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
 )
-from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.utils import ExternalDataWorkflowInputs
-
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
-from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -201,7 +203,7 @@ async def run_external_data_job_workflow(
         ),
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
@@ -406,7 +408,7 @@ def stripe_customer():
                     "id": "cus_NffrFeUfNV2Hib",
                     "object": "customer",
                     "address": null,
-                    "balance": 0,
+                    "balance": -1000,
                     "created": 1680893993,
                     "currency": null,
                     "default_source": null,
@@ -1138,7 +1140,9 @@ def mock_stripe_client(
     stripe_customer_balance_transaction,
     stripe_customer_payment_method,
 ):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient"
+    ) as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()

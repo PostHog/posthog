@@ -23,11 +23,18 @@ export function ScoutRowCard({
     config,
     rollup,
     onUpdate,
+    onDelete,
+    deleting = false,
     asHeader = false,
 }: {
     config: SignalScoutConfig
     rollup: ScoutRollup | undefined
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
+    /** Delete the scout (archives its skill + removes the config). Omitted where deletion isn't
+     *  offered, e.g. the detail header; the form also hides it for canonical scouts. */
+    onDelete?: (configId: string) => void
+    /** True while this scout's delete request is in flight — disables the delete button. */
+    deleting?: boolean
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
@@ -53,7 +60,16 @@ export function ScoutRowCard({
                             // trailing badges — truncate should clip to an ellipsis, never vanish.
                             <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
                         ) : (
-                            <Tooltip title={`${config.skill_name} · view scout`}>
+                            <Tooltip
+                                title={
+                                    <div className="flex flex-col gap-1 max-w-sm">
+                                        {config.description ? (
+                                            <span className="line-clamp-6">{config.description}</span>
+                                        ) : null}
+                                        <span className="text-muted">{config.skill_name} · view scout</span>
+                                    </div>
+                                }
+                            >
                                 <Link
                                     to={urls.inboxScout(config.skill_name)}
                                     // The fleet list lives in the setup modal, which portals outside the
@@ -82,7 +98,7 @@ export function ScoutRowCard({
                                     <IconArrowUpRight className="size-3.5" />
                                 </Link>
                             </Tooltip>
-                            <ScoutOriginBadge skillName={config.skill_name} />
+                            <ScoutOriginBadge origin={config.scout_origin} />
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
@@ -112,7 +128,7 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} />
+                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} deleting={deleting} />
                 </div>
             ) : null}
         </div>

@@ -5,10 +5,10 @@ import React from 'react'
 import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
@@ -34,7 +34,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
-import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
+import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
     buildApplyUrlStatePayload,
@@ -46,6 +46,7 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 import { getDefaultGenerationsColumns, aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -300,7 +301,7 @@ function AIObservabilityGenerations(): JSX.Element {
                         ),
                     },
                     person: aiObservabilityColumnRenderers.person,
-                    "'' -- Sentiment": aiObservabilityColumnRenderers["'' -- Sentiment"],
+                    [GENERATION_SENTIMENT_SELECT]: aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT],
                     'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
@@ -451,7 +452,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     const { push } = useActions(router)
 
     // Tab switching shortcuts
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab1',
         keybind: [keyBinds.tab1],
         intent: 'Go to Dashboard',
@@ -459,7 +460,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityDashboard(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
         intent: 'Go to Traces',
@@ -467,7 +468,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityTraces(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
         intent: 'Go to Generations',
@@ -475,7 +476,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityGenerations(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
         intent: 'Go to Users',
@@ -483,7 +484,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityUsers(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
         intent: 'Go to Errors',
@@ -577,7 +578,8 @@ function AIObservabilitySceneContent(): JSX.Element {
         label: 'Sessions',
         content: (
             <AIObservabilitySetupPrompt>
-                <AIObservabilitySessionsScene />
+                <Filters />
+                <AIObservabilitySessionsPlaylist />
             </AIObservabilitySetupPrompt>
         ),
         link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
@@ -595,6 +597,13 @@ function AIObservabilitySceneContent(): JSX.Element {
         link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
         'data-attr': 'llma-reviews-tab',
     })
+
+    // Sessions is a primary view — surface it right after Generations, not last.
+    const sessionsIdx = tabs.findIndex((t) => t.key === 'sessions')
+    if (sessionsIdx > -1) {
+        const [sessionsTab] = tabs.splice(sessionsIdx, 1)
+        tabs.splice(tabs.findIndex((t) => t.key === 'generations') + 1, 0, sessionsTab)
+    }
 
     return (
         <SceneContent>

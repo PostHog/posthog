@@ -3,17 +3,17 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
@@ -41,8 +41,8 @@ import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -1775,9 +1775,11 @@ describe('LogsIngestionConsumer', () => {
 
                 const uncompressed = parseInt(outputHeaders()!.bytes_uncompressed, 10)
                 const compressed = parseInt(outputHeaders()!.bytes_compressed, 10)
+                const recordCount = parseInt(outputHeaders()!.record_count, 10)
                 if (!enabled) {
                     expect(uncompressed).toBe(1000)
                     expect(compressed).toBe(500)
+                    expect(recordCount).toBe(2)
                     return
                 }
                 expect(uncompressed).toBeGreaterThan(0)
@@ -1785,6 +1787,8 @@ describe('LogsIngestionConsumer', () => {
                 expect(compressed).toBeGreaterThan(0)
                 expect(compressed).toBeLessThan(500)
                 expect(compressed / uncompressed).toBeCloseTo(0.5, 5)
+                // The dropped info row is removed from the count exactly; only the error row survives.
+                expect(recordCount).toBe(1)
             })
         })
     })

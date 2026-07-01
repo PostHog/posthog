@@ -91,7 +91,9 @@ jobs:
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
-        secrets: inherit
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
         permissions:
             id-token: write
             contents: read
@@ -134,6 +136,12 @@ jobs:
                       values_key: image
                     - release: flags-consumer
                       digest_key: flags-consumer
+                      values_key: image
+                    - release: cohort-event-shuffler
+                      digest_key: cohort-event-shuffler
+                      values_key: image
+                    - release: cohort-stream-processor
+                      digest_key: cohort-stream-processor
                       values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker

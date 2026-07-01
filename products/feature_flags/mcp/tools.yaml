@@ -334,6 +334,9 @@ tools:
     flag-value-values-retrieve:
         operation: flag_value_values_retrieve
         enabled: false
+    org-feature-flags-keys:
+        operation: org_feature_flags_keys
+        enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
         enabled: false

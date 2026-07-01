@@ -22,6 +22,7 @@ import { isAgentRunReport, isFinishedRunReport } from './inboxMembership'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { INBOX_PIPELINE_STATUS_FILTERS } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
+import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { InboxFlatListTabKey, INBOX_STAFF_ONLY_TAB_KEYS, INBOX_TAB_KEYS, InboxTabKey, SignalReport } from './types'
 
@@ -42,6 +43,16 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
  * so opening it can render the detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
+// The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
+// leftover search (especially a no-match one) would make it count zero and hide itself. Clear the
+// search whenever the scratchpad closes — by any path (close button, report/scout open, Back nav).
+function clearScratchpadSearch(): void {
+    const mounted = scratchpadLogic.findMounted()
+    if (mounted?.values.searchText) {
+        mounted.actions.setSearchText('')
+    }
+}
+
 function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport | null {
     const fromRuns = runsReports.find((r) => r.id === id)
     if (fromRuns) {
@@ -86,6 +97,33 @@ function findReportRank(
     return { rank: null, listSize: null }
 }
 
+/**
+ * The URL for whichever full-width inbox surface is open, or the list otherwise. The four (report,
+ * scout detail, scratchpad, findings) are mutually exclusive, so a fixed priority order resolves them.
+ */
+function inboxSurfaceUrl(values: {
+    selectedReportId: string | null
+    activeTab: InboxTabKey
+    selectedScoutSkillName: string | null
+    selectedScoutFindingId: string | null
+    isScratchpadOpen: boolean
+    isFindingsOpen: boolean
+}): string {
+    if (values.selectedReportId) {
+        return urls.inboxReport(values.activeTab, values.selectedReportId)
+    }
+    if (values.selectedScoutSkillName) {
+        return urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
+    }
+    if (values.isScratchpadOpen) {
+        return urls.inboxScratchpad()
+    }
+    if (values.isFindingsOpen) {
+        return urls.inboxFindings()
+    }
+    return urls.inbox(values.activeTab)
+}
+
 /** Open-report engagement tracking state, kept on the logic's `cache` (not reactive). */
 interface InboxOpenTracking {
     report: SignalReport
@@ -122,6 +160,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             skillName,
             findingId,
         }),
+        // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
+        // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
+        setScratchpadOpen: (open: boolean) => ({ open }),
+        // Cross-fleet findings surface: full-width browse/search/filter of every finding the troop
+        // emitted recently, mutually exclusive with the other full-width views.
+        setFindingsOpen: (open: boolean) => ({ open }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -177,6 +221,26 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedScoutSkillName: (_, { skillName }) => skillName,
+            },
+        ],
+        isScratchpadOpen: [
+            false,
+            {
+                setScratchpadOpen: (_, { open }) => open,
+                // Opening a report, a scout, or the findings view closes the memory view.
+                setSelectedReportId: (state, { id }) => (id ? false : state),
+                setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
+                setFindingsOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        isFindingsOpen: [
+            false,
+            {
+                setFindingsOpen: (_, { open }) => open,
+                // Opening a report, a scout, or the memory view closes the findings view.
+                setSelectedReportId: (state, { id }) => (id ? false : state),
+                setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
+                setScratchpadOpen: (state, { open }) => (open ? false : state),
             },
         ],
         // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
@@ -250,6 +314,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.seedSelectedReport(null)
                 return
             }
+            // Opening a report closes the scratchpad (reducer) — clear its transient search so the
+            // callout doesn't stay hidden behind a stale no-match filter on the way back.
+            clearScratchpadSearch()
             // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
             cache.pendingOpenMethod = openMethod
             // A report and a scout detail are mutually exclusive full-width views.
@@ -281,8 +348,39 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             cache.pendingOpenMethod = undefined
         },
         setSelectedScoutSkillName: ({ skillName }) => {
-            if (skillName !== null && values.selectedReportId !== null) {
-                actions.setSelectedReportId(null)
+            if (skillName !== null) {
+                // Opening a scout detail closes the scratchpad (reducer) — clear its transient search.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+            }
+        },
+        setScratchpadOpen: ({ open }) => {
+            if (open) {
+                // Close the open report/scout through their own actions so report dwell-time
+                // bookkeeping runs (clearing the id in a reducer would skip the close tracking).
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                if (values.selectedScoutSkillName !== null) {
+                    actions.setSelectedScoutSkillName(null)
+                }
+            } else {
+                clearScratchpadSearch()
+            }
+        },
+        setFindingsOpen: ({ open }) => {
+            if (open) {
+                // Same dwell-tracking-preserving close as the scratchpad path; clear its transient
+                // search so the memory callout isn't left hidden behind a stale filter on the way back.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                if (values.selectedScoutSkillName !== null) {
+                    actions.setSelectedScoutSkillName(null)
+                }
             }
         },
         loadSourceConfigsSuccess: () => {
@@ -336,24 +434,28 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
+        // Each toggle resolves to whichever full-width view is left open (or the list), so clearing one
+        // because another opened honors that surface's URL rather than bouncing to the list.
         setSelectedReportId: () => [
-            // When a report is cleared because a scout was just selected (mutually exclusive views),
-            // honor the scout's URL rather than bouncing to the list and clobbering the scout route.
-            values.selectedReportId
-                ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                : values.selectedScoutSkillName
-                  ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
-                  : urls.inbox(values.activeTab),
+            inboxSurfaceUrl(values),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
         ],
         setSelectedScoutSkillName: () => [
-            values.selectedScoutSkillName
-                ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
-                : values.selectedReportId
-                  ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                  : urls.inbox(values.activeTab),
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setScratchpadOpen: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setFindingsOpen: () => [
+            inboxSurfaceUrl(values),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
@@ -361,6 +463,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     urlToAction(({ actions, values, cache }) => ({
+        [urls.inboxScratchpad()]: () => {
+            if (!values.isScratchpadOpen) {
+                actions.setScratchpadOpen(true)
+            }
+        },
+        [urls.inboxFindings()]: () => {
+            if (!values.isFindingsOpen) {
+                actions.setFindingsOpen(true)
+            }
+        },
         [urls.inbox()]: () => {
             cache.inboxListVisited = true
             if (values.selectedReportId !== null) {
@@ -368,6 +480,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
+            }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
+            if (values.isFindingsOpen) {
+                actions.setFindingsOpen(false)
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
@@ -397,8 +515,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
+            if (values.isFindingsOpen) {
+                actions.setFindingsOpen(false)
+            }
         },
         [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            // `/inbox/scouts/scratchpad` and `/inbox/scouts/findings` also match this pattern; their own
+            // handlers own those paths (no real scout skill_name collides — they're `signals-scout-*`).
+            if (skillName === 'scratchpad' || skillName === 'findings') {
+                return
+            }
             const name = skillName ?? null
             // Also reset the finding when landing on the bare scout URL after a finding deep-link.
             if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {

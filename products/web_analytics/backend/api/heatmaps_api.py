@@ -30,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
@@ -754,6 +755,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "has_content",
             "snapshots",
             "deleted",
+            "block_consent_modals",
             "created_by",
             "created_at",
             "updated_at",
@@ -779,6 +781,10 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
             "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
             "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
+            "block_consent_modals": {
+                "help_text": "Whether the headless browser dismisses cookie/consent banners before capturing "
+                "the screenshot. Only applies to 'screenshot' heatmaps."
+            },
             "exception": {"help_text": "Error detail when screenshot generation failed, otherwise null."},
         }
 
@@ -926,7 +932,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SavedHeatmap
-        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        fields = ["name", "url", "data_url", "widths", "type", "deleted", "block_consent_modals"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True, "help_text": "Human-readable label for the saved heatmap."},
             "url": {
@@ -945,6 +951,12 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
                 "or 'recording'. Only 'screenshot' generates image bytes.",
             },
             "deleted": {"required": False, "help_text": "Set true to soft-delete the saved heatmap."},
+            "block_consent_modals": {
+                "required": False,
+                "help_text": "When true, ask the headless browser to dismiss cookie/consent banners before "
+                "capturing the screenshot. Off by default: the blocker can stall the render on some sites and "
+                "time out. Only applies to 'screenshot' heatmaps.",
+            },
         }
 
 
@@ -1048,6 +1060,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         data_url = serializer.validated_data.get("data_url") or url
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
         heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+        block_consent_modals = serializer.validated_data.get("block_consent_modals", False)
 
         screenshot = SavedHeatmap.objects.create(
             team=self.team,
@@ -1056,6 +1069,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             data_url=data_url,
             target_widths=widths,
             type=heatmap_type,
+            block_consent_modals=block_consent_modals,
             created_by=cast(User, request.user),
             status=SavedHeatmap.Status.PROCESSING
             if heatmap_type == SavedHeatmap.Type.SCREENSHOT
@@ -1072,7 +1086,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="created",
             detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
 
         if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
@@ -1129,11 +1143,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         old_url = obj.url
+        old_block_consent_modals = obj.block_consent_modals
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 
-        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+        render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
             self._regenerate(updated)
 
         log_activity(
@@ -1146,6 +1162,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="updated",
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

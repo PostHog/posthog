@@ -32,6 +32,7 @@ import {
     createMetricsServer,
     handleMetricsRequest,
     HttpClient,
+    HttpGatewayCatalog,
     HttpGatewayClient,
     initMetrics,
     installProcessHandlers,
@@ -46,6 +47,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgMcpConnectionStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -59,6 +61,7 @@ import {
     SlackFailureNotifier,
     TriggerAwareFailureNotifier,
 } from '@posthog/agent-shared'
+import { buildWebSearchProviders } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
@@ -101,6 +104,22 @@ async function main(): Promise<void> {
     // so author-supplied URLs (web-fetch, http-request, external MCPs) get SSRF
     // protection; required in prod, enforced at config-load (config.ts).
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
+
+    // `@posthog/web-search` provider chain. Built once from AGENT_WEB_SEARCH_*
+    // config and threaded onto each session's ToolContext. The providers issue
+    // their egress through the same proxy-bound `http` above (vendor hosts must
+    // be on the smokescreen allowlist). Empty chain → the tool is gated out of
+    // every session, so an unconfigured deployment never shows a tool that
+    // just throws.
+    const webSearchProviders = buildWebSearchProviders(
+        {
+            primary: config.webSearchProvider,
+            fallbacks: config.webSearchFallbacks,
+            keys: { exa: config.exaApiKey, tavily: config.tavilyApiKey, brave: config.braveApiKey },
+        },
+        log
+    )
+    log.info({ providers: webSearchProviders.map((p) => p.name) }, 'web_search.boot')
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fail closed at config-load in prod). Endpoint is optional:
@@ -167,6 +186,11 @@ async function main(): Promise<void> {
     // bearer is a single static phs_ now, so this no longer feeds it.
     const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
 
+    // Shared MCP credentials (`spec.mcps[].connection`): reads/decrypts/refreshes
+    // the native installation row. `http` is proxy-bound (refresh via smokescreen).
+    // Needs UPDATE on `mcp_store_mcpserverinstallation` for write-back.
+    const mcpConnections = new PgMcpConnectionStore(posthogDb, encryption, http)
+
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
     // per tool dispatch, and one `$ai_trace` per session via PostHog's standard
     // ingestion path (posthog-node /capture). Routes each event to the owning
@@ -199,6 +223,17 @@ async function main(): Promise<void> {
     const gatewayClient = config.useAiGateway
         ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http: new DirectHttpClient() })
         : null
+
+    // Served-model catalog off the same gateway the data plane uses — source of
+    // truth for models resolution + the models tool. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = config.useAiGateway
+        ? new HttpGatewayCatalog({
+              baseUrl: config.aiGatewayUrl,
+              bearer: config.posthogAiGatewayKey,
+              http: new DirectHttpClient(),
+          })
+        : undefined
 
     // Agent memory: S3-backed file store. Required everywhere — the runner
     // refuses to boot without it so the `@posthog/memory-*` + `@posthog/table-*`
@@ -284,11 +319,13 @@ async function main(): Promise<void> {
         approvals,
         // Clickable deep link that opens the approval in PostHog Code (the agent
         // console now lives in the desktop/web app). Surfaced to the model on a
-        // gated tool call and whatever it posts to chat / Slack. The approval
-        // request id alone resolves the approval in the fleet inbox, so the link
-        // needs nothing more. Handled by the `approval` deep-link key in
-        // PostHog Code (posthog-code://approval/<id>).
-        buildApprovalUrl: (requestId) => `${config.approvalLinkScheme}://approval/${requestId}`,
+        // gated tool call and whatever it posts to chat / Slack. Carries the
+        // agent slug (`?agent=<slug>`) so the approval modal can address the
+        // slug-routed ingress directly and decide under the user's own auth — no
+        // project-scoped lookup. Handled by the `approval` deep-link key in
+        // PostHog Code (posthog-code://approval/<id>?agent=<slug>).
+        buildApprovalUrl: (requestId, slug) =>
+            `${config.approvalLinkScheme}://approval/${requestId}${slug ? `?agent=${encodeURIComponent(slug)}` : ''}`,
         bus,
         logs: logSink,
         resolveSecrets,
@@ -304,6 +341,7 @@ async function main(): Promise<void> {
                       apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
+        gatewayCatalog,
         // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
         // Gateway path → the static phs_ (cost bills to the team that owns it);
         // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).
@@ -312,6 +350,13 @@ async function main(): Promise<void> {
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
+                  // Agent attribution onto the gateway's `$ai_generation` so the
+                  // observability board can slice per agent. The gateway strips
+                  // `$ai_*` from this passthrough but keeps `$agent_*`.
+                  'X-PostHog-Properties': JSON.stringify({
+                      $agent_application_id: session.application_id,
+                      $agent_session_id: session.id,
+                  }),
               })
             : undefined,
         // /v1/usage + /v1/wallet reads use the same static phs_ (the `phc` field
@@ -319,10 +364,11 @@ async function main(): Promise<void> {
         resolveGatewayUsage: gatewayClient
             ? () => ({ client: gatewayClient, phc: config.posthogAiGatewayKey! })
             : undefined,
-        // On the gateway path pi-ai's cost numbers are client-side estimates;
-        // the gateway itself owns billing. We keep token counts. Cost is
-        // recovered post-turn via /v1/usage/{request_id} (see resolveGatewayUsage).
-        useGatewayCost: config.useAiGateway,
+        // Gateway path: the gateway emits the `$ai_generation` (settled cost +
+        // the attribution above), so the runner suppresses its own. Session-row
+        // cost comes from /v1/usage post-turn (resolveGatewayUsage); pi-ai's
+        // estimate is never used.
+        gatewayEmitsGenerations: config.useAiGateway,
         analytics,
         maxConcurrency: config.maxConcurrency,
         maxOutputTokens: config.maxOutputTokens,
@@ -334,9 +380,11 @@ async function main(): Promise<void> {
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
+        mcpConnections,
         devMcpBearerToken: config.devMcpBearerToken,
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,
+        webSearchProviders,
         failureNotifier,
     })
 

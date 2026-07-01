@@ -4,10 +4,10 @@
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
  * as the asking user — the same pattern as `posthog-ai`, applied to the
- * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`)
- * and the PostHog Code client/UI tools. Destructive authoring ops
+ * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
- * allow-list (`requires_approval` + `approval_policy`), so the platform — not
+ * via `level: 'approve'` + `approval_policy`, so the platform — not
  * just the prompt — holds them. This case pins that wiring net; drift here
  * means the bundle is broken regardless of platform readiness.
  *
@@ -29,11 +29,6 @@ async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Rec
     const files: Record<string, string> = {}
     files['agent.md'] = await readFile(join(BUNDLE_ROOT, 'agent.md'), 'utf-8')
     files['README.md'] = await readFile(join(BUNDLE_ROOT, 'README.md'), 'utf-8')
-    const skillDirs = await readdir(join(BUNDLE_ROOT, 'skills'))
-    for (const id of skillDirs) {
-        const p = `skills/${id}/SKILL.md`
-        files[p] = await readFile(join(BUNDLE_ROOT, p), 'utf-8')
-    }
     return { spec, files }
 }
 
@@ -43,16 +38,16 @@ describe('example: agent-builder bundle', () => {
         expect(() => AgentSpecSchema.parse(spec)).not.toThrow()
     })
 
-    it('every skill path in spec.skills[] exists as a bundle file, incl. the identity skill', async () => {
-        const { spec, files } = await loadBundle()
+    it('carries NO inline skills — kernel skills are platform-injected, playbooks are MCP', async () => {
+        const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        for (const skill of parsed.skills) {
-            expect(files[skill.path]).not.toBeUndefined()
-            expect((skill.description ?? '').length).toBeGreaterThan(30)
-        }
-        // The identity skill is the one we added for the MCP/identity swap — it's
-        // how the builder learns to wire `identity_providers` into agents it builds.
-        expect(parsed.skills.some((s) => s.id === 'authenticating-as-the-user')).toBe(true)
+        // The author-facing bundle never carries skills. Kernel skills (the
+        // concierge's own runtime behaviour — safety, console UI, fleet audit)
+        // are injected from backend code at freeze (logic/kernel_skills.py), so
+        // they move in lockstep with the platform and can't drift per account.
+        // Builder playbooks (how to author/edit/wire-identity an agent) are served
+        // by the MCP `agent-resolve-resource`, fetched on demand. Neither is here.
+        expect(parsed.skills).toEqual([])
     })
 
     it('agent.md is present and non-trivial', async () => {
@@ -70,13 +65,13 @@ describe('example: agent-builder bundle', () => {
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
     })
 
-    it('keeps only its own runtime natives (memory) — no native agent-applications tools', async () => {
+    it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const nativeIds = parsed.tools.filter((t) => t.kind === 'native').map((t) => t.id)
         // The authoring surface moved to the MCP; the only natives left are the
-        // agent's own S3 memory tools.
-        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-'))).toBe(true)
+        // agent's own runtime tools — S3 memory plus web search.
+        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-') || id === '@posthog/web-search')).toBe(true)
         expect(nativeIds.some((id) => id.startsWith('@posthog/agent-applications-'))).toBe(false)
         // Whatever natives remain must still resolve in the catalog.
         const catalog = new Set(listNativeTools().map((t) => t.id))
@@ -115,6 +110,7 @@ describe('example: agent-builder bundle', () => {
             .map((t) => t.id)
             .sort()
         expect(ids).toEqual([
+            'connect_mcp',
             'focus_file',
             'focus_revision',
             'focus_session',
@@ -148,13 +144,9 @@ describe('example: agent-builder bundle', () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const entries = parsed.mcps[0].tools ?? []
-        // Object-form entries on the allow-list carry the approval policy — that's
-        // how the platform (not just the prompt) holds a destructive authoring op.
-        const gated = new Map(
-            entries
-                .filter((e): e is Exclude<typeof e, string> => typeof e !== 'string' && e.requires_approval === true)
-                .map((e) => [e.name, e])
-        )
+        // `level: 'approve'` entries carry the approval policy — that's how the
+        // platform (not just the prompt) holds a destructive authoring op.
+        const gated = new Map(entries.filter((e) => e.level === 'approve').map((e) => [e.name, e]))
         for (const name of [
             'agent-applications-revisions-promote-create',
             'agent-applications-revisions-archive-create',

@@ -19,6 +19,7 @@ import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
     computeStackData,
     computeTopStackedKeyByAxis,
@@ -315,6 +316,7 @@ function ComboChartInner<Meta = unknown>({
     // still yields correct line values.
     const resolveValue = useMemo(() => buildSegmentResolveValue(barStackedData), [barStackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(barStackedData), [barStackedData])
 
     return (
         <Chart
@@ -331,6 +333,7 @@ function ComboChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>

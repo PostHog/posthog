@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders } from '~/types'
-import { normalizeEvent, normalizeProcessPerson } from '~/utils/event'
 
 type NormalizeEventInput = {
     event: PluginEvent

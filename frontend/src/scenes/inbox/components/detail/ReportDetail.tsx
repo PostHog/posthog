@@ -1,13 +1,22 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconArrowLeft, IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconCode,
+    IconDocument,
+    IconEllipsis,
+    IconExternal,
+    IconPullRequest,
+    IconSearch,
+} from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -15,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
+import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import {
     displayConventionalCommitTitle,
     ParsedPrUrlParts,
@@ -23,7 +32,6 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
-import { ForYouBadge } from '../badges/ForYouBadge'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
@@ -31,7 +39,7 @@ import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow 
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
-import { ReportDetailActions } from './ReportDetailActions'
+import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -58,25 +66,26 @@ export function ReportDetailBadges({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
-            {report.is_suggested_reviewer && <ForYouBadge />}
         </>
     )
 }
 
 /**
- * Single meta line under the title: status/actionability/for-you chips, then dot-separated stats
- * (finding count · created [· updated] · source stack). The updated time is only shown when
- * it meaningfully differs from created. `evidenceCount` switches to the live signal count once
+ * Single meta line under the title: status/actionability chips, then dot-separated stats
+ * (finding count · updated · source stack). `evidenceCount` switches to the live signal count once
  * findings load, so the row reads the same before and after the query resolves.
  */
 function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
+    scoutName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
+    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
+    scoutName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -90,25 +99,21 @@ function ReportDetailMeta({
             </span>
         )
     }
-    // Updated is shown alongside Created only when they differ beyond same-moment noise (≥ 1 min apart).
-    const updatedDiffers =
-        !!report.updated_at && Math.abs(dayjs(report.updated_at).diff(dayjs(report.created_at), 'minute')) >= 1
+    // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
     stats.push(
         <span className="flex items-center gap-1">
-            <span>Created</span>
+            <span>First seen</span>
             <TZLabel time={report.created_at} />
         </span>
     )
-    if (updatedDiffers) {
-        stats.push(
-            <span className="flex items-center gap-1">
-                <span>Updated</span>
-                <TZLabel time={report.updated_at} />
-            </span>
-        )
-    }
+    stats.push(
+        <span className="flex items-center gap-1">
+            <span>Last updated</span>
+            <TZLabel time={report.updated_at ?? report.created_at} />
+        </span>
+    )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
     }
 
     return (
@@ -118,7 +123,6 @@ function ReportDetailMeta({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
-            {report.is_suggested_reviewer && <ForYouBadge />}
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
                     <span key={i} className="flex items-center gap-2 min-w-0">
@@ -132,11 +136,22 @@ function ReportDetailMeta({
 }
 
 /** Source-product icon stack reused inside the detail meta row. */
-function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
+function MetaSourceStack({
+    sourceProducts,
+    scoutName,
+}: {
+    sourceProducts?: string[] | null
+    scoutName?: string | null
+}): JSX.Element | null {
     const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
+    const primaryLabel =
+        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+            ? `${primary.meta.label} · ${scoutName}`
+            : primary.meta.label
     return (
         <span className="inline-flex items-center gap-1.5 min-w-0">
             <SourceProductIconRow
@@ -144,7 +159,7 @@ function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null 
                 className="inline-flex items-center gap-1 shrink-0"
             />
             <span>
-                {primary.meta.label}
+                {primaryLabel}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}
             </span>
         </span>
@@ -195,7 +210,7 @@ export function ReportDetailSkeleton(): JSX.Element {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0 flex flex-col gap-2.5">
                     <div className="h-4 w-28 rounded bg-fill-highlight-100 animate-pulse" />
                     <div className="h-3 w-full rounded bg-fill-highlight-50 animate-pulse" />
@@ -247,12 +262,36 @@ export function InboxDetailFrame({
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
+    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
+    const scoutName = scoutDisplayName(report.scout_name)
+
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const reportPath = urls.inboxReport(tab, report.id)
+
+    // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
+    // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
+    const detailActions = useReportDetailActions(report)
+    const reportActions: ReportDetailAction[] = [
+        {
+            key: 'copy-link',
+            label: 'Copy link',
+            icon: <IconLink />,
+            tooltip: 'Copy a link to this report',
+            onClick: () =>
+                void copyToClipboard(`${window.location.origin}${addProjectIdIfMissing(reportPath)}`, 'report link'),
+        },
+        ...detailActions,
+    ]
+    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
+        label: action.label,
+        icon: action.icon,
+        disabledReason: action.loading ? 'Working…' : undefined,
+        onClick: action.onClick,
+    }))
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
@@ -291,35 +330,49 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
+                                scoutName={scoutName}
                             />
                         </div>
                     </div>
-                    <div className="flex items-center flex-wrap gap-2 @2xl:shrink-0">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconLink />}
-                            tooltip="Copy a link to this report"
-                            onClick={() =>
-                                void copyToClipboard(
-                                    `${window.location.origin}${addProjectIdIfMissing(reportPath)}`,
-                                    'report link'
-                                )
-                            }
-                        >
-                            Copy link
-                        </LemonButton>
-                        <ReportDetailActions report={report} />
+                    <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
+                        {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
+                        <div className="hidden @4xl:flex items-center gap-2">
+                            {reportActions.map((action) => (
+                                <LemonButton
+                                    key={action.key}
+                                    type="secondary"
+                                    size="small"
+                                    icon={action.icon}
+                                    loading={action.loading}
+                                    tooltip={action.tooltip}
+                                    onClick={action.onClick}
+                                >
+                                    {action.label}
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconEllipsis />}
+                                aria-label="More actions"
+                                className="@4xl:hidden"
+                            />
+                        </LemonMenu>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0">
                     <RightColumnSection icon={summary.icon} title={summary.title}>
                         {report.summary ? (
-                            <LemonMarkdown className="text-sm text-secondary leading-normal break-words" disableImages>
+                            <LemonMarkdown
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                disableImages
+                            >
                                 {report.summary}
                             </LemonMarkdown>
                         ) : (
@@ -395,6 +448,11 @@ function PullRequestBanner({ prUrl, prRef }: { prUrl: string; prRef: ParsedPrUrl
  * "Open in GitHub" action surface only when the report has a shipped implementation PR;
  * otherwise it reads as a plain report. Runs keep their own `AgentRunDetail`.
  */
+/** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
+function prFilesUrl(prUrl: string): string {
+    return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
+}
+
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -411,7 +469,7 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                         type="primary"
                         size="small"
                         sideIcon={<IconExternal />}
-                        to={prUrl}
+                        to={prFilesUrl(prUrl)}
                         targetBlank
                         tooltip={`${prRef.repoSlug}#${prRef.number}`}
                     >
@@ -422,7 +480,7 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
         >
             {hasPr ? (
                 <RightColumnSection icon={<IconCode />} title="Diff">
-                    <PullRequestBanner prUrl={prUrl} prRef={prRef} />
+                    <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} />
                 </RightColumnSection>
             ) : null}
         </InboxDetailFrame>

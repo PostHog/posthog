@@ -10,7 +10,7 @@ from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
@@ -62,13 +62,16 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
         else:
             try:
-                query = await self._validate_hogql_query(args.query)
+                validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
                 message = f"Query validation failed: {e.validation_message}"
                 suggestion = await self._maybe_import_suggestion(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
                 raise MaxToolRetryableError(message)
+
+            variables = await self._abuild_query_variables(validated.query)
+            query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
 
             # Warn (non-fatally) when the query references events/properties absent from the project
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
@@ -83,7 +86,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             user=self._user,
         )
         results = await insight_context.execute_and_format(
-            prompt_template="{{{results}}}", truncate_results=args.truncate
+            prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
         )
 
         return _prepend_taxonomy_warnings(results, taxonomy_warnings)

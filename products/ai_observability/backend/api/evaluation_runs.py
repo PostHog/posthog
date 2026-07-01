@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.ai_table_resolver import is_ai_events_enabled
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
 from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.run_evaluation import RunEvaluationInputs
@@ -106,63 +106,17 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             where_clauses.append("distinct_id = %(distinct_id)s")
             params["distinct_id"] = distinct_id
 
-        # Try ai_events first (unless kill switch is off), fall back to events
-        query_result: list[dict] = []
-        used_ai_events = False
-
-        # Tag these direct ClickHouse reads so the manual-eval-trigger lookup is attributed
-        # to AI observability in query-usage analysis alongside the rest of the product.
-        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
-            if is_ai_events_enabled(self.team):
-                heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
-                query_result = query_with_columns(
-                    f"""
-                    SELECT
-                        uuid,
-                        event,
-                        properties,
-                        timestamp,
-                        team_id,
-                        distinct_id,
-                        person_id,
-                        {heavy_cols}
-                    FROM ai_events
-                    WHERE {" AND ".join(where_clauses)}
-                    LIMIT 1
-                    """,
-                    params,
-                    team_id=self.team_id,
-                )
-                used_ai_events = len(query_result) > 0
-
-            if not query_result:
-                query_result = query_with_columns(
-                    f"""
-                    SELECT
-                        uuid,
-                        event,
-                        properties,
-                        timestamp,
-                        team_id,
-                        distinct_id,
-                        person_id
-                    FROM events
-                    WHERE {" AND ".join(where_clauses)}
-                    LIMIT 1
-                    """,
-                    params,
-                    team_id=self.team_id,
-                )
-
-        if len(query_result) == 0:
+        try:
+            event_data = self._fetch_event_for_evaluation(where_clauses, params)
+        except AIEventsExpiredError:
+            return Response(
+                {
+                    "error": f"Event {target_event_id} is past the ai_events retention window and can no longer be evaluated"
+                },
+                status=404,
+            )
+        except AIEventsNotFoundError:
             return Response({"error": f"Event {target_event_id} not found"}, status=404)
-
-        event_data = query_result[0]
-
-        if used_ai_events:
-            # Merge heavy columns back into properties for the evaluation workflow
-            heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
-            event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
 
         # Build workflow inputs
         inputs = RunEvaluationInputs(
@@ -234,3 +188,57 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 error=str(e),
             )
             return Response({"error": "Failed to start evaluation"}, status=500)
+
+    def _fetch_event_for_evaluation(self, where_clauses: list[str], params: dict[str, object]) -> dict:
+        """Fetch the target event with its heavy AI columns from ai_events.
+
+        An evaluation grades the heavy $ai_input / $ai_output, which live only on the
+        dedicated ai_events table. That table has a retention TTL, so when the event is
+        absent we probe the long-lived events table purely to classify the miss — a
+        stripped events row can't be evaluated either way.
+
+        Raises AIEventsExpiredError if the event is gone from ai_events but still in
+        events (aged past the TTL), or AIEventsNotFoundError if it is in neither.
+        """
+        heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
+        # Tag these direct ClickHouse reads so the manual-eval-trigger lookup is attributed
+        # to AI observability in query-usage analysis alongside the rest of the product.
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
+            rows = query_with_columns(
+                f"""
+                SELECT
+                    uuid,
+                    event,
+                    properties,
+                    timestamp,
+                    team_id,
+                    distinct_id,
+                    person_id,
+                    {heavy_cols}
+                FROM ai_events
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
+                team_id=self.team_id,
+            )
+            if not rows:
+                exists_in_events = query_with_columns(
+                    f"""
+                    SELECT 1
+                    FROM events
+                    WHERE {" AND ".join(where_clauses)}
+                    LIMIT 1
+                    """,
+                    params,
+                    team_id=self.team_id,
+                )
+                if exists_in_events:
+                    raise AIEventsExpiredError("target event has aged past the ai_events retention window")
+                raise AIEventsNotFoundError("target event not found")
+
+        event_data = rows[0]
+        # Merge heavy columns back into properties for the evaluation workflow.
+        heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
+        event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
+        return event_data

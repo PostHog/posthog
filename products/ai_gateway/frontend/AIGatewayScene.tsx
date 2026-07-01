@@ -2,10 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ComponentType } from 'react'
 
+import { HedgehogRoboHog } from '@posthog/brand/hoggies'
 import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { RobotHog } from 'lib/components/hedgehogs'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
@@ -97,7 +97,7 @@ export function AIGatewayScene(): JSX.Element {
 function GatewayIntro(): JSX.Element {
     return (
         <div className="border-2 border-dashed border-primary w-full p-6 rounded flex items-center gap-6">
-            <RobotHog className="w-24 hidden md:block shrink-0" />
+            <HedgehogRoboHog className="w-32 hidden md:block shrink-0" />
             <div className="flex-shrink">
                 <h3 className="m-0">No gateway usage yet</h3>
                 <p className="ml-0 mt-1 mb-0 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>

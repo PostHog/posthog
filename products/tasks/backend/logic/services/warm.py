@@ -67,15 +67,20 @@ class SandboxWarmer:
     # A warm Run is non-terminal and idling; these are the statuses it can hold before activation.
     _NON_TERMINAL_STATUSES: frozenset[str] = frozenset({TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS})
 
-    # Each checker returns None or raises a DRF APIException; the in-process caller can't return an HTTP
-    # Response, so the contract is exception-based and DRF renders the status from any depth. Fail-closed:
-    # a product warms only once it registers a gate here, else it would provision sandboxes with no ceiling.
-    ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None]] = {
+    # Maps an origin product to its pre-warm quota gate. A checker returns None or raises a DRF
+    # APIException (the in-process caller can't return an HTTP Response, so the contract is exception-
+    # based and DRF renders the status from any depth). ``None`` means the origin may warm with no
+    # billing quota — gated only by enablement + the warm-pool caps (e.g. USER_CREATED, the Code-app
+    # origin: gated by the ``tasks-prewarm-sandbox`` flag at the endpoint, not an AI-credit budget).
+    # Fail-closed: an origin absent from this registry cannot warm at all.
+    ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None] | None] = {
         Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
+        Task.OriginProduct.USER_CREATED: None,
     }
 
     ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
+        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=2, per_org=50),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 
@@ -85,11 +90,16 @@ class SandboxWarmer:
 
     @classmethod
     def enforce_quota(cls, origin_product: str, team: Team, user: User) -> None:
-        """Raise if ``team`` may not warm a Run for ``origin_product`` (over quota, or product not registered)."""
-        checker = cls.ORIGIN_PRODUCT_QUOTA.get(origin_product)
-        if checker is None:
+        """Raise if ``team`` may not warm a Run for ``origin_product`` (over quota, or origin not registered).
+
+        Fail-closed: an origin absent from the registry is denied. A registered origin whose gate is
+        ``None`` is allowed with no billing quota (enablement + caps gate it elsewhere).
+        """
+        if origin_product not in cls.ORIGIN_PRODUCT_QUOTA:
             raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
-        checker(team, user)
+        checker = cls.ORIGIN_PRODUCT_QUOTA[origin_product]
+        if checker is not None:
+            checker(team, user)
 
     @classmethod
     def at_capacity(cls, origin_product: str, team: Team, user: User) -> bool:
@@ -115,14 +125,18 @@ class SandboxWarmer:
             return True
         return warm_runs.filter(task__team__organization_id=team.organization_id).count() >= caps.per_org
 
-    def warm(self, *, mode: str = "interactive", extra_state: dict[str, Any] | None = None) -> WarmResult:
+    def warm(
+        self, *, mode: str = "interactive", extra_state: dict[str, Any] | None = None, create_pr: bool = False
+    ) -> WarmResult:
         """Idempotently ensure the Task has a warm Run, then dispatch the processing workflow after commit.
 
         - Idempotent: if the Task already has a non-terminal Run, return it without provisioning.
         - Fresh: a Task with no Runs gets a new warm Run; a Task whose latest Run is terminal gets a
-          successor that resumes from it (filesystem reuse via ``snapshot_external_id``).
+          successor that resumes from it (snapshot reuse via ``snapshot_external_id``).
         - ``extra_state`` carries product-specific Run state the generic warmer can't know (e.g. PostHog
-          AI's ``systemPrompt``); it is merged into the warm Run's initial state.
+          AI's ``systemPrompt``, or a target ``branch``); it is merged into the warm Run's initial state.
+        - ``create_pr`` is forwarded to the processing workflow; it defaults to ``False`` (PostHog AI warm
+          runs don't open PRs). The Code-app caller passes ``True`` so the activated run opens a PR.
 
         Raises ``QuotaLimitExceeded`` (402) / ``PermissionDenied`` (403) when gated, and ``Throttled``
         (429) when the warm pool is full.
@@ -143,6 +157,7 @@ class SandboxWarmer:
 
             run_state: dict[str, Any] = {
                 "await_user_message": True,
+                "prewarmed": True,
                 "initial_permission_mode": "default",
                 **(extra_state or {}),
             }
@@ -152,8 +167,14 @@ class SandboxWarmer:
                 snapshot_external_id = (existing.state or {}).get("snapshot_external_id")
                 if snapshot_external_id:
                     run_state["snapshot_external_id"] = snapshot_external_id
+                    snapshot_kind = (existing.state or {}).get("snapshot_kind")
+                    if snapshot_kind:
+                        run_state["snapshot_kind"] = snapshot_kind
+                    snapshot_mount_path = (existing.state or {}).get("snapshot_mount_path")
+                    if snapshot_mount_path:
+                        run_state["snapshot_mount_path"] = snapshot_mount_path
 
-            new_run = locked.create_run(mode=mode, extra_state=run_state)
+            new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
             task_id, run_id, team_id, user_id = str(locked.id), str(new_run.id), self.task.team_id, self.user.pk
@@ -163,8 +184,9 @@ class SandboxWarmer:
                     run_id=run_id,
                     team_id=team_id,
                     user_id=user_id,
-                    create_pr=False,
+                    create_pr=create_pr,
                     posthog_mcp_scopes="full",
+                    prewarmed=True,
                 )
             )
 
