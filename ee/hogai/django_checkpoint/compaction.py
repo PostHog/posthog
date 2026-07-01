@@ -18,12 +18,14 @@ class CompactionResult:
     compacted: bool
     checkpoints_deleted: int = 0
     blobs_deleted: int = 0
+    namespaces: int = 0
 
     def __add__(self, other: "CompactionResult") -> "CompactionResult":
         return CompactionResult(
             compacted=self.compacted or other.compacted,
             checkpoints_deleted=self.checkpoints_deleted + other.checkpoints_deleted,
             blobs_deleted=self.blobs_deleted + other.blobs_deleted,
+            namespaces=self.namespaces + other.namespaces,
         )
 
 
@@ -133,7 +135,8 @@ def compact_conversation(thread_id: str) -> CompactionResult:
     namespaces = list(
         ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True).distinct()
     )
-    result = CompactionResult(compacted=False)
+    # Seed the namespace count here so callers (e.g. the admin audit log) don't re-query it.
+    result = CompactionResult(compacted=False, namespaces=len(namespaces))
     for checkpoint_ns in namespaces:
         result += compact_thread(thread_id, checkpoint_ns)
     return result
