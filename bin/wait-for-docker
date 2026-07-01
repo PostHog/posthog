@@ -74,7 +74,7 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+        env -u COMPOSE_FILE docker compose ${compose_args[@]+"${compose_args[@]}"} "$@"
     else
         docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
@@ -160,11 +160,12 @@ while [ ${#pending[@]} -gt 0 ]; do
         key_count=${#ps_keys[@]}
         i=0
         while [ "$i" -lt "$key_count" ]; do
+            # No early break: a scaled service emits one ps row per replica, so
+            # keep the last match to preserve the prior map's last-write-wins.
             if [ "${ps_keys[$i]}" = "$svc" ]; then
                 health="${ps_health[$i]}"
                 state="${ps_state[$i]}"
                 container_id="${ps_id[$i]}"
-                break
             fi
             i=$((i + 1))
         done
