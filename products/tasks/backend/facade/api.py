@@ -31,7 +31,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, LinearAgentIntegration
 
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
@@ -45,6 +45,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskAutomation,
+    TaskExternalReference,
     TaskRun,
 )
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
@@ -774,6 +775,30 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def get_task_id_for_external_reference(*, team_id: int, kind: str, external_id: str) -> UUID | None:
+    """Return the task id already linked to an external resource, or ``None``.
+
+    Lets callers (e.g. the Linear webhook) dedupe to one task per external issue per team.
+    """
+    return (
+        TaskExternalReference.objects.for_team(team_id)
+        .filter(kind=kind, external_id=external_id)
+        .values_list("task_id", flat=True)
+        .first()
+    )
+
+
+def create_task_external_reference(
+    *, team_id: int, task_id: str | UUID, kind: str, external_id: str, external_url: str
+) -> None:
+    """Link a task to an external resource (e.g. a Linear issue). Idempotent per (team, kind, external_id)."""
+    TaskExternalReference.objects.for_team(team_id).get_or_create(
+        kind=kind,
+        external_id=external_id,
+        defaults={"team_id": team_id, "task_id": task_id, "external_url": external_url},
+    )
+
+
 def fail_task_run(run_id: str | UUID, error: str) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
@@ -1320,6 +1345,37 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
+def _post_linear_update_for_pr(run: TaskRun) -> None:
+    """When a Linear-origin run produces a PR, comment the PR link back on the originating Linear issue."""
+    if run.task.origin_product != Task.OriginProduct.LINEAR:
+        return
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url:
+        return
+
+    team_id = run.task.team_id
+    ref = (
+        TaskExternalReference.objects.for_team(team_id)
+        .filter(task_id=run.task_id, kind=TaskExternalReference.Kind.LINEAR_ISSUE)
+        .order_by("-created_at")
+        .first()
+    )
+    if ref is None:
+        return
+
+    integration = Integration.objects.filter(team_id=team_id, kind="linear-agent").first()
+    if integration is None:
+        return
+
+    try:
+        LinearAgentIntegration(integration).create_comment(
+            issue_id=ref.external_id,
+            body=f"**PostHog Code** opened a pull request: {pr_url}",
+        )
+    except Exception:
+        logger.exception("task_run_linear_update_for_pr_failed for run %s", run.id)
+
+
 def update_task_run(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
 ) -> contracts.TaskRunDetailDTO | None:
@@ -1418,6 +1474,7 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        _post_linear_update_for_pr(run)
 
     return _task_run_detail_to_dto(run)
 
@@ -1452,6 +1509,7 @@ def set_task_run_output(
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
+    _post_linear_update_for_pr(run)
     return _task_run_detail_to_dto(run)
 
 

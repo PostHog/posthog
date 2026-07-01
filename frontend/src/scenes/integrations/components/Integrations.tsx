@@ -34,6 +34,10 @@ export function LinearIntegration({ next }: { next?: string }): JSX.Element {
     return <OAuthIntegration kind="linear" connectText="Connect workspace" next={next} />
 }
 
+export function LinearAgentIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="linear-agent" connectText="Connect workspace" next={next} />
+}
+
 export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     return <OAuthIntegration kind="github" connectText="Connect organization" next={next} />
 }

@@ -19,7 +19,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
-import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
+import { GitHub, Linear, LinearAgent, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -1464,10 +1464,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
+                id: 'integration-linear-agent',
+                title: 'Linear (Agent) integration',
+                description: 'Let PostHog Code pick up issues assigned to it in Linear and open pull requests.',
+                component: <LinearAgent.SettingsSection />,
+                flag: 'POSTHOG_BOT_EVERYWHERE',
+                keywords: ['linear', 'agent', 'posthog code', 'bot', 'issue', 'pr'],
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
                 description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear', 'linear-agent']} />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {

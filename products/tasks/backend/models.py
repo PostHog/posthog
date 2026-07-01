@@ -74,6 +74,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
+        # Assigning a Linear issue to the PostHog Code agent (or @-mentioning it).
+        LINEAR = "linear", "Linear"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1734,6 +1736,41 @@ class CodeWorkstream(TeamScopedRootMixin):
 
     def __str__(self):
         return f"CodeWorkstream({self.key} {self.state})"
+
+
+class TaskExternalReference(TeamScopedRootMixin):
+    """Links a Task to an external resource (e.g. a Linear issue) so integrations
+    can find the originating issue from a task and post status updates back to it.
+
+    Kept generic on purpose: one row per (team, kind, external_id), survives beyond
+    a single run, and supports multiple references per task.
+    """
+
+    class Kind(models.TextChoices):
+        LINEAR_ISSUE = "linear-issue", "Linear issue"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False: posthog_team is a hot table, and a real FK constraint would
+    # take a lock on it at create time. App-level enforcement only (django-migrations skill).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="external_references")
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    external_id = models.CharField(max_length=255, help_text="External identifier, e.g. a Linear issue id")
+    external_url = models.URLField(max_length=1024)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_external_reference"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind", "external_id"],
+                name="task_external_reference_team_kind_extid_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"TaskExternalReference({self.kind}:{self.external_id} -> task {self.task_id})"
 
 
 @receiver(post_save, sender=TaskRun)

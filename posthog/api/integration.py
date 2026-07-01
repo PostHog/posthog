@@ -65,6 +65,7 @@ from posthog.models.integration import (
     GoogleCloudServiceAccountIntegration,
     Integration,
     JiraIntegration,
+    LinearAgentIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -749,6 +750,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 except Exception as e:
                     capture_exception(e)
 
+            if validated_data["kind"] == "linear-agent":
+                # Inbound webhooks are matched against the app's bot user id (data.viewer.id).
+                # If the OAuth/viewer response didn't include it the install is non-functional,
+                # so roll the row back and surface a clear error instead of a silent failure.
+                if not LinearAgentIntegration(instance).bot_user_id():
+                    instance.delete()
+                    raise ValidationError(
+                        "Linear did not return the app's bot user. Please reinstall the Linear agent."
+                    )
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -897,6 +908,13 @@ class IntegrationViewSet(
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+        elif instance.kind == "linear-agent":
+            # App-level webhooks have nothing to deregister; revoke the OAuth token so Linear
+            # stops delivering events for this org. Best-effort — never block disconnect.
+            try:
+                LinearAgentIntegration(instance).revoke()
             except Exception as e:
                 capture_exception(e)
         elif instance.kind == "email" and instance.config.get("provider") == "ses":

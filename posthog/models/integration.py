@@ -237,6 +237,7 @@ class Integration(models.Model):
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
+        LINEAR_AGENT = "linear-agent"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
         PINTEREST_ADS = "pinterest-ads"
@@ -390,6 +391,7 @@ class OauthIntegration:
         "meta-ads",
         "intercom",
         "linear",
+        "linear-agent",
         "clickup",
         "jira",
         "pinterest-ads",
@@ -616,6 +618,31 @@ class OauthIntegration:
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
+                id_path="data.viewer.organization.id",
+                name_path="data.viewer.organization.name",
+            )
+        elif kind == "linear-agent":
+            if not settings.LINEAR_AGENT_APP_CLIENT_ID or not settings.LINEAR_AGENT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Linear (Agent) app not configured")
+
+            # Installs as `actor=app` so the OAuth token acts as the app's own user (the agent).
+            # The viewer query yields both the bot user id (the actor, stored in config) and the
+            # organization (whose id becomes integration_id, used to map webhooks back to a team).
+            return OauthConfig(
+                authorize_url="https://linear.app/oauth/authorize",
+                additional_authorize_params={"actor": "app"},
+                token_url="https://api.linear.app/oauth/token",
+                token_info_url="https://api.linear.app/graphql",
+                token_info_graphql_query="{ viewer { id name organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.id",
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
+                client_id=settings.LINEAR_AGENT_APP_CLIENT_ID,
+                client_secret=settings.LINEAR_AGENT_APP_CLIENT_SECRET,
+                scope="read,write,comments:create,issues:create,app:mentionable,app:assignable",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )
@@ -2249,6 +2276,95 @@ class LinearIntegration:
             json={"query": query, "variables": variables or {}},
         )
         return response.json()
+
+
+class LinearAgentIntegration:
+    """Linear OAuth app installed as an agent (`actor=app`), kind ``linear-agent``.
+
+    Distinct from `LinearIntegration` (the error-tracking ``linear`` kind): this token acts
+    as the app's own bot user. Used to read the installed org/bot identity (to map inbound
+    webhooks to a team) and to comment back on issues with task status (PR links).
+
+    Webhooks are configured once at the Linear *application* level (Linear auto-delivers
+    events from every workspace that authorized the app to that single URL), so this class
+    deliberately does not register or delete per-install webhooks.
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "linear-agent":
+            raise Exception("LinearAgentIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def organization_id(self) -> str | None:
+        return dot_get(self.integration.config, "data.viewer.organization.id")
+
+    def bot_user_id(self) -> str | None:
+        return dot_get(self.integration.config, "data.viewer.id")
+
+    def url_key(self) -> str | None:
+        return dot_get(self.integration.config, "data.viewer.organization.urlKey")
+
+    def _ensure_token_valid(self) -> None:
+        """Proactively refresh the token if it's close to expiring, to avoid 401s."""
+        try:
+            oauth_integration = OauthIntegration(self.integration)
+            if oauth_integration.access_token_expired():
+                oauth_integration.refresh_access_token()
+        except Exception:
+            logger.warning("LinearAgentIntegration: token refresh pre-check failed", exc_info=True)
+
+    def execute(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run a GraphQL operation, refreshing the access token on expiry and retrying once on 401."""
+        self._ensure_token_valid()
+
+        def _post() -> requests.Response:
+            return requests.post(
+                "https://api.linear.app/graphql",
+                headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+                json={"query": query, "variables": variables or {}},
+                timeout=15,
+            )
+
+        response = _post()
+        if response.status_code == 401:
+            # Token may have been rotated/revoked out of band — refresh once and retry.
+            OauthIntegration(self.integration).refresh_access_token()
+            response = _post()
+
+        response.raise_for_status()
+        body = response.json()
+        if body.get("errors"):
+            raise Exception(f"Linear GraphQL error: {body['errors']}")
+        return body
+
+    def create_comment(self, issue_id: str, body: str) -> str | None:
+        """Post a comment on a Linear issue (``issue_id`` is the issue's UUID). Returns the comment id."""
+        result = self.execute(
+            """
+            mutation CommentCreate($issueId: String!, $body: String!) {
+                commentCreate(input: { issueId: $issueId, body: $body }) {
+                    success
+                    comment { id }
+                }
+            }
+            """,
+            variables={"issueId": issue_id, "body": body},
+        )
+        return dot_get(result, "data.commentCreate.comment.id")
+
+    def revoke(self) -> None:
+        """Best-effort OAuth token revoke so Linear stops delivering webhooks for this org on uninstall."""
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            return
+        requests.post(
+            "https://api.linear.app/oauth/revoke",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
 
 
 class JiraIntegration:

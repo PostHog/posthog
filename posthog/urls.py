@@ -30,6 +30,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
+from posthog.api.linear_agent_webhook import handle_linear_agent_webhook
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -471,6 +472,8 @@ urlpatterns = [
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
+    # Linear agent webhook — app-level delivery for all workspaces that authorized the app
+    opt_slash_path("api/linear-agent/webhook", handle_linear_agent_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
