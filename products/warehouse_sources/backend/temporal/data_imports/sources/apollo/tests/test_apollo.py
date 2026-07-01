@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest import mock
+
+from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
     MAX_PAGES,
@@ -260,8 +261,10 @@ class TestRetryAfter:
     def test_parse_retry_after(self, value, expected):
         assert _parse_retry_after(value) == expected
 
-    def _state(self, exc: Exception) -> SimpleNamespace:
-        return SimpleNamespace(outcome=SimpleNamespace(exception=lambda: exc))
+    def _state(self, exc: Exception) -> RetryCallState:
+        state = RetryCallState(retry_object=mock.MagicMock(), fn=None, args=(), kwargs={})
+        state.outcome = Future.construct(1, exc, has_exception=True)
+        return state
 
     def test_wait_honors_retry_after_below_cap(self):
         assert _wait_apollo(self._state(ApolloRetryableError("rate limited", retry_after=45.0))) == 45.0
