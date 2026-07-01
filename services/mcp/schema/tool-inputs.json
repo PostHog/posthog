@@ -520,7 +520,12 @@
         },
         "ProjectGetAllSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "name": {
+                    "description": "Optional case-insensitive substring to filter projects by name. Use this to resolve a project name to its id instead of guessing or enumerating ids.",
+                    "type": "string"
+                }
+            }
         },
         "ProjectSetActiveSchema": {
             "type": "object",
