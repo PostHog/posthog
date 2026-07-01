@@ -4,7 +4,14 @@ import http from 'node:http'
 import { AddressInfo } from 'node:net'
 
 import { parseJSON } from './json-parse'
-import { SecureRequestError, fetch, internalFetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
+import {
+    RequestTimeoutError,
+    SecureRequestError,
+    fetch,
+    internalFetch,
+    legacyFetch,
+    raiseIfUserProvidedUrlUnsafe,
+} from './request'
 
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
@@ -24,6 +31,9 @@ beforeAll(async () => {
         if (url.pathname === '/get') {
             res.writeHead(200, { 'content-type': 'application/json' })
             res.end(JSON.stringify({ url: url.toString() }))
+        } else if (url.pathname === '/hang') {
+            // Never respond — the client's request timeout must fire. Connections are force-closed in afterAll.
+            return
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
@@ -366,5 +376,25 @@ describe('_fetch response body handling', () => {
         for (const line of lines) {
             expect(() => parseJSON(line)).not.toThrow()
         }
+    })
+})
+
+describe('request timeout handling', () => {
+    // Guards the fix for the un-debuggable timeout fingerprint: a fetch timeout must surface as a
+    // RequestTimeoutError carrying the target host (so timeouts group by upstream) instead of the raw
+    // AbortSignal.timeout DOMException, whose stack is entirely node-internal and identical for every caller.
+    it('throws a RequestTimeoutError naming the host when the request times out', async () => {
+        const host = new URL(baseUrl).host
+
+        const err = await internalFetch(`${baseUrl}/hang`, { timeoutMs: 50 }).catch((e) => e)
+
+        expect(err).toBeInstanceOf(RequestTimeoutError)
+        expect(err.name).toBe('RequestTimeoutError')
+        expect(err.message).toContain(host)
+        expect(err.message).toContain('50ms')
+        expect(err.host).toBe(host)
+        expect(err.timeoutMs).toBe(50)
+        // The original DOMException is preserved, but the surfaced error is app-level, not node-internal.
+        expect(err.cause).toBeDefined()
     })
 })

@@ -81,6 +81,38 @@ export class ResolutionError extends Error {
     }
 }
 
+/**
+ * Thrown when an outbound request exceeds its timeout.
+ *
+ * The raw rejection from `AbortSignal.timeout` is a `DOMException` constructed inside Node's
+ * timer callback, so its stack contains only node-internal frames (process.processTimers →
+ * listOnTimeout → Timeout._onTimeout → new DOMException) and no caller context — every fetch
+ * timeout across the service therefore collapses into a single, un-debuggable error fingerprint.
+ *
+ * We rethrow this instead from the awaiting call site: the stack now follows the async caller
+ * chain, and the host is embedded in the message, so timeouts group by which upstream is actually
+ * degraded rather than into one bucket. The original DOMException is preserved as `cause`.
+ */
+export class RequestTimeoutError extends Error {
+    readonly url: string
+    readonly host: string
+    readonly timeoutMs: number
+
+    constructor(url: string, timeoutMs: number, cause?: unknown) {
+        let host = 'unknown'
+        try {
+            host = new URL(url).host
+        } catch {
+            // Fall back to 'unknown' — the URL was already validated upstream, so this is defensive only
+        }
+        super(`External request to ${host} timed out after ${timeoutMs}ms`, cause !== undefined ? { cause } : undefined)
+        this.name = 'RequestTimeoutError'
+        this.url = url
+        this.host = host
+        this.timeoutMs = timeoutMs
+    }
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
@@ -313,14 +345,27 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
 
     options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
 
-    const result = await request(parsed.toString(), {
-        method: options.method ?? 'GET',
-        headers: options.headers,
-        body: options.body,
-        dispatcher,
-        // request() does not follow redirects, so a response can never bounce to an unvalidated host
-        signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
-    })
+    const target = parsed.toString()
+    const timeoutSignal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+
+    let result: Dispatcher.ResponseData
+    try {
+        result = await request(target, {
+            method: options.method ?? 'GET',
+            headers: options.headers,
+            body: options.body,
+            dispatcher,
+            // request() does not follow redirects, so a response can never bounce to an unvalidated host
+            signal: timeoutSignal,
+        })
+    } catch (err) {
+        // The timeout signal fires from a node-internal timer, so its DOMException carries no caller
+        // context — rethrow with the target URL and this async call site's stack so it groups by upstream.
+        if (timeoutSignal?.aborted) {
+            throw new RequestTimeoutError(target, options.timeoutMs, err)
+        }
+        throw err
+    }
 
     const headers: Record<string, string> = {}
     for (const [key, value] of Object.entries(result.headers)) {
@@ -394,7 +439,17 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    const timeoutMs = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    requestOptions.signal = timeoutSignal
 
-    return undiciFetch(parsed.toString(), requestOptions)
+    const target = parsed.toString()
+    return undiciFetch(target, requestOptions).catch((err) => {
+        // The timeout signal fires from a node-internal timer, so its DOMException carries no caller
+        // context — rethrow with the target URL and this async call site's stack so it groups by upstream.
+        if (timeoutSignal.aborted) {
+            throw new RequestTimeoutError(target, timeoutMs, err)
+        }
+        throw err
+    })
 }
