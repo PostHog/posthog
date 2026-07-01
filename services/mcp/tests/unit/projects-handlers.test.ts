@@ -55,7 +55,10 @@ function apiError(status: number): PostHogApiError {
 describe('project-get handler', () => {
     it('returns the project on success, stripping secret fields', async () => {
         const request = vi.fn().mockResolvedValue({ id: 1, name: 'Production', secret_api_token: 'phs_secret' })
-        const result = (await getProjectTool().handler(makeContext({ request }), { id: 1 })) as Record<string, unknown>
+        const result = (await getProjectTool().handler(makeContext({ request }), { id: 1 })) as unknown as Record<
+            string,
+            unknown
+        >
 
         expect(result.name).toBe('Production')
         expect(result).not.toHaveProperty('secret_api_token')
@@ -65,10 +68,9 @@ describe('project-get handler', () => {
         'degrades to accessible projects + guidance on a %i instead of throwing',
         async (status) => {
             const request = vi.fn().mockRejectedValue(apiError(status))
-            const result = (await getProjectTool().handler(makeContext({ request }), { id: 999 })) as Record<
-                string,
-                unknown
-            >
+            const result = (await getProjectTool().handler(makeContext({ request }), {
+                id: 999,
+            })) as unknown as Record<string, unknown>
 
             expect(result.requested_project_id).toBe(999)
             expect(result.accessible_projects).toEqual([
@@ -85,7 +87,7 @@ describe('project-get handler', () => {
         const request = vi.fn().mockRejectedValue(apiError(404))
         const result = (await getProjectTool().handler(makeContext({ request, listSuccess: false }), {
             id: 999,
-        })) as Record<string, unknown>
+        })) as unknown as Record<string, unknown>
 
         expect(result.accessible_projects).toEqual([])
         expect(result.guidance).toContain('projects-get')
