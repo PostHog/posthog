@@ -10,8 +10,8 @@ from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 
+from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.strategies import strategy_for
 
 logger = get_logger(__name__)
 

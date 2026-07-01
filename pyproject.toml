@@ -564,6 +564,19 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
+    # TODO: endpoints presentation wave — the structural move landed EndpointViewSet under
+    # presentation/views/ but it still reaches in-product internals (models, logic services,
+    # throttles, openapi generation) directly. Thin it to parse -> facade -> serialize and
+    # delete each entry. backend:contract-check stays off until this list is empty.
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.constants",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logs",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.models",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.openapi",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.rate_limit",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.crud",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.execution",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.materialization",
+    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.validation",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
     # directly. Thin it to parse -> facade -> serialize and delete each entry.

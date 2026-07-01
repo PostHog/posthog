@@ -29,6 +29,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.data_modeling.backend.facade.api import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
+from products.endpoints.backend.logic.activity import EndpointContext
+from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializationNotSupportedError,
     _extract_aggregate_name,
@@ -41,8 +43,6 @@ from products.endpoints.backend.materialization_transforms import (
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
-from products.endpoints.backend.services.activity import EndpointContext
-from products.endpoints.backend.services.strategies import apply_where_filter, strategy_for
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
