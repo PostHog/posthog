@@ -19,6 +19,13 @@ class CompactionResult:
     checkpoints_deleted: int = 0
     blobs_deleted: int = 0
 
+    def __add__(self, other: "CompactionResult") -> "CompactionResult":
+        return CompactionResult(
+            compacted=self.compacted or other.compacted,
+            checkpoints_deleted=self.checkpoints_deleted + other.checkpoints_deleted,
+            blobs_deleted=self.blobs_deleted + other.blobs_deleted,
+        )
+
 
 def _is_safe_to_compact(conversation: Conversation) -> bool:
     """A thread is only safe to collapse when it has finished a turn and has no pending approval.
@@ -91,9 +98,12 @@ def compact_thread(thread_id: str, checkpoint_ns: str = "") -> CompactionResult:
             referenced = Q()
             for channel, version in channel_versions.items():
                 referenced |= Q(channel=channel, version=str(version))
-            ConversationCheckpointBlob.objects.filter(
-                Q(thread_id=thread_id, checkpoint_ns=checkpoint_ns) & referenced
-            ).update(checkpoint=tip)
+            # Match by (channel, version), not checkpoint_ns: DjangoCheckpointer._put writes every
+            # blob with the default checkpoint_ns="" regardless of the checkpoint's namespace, so a
+            # subgraph tip's blobs live under "" too. Scoping the reassignment to `checkpoint_ns`
+            # would match nothing for a subgraph and let the cascade delete blobs the tip still needs.
+            # (thread_id, channel, version) is unique, so this is unambiguous.
+            ConversationCheckpointBlob.objects.filter(Q(thread_id=thread_id) & referenced).update(checkpoint=tip)
 
         ConversationCheckpoint.objects.filter(pk=tip.pk).update(parent_checkpoint=None)
 
@@ -108,3 +118,19 @@ def compact_thread(thread_id: str, checkpoint_ns: str = "") -> CompactionResult:
         checkpoints_deleted=checkpoints_deleted,
         blobs_deleted=blobs_deleted,
     )
+
+
+def compact_conversation(thread_id: str) -> CompactionResult:
+    """Compact every checkpoint namespace of a conversation, not just the root graph.
+
+    Max runs subgraphs (taxonomy, tools, deep-research, ...), each persisting checkpoints under its
+    own `checkpoint_ns`. `compact_thread` collapses a single namespace, so compacting only the root
+    ("") leaves every subgraph namespace untouched — most of a real conversation's checkpoints."""
+    # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint maintenance)
+    namespaces = list(
+        ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True).distinct()
+    )
+    result = CompactionResult(compacted=False)
+    for checkpoint_ns in namespaces:
+        result += compact_thread(thread_id, checkpoint_ns)
+    return result
