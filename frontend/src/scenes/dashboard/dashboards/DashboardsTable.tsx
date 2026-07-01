@@ -16,7 +16,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -50,6 +51,10 @@ interface DashboardsTableProps {
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
+    // Tree arm: resolves a dashboard's FileSystem entry for "Move to another folder". The sidebar-backed
+    // itemsByRef only holds lazily-loaded folders, so it's missing for most dashboards (the Move action then
+    // never appears). The tree arm passes its complete entryByRef so every dashboard is movable.
+    dashboardFsEntry?: (id: number) => FileSystemEntry | undefined
 }
 
 export function DashboardsTable({
@@ -57,6 +62,7 @@ export function DashboardsTable({
     dashboardsLoading,
     extraActions,
     hideActions,
+    dashboardFsEntry,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
@@ -69,7 +75,18 @@ export function DashboardsTable({
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openMoveToModal } = useActions(moveToLogic)
+    const { reportDashboardMoveInitiated } = useActions(eventUsageLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
+
+    // Prefer the tree arm's complete entryByRef over the sidebar's lazily-loaded itemsByRef, so every
+    // dashboard is movable even before the sidebar has populated.
+    const fsEntryFor = (id: number): FileSystemEntry | undefined =>
+        dashboardFsEntry?.(id) ?? itemsByRef[`dashboard::${id}`]
+
+    // The tree arm is the only caller that supplies a complete entry source. Control falls back to the
+    // sidebar's lazily-loaded itemsByRef, which is mostly empty here — so the bulk "Move to folder" button
+    // would render perpetually disabled. Gate it on the tree arm so control's bulk bar is unchanged.
+    const isTreeArm = !!dashboardFsEntry
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -169,7 +186,9 @@ export function DashboardsTable({
             ? {}
             : {
                   width: 0,
-                  render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
+                  render: function RenderActions(_, dashboard: DashboardType) {
+                      const { id, name, user_access_level } = dashboard
+                      const moveEntry = fsEntryFor(id)
                       return (
                           <More
                               overlay={
@@ -217,7 +236,7 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
-                                      {itemsByRef[`dashboard::${id}`] && (
+                                      {moveEntry && (
                                           <AccessControlAction
                                               resourceType={AccessControlResourceType.Dashboard}
                                               minAccessLevel={AccessControlLevel.Editor}
@@ -225,8 +244,8 @@ export function DashboardsTable({
                                           >
                                               <LemonButton
                                                   onClick={() => {
-                                                      const entry = itemsByRef[`dashboard::${id}`]
-                                                      openMoveToModal([entry as any])
+                                                      reportDashboardMoveInitiated('single', 1)
+                                                      openMoveToModal([moveEntry as any])
                                                   }}
                                                   fullWidth
                                                   data-attr="dashboard-move-to-folder"
@@ -301,16 +320,54 @@ export function DashboardsTable({
                             : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
                     rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
                     headerAriaLabel: 'Select all dashboards on this page',
-                    renderActions: (ctx) => (
-                        <BulkUpdateTagsButton
-                            resource="dashboards"
-                            selectedIds={ctx.selectedKeys}
-                            onSuccess={() => {
-                                ctx.clearSelection()
-                                dashboardsModel.actions.loadDashboards()
-                            }}
-                        />
-                    ),
+                    renderActions: (ctx) => {
+                        // Move the whole selection at once, resolving each id's entry the same way the per-row
+                        // Move does. Some rows may not resolve (e.g. unfiled dashboards the sidebar hasn't
+                        // loaded) — surface that count rather than silently dropping them from the move.
+                        // Tree arm only: in control the entry source is mostly empty, so the button would be
+                        // perpetually disabled — leave control's bulk bar exactly as it was.
+                        const moveEntries = isTreeArm
+                            ? ctx.selectedKeys.map(fsEntryFor).filter((entry): entry is FileSystemEntry => !!entry)
+                            : []
+                        const unmovable = ctx.selectedKeys.length - moveEntries.length
+                        const partial = unmovable > 0 && moveEntries.length > 0
+                        return (
+                            <>
+                                {isTreeArm && (
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            reportDashboardMoveInitiated('bulk', moveEntries.length)
+                                            openMoveToModal(moveEntries)
+                                            ctx.clearSelection()
+                                        }}
+                                        disabledReason={
+                                            moveEntries.length === 0
+                                                ? 'None of the selected dashboards can be moved to a folder'
+                                                : undefined
+                                        }
+                                        tooltip={
+                                            partial
+                                                ? `Only ${moveEntries.length} of ${ctx.selectedKeys.length} selected can be moved to a folder`
+                                                : undefined
+                                        }
+                                        data-attr="dashboards-bulk-move-to-folder"
+                                    >
+                                        {partial ? `Move ${moveEntries.length} to folder` : 'Move to folder'}
+                                    </LemonButton>
+                                )}
+                                <BulkUpdateTagsButton
+                                    resource="dashboards"
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        dashboardsModel.actions.loadDashboards()
+                                    }}
+                                />
+                            </>
+                        )
+                    },
                 }}
             />
         </>

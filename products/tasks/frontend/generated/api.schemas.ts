@@ -368,6 +368,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
+ * * `hogdesk` - HogDesk
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -384,6 +385,7 @@ export const OriginProductEnumApi = {
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
 } as const
 
 /**
@@ -454,7 +456,8 @@ export interface TaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -545,7 +548,8 @@ export interface PatchedTaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1637,8 +1641,16 @@ export interface ConnectionTokenResponseApi {
 }
 
 export interface TaskRunRelayMessageRequestApi {
-    /** @maxLength 10000 */
+    /**
+     * Joined message body. Used when text_parts is absent.
+     * @maxLength 10000
+     */
     text: string
+    /**
+     * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+     * @items.maxLength 10000
+     */
+    text_parts?: string[]
 }
 
 export interface TaskRunRelayMessageResponseApi {

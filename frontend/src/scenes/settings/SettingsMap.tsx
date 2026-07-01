@@ -500,7 +500,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
-                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
                 id: 'error-tracking-auto-assignment',

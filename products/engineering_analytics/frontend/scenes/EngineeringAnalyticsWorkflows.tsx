@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 
+import { BranchFilter } from '../components/BranchFilter'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
@@ -32,14 +31,12 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         workflowHealthLoading,
         notConnected,
         workflowHealthLoadError,
-        branchInput,
-        appliedBranch,
         sourceId,
         fleetSummary,
         fleetTruncated,
     } = useValues(engineeringAnalyticsLogic)
-    const { setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { refresh } = useActions(engineeringAnalyticsLogic)
+    const { dateFrom, dateTo, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
     const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     if (notConnected) {
@@ -51,12 +48,6 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
 
     const windowLabel = dateFilterToText(dateFrom, dateTo, 'Last 7 days') ?? 'Last 7 days'
 
-    // Stage + apply a branch in one click (the chips). Clicking the active chip clears back to all branches.
-    const selectBranch = (branch: string): void => {
-        setBranchFilter(branch)
-        applyBranchFilter()
-    }
-
     return (
         <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2">
@@ -66,29 +57,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
-                <LemonInput
-                    type="search"
-                    size="small"
-                    className="w-56"
-                    placeholder="Branch: all (e.g. main)"
-                    value={branchInput}
-                    onChange={setBranchFilter}
-                    onPressEnter={applyBranchFilter}
-                    onBlur={applyBranchFilter}
-                    data-attr="engineering-analytics-branch-filter"
-                />
-                {/* Quick presets for the default branch. We can't tell main from master without another query,
-                    so offer both — clicking the active one clears back to all branches. */}
-                {['main', 'master'].map((branch) => (
-                    <LemonButton
-                        key={branch}
-                        size="xsmall"
-                        type={appliedBranch === branch ? 'primary' : 'secondary'}
-                        onClick={() => selectBranch(appliedBranch === branch ? '' : branch)}
-                    >
-                        {branch}
-                    </LemonButton>
-                ))}
+                <BranchFilter />
             </div>
             {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />}
             <WorkflowHealthTable

@@ -152,6 +152,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "redeem_code_invite",
+    "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
     "reset_code_workflow_bindings",
@@ -809,6 +810,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
     return True
 
 
+def redispatch_task_run(run_id: str | UUID) -> str:
+    """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
+
+    Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``error``).
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        redispatch_orphaned_task_run,
+    )
+
+    return redispatch_orphaned_task_run(str(run_id))
+
+
 def upsert_internal_sandbox_env(
     team_id: int,
     name: str,
@@ -1184,7 +1198,11 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
+#     a caller could otherwise force directory snapshot creation while the feature flag is off.
+#   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
+#     restored on resume and where directory snapshots are mounted.
+# These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
@@ -1195,6 +1213,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "wizard_config",
+        "use_modal_directory_resume_snapshots",
+        "snapshot_external_id",
+        "snapshot_kind",
+        "snapshot_mount_path",
     }
 )
 
@@ -2001,13 +2023,34 @@ def capture_relay_command_telemetry(
 # --- Task run relay (Slack) ---
 
 
+def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
+    """Pick the text to post. If ``text_parts`` has any non-empty entries,
+    the last one wins (that's the post-last-tool-use answer). Otherwise fall
+    back to the joined ``text`` field."""
+    if text_parts:
+        for part in reversed(text_parts):
+            if isinstance(part, str) and part.strip():
+                return part
+    return text
+
+
 def relay_task_run_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, text: str
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    text: str,
+    text_parts: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text), or ``"failed"``.
+
+    When ``text_parts`` is provided the last non-empty entry is used — it's the
+    post-last-tool-use answer, and posting only that keeps the interim narration
+    ("Let me check…") out of the Slack thread. Older callers still send just
+    ``text`` and get the previous behavior unchanged.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -2022,7 +2065,8 @@ def relay_task_run_message(
     if not SlackThreadTaskMapping.objects.filter(task_run=run).exists():
         return "skipped", None
 
-    trimmed = text.strip()
+    posted_text = _pick_relay_text(text=text, text_parts=text_parts)
+    trimmed = posted_text.strip()
     if not trimmed:
         return "skipped", None
 
@@ -2339,8 +2383,6 @@ def resume_task_run_in_cloud(
     ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
     (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
-    from django.conf import settings  # noqa: PLC0415
-
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
     )
@@ -2362,7 +2404,8 @@ def resume_task_run_in_cloud(
             "prior_environment": run.environment,
             "prior_state_keys": sorted((run.state or {}).keys()),
             "prior_snapshot_external_id": (run.state or {}).get("snapshot_external_id"),
-            "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            "prior_snapshot_kind": (run.state or {}).get("snapshot_kind"),
+            "prior_snapshot_mount_path": (run.state or {}).get("snapshot_mount_path"),
         },
     )
 
@@ -3264,6 +3307,10 @@ def run_task(
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         if prev_state.snapshot_external_id:
             extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
+            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
+            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
+            if snapshot_mount_path is not None:
+                extra_state["snapshot_mount_path"] = snapshot_mount_path
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
