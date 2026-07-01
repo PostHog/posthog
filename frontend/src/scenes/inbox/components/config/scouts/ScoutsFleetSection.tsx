@@ -160,7 +160,7 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled } = useValues(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
     const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
 
     return (
@@ -185,6 +185,7 @@ function ScoutsFleetList(): JSX.Element {
                         rollup={rollups.get(config.skill_name)}
                         onUpdate={updateScoutConfig}
                         onDelete={deleteScout}
+                        deleting={deletingScoutIds.includes(config.id)}
                     />
                 ))}
             </div>

@@ -14,6 +14,12 @@ interface ScoutConfigControlsProps {
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
 }
 
+interface ScoutConfigFormProps extends ScoutConfigControlsProps {
+    onDelete?: (configId: string) => void
+    /** True while this scout's delete request is in flight — disables the delete button. */
+    deleting?: boolean
+}
+
 function intervalOptions(config: SignalScoutConfig): { value: string; label: string }[] {
     const options = RUN_INTERVAL_OPTIONS.map((option) => ({
         value: String(option.minutes),
@@ -48,11 +54,7 @@ export function ScoutEnabledSwitch({ config, onUpdate }: ScoutConfigControlsProp
  * Labeled settings form for one scout, shown when a fleet row's gear is toggled
  * open. Everything except enablement, which stays on the row.
  */
-export function ScoutConfigForm({
-    config,
-    onUpdate,
-    onDelete,
-}: ScoutConfigControlsProps & { onDelete?: (configId: string) => void }): JSX.Element {
+export function ScoutConfigForm({ config, onUpdate, onDelete, deleting }: ScoutConfigFormProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-4">
@@ -81,6 +83,8 @@ export function ScoutConfigForm({
                         size="small"
                         status="danger"
                         icon={<IconTrash />}
+                        loading={deleting}
+                        disabledReason={deleting ? 'Deleting…' : undefined}
                         onClick={() => confirmDeleteScout(config, onDelete)}
                     >
                         Delete

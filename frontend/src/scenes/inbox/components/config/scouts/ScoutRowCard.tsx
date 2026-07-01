@@ -24,6 +24,7 @@ export function ScoutRowCard({
     rollup,
     onUpdate,
     onDelete,
+    deleting = false,
     asHeader = false,
 }: {
     config: SignalScoutConfig
@@ -32,6 +33,8 @@ export function ScoutRowCard({
     /** Delete the scout (archives its skill + removes the config). Omitted where deletion isn't
      *  offered, e.g. the detail header; the form also hides it for canonical scouts. */
     onDelete?: (configId: string) => void
+    /** True while this scout's delete request is in flight — disables the delete button. */
+    deleting?: boolean
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
@@ -125,7 +128,7 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} />
+                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} deleting={deleting} />
                 </div>
             ) : null}
         </div>
