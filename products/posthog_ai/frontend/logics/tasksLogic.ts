@@ -48,6 +48,9 @@ export const tasksLogic = kea<tasksLogicType>([
                     if (!next) {
                         return values.tasks
                     }
+                    // `next` is an opaque absolute cursor URL from the previous response, not a static
+                    // endpoint — the generated `tasksList` takes structured params, not a raw URL.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<PaginatedResponse<Task>>(next)
                     breakpoint()
                     // `breakpoint` only cancels a second `loadMoreTasks` call, not a `loadTasks` triggered
