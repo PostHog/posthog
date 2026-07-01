@@ -153,6 +153,21 @@ def _select_rows(
     return rows or []
 
 
+def _scope_organizations_to_org(rows: list[dict[str, Any]], configured_org_id: str | None) -> list[dict[str, Any]]:
+    """Restrict the organizations listing to the single org this source syncs.
+
+    /user/me/organizations returns every org the API key can reach, so without this filter a source
+    configured for one organization would still expose every other accessible org's name/id in the
+    warehouse table. Mirror resolve_organization_id: keep the configured org, else the first one.
+    """
+    if not rows:
+        return rows
+    if configured_org_id and configured_org_id.strip():
+        target = configured_org_id.strip()
+        return [row for row in rows if str(row.get("id")) == target]
+    return rows[:1]
+
+
 def _flatten_folder_tree(node: Any) -> Iterator[dict[str, Any]]:
     """Flatten Concord's nested folder tree into one row per folder.
 
@@ -322,7 +337,10 @@ def get_rows(
 
     if config.pagination == "single":
         payload = _fetch(session, _build_url(base_url, path, base_params), headers, logger)
-        for row in _select_rows(payload, config.data_selector, logger):
+        rows = _select_rows(payload, config.data_selector, logger)
+        if config.scope_to_org:
+            rows = _scope_organizations_to_org(rows, organization_id)
+        for row in rows:
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()

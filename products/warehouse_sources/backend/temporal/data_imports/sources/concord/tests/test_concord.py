@@ -50,7 +50,14 @@ def _collect(generator) -> list[dict[str, Any]]:
     return rows
 
 
-def _run(endpoint: str, payloads: list[Any], *, manager: FakeManager | None = None, **kwargs):
+def _run(
+    endpoint: str,
+    payloads: list[Any],
+    *,
+    manager: FakeManager | None = None,
+    organization_id: str | None = "42",
+    **kwargs,
+):
     """Drive get_rows with _fetch stubbed to return `payloads` in order; record requested URLs."""
     urls: list[str] = []
     manager = manager or FakeManager()
@@ -64,7 +71,7 @@ def _run(endpoint: str, payloads: list[Any], *, manager: FakeManager | None = No
             get_rows(
                 api_key="key",
                 environment="production",
-                organization_id="42",
+                organization_id=organization_id,
                 endpoint=endpoint,
                 logger=mock.MagicMock(),
                 manager=manager,
@@ -182,6 +189,18 @@ class TestSinglePagination:
     def test_tags_passes_organization_id_query_param(self):
         _rows, urls, _ = _run("tags", [{"tags": [{"id": 1}]}])
         assert "organizationId=42" in urls[0]
+
+    def test_organizations_scoped_to_configured_org(self):
+        # /user/me/organizations lists every accessible org; the synced table must not leak the
+        # others when the source is configured for a specific org.
+        payload = [{"organizations": [{"id": 42, "name": "mine"}, {"id": 7, "name": "someone else"}]}]
+        rows, _urls, _ = _run("organizations", payload)
+        assert [r["id"] for r in rows] == [42]
+
+    def test_organizations_falls_back_to_first_org_when_unconfigured(self):
+        payload = [{"organizations": [{"id": 7, "name": "first"}, {"id": 8, "name": "second"}]}]
+        rows, _urls, _ = _run("organizations", payload, organization_id=None)
+        assert [r["id"] for r in rows] == [7]
 
 
 class TestPagePagination:

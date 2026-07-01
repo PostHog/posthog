@@ -55,6 +55,10 @@ class ConcordEndpointConfig:
     # Endpoints scoped under /organizations/{id}/ need the resolved org id; /user/me/organizations
     # does not.
     org_scoped: bool = True
+    # /user/me/organizations lists every org the API key can reach. Set this so the synced rows are
+    # filtered down to the single org this source is scoped to, rather than leaking every accessible
+    # org's name/id into the warehouse table.
+    scope_to_org: bool = False
     page_size: int = 100
     # Offset pagination uses different query param names per resource (`start` vs `offset`).
     offset_param: str = "offset"
@@ -98,6 +102,7 @@ CONCORD_ENDPOINTS: dict[str, ConcordEndpointConfig] = {
         primary_keys=["id"],
         partition_key="createdAt",
         org_scoped=False,
+        scope_to_org=True,
     ),
     "agreements": ConcordEndpointConfig(
         name="agreements",
