@@ -874,6 +874,44 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # A repo with no such workflow yields an empty list (not an error).
         assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []
 
+    def test_workflow_run_activity_projects_and_windows(self) -> None:
+        # The chart endpoint returns compact per-run points over the window, newest first, with the
+        # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    8101, "CI", "sha-a", "completed", "failure", _ago(2), _ago(2), pr_number=80, head_branch="feat"
+                ),
+                _run_row(8102, "CI", "sha-b", "completed", "success", _ago(1), _ago(1)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", _ago(1), _ago(1)),
+                # Older than the default -30d window — excluded unless the caller widens it.
+                _run_row(8104, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+            ],
+        )
+        activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        assert [p.run_id for p in activity.points] == [8102, 8101]  # only CI runs in window, newest first
+        assert activity.truncated is False
+        assert activity.limit == 2000
+        # Each field maps to the right column — guards a wrong unpack order in _to_point.
+        newest, failed = activity.points
+        assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
+        assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
+        assert all(p.run_started_at is not None for p in activity.points)
+
+        # Widening the window pulls in the older run.
+        wide = api.get_workflow_run_activity(
+            team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
+        )
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+
     def test_workflow_detail_branch_filter(self) -> None:
         # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
         # as the Workflows tab — without it, drilling in from a branch-scoped tab widened back to every
@@ -921,6 +959,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
         )
         assert (all_jobs, main_jobs) == (3, 2)
+
+        # The activity chart honors the same branch scope as the runs list, so it can't plot other
+        # branches' runs under an applied branch filter.
+        all_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow)
+        assert {p.run_id for p in all_activity.points} == {8501, 8502, 8503}
+        main_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {p.run_id for p in main_activity.points} == {8501, 8502}
 
     def test_pr_runs_span_all_commits(self) -> None:
         # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.

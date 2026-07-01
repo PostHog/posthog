@@ -44,10 +44,15 @@ const DEFAULT_MAX_OPEN_FILES: i32 = 1024;
 /// `get` is on the hot path, so sample the latency histogram 1-in-64 by default; the counter is exact.
 const DEFAULT_READ_SAMPLE_RATIO: u32 = 64;
 
+const DEFAULT_COMPACT_ON_DELETION_WINDOW: usize = 1000;
+const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
+const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
+
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
 pub struct StoreConfig {
     pub path: PathBuf,
+    /// Shared across all CFs; also holds index/filter blocks when `tuned_block_options` is set.
     pub block_cache_bytes: usize,
     pub write_buffer_bytes: usize,
     pub max_open_files: i32,
@@ -60,6 +65,20 @@ pub struct StoreConfig {
     /// Sample 1-in-N reads into [`STORE_READ_DURATION_SECONDS`] (the read counter stays exact).
     /// `1` records every read; clamped to `>= 1` at open.
     pub read_sample_ratio: u32,
+    /// Cache and partition index/filter blocks so point lookups short-circuit on the bloom.
+    pub tuned_block_options: bool,
+    /// Mark tombstone-heavy SSTs for compaction.
+    pub compact_on_deletion: bool,
+    /// Window of recent entries the compact-on-deletion collector inspects.
+    pub compact_on_deletion_window: usize,
+    /// Tombstone count within the window that arms the collector.
+    pub compact_on_deletion_num_dels_trigger: usize,
+    /// Tombstone ratio that arms the collector; `<= 0` or `> 1` disables the ratio trigger.
+    pub compact_on_deletion_ratio: f64,
+    /// `0` disables it.
+    pub periodic_compaction_seconds: u64,
+    /// Non-positive leaves RocksDB's default untouched.
+    pub max_background_jobs: i32,
 }
 
 impl Default for StoreConfig {
@@ -73,6 +92,13 @@ impl Default for StoreConfig {
             wipe_on_start: false,
             statistics_enabled: true,
             read_sample_ratio: DEFAULT_READ_SAMPLE_RATIO,
+            tuned_block_options: true,
+            compact_on_deletion: true,
+            compact_on_deletion_window: DEFAULT_COMPACT_ON_DELETION_WINDOW,
+            compact_on_deletion_num_dels_trigger: DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER,
+            compact_on_deletion_ratio: DEFAULT_COMPACT_ON_DELETION_RATIO,
+            periodic_compaction_seconds: 0,
+            max_background_jobs: 0,
         }
     }
 }
@@ -746,6 +772,9 @@ fn db_options(config: &StoreConfig) -> Options {
         opts.enable_statistics();
         opts.set_statistics_level(StatsLevel::ExceptHistogramOrTimers);
     }
+    if config.max_background_jobs > 0 {
+        opts.set_max_background_jobs(config.max_background_jobs);
+    }
     opts
 }
 
@@ -1131,6 +1160,135 @@ mod tests {
         );
     }
 
+    fn stage1_key_for(partition_id: u16, person: u128) -> Stage1Key {
+        Stage1Key {
+            partition_id,
+            team_id: 7,
+            leaf_state_key: LeafStateKey([0xAB; 16]),
+            person_id: Uuid::from_u128(person),
+        }
+    }
+
+    /// Five partition-5 keys plus one partition-6 key a partition-5 scan must never surface.
+    fn seed_p5_and_one_p6(batch: &mut BatchBuilder<'_>) {
+        for person in 1..=5u128 {
+            batch.put_stage1(&stage1_key_for(5, person), format!("v{person}").as_bytes());
+        }
+        batch.put_stage1(&stage1_key_for(6, 9), b"other-partition");
+    }
+
+    /// Flushes to SST so the scan hits on-disk index/filter blocks, not the memtable.
+    fn flushed_p5_scan(
+        config: &StoreConfig,
+        seed: impl FnOnce(&mut BatchBuilder<'_>),
+    ) -> Vec<(Stage1Key, Vec<u8>)> {
+        let store = CohortStore::open(config).unwrap();
+        store.write_batch(seed).unwrap();
+        store.flush().unwrap();
+
+        let mut out = Vec::new();
+        let mut cursor: Option<Vec<u8>> = None;
+        loop {
+            let page = store.scan_stage1(5, cursor.as_deref(), 2).unwrap();
+            let Some((last_key, _)) = page.last() else {
+                break;
+            };
+            cursor = Some(last_key.encode().to_vec());
+            out.extend(page);
+        }
+        out
+    }
+
+    #[test]
+    fn tuned_block_options_preserve_scan_semantics_across_flushed_ssts() {
+        // Partitioned filters + two-level index change SST metadata layout only, not scan order.
+        let tuned = TempDir::new().unwrap();
+        let plain = TempDir::new().unwrap();
+        let tuned_scan = flushed_p5_scan(
+            &StoreConfig {
+                path: tuned.path().join("db"),
+                tuned_block_options: true,
+                compact_on_deletion: true,
+                ..StoreConfig::default()
+            },
+            seed_p5_and_one_p6,
+        );
+        let plain_scan = flushed_p5_scan(
+            &StoreConfig {
+                path: plain.path().join("db"),
+                tuned_block_options: false,
+                compact_on_deletion: false,
+                periodic_compaction_seconds: 0,
+                ..StoreConfig::default()
+            },
+            seed_p5_and_one_p6,
+        );
+
+        assert_eq!(
+            tuned_scan.len(),
+            5,
+            "all five partition-5 keys, the partition-6 key excluded by the upper bound",
+        );
+        assert_eq!(
+            tuned_scan, plain_scan,
+            "tuned partitioned-filter / two-level-index layout must not change prefix iteration",
+        );
+    }
+
+    #[test]
+    fn tuned_options_keep_tombstone_visibility_correct_across_compaction() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            tuned_block_options: true,
+            compact_on_deletion: true,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        // Ten partition-5 keys → SST.
+        store
+            .write_batch(|batch| {
+                for person in 1..=10u128 {
+                    batch.put_stage1(&stage1_key_for(5, person), b"v");
+                }
+            })
+            .unwrap();
+        store.flush().unwrap();
+
+        // Delete the even persons → a second SST carrying the tombstones over the first.
+        store
+            .write_batch(|batch| {
+                for person in (2..=10u128).step_by(2) {
+                    batch.delete_stage1(&stage1_key_for(5, person));
+                }
+            })
+            .unwrap();
+        store.flush().unwrap();
+
+        // Force a physical compaction so the tombstones actually rewrite the SSTs, exercising the
+        // compaction path instead of only the read-time merge iterator.
+        store
+            .db
+            .compact_range_cf(store.cf(Cf::Stage1).unwrap(), None::<&[u8]>, None::<&[u8]>);
+
+        let mut survivors = Vec::new();
+        let mut cursor: Option<Vec<u8>> = None;
+        loop {
+            let page = store.scan_stage1(5, cursor.as_deref(), 3).unwrap();
+            let Some((last_key, _)) = page.last() else {
+                break;
+            };
+            cursor = Some(last_key.encode().to_vec());
+            survivors.extend(page.iter().map(|(key, _)| key.person_id.as_u128()));
+        }
+        assert_eq!(
+            survivors,
+            vec![1, 3, 5, 7, 9],
+            "compaction drops the deleted evens and keeps the odds ordered and bounded",
+        );
+    }
+
     #[test]
     fn stats_snapshot_reports_keys_and_cache_activity_after_reads() {
         let dir = TempDir::new().unwrap();
@@ -1222,6 +1380,14 @@ mod tests {
             config.read_sample_ratio, 64,
             "read latency sampling defaults to 1-in-64",
         );
+        assert!(config.tuned_block_options);
+        assert!(config.compact_on_deletion);
+        assert!(config.compact_on_deletion_window > 0);
+        assert!(config.compact_on_deletion_num_dels_trigger > 0);
+        assert!(config.compact_on_deletion_ratio > 0.0 && config.compact_on_deletion_ratio <= 1.0);
+        // Periodic compaction and the background-jobs cap are opt-in; `0` leaves RocksDB's own behavior.
+        assert_eq!(config.periodic_compaction_seconds, 0);
+        assert_eq!(config.max_background_jobs, 0);
     }
 
     #[test]

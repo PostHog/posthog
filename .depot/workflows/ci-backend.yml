@@ -30,9 +30,9 @@
 # - Path-filter persons-SQL folded into migrations. check-migrations.if also gates
 #   on openapi_types so an OpenAPI-only PR still runs the folded check
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
-# - Test-duration cache restore omitted: there is no Depot timing-update writer, so
-#   the shadow shards from the committed .test_durations (canonical refreshes from a
-#   daily cache) and the file-granularity split-plan probe stays dormant
+# - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
+#   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
+#   Committed .test_durations is the fallback.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs/merge_group/dispatch
 #   run the full graph — that is where the apples-to-apples comparison happens
@@ -40,8 +40,8 @@
 
 # This workflow runs all of our backend django tests.
 #
-# Shards derive from the committed .test_durations; to re-time, refresh that file
-# (canonical's .github/workflows/ci-backend-update-test-timing.yml is the source of truth).
+# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
+# .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
@@ -536,6 +536,14 @@ jobs:
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            - name: Restore test durations from cache
+              # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
             - name: Discover products to test
               id: discover
               env:
