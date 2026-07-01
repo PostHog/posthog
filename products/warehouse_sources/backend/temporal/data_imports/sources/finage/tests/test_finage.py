@@ -266,6 +266,29 @@ class TestGetRows:
         assert len(rows) == 1
         assert rows[0]["symbol"] == "MSFT"
 
+    @parameterized.expand([("missing_t", {"c": 1}), ("unparseable_t", {"t": "not-a-number", "c": 1})])
+    def test_aggregates_rejects_bars_with_bad_timestamp(self, _name: str, bad_bar: dict) -> None:
+        # `t` is the partition key. A missing key or an unparseable value would otherwise land the bar in
+        # the fallback 1970-01 partition; both must fail the sync instead of silently misbucketing.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=[{"symbol": "AAPL", "results": [bad_bar]}]),
+        ):
+            with pytest.raises((KeyError, ValueError)):
+                list(get_rows("k", "aggregates", ["AAPL"], "2020-01-01", mock.Mock()))
+
+    def test_disables_adapter_retry_so_tenacity_is_the_only_retry_layer(self) -> None:
+        # The urllib3 adapter's DEFAULT_RETRY would stack on top of `_fetch_json`'s tenacity retries,
+        # multiplying backoff. `get_rows` must opt the session out with retry=Retry(total=0).
+        with (
+            mock.patch.object(finage, "make_tracked_session") as make_session,
+            mock.patch.object(finage, "_fetch_json", return_value={"results": []}),
+        ):
+            list(get_rows("k", "aggregates", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        _args, kwargs = make_session.call_args
+        assert kwargs["retry"].total == 0
+
 
 class TestFinageSourceResponse:
     @parameterized.expand(

@@ -6,6 +6,7 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -223,9 +224,17 @@ def _iter_aggregate_rows(
             logger.warning(f"Finage: aggregates for {symbol} hit the {AGG_LIMIT}-row limit; older bars truncated")
 
         response_symbol = data.get("symbol", symbol)
-        # `t` is a primary key: access it directly so a bar missing it raises KeyError and fails fast
-        # rather than silently landing a row with no key and a None partition date.
-        rows = [{**bar, "symbol": response_symbol, "date": _ms_to_date(bar["t"])} for bar in results]
+        rows = []
+        for bar in results:
+            # `t` is the primary/partition key. A missing key raises KeyError; a present-but-unparseable
+            # value converts to None, which `datetime` partitioning would silently bucket into the fallback
+            # 1970-01 partition. Reject both so corrupt upstream data fails fast instead of misbucketing.
+            date = _ms_to_date(bar["t"])
+            if date is None:
+                raise ValueError(
+                    f"Finage aggregates for {response_symbol} returned a bar with an invalid timestamp: {bar['t']!r}"
+                )
+            rows.append({**bar, "symbol": response_symbol, "date": date})
         yield rows
 
 
@@ -238,8 +247,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINAGE_ENDPOINTS[endpoint]
     # One session reused across every symbol so urllib3 keeps the connection alive. Redact the key
-    # so the `apikey` query value is never persisted raw in tracked logs / sample capture.
-    session = make_tracked_session(redact_values=(api_key,))
+    # so the `apikey` query value is never persisted raw in tracked logs / sample capture. Disable the
+    # adapter's default retry policy: `_fetch_json` already retries 429/5xx with tenacity, and stacking a
+    # second urllib3 retry layer would multiply backoff and let long `Retry-After` waits bypass its cap.
+    session = make_tracked_session(redact_values=(api_key,), retry=Retry(total=0))
 
     if config.is_aggregate:
         yield from _iter_aggregate_rows(session, api_key, symbols, config, start_date, logger)
