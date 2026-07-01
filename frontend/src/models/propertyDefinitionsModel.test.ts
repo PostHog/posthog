@@ -622,5 +622,60 @@ describe('the property definitions model', () => {
             expect(capturedUrls).toHaveLength(2)
             expect(capturedUrls[1]).toContain('refresh=force_cache')
         })
+
+        it('stops polling after a bounded number of attempts when the backend stays refreshing', async () => {
+            const requestUrls: string[] = []
+            let pendingPoll: (() => void) | null = null
+
+            // Capture the backed-off poll timers (>= base delay) and run them synchronously below;
+            // let short timers (kea breakpoints) run normally. Without a cap this chain is infinite.
+            const originalSetTimeout = global.setTimeout.bind(global)
+            jest.spyOn(global, 'setTimeout').mockImplementation(((
+                fn: TimerHandler,
+                delay?: number,
+                ...args: unknown[]
+            ) => {
+                if (typeof delay === 'number' && delay >= 2000) {
+                    pendingPoll = () => (fn as (...a: unknown[]) => unknown)(...args)
+                    return 0 as unknown as ReturnType<typeof setTimeout>
+                }
+                return originalSetTimeout(fn, delay, ...args)
+            }) as typeof setTimeout)
+
+            useMocks({
+                get: {
+                    // Never finishes refreshing — the client must give up on its own.
+                    '/api/event/values': ({ request }) => {
+                        requestUrls.push(request.url)
+                        return [200, { results: [], refreshing: true }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            // Drain the poll chain; the loop is bounded so a missing cap fails loudly instead of hanging.
+            let iterations = 0
+            while (pendingPoll && iterations < 50) {
+                const next = pendingPoll
+                pendingPoll = null
+                await expectLogic(logic, () => next()).toFinishAllListeners()
+                iterations += 1
+            }
+
+            jest.restoreAllMocks()
+
+            // Polling terminated on its own after the initial request plus the capped follow-up polls.
+            expect(pendingPoll).toBeNull()
+            expect(requestUrls.length).toBeGreaterThan(1)
+            expect(requestUrls.length).toBeLessThanOrEqual(9)
+        })
     })
 })

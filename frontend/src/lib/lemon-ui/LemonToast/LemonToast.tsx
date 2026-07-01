@@ -158,13 +158,18 @@ export const lemonToast = {
         return id
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        posthog.capture('toast warning', {
-            message: String(message),
-            button: button?.label,
-            toastId: toastOptions.toastId,
-        })
         const options = ensureToastId(toastOptions, 'warning', message)
         const id = options.toastId!
+        // Only capture when a toast with this id isn't already on screen. react-toastify skips
+        // re-showing a duplicate toast, so capturing per shown toast (rather than per call) keeps a
+        // single repeatedly-failing action from emitting hundreds of identical events.
+        if (!toast.isActive(id)) {
+            posthog.capture('toast warning', {
+                message: String(message),
+                button: button?.label,
+                toastId: id,
+            })
+        }
         queueMicrotask(() => {
             if (cancelledIds.delete(id)) {
                 return
@@ -177,18 +182,19 @@ export const lemonToast = {
         return id
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
+        const options = ensureToastId(toastOptions, 'error', message)
+        const id = options.toastId!
+        // Only capture when a toast with this id isn't already on screen. react-toastify skips
+        // re-showing a duplicate toast, so capturing per shown toast (rather than per call) keeps a
+        // single repeatedly-failing action from emitting hundreds of identical events.
+        // (`posthog.capture` isn't loaded inside the posthog toolbar, so guard for it too.)
+        if (posthog.capture && !toast.isActive(id)) {
             posthog.capture('toast error', {
                 message: String(message),
                 button: button?.label,
-                toastId: toastOptions.toastId,
+                toastId: id,
             })
         }
-
-        const options = ensureToastId(toastOptions, 'error', message)
-        const id = options.toastId!
         queueMicrotask(() => {
             if (cancelledIds.delete(id)) {
                 return
