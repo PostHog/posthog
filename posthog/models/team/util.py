@@ -326,8 +326,71 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
-        Team.objects.filter(id__in=team_ids).delete()
+        try:
+            list(Team.objects.select_for_update().filter(id__in=team_ids))
+            Team.objects.filter(id__in=team_ids).delete()
+        except RecursionError:
+            # A row the cascade must materialize (a signal-bearing child, or a team row itself)
+            # holds JSON nested past json.loads' fixed C-recursion ceiling, so Django can't build
+            # the instance to delete it — and the value is unreachable via the ORM at all. The
+            # teams are already doomed, so blank those JSONB columns straight in Postgres (which
+            # handles deep jsonb natively) and retry; the cascade now materializes trivially.
+            logger.warning("Team deletion cascade hit undecodable JSON; neutralizing and retrying", team_ids=team_ids)
+            _neutralize_undecodable_json_columns(team_ids)
+            list(Team.objects.select_for_update().filter(id__in=team_ids))
+            Team.objects.filter(id__in=team_ids).delete()
+
+
+def _neutralize_undecodable_json_columns(team_ids: list[int]) -> None:
+    """Overwrite JSONB columns the Team cascade materializes with JSON null, for doomed teams.
+
+    Writing is done in raw SQL so the pathological existing value is never handed to json.loads;
+    Postgres reads and rewrites deep jsonb without recursing.
+    """
+    from django.db import connection
+
+    for table, filter_column, json_columns in _team_cascade_json_columns():
+        assignments = ", ".join(f"\"{column}\" = 'null'::jsonb" for column in json_columns)
+        with connection.cursor() as cursor:
+            cursor.execute(f'UPDATE "{table}" SET {assignments} WHERE "{filter_column}" = ANY(%s)', [team_ids])
+
+
+def _team_cascade_json_columns() -> list[tuple[str, str, list[str]]]:
+    """(table, filter_column, json_columns) for the team rows plus their CASCADE children with JSON.
+
+    These are exactly the rows Django decodes while collecting a Team cascade: the team itself and
+    every model with a CASCADE foreign key to Team that carries a JSONField.
+    """
+    from django.apps import apps
+    from django.db import models
+
+    from posthog.models.team import Team
+
+    targets: list[tuple[str, str, list[str]]] = []
+
+    team_json_columns = [f.column for f in Team._meta.concrete_fields if isinstance(f, models.JSONField)]
+    if team_json_columns:
+        targets.append((Team._meta.db_table, Team._meta.pk.column, team_json_columns))
+
+    for model in apps.get_models():
+        meta = model._meta
+        team_fk = next(
+            (
+                field
+                for field in meta.concrete_fields
+                if field.is_relation
+                and field.related_model is Team
+                and getattr(field.remote_field, "on_delete", None) is models.CASCADE
+            ),
+            None,
+        )
+        if team_fk is None:
+            continue
+        json_columns = [f.column for f in meta.concrete_fields if isinstance(f, models.JSONField)]
+        if json_columns:
+            targets.append((meta.db_table, team_fk.column, json_columns))
+
+    return targets
 
 
 def delete_project_record(project_id: int) -> None:
