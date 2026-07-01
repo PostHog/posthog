@@ -243,14 +243,16 @@ def execute_process_query(
         from posthog.rbac.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
-        if (
-            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
-            or is_staff_user
-        ):
+        # User-facing errors (invalid HogQL, access-control 403s) are validation feedback
+        # for the caller, not platform defects. Reporting them to error tracking mints a
+        # fresh issue per fumbled field name, so surface the message but don't capture.
+        is_user_facing_error = isinstance(err, ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
+        if isinstance(err, APIException) or is_user_facing_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        if not is_user_facing_error:
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

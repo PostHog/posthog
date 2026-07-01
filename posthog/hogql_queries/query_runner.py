@@ -1584,7 +1584,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # Auto-capture is disabled here so we can filter which exceptions reach error
+        # tracking. Expected user-input errors (invalid HogQL, access-control 403s, rate
+        # limits, cancels) are validation feedback already returned to the caller, not
+        # platform defects — capturing them mints a fresh error-tracking issue per fumbled
+        # field name. Genuine failures are captured explicitly in the handler below.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1763,6 +1768,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                        # Only genuine platform failures reach error tracking. The
+                        # surrounding context has auto-capture disabled, so expected
+                        # user-input errors (SUCCESS outcome) are left untracked.
+                        posthoganalytics.capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(
