@@ -34,11 +34,14 @@ _SourceField = (
 _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNORECASE)
 
 _SUPABASE_POOLER_HOST_CAPTION = (
-    "For standard syncs, use the **Session pooler** host (Project settings → Database → "
-    "Connection pooling), e.g. `aws-0-<region>.pooler.supabase.com`, with username "
+    "To get your connection string, click **Connect** in the top bar of your Supabase "
+    "dashboard, open the **Direct** tab, and pick **Session pooler** or **Direct "
+    "connection** — the URL is shown at the bottom. For standard syncs use the "
+    "**Session pooler** host, e.g. `aws-0-<region>.pooler.supabase.com`, with username "
     "`postgres.<project-ref>` — the direct host `db.<ref>.supabase.co` is IPv6-only. "
-    "For **change data capture (CDC)** you must use the direct host instead and enable "
-    "Supabase's **IPv4 add-on**, because logical replication doesn't work through the pooler."
+    "For **change data capture (CDC)** you must use **Direct connection** instead and "
+    "enable Supabase's **IPv4 add-on**, because logical replication doesn't work through "
+    "the pooler."
 )
 
 _SUPABASE_DIRECT_HOST_IPV4_HINT = (
@@ -76,6 +79,7 @@ class SupabaseSource(PostgresSource):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
             category=DataWarehouseSourceCategory.DATABASES,
+            featured=True,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",

@@ -21,7 +21,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.hogql_queries.base_query_utils import get_experiment_date_range
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -52,12 +52,13 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         return cast(ExperimentQueryResponse, runner.calculate())
 
     def _build_lazy_computation_builder(
-        self, experiment, feature_flag, metric, override_end_date: datetime | None = None
+        self, experiment, feature_flag, metric, as_of: datetime | None = None
     ) -> ExperimentQueryBuilder:
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
             experiment.exposure_criteria
         )
-        date_range = get_experiment_date_range(experiment, self.team, override_end_date)
+        as_of = as_of if as_of is not None else datetime.now(UTC)
+        date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
@@ -69,17 +70,17 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
                 date_range=date_range,
                 team=self.team,
                 interval=IntervalType.DAY,
-                now=override_end_date or datetime.now(),
+                now=as_of,
             ),
             entity_key=get_entity_key(feature_flag.filters.get("aggregation_group_type_index")),
             metric=metric,
         )
 
     def _build_runner(
-        self, experiment, metric: ExperimentFunnelMetric, override_end_date: datetime | None = None
+        self, experiment, metric: ExperimentFunnelMetric, as_of: datetime | None = None
     ) -> ExperimentQueryRunner:
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        return ExperimentQueryRunner(query=query, team=self.team, override_end_date=override_end_date)
+        return ExperimentQueryRunner(query=query, team=self.team, as_of=as_of)
 
     def _precompute_and_compare(
         self, experiment, feature_flag, metric
@@ -141,6 +142,37 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_metric_events_precomputation_hash_ignores_moving_experiment_end(self, mock_sync_execute):
         feature_flag = self.create_feature_flag(key="stable-metric-events-hash")
+        # Running experiment (no end_date) so the window end follows as_of and the two values below stay
+        # distinct — the point of the test: the experiment_date_to sentinel keeps the job hash stable
+        # across a moving as_of. (A stopped experiment would resolve both to end_date, defeating the test.)
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=None,
+        )
+        # create_experiment defaults end_date when None is passed, so clear it after creation.
+        experiment.end_date = None
+        experiment.save(update_fields=["end_date"])
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+
+        first_as_of = datetime(2024, 1, 5, 12, 0, tzinfo=UTC)
+        second_as_of = datetime(2024, 1, 5, 12, 30, tzinfo=UTC)
+
+        first_result = self._build_runner(experiment, metric, as_of=first_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=first_as_of)
+        )
+        second_result = self._build_runner(experiment, metric, as_of=second_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=second_as_of)
+        )
+
+        assert first_result.ready is True
+        assert second_result.ready is True
+        assert first_result.job_ids == second_result.job_ids
+        assert mock_sync_execute.call_count == len(first_result.job_ids)
+
+    @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
+    def test_metric_events_precomputation_for_stopped_experiment_uses_end_date(self, mock_sync_execute):
+        feature_flag = self.create_feature_flag(key="stopped-metric-events-hash")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2024, 1, 1),
@@ -148,18 +180,16 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         )
         metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
 
-        first_end = datetime(2024, 1, 5, 12, 0, tzinfo=UTC)
-        second_end = datetime(2024, 1, 5, 12, 30, tzinfo=UTC)
+        # This is the stopped-experiment complement to the moving-as_of sentinel case above. Both calls
+        # resolve to end_date before hashing, so they should reuse the same precomputation jobs.
+        first_as_of = datetime(2024, 1, 6, 12, 0, tzinfo=UTC)
+        second_as_of = datetime(2024, 1, 7, 12, 0, tzinfo=UTC)
 
-        first_result = self._build_runner(
-            experiment, metric, override_end_date=first_end
-        )._ensure_metric_events_precomputed(
-            self._build_lazy_computation_builder(experiment, feature_flag, metric, override_end_date=first_end)
+        first_result = self._build_runner(experiment, metric, as_of=first_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=first_as_of)
         )
-        second_result = self._build_runner(
-            experiment, metric, override_end_date=second_end
-        )._ensure_metric_events_precomputed(
-            self._build_lazy_computation_builder(experiment, feature_flag, metric, override_end_date=second_end)
+        second_result = self._build_runner(experiment, metric, as_of=second_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=second_as_of)
         )
 
         assert first_result.ready is True

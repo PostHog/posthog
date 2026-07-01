@@ -19,10 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     enrich_table_semantics as enrich,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    _MAX_COLUMN_NAME_LENGTH,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_PROMPT_CHARS,
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
+    _columns_for_enrichment,
     _extract_json_object,
     build_bounded_enrichment_prompt,
     build_enrichment_prompt,
@@ -298,6 +300,32 @@ class TestBuildBoundedEnrichmentPrompt:
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
         assert "dropped_target" not in prompt
+
+
+class TestColumnsFromTable:
+    def test_skips_internal_plumbing_columns(self):
+        # `_dlt_*`, `_ph_debug` and the partition key are hidden from the HogQL catalog and carry no
+        # user-facing meaning — they must not be sent to the LLM for a description.
+        table = DataWarehouseTable(
+            columns={
+                "id": {"clickhouse": "String"},
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "_dlt_id": {"clickhouse": "String"},
+                "_dlt_load_id": {"clickhouse": "String"},
+                "_ph_debug": {"clickhouse": "String"},
+                "_ph_partition_key": {"clickhouse": "String"},
+            }
+        )
+        names = {column["name"] for column in table.get_user_facing_columns()}
+        assert names == {"id", "amount"}
+
+    def test_skips_columns_whose_name_exceeds_annotation_key_length(self):
+        # A column name longer than the annotation's varchar key can't be stored — including it would
+        # crash the whole table's enrichment with a DataError. It must be dropped, not enriched.
+        long_name = "a" * (_MAX_COLUMN_NAME_LENGTH + 1)
+        table = DataWarehouseTable(columns={"id": {"clickhouse": "String"}, long_name: {"clickhouse": "String"}})
+        names = {column["name"] for column in _columns_for_enrichment(table)}
+        assert names == {"id"}
 
 
 class TestExtractJsonObject:

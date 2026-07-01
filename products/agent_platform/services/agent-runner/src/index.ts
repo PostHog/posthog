@@ -32,6 +32,7 @@ import {
     createMetricsServer,
     handleMetricsRequest,
     HttpClient,
+    HttpGatewayCatalog,
     HttpGatewayClient,
     initMetrics,
     installProcessHandlers,
@@ -46,6 +47,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgMcpConnectionStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -184,6 +186,11 @@ async function main(): Promise<void> {
     // bearer is a single static phs_ now, so this no longer feeds it.
     const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
 
+    // Shared MCP credentials (`spec.mcps[].connection`): reads/decrypts/refreshes
+    // the native installation row. `http` is proxy-bound (refresh via smokescreen).
+    // Needs UPDATE on `mcp_store_mcpserverinstallation` for write-back.
+    const mcpConnections = new PgMcpConnectionStore(posthogDb, encryption, http)
+
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
     // per tool dispatch, and one `$ai_trace` per session via PostHog's standard
     // ingestion path (posthog-node /capture). Routes each event to the owning
@@ -216,6 +223,17 @@ async function main(): Promise<void> {
     const gatewayClient = config.useAiGateway
         ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http: new DirectHttpClient() })
         : null
+
+    // Served-model catalog off the same gateway the data plane uses — source of
+    // truth for models resolution + the models tool. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = config.useAiGateway
+        ? new HttpGatewayCatalog({
+              baseUrl: config.aiGatewayUrl,
+              bearer: config.posthogAiGatewayKey,
+              http: new DirectHttpClient(),
+          })
+        : undefined
 
     // Agent memory: S3-backed file store. Required everywhere — the runner
     // refuses to boot without it so the `@posthog/memory-*` + `@posthog/table-*`
@@ -323,6 +341,7 @@ async function main(): Promise<void> {
                       apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
+        gatewayCatalog,
         // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
         // Gateway path → the static phs_ (cost bills to the team that owns it);
         // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).
@@ -361,6 +380,7 @@ async function main(): Promise<void> {
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
+        mcpConnections,
         devMcpBearerToken: config.devMcpBearerToken,
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,

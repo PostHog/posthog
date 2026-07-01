@@ -79,10 +79,10 @@ describe('buildSystemPrompt', () => {
         expect(prompt).not.toContain('Available skills')
     })
 
-    it('falls back when entrypoint missing', async () => {
-        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+    it('falls back when agent.md missing', async () => {
+        const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
-        expect(prompt).toMatch(/missing entrypoint/)
+        expect(prompt).toMatch(/missing agent\.md/)
     })
 
     it('injects the framework preamble before agent.md', async () => {
@@ -170,6 +170,26 @@ describe('buildSystemPrompt', () => {
         expect(prompt).toContain('`mystery` — unavailable')
         // The model is told not to paste raw error strings to the user.
         expect(prompt).toMatch(/do NOT paste raw error messages/)
+    })
+
+    it('renders a dead shared connection under "Disconnected integrations" — admin reconnect, not a retry', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            unavailableMcps: [{ id: 'incident', category: 'connection_dead' }],
+        })
+        expect(prompt).toContain('Disconnected integrations')
+        expect(prompt).toContain('`incident`')
+        // Persistent + admin-owned: the asker can't fix a shared credential, so
+        // the model must NOT imply a retry or a self-service reconnect.
+        expect(prompt).toMatch(/administrator|admin|owner/i)
+        expect(prompt).toMatch(/reconnect/i)
+        expect(prompt).not.toMatch(/temporarily unavailable/i)
+        // A dead connection is neither the asker's to connect nor a transient outage.
+        expect(prompt).not.toContain('Connect required')
+        expect(prompt).not.toContain('Unavailable capabilities')
+        // Still never leak raw transport detail.
+        expect(prompt).not.toMatch(/Bearer|http/)
     })
 
     it('renders a link-required MCP under "Connect required" with the URL, not as "unavailable"', async () => {

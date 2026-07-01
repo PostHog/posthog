@@ -12,7 +12,7 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.emit_signals import EmitDataImportSignalsWorkflow, EmitSignalsActivityInputs
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 # Maps the CLI --type arg to (ExternalDataSourceType value, registered schema name).
 # Conversations is excluded — it's an internal Postgres source, not warehouse-backed.

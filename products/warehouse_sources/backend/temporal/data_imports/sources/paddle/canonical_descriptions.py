@@ -127,6 +127,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.paddle.com/api-reference/adjustments/overview",
         "columns": _columns(
             action="Type of adjustment: refund, credit, chargeback, chargeback_reverse, or chargeback_warning.",
+            type="Scope of the adjustment: full for the transaction grand total or partial for specific line items.",
             transaction_id="ID of the transaction the adjustment is against.",
             subscription_id="ID of the subscription related to the adjustment, if any.",
             customer_id="ID of the customer the adjustment is for.",

@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 
 LATEST_VERSIONS: dict[str, int] = {}
 MIGRATIONS: dict[str, dict[int, SchemaMigration]] = {}
-_migrations_discovered = False
+_migrations_discovered: bool = False
 
 
 def _discover_migrations():

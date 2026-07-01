@@ -359,9 +359,20 @@ fn relative_window_from_interval(
     }
 }
 
-/// The whole-day window for a `performed_event_multiple` leaf: `time_value × interval.to_days()`.
-/// Returns `0` for sub-day or unrecognized intervals.
+/// The whole-day sliding window for a `performed_event_multiple` leaf.
+///
+/// `explicit_datetime`(_to) takes precedence over `time_value`/`time_interval`, mirroring the single
+/// `performed_event` path ([`eviction_window`]) and the oracle's `if prop.explicit_datetime` branch.
+/// Only a relative-lower-only bound (`"-Nd"`, the dominant "in the last N days" shape) has a whole-day
+/// sliding form; every other explicit shape — and every sub-day or unrecognized interval — returns `0`,
+/// which [`pick_state_variant`] maps to [`UnsupportedVariant::HourlyDeferred`] (the leaf drops).
 pub(crate) fn effective_window_days(leaf: &BehavioralLeafConfig) -> u32 {
+    if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
+        return explicit_window_days(
+            leaf.explicit_datetime.as_deref(),
+            leaf.explicit_datetime_to.as_deref(),
+        );
+    }
     let Some(interval) = leaf
         .time_interval
         .as_deref()
@@ -371,6 +382,18 @@ pub(crate) fn effective_window_days(leaf: &BehavioralLeafConfig) -> u32 {
     };
     let time_value = u32::try_from(leaf.time_value.unwrap_or(0).max(0)).unwrap_or(0);
     time_value.saturating_mul(interval.to_days())
+}
+
+/// The whole-day window for an `explicit_datetime`(_to) `performed_event_multiple` bound, reusing the
+/// single path's [`explicit_eviction_window`] classifier as the one source of truth. A sliding window
+/// is only representable for a relative-lower-only whole-day bound; every other shape (sub-day, absolute
+/// range, two-sided/relative-upper range, unparseable) has no whole-day sliding form → `0` → the leaf
+/// drops, exactly as before this fix (which returned `0` for every explicit-datetime multiple leaf).
+fn explicit_window_days(from: Option<&str>, to: Option<&str>) -> u32 {
+    match explicit_eviction_window(from, to) {
+        Ok(EvictionWindow::RelativeDays { days }) => days,
+        Ok(EvictionWindow::RelativeSeconds { .. } | EvictionWindow::Explicit { .. }) | Err(_) => 0,
+    }
 }
 
 #[cfg(test)]
@@ -909,6 +932,140 @@ mod tests {
             },
         ] {
             assert_eq!(window.earliest_eviction_at_ms(1_000, UTC), i64::MAX);
+        }
+    }
+
+    /// Build a `performed_event_multiple` leaf carrying an explicit datetime range (gte 3).
+    fn explicit_multiple_leaf(from: Option<&str>, to: Option<&str>) -> BehavioralLeafConfig {
+        let mut l = leaf(BehavioralValue::PerformedEventMultiple, None, None);
+        l.operator = Some("gte".to_string());
+        l.operator_value = Some(3);
+        l.explicit_datetime = from.map(str::to_string);
+        l.explicit_datetime_to = to.map(str::to_string);
+        l.with_state_key()
+    }
+
+    #[test]
+    fn performed_event_multiple_explicit_datetime_routes_by_effective_window_days() {
+        let daily = Ok((StateVariant::BehavioralDailyBuckets, None));
+        let compressed = Ok((StateVariant::BehavioralCompressedHistory, None));
+        let deferred = Err(UnsupportedVariant::HourlyDeferred);
+        // Only a relative-lower-only whole-day bound has a sliding form. Every other explicit shape
+        // funnels to 0 → HourlyDeferred by design — the shape distinction is intentionally erased once
+        // it passes through `effective_window_days` (the discarded `UnsupportedVariant` buys no
+        // observability, so the overload is accepted, matching the time_value/interval path).
+        let cases = [
+            (
+                Some("-7d"),
+                None,
+                7,
+                daily,
+                "relative lower -7d → 7 days → daily",
+            ),
+            (
+                Some("-180d"),
+                None,
+                180,
+                daily,
+                "-180d → 180 days → daily (upper boundary)",
+            ),
+            (
+                Some("-1y"),
+                None,
+                365,
+                compressed,
+                "-1y ≡ -365d → compressed",
+            ),
+            (
+                Some("-181d"),
+                None,
+                181,
+                compressed,
+                "-181d → just over the daily boundary → compressed",
+            ),
+            (
+                Some("-2h"),
+                None,
+                0,
+                deferred,
+                "sub-day hour → 0 → deferred",
+            ),
+            (
+                Some("-30M"),
+                None,
+                0,
+                deferred,
+                "sub-day minute → 0 → deferred",
+            ),
+            (
+                Some("-1q"),
+                None,
+                0,
+                deferred,
+                "unrepresentable quarter unit → 0 → deferred",
+            ),
+            (
+                Some("2026-01-01"),
+                Some("2026-12-31"),
+                0,
+                deferred,
+                "absolute range → 0 → deferred",
+            ),
+            (
+                Some("2026-01-01"),
+                None,
+                0,
+                deferred,
+                "absolute lower only → 0 → deferred",
+            ),
+            (
+                Some("-30d"),
+                Some("-7d"),
+                0,
+                deferred,
+                "relative range → 0 → deferred",
+            ),
+            (
+                Some("garbage"),
+                None,
+                0,
+                deferred,
+                "unparseable bound → 0 → deferred",
+            ),
+        ];
+        for (from, to, days, expected, why) in cases {
+            let leaf = explicit_multiple_leaf(from, to);
+            assert_eq!(effective_window_days(&leaf), days, "window_days: {why}");
+            assert_eq!(pick_state_variant(&leaf), expected, "variant: {why}");
+        }
+    }
+
+    #[test]
+    fn explicit_relative_window_days_match_the_time_value_interval_multiple_path() {
+        // A relative `explicit_datetime` and the equivalent `time_value`/`time_interval` resolve to the
+        // same window days and state variant for a `performed_event_multiple` — the same oracle query.
+        for (raw, time_value, interval) in [
+            ("-30d", 30, "day"),
+            ("-1w", 1, "week"),
+            ("-2m", 2, "month"),
+            ("-1y", 1, "year"),
+        ] {
+            let explicit = explicit_multiple_leaf(Some(raw), None);
+            let interval_path = leaf(
+                BehavioralValue::PerformedEventMultiple,
+                Some(time_value),
+                Some(interval),
+            );
+            assert_eq!(
+                effective_window_days(&explicit),
+                effective_window_days(&interval_path),
+                "{raw} vs {time_value}{interval} window_days",
+            );
+            assert_eq!(
+                pick_state_variant(&explicit),
+                pick_state_variant(&interval_path),
+                "{raw} vs {time_value}{interval} variant",
+            );
         }
     }
 }

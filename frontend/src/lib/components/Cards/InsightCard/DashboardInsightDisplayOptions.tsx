@@ -1,14 +1,11 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-
-// The insight editor's "Options" menu, surfaced as a submenu in the dashboard card ⋯ menu. Edits
-// persist to the saved insight via the card's `setQuery` wiring (see InsightCard).
-export function DashboardInsightDisplayOptions(): JSX.Element | null {
-    const { items } = useInsightDisplayOptions()
-
+// Items are computed in InsightMeta (always mounted) and passed down to avoid mounting
+// useInsightDisplayOptions lazily inside the More popover overlay, which triggers kea logic
+// mounts that cascade and close the popover before the user can interact with it.
+export function DashboardInsightDisplayOptions({ items }: { items: LemonMenuItems }): JSX.Element | null {
     if (items.length === 0) {
         return null
     }

@@ -7,7 +7,7 @@ import { getRetryAttempts } from './metrics.test-utils'
 import { drop, isDlqResult, isDropResult, isOkResult, ok } from './results'
 
 // Suppress logger output during tests
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -16,7 +16,7 @@ jest.mock('~/utils/logger', () => ({
     },
 }))
 
-jest.mock('~/utils/posthog', () => ({
+jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 

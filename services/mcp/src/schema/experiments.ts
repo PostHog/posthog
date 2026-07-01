@@ -21,9 +21,24 @@ const ExperimentEventExposureConfigSchema = z.object({
     properties: z.array(z.any()),
 })
 
+// Action-based exposure: the experiment counts a user as exposed when they match a
+// PostHog action (kind 'ActionsNode', identified by numeric `id`) rather than a custom
+// event. The backend resolves the action by id, so id + properties round-trip faithfully
+// into the ExperimentExposureQuery.
+const ExperimentActionExposureConfigSchema = z.object({
+    kind: z.literal('ActionsNode'),
+    id: z.number(),
+    properties: z.array(z.any()).optional(),
+})
+
+const ExperimentExposureConfigSchema = z.union([
+    ExperimentEventExposureConfigSchema,
+    ExperimentActionExposureConfigSchema,
+])
+
 const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
-    exposure_config: ExperimentEventExposureConfigSchema.optional(),
+    exposure_config: ExperimentExposureConfigSchema.optional(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 

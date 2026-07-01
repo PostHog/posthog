@@ -32,8 +32,7 @@ import structlog
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
     PROPERTY_LENGTH_LIMIT,

@@ -1,6 +1,6 @@
 import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka'
 
-import { defaultConfig, overrideWithEnv } from '../../src/config/config'
+import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
@@ -31,7 +31,8 @@ import {
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '../../src/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+
 import { PluginsServerConfig } from '../../src/types'
 
 function buildKafkaConfig(extraServerConfig?: Partial<PluginsServerConfig>) {

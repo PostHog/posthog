@@ -96,6 +96,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "trigger_data": "The trigger configuration that starts the automation.",
             "steps": "The sequence of steps in the automation workflow.",
             "stats": "Statistics for the automation (subscribers, opens, clicks).",
+            "first_email_screenshot_url": "URL of a screenshot preview of the automation's first email.",
             "created_at": "Time the automation was created.",
         },
     },

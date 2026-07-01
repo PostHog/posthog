@@ -1,8 +1,13 @@
-import type { StorybookConfig } from '@storybook/types'
+import type { StorybookConfig } from '@storybook/react-webpack5'
+import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 
 import { createEntry } from '../webpack.config.js'
 import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
+
+// Storybook 10 loads the config as a native ES module, where `__dirname` is
+// not defined — derive it from the module URL instead.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -18,13 +23,7 @@ const config: StorybookConfig = {
         createStoriesPathFor('packages/quill/packages/charts/src'),
     ],
 
-    addons: [
-        '@storybook/addon-docs',
-        '@storybook/addon-links',
-        '@storybook/addon-essentials',
-        '@storybook/addon-storysource',
-        '@storybook/addon-a11y',
-    ],
+    addons: ['@storybook/addon-docs', '@storybook/addon-links', '@storybook/addon-a11y'],
 
     staticDirs: [
         'public',
