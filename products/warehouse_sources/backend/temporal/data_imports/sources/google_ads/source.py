@@ -74,6 +74,16 @@ class GoogleAdsSource(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
+            # gRPC INVALID_ARGUMENT ("Request contains an invalid argument.") — the GAQL request
+            # itself is malformed/unsupported for this account, so every retry re-sends the same
+            # bad query and fails identically. Left in the retryable set it produces a retry storm
+            # (Temporal re-runs the whole activity), so classify it as non-retryable. Two shapes
+            # reach here: the raw grpc `_InactiveRpcError`, whose str() carries the bare status
+            # token, and gapic's `google.api_core.exceptions.InvalidArgument`, whose str() is
+            # "400 Request contains an invalid argument." with no bare token — mirror the two-key
+            # UNAUTHENTICATED handling above and match both.
+            "INVALID_ARGUMENT": "Google Ads rejected this request as invalid, so retrying will not help. This usually means the query for this table is not valid for your account configuration. Please contact support if this table keeps failing.",
+            "Request contains an invalid argument": "Google Ads rejected this request as invalid, so retrying will not help. This usually means the query for this table is not valid for your account configuration. Please contact support if this table keeps failing.",
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
             # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
             # has been revoked, expired, or is otherwise rejected by Google's token endpoint.

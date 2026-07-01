@@ -167,6 +167,17 @@ class TestGoogleAdsNonRetryableErrors:
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes",
             "Customer: Account has been deleted",
             "INVALID_CUSTOMER_ID: Customer ID is not valid",
+            # A malformed/unsupported GAQL request comes back as gRPC INVALID_ARGUMENT and is
+            # deterministic — every retry re-sends the same bad query — so it must stop retrying.
+            # Raw grpc `_InactiveRpcError` shape: str() carries the bare status token.
+            (
+                "<_InactiveRpcError of RPC that terminated with:\n"
+                "\tstatus = StatusCode.INVALID_ARGUMENT\n"
+                '\tdetails = "Request contains an invalid argument."\n>'
+            ),
+            # gapic `google.api_core.exceptions.InvalidArgument` shape: str() is "400 {message}"
+            # and carries no bare status token, so it only matches on the human message.
+            "400 Request contains an invalid argument.",
         ],
     )
     def test_permanent_auth_errors_are_non_retryable(self, error_msg):
@@ -243,6 +254,8 @@ class TestGoogleAdsNonRetryableErrors:
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
             "Account has been deleted",
             "INVALID_CUSTOMER_ID",
+            "INVALID_ARGUMENT",
+            "Request contains an invalid argument",
             "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
             "access_not_configured",
@@ -251,6 +264,14 @@ class TestGoogleAdsNonRetryableErrors:
     )
     def test_documented_patterns_present(self, pattern):
         assert pattern in self.non_retryable
+
+    def test_invalid_argument_has_friendly_message(self):
+        # Both shapes map to the same guidance; a None here would silently swallow the failure
+        # with no explanation surfaced to the user.
+        for pattern in ("INVALID_ARGUMENT", "Request contains an invalid argument"):
+            friendly = self.non_retryable[pattern]
+            assert friendly is not None
+            assert "retry" in friendly.lower()
 
     def test_requested_metrics_for_manager_has_user_facing_message(self):
         message = self.non_retryable["REQUESTED_METRICS_FOR_MANAGER"]
