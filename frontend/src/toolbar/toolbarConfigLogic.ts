@@ -641,13 +641,18 @@ function verifyUiHostReachability(
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
-            if (!response.ok) {
+            // A 404 means the origin responded but this specific path isn't routed to
+            // PostHog — the expected shape when the toolbar is served behind a reverse-proxy
+            // prefix (e.g. /ph/, /ingest/, /static/) that forwards toolbar.js but not
+            // /toolbar_oauth/check. The host itself is reachable, so treat it as a success
+            // rather than flipping auth into an error state and reporting a benign exception.
+            if (!response.ok && response.status !== 404) {
                 throw new Error(`HTTP ${response.status}`)
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
-                status: 'ok',
+                status: response.ok ? 'ok' : 'reachable_probe_404',
                 duration_ms: Date.now() - checkStart,
             })
 
