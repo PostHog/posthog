@@ -68,10 +68,17 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
@@ -179,6 +186,12 @@ SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
     labelnames=["location", "auth_type"],
+)
+
+SESSION_RECORDING_LIST_QUERY_TOO_EXPENSIVE = Counter(
+    "session_recording_list_query_too_expensive_total",
+    "Recordings list queries that exceeded ClickHouse memory/cost limits for the chosen filters",
+    labelnames=["auth_type"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -916,9 +929,33 @@ class SessionRecordingViewSet(
             if isinstance(e, exceptions.ValidationError):
                 raise
 
-            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+            # Transient capacity/rate-limit failures — retrying the same query later succeeds.
+            if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, CHQueryErrorCannotScheduleTask)):
+                SESSION_RECORDING_THROTTLED.labels(location="clickhouse_at_capacity", auth_type=auth_type).inc()
+                raise Throttled(detail="Too many simultaneous queries. Try again later.")
+
+            if isinstance(e, ClickHouseQueryTimeOut) or (
+                isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e)
+            ):
                 SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+            # The chosen filter combination is too expensive to run (heavy property/duration filters
+            # read the events `properties` column and blow ClickHouse's memory ceiling). This is driven
+            # by user filter choice, not a bug, so we return an actionable, retryable error and skip
+            # exception reporting to keep this expected failure out of error tracking.
+            if isinstance(e, (ClickHouseQueryMemoryLimitExceeded, ClickHouseEstimatedQueryExecutionTimeTooLong)) or (
+                isinstance(e, ServerException) and "MEMORY_LIMIT_EXCEEDED" in str(e)
+            ):
+                SESSION_RECORDING_LIST_QUERY_TOO_EXPENSIVE.labels(auth_type=auth_type).inc()
+                return Response(
+                    {
+                        "code": "query_too_expensive",
+                        "detail": "This filter combination is too heavy for us to run. "
+                        "Try narrowing your search — a shorter date range or fewer property filters — and search again.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             posthoganalytics.capture_exception(
                 e,

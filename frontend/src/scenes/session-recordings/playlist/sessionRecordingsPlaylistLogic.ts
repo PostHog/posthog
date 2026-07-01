@@ -755,6 +755,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        sessionRecordingsAPIError: [
+            null as { detail: string | null; code: string | null; status?: number } | null,
+            {
+                loadSessionRecordingsFailure: (_, { errorObject }) => ({
+                    detail: errorObject?.detail ?? null,
+                    code: errorObject?.code ?? null,
+                    status: errorObject?.status,
+                }),
+                loadSessionRecordingSuccess: () => null,
+                setFilters: () => null,
+                setAdvancedFilters: () => null,
+                loadNext: () => null,
+                loadPrev: () => null,
+            },
+        ],
         selectedRecordingsIds: [
             [] as string[],
             {

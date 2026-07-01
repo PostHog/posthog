@@ -28,6 +28,7 @@ from rest_framework import status
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -1332,8 +1333,23 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "Too many simultaneous queries. Try again later.",
             ),
             (
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                "Too many simultaneous queries. Try again later.",
+            ),
+            (
+                "cannot_schedule_task",
+                CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439),
+                "Too many simultaneous queries. Try again later.",
+            ),
+            (
                 "timeout_exceeded",
                 ServerException("CHQueryErrorTimeoutExceeded"),
+                "Query timeout exceeded. Try again later.",
+            ),
+            (
+                "timeout_exceeded_wrapped",
+                ClickHouseQueryTimeOut(),
                 "Query timeout exceeded. Try again later.",
             ),
         ]
@@ -1349,6 +1365,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+
+    @parameterized.expand(
+        [
+            ("memory_limit_wrapped", ClickHouseQueryMemoryLimitExceeded()),
+            (
+                "memory_limit_raw",
+                ServerException("DB::Exception ... MEMORY_LIMIT_EXCEEDED while reading column properties"),
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.posthoganalytics.capture_exception")
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_query_too_expensive(self, _name, exception, mock_run, mock_capture):
+        # Heavy property/duration filter combinations blow ClickHouse's memory ceiling. This is driven by
+        # user filter choice, so we return an actionable 400 and must not report it as a bug in error tracking.
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "query_too_expensive"
+        mock_capture.assert_not_called()
 
     def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
         """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""

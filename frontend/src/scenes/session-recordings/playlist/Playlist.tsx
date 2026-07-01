@@ -395,13 +395,42 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
+const RecordingsListError = (): JSX.Element => {
+    const { sessionRecordingsAPIError } = useValues(sessionRecordingsPlaylistLogic)
+    const { loadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+
+    // The chosen filter combination is too heavy for ClickHouse to run — narrowing the filters is the fix.
+    if (sessionRecordingsAPIError?.code === 'query_too_expensive') {
+        return (
+            <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadSessionRecordings() }}>
+                {sessionRecordingsAPIError.detail ||
+                    'This filter combination is too heavy for us to run. Try narrowing your search and search again.'}
+            </LemonBanner>
+        )
+    }
+
+    // 429 covers our transient capacity / query-timeout responses — retrying the same search works.
+    const isTransient = sessionRecordingsAPIError?.status === 429
+    return (
+        <LemonBanner
+            type={isTransient ? 'warning' : 'error'}
+            action={{ children: 'Try again', onClick: () => loadSessionRecordings() }}
+        >
+            {isTransient
+                ? sessionRecordingsAPIError?.detail ||
+                  'Recordings are taking too long to load right now. Please try again in a moment.'
+                : 'Error while trying to load recordings.'}
+        </LemonBanner>
+    )
+}
+
 const ListEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                <RecordingsListError />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
@@ -425,7 +454,7 @@ const CollectionEmptyState = ({
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                <RecordingsListError />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : isSynthetic ? (

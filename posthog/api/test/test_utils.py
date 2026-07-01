@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.api.utils import (
     PaginationMode,
+    ServerTimingsGathered,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
@@ -338,3 +339,13 @@ class TestUtils(BaseTest):
         self, _name: str, allowlist: list[str], needle: str | None, expected: bool
     ) -> None:
         assert unparsed_hostname_in_allowed_url_list(allowlist, needle) == expected
+
+    def test_server_timing_header_truncated_below_alb_limit(self) -> None:
+        # An oversized timings header caused ALBs to return unexplained 502s, so we cap it at 10k.
+        # Truncation is expected and must not raise (it previously reported a handled exception on every hit).
+        timer = ServerTimingsGathered()
+        timer.timings_dict = {f"a_very_long_timing_name_number_{i}": float(i) for i in range(2000)}
+
+        header = timer.to_header_string()
+
+        assert 0 < len(header) <= 10000
