@@ -1,5 +1,3 @@
-from typing import Any
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -10,11 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClockodoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-def _config() -> Any:
-    return ClockodoSource()._config_class.from_dict({"api_user": "me@example.com", "api_key": "secret"})
+def _config() -> ClockodoSourceConfig:
+    return ClockodoSourceConfig(api_user="me@example.com", api_key="secret")
 
 
 class TestClockodoSource:

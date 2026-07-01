@@ -118,6 +118,11 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
 
+    # Oldest page whose rows aren't yet in a durably-yielded batch. Resume re-fetches from here so a
+    # page's tail that hasn't been yielded is never skipped; already-yielded rows merge-dedupe on the
+    # primary key. A yield flushes every batched row, so it advances this pointer to the current page.
+    resume_page = page
+
     while True:
         params["page"] = page
         data = _fetch_page(session, url, headers, params, logger)
@@ -132,11 +137,12 @@ def get_rows(
             batcher.batch(item)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding, pointing at the CURRENT page (not the next): a crash re-fetches
-                # this page from the start so the tail of a page that only partially made it into the
-                # yielded batch isn't skipped. Earlier pages are already in durably-yielded batches;
-                # the re-fetched rows merge-dedupe on the primary key.
-                resumable_source_manager.save_state(ClockodoResumeConfig(next_page=page))
+                resume_page = page
+
+        # Save once per page — even when the page produced no yield — so a crash resumes near where it
+        # stopped instead of from page 1. We can only advance past pages whose rows are durably yielded,
+        # so this points at the oldest still-unflushed page.
+        resumable_source_manager.save_state(ClockodoResumeConfig(next_page=resume_page))
 
         if not has_more:
             break

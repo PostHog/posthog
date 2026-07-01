@@ -68,9 +68,8 @@ class TestEndpointParams:
         assert "time_until" not in params
 
 
+# Force a 1-row chunk so every row yields a table — exercises the resume save path.
 def _patch_small_batcher() -> Any:
-    """Force a 1-row chunk so every row yields a table — exercises the resume save path."""
-
     def _factory(*_args: Any, logger: Any = None, **_kwargs: Any) -> Batcher:
         return Batcher(logger=logger or MagicMock(), chunk_size=1, chunk_size_bytes=10**12)
 
@@ -101,10 +100,35 @@ class TestGetRows:
 
         assert seen_pages == [1, 2]
         assert _ids(tables) == [1, 2, 3]
-        # State always points at the page being processed (re-fetch on resume), so a crash never
-        # skips a partially-yielded page's tail.
+        # State is saved once per page, pointing at the oldest unflushed page (the page being
+        # processed here, since every row yields), so a crash re-fetches it rather than skipping its tail.
         saved = [c.args[0].next_page for c in manager.save_state.call_args_list]
-        assert saved == [1, 1, 2]
+        assert saved == [1, 2]
+
+    def test_paginated_saves_state_per_page_even_without_a_yield(self) -> None:
+        # Realistic batcher: pages are far under the chunk threshold, so nothing yields mid-walk.
+        # State must still be saved once per page (pointing at page 1, the oldest unflushed page)
+        # so a crash resumes near where it stopped rather than always from page 1.
+        pages = {
+            1: {"paging": {"count_pages": 2}, "customers": [{"id": 1}, {"id": 2}]},
+            2: {"paging": {"count_pages": 2}, "customers": [{"id": 3}]},
+        }
+
+        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
+            return pages[params["page"]]
+
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with (
+            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
+            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
+        ):
+            tables = list(get_rows("u", "k", "customers", MagicMock(), manager))
+
+        assert _ids(tables) == [1, 2, 3]
+        saved = [c.args[0].next_page for c in manager.save_state.call_args_list]
+        assert saved == [1, 1]
 
     def test_resumes_from_saved_page(self) -> None:
         pages = {2: {"paging": {"count_pages": 2}, "customers": [{"id": 3}]}}
