@@ -11,9 +11,11 @@ export function formatBytes(bytes) {
 
 // Human-readable change vs a baseline, with an at-a-glance arrow. Used verbatim in the
 // header summary and the section table so a reader sees the same phrasing in both.
-export function formatDelta(bytes, baselineBytes) {
+// `noBaseline` overrides the wording when there is nothing to compare against (the
+// eager-graph section prefers "no base measurement" over treating the value as new).
+export function formatDelta(bytes, baselineBytes, { noBaseline } = {}) {
     if (baselineBytes === undefined || baselineBytes === null) {
-        return `🔺 +${formatBytes(bytes)} (new)`
+        return noBaseline ?? `🔺 +${formatBytes(bytes)} (new)`
     }
     const delta = bytes - baselineBytes
     if (delta === 0) {

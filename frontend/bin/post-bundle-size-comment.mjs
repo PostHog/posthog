@@ -1,62 +1,17 @@
 #!/usr/bin/env node
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import { deltaStatus, formatBytes, formatDelta } from './ci-report/format.mjs'
+import { resolvePrAndBaseReport } from './ci-report/report-files.mjs'
 import { postSection } from './ci-report/update-ci-report.mjs'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const frontendDir = path.resolve(__dirname, '..')
 
 // A file whose size moves by less than this is treated as unchanged, matching the
 // compressed-size-action `minimum-change-threshold: 1000` this replaces.
 const MINIMUM_CHANGE_BYTES = 1000
 
-// The base build runs last in the same workspace, so the plain report filename holds the
-// base branch's numbers. The PR build's report carries its checkout sha in the filename —
-// the PR checks out the merge ref (GITHUB_SHA); head sha covers non-merge-ref checkouts.
-const eventPath = process.env.GITHUB_EVENT_PATH
-const event = eventPath ? JSON.parse(fs.readFileSync(eventPath, 'utf-8')) : {}
-const shaCandidates = [process.env.GITHUB_SHA, event.pull_request?.head?.sha].filter(Boolean)
-const shaReportPath = shaCandidates
-    .map((sha) => path.join(frontendDir, `bundle-size-report-${sha}.json`))
-    .find((p) => fs.existsSync(p))
-const reportPath = shaReportPath ?? path.join(frontendDir, 'bundle-size-report.json')
-if (!fs.existsSync(reportPath)) {
-    console.info('No bundle size report found — nothing to post (branch may predate the check).')
+const resolved = resolvePrAndBaseReport('bundle-size-report', 'bundle size')
+if (!resolved) {
     process.exit(0)
 }
-if (!shaReportPath) {
-    console.warn(
-        `No report found for shas [${shaCandidates.join(', ')}]; falling back to ${reportPath} — ` +
-            `its numbers may be from a different checkout.`
-    )
-}
-
-const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'))
-
-// The plain filename is the base measurement only when its sha differs from the PR's —
-// otherwise the base build didn't emit a report (base branch predates the check) and the
-// plain file is just the PR's own report.
-const baseReport = (() => {
-    const candidate = path.join(frontendDir, 'bundle-size-report.json')
-    if (!fs.existsSync(candidate)) {
-        return null
-    }
-    try {
-        const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'))
-        if (parsed.sha && report.sha && parsed.sha !== report.sha) {
-            return parsed
-        }
-    } catch {
-        return null
-    }
-    return null
-})()
-if (!baseReport) {
-    console.warn('No base-branch report found — the section will not show a vs-base delta.')
-}
+const { report, baseReport } = resolved
 const baseBytes = Object.fromEntries((baseReport?.files ?? []).map((f) => [f.file, f.bytes]))
 
 // Only diff per file when there is a baseline. Without one every file looks "new", which
