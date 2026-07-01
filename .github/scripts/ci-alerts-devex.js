@@ -45,6 +45,9 @@ const STREAK_MAX_GAP_MINUTES = 180
 // GitHub data
 // ---------------------------------------------------------------------------
 
+// The single definition of a "red" run conclusion, shared by the streak and commit checks.
+const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 'timed_out'
+
 // The freshest settled runs for a workflow, newest-first.
 //
 // We deliberately do NOT pass `status: 'completed'`. That server-side filter is served from an
@@ -87,7 +90,7 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
         }
         // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
         // A short raw page means there are no older runs to fetch.
-        const streakBounded = settled.some((r) => r.conclusion !== 'failure' && r.conclusion !== 'timed_out')
+        const streakBounded = settled.some((r) => !isFailure(r))
         if (streakBounded || data.workflow_runs.length < perPage) break
     }
     return settled
@@ -96,7 +99,7 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
 function countConsecutiveFailures(runs) {
     let count = 0
     for (const run of runs) {
-        if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
+        if (isFailure(run)) {
             count++
         } else {
             break
@@ -170,7 +173,7 @@ function classifyCommits(commits, allWorkflowRuns) {
     return commits.map((commit) => {
         const runs = runsBySha.get(commit.sha) || []
         if (runs.length === 0) return { ...commit, status: 'unknown' }
-        const red = runs.some((r) => r.conclusion === 'failure' || r.conclusion === 'timed_out')
+        const red = runs.some(isFailure)
         return { ...commit, status: red ? 'red' : 'green' }
     })
 }

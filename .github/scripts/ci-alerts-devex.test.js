@@ -36,6 +36,17 @@ function runs(name, conclusions) {
 
 const failingRuns = (name, failCount) => runs(name, [...Array(failCount).fill('failure'), ...Array(5).fill('success')])
 
+// A non-terminal Backend CI run (no conclusion yet); status defaults to in_progress.
+const nonTerminalRun = (key, status = 'in_progress') => ({
+    name: 'Backend CI',
+    status,
+    conclusion: null,
+    head_sha: key,
+    html_url: `https://github.com/runs/${key}`,
+    created_at: minutes(0).toISOString(),
+    updated_at: minutes(0).toISOString(),
+})
+
 const allPassing = () => ({
     'ci-backend.yml': runs('Backend CI', ['success']),
     'ci-frontend.yml': runs('Frontend CI', ['success']),
@@ -466,18 +477,9 @@ describe('ci-alerts-devex', () => {
     })
 
     it('fetchWorkflowRuns reads the fresh index and drops non-terminal runs (regression)', async () => {
-        const nonTerminal = (key, st) => ({
-            name: 'Backend CI',
-            status: st,
-            conclusion: null,
-            head_sha: key,
-            html_url: `https://github.com/runs/${key}`,
-            created_at: minutes(0).toISOString(),
-            updated_at: minutes(0).toISOString(),
-        })
         const page = [
-            nonTerminal('ip', 'in_progress'),
-            nonTerminal('q', 'queued'),
+            nonTerminalRun('ip'),
+            nonTerminalRun('q', 'queued'),
             failureRun('Backend CI', 'f', minutes(-5).toISOString(), minutes(-5).toISOString()),
             { ...failureRun('Backend CI', 'x', minutes(-10).toISOString(), minutes(-10).toISOString()), conclusion: 'cancelled' },
             runs('Backend CI', ['success'])[0],
@@ -507,16 +509,7 @@ describe('ci-alerts-devex', () => {
         // A push burst leaves the newest page full of in-progress runs; per_page truncates the raw page
         // before the client-side status filter, so the completed failures sit on a later page. The
         // alerter must page to them rather than silently miss the incident (the inverse of the flap).
-        const inProgress = (n) =>
-            Array.from({ length: n }, (_, i) => ({
-                name: 'Backend CI',
-                status: 'in_progress',
-                conclusion: null,
-                head_sha: `ip_${i}`,
-                html_url: `https://github.com/runs/ip/${i}`,
-                created_at: minutes(0).toISOString(),
-                updated_at: minutes(0).toISOString(),
-            }))
+        const inProgress = (n) => Array.from({ length: n }, (_, i) => nonTerminalRun(`ip_${i}`))
         const failures = runs('Backend CI', Array(5).fill('failure'))
         const github = {
             rest: {
@@ -543,17 +536,8 @@ describe('ci-alerts-devex', () => {
         // A just-started run sits atop the fresh page; the 5 completed failures beneath it must still
         // page. Since we now fetch non-terminal runs (no server-side status filter), dropping them
         // client-side — rather than letting the head short-circuit the streak walk — is what holds.
-        const inProgressHead = {
-            name: 'Backend CI',
-            status: 'in_progress',
-            conclusion: null,
-            head_sha: 'ip',
-            html_url: 'https://github.com/runs/ip',
-            created_at: minutes(0).toISOString(),
-            updated_at: minutes(0).toISOString(),
-        }
         const github = createGithubMock({
-            'ci-backend.yml': [inProgressHead, ...runs('Backend CI', Array(5).fill('failure'))],
+            'ci-backend.yml': [nonTerminalRun('ip'), ...runs('Backend CI', Array(5).fill('failure'))],
             'ci-frontend.yml': runs('Frontend CI', ['success']),
         })
         const { outputs } = await run(github)
