@@ -632,7 +632,7 @@ export function createBarScales(
                 axisSeries,
                 valueRange,
                 tickCount,
-                barLayout === 'grouped' ? 'grouped' : 'stacked',
+                barLayout,
                 scaleType,
                 axisStackedSeries?.length ? axisStackedSeries : undefined,
                 axisIndex === 0 ? valueDomain : undefined,

@@ -1,7 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import type { Series } from '../core/types'
+import { DEFAULT_Y_AXIS_ID, type Series } from '../core/types'
 import { useChartLayout } from '../core/chart-context'
 
 interface TrendLineOverlayProps {
@@ -24,6 +24,8 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
     const lines = useMemo(() => {
         return trendSeries
             .map((s) => {
+                // Resolve the y-scale for this series's axis — right-axis series must not use the primary scale.
+                const yScale = scales.yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
                 const points: string[] = []
                 for (let i = 0; i < labels.length; i++) {
                     const rawY = s.data[i]
@@ -31,7 +33,7 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
                         continue
                     }
                     const x = scales.x(labels[i])
-                    const y = scales.y(rawY)
+                    const y = yScale(rawY)
                     if (!isFinite(x) || !isFinite(y)) {
                         continue
                     }
