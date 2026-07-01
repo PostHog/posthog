@@ -4,6 +4,7 @@ import { elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { TOOLBAR_ID } from '~/toolbar/utils'
 import { ElementType } from '~/types'
 
 interface ElementFingerprint {
@@ -27,6 +28,7 @@ export interface DOMIndex {
     byDataAttr: Map<string, Map<string, HTMLElement[]>>
     byHref: Map<string, HTMLElement[]>
     fingerprints: WeakMap<HTMLElement, ElementFingerprint>
+    hasShadowRoots: boolean
 }
 
 function addToIndex(map: Map<string, HTMLElement[]>, key: string, element: HTMLElement): void {
@@ -95,6 +97,7 @@ export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
         byDataAttr: new Map(),
         byHref: new Map(),
         fingerprints: new WeakMap(),
+        hasShadowRoots: false,
     }
     const positionsByParent = new WeakMap<HTMLElement, Map<Element, ElementPosition>>()
 
@@ -123,6 +126,10 @@ export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
         if (href) {
             addToIndex(index.byHref, href, element)
         }
+
+        if (element.shadowRoot && element.id !== TOOLBAR_ID) {
+            index.hasShadowRoots = true
+        }
     }
 
     return index
@@ -138,6 +145,13 @@ function matchesPosition(fingerprint: ElementFingerprint, eventElement: ElementT
     return true
 }
 
+function filterByPosition(candidates: HTMLElement[], eventElement: ElementType, index: DOMIndex): HTMLElement[] {
+    return candidates.filter((el) => {
+        const fp = index.fingerprints.get(el)
+        return fp && matchesPosition(fp, eventElement)
+    })
+}
+
 function getCandidatesFromIndex(
     eventElement: ElementType,
     dataAttributes: string[],
@@ -150,10 +164,7 @@ function getCandidatesFromIndex(
         if (value !== undefined) {
             const candidates = index.byDataAttr.get(matchedAttr)?.get(value) || []
             if (candidates.length) {
-                return candidates.filter((el) => {
-                    const fp = index.fingerprints.get(el)
-                    return fp && matchesPosition(fp, eventElement)
-                })
+                return filterByPosition(candidates, eventElement, index)
             }
         }
     }
@@ -161,14 +172,11 @@ function getCandidatesFromIndex(
     if (eventElement.attr_id) {
         const candidates = index.byId.get(eventElement.attr_id) || []
         if (candidates.length) {
-            return candidates.filter((el) => {
-                const fp = index.fingerprints.get(el)
-                return fp && matchesPosition(fp, eventElement)
-            })
+            return filterByPosition(candidates, eventElement, index)
         }
     }
 
-    let candidates = eventElement.tag_name ? [...(index.byTagName.get(eventElement.tag_name.toLowerCase()) || [])] : []
+    let candidates = eventElement.tag_name ? index.byTagName.get(eventElement.tag_name.toLowerCase()) || [] : []
 
     if (eventElement.attr_class?.length) {
         for (const cls of eventElement.attr_class) {
@@ -184,10 +192,7 @@ function getCandidatesFromIndex(
         candidates = candidates.filter((el) => hrefMatches.has(el))
     }
 
-    return candidates.filter((el) => {
-        const fp = index.fingerprints.get(el)
-        return fp && matchesPosition(fp, eventElement)
-    })
+    return filterByPosition(candidates, eventElement, index)
 }
 
 function fingerprintMatchesEventElement(

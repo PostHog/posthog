@@ -20,7 +20,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { TOOLBAR_ID, elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
@@ -44,7 +44,6 @@ function yieldToMain(): Promise<void> {
 interface ElementProcessingCache {
     pageElements?: HTMLElement[]
     domIndex?: DOMIndex
-    hasShadowRoots?: boolean
     selectorToElements: Record<string, HTMLElement[]>
     lastHref?: string
     intersectionObserver?: IntersectionObserver
@@ -70,17 +69,16 @@ function getCachedPageElements(
         return {
             pageElements: cache.pageElements,
             domIndex: cache.domIndex,
-            hasShadowRoots: cache.hasShadowRoots ?? true,
+            hasShadowRoots: cache.domIndex.hasShadowRoots,
         }
     }
 
     cache.pageElements = collectAllElementsDeep('*', document)
     cache.domIndex = buildDOMIndex(cache.pageElements)
-    cache.hasShadowRoots = cache.pageElements.some((el) => !!el.shadowRoot && el.id !== TOOLBAR_ID)
     cache.lastHref = href
     cache.selectorToElements = {}
     cache.cacheInvalidated = false
-    return { pageElements: cache.pageElements, domIndex: cache.domIndex, hasShadowRoots: cache.hasShadowRoots }
+    return { pageElements: cache.pageElements, domIndex: cache.domIndex, hasShadowRoots: cache.domIndex.hasShadowRoots }
 }
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
