@@ -3,10 +3,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use tracing::warn;
 
-use crate::issue_resolution::Issue;
 use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
-use crate::modes::processing::config::ProcessingConfig;
-use crate::tokenizer::CL100K_BPE;
+use crate::modes::notifications::stacktrace::print_stacktrace;
+use crate::modes::notifications::types::NotificationIssue;
 use crate::types::OutputErrProps;
 
 /// Signal payload matching the Django internal API contract.
@@ -21,8 +20,8 @@ pub struct EmitSignalRequest {
 }
 
 /// Context for building a signal from an issue + its error properties.
-pub struct IssueSignalContext<'a> {
-    pub issue: &'a Issue,
+pub struct IssueSignalContext<'a, I: NotificationIssue> {
+    pub issue: &'a I,
     pub props: &'a OutputErrProps,
     pub source_type: &'static str,
     /// Brief LLM-facing explanation of what this signal means, e.g. "New issue" or "Issue reopened".
@@ -31,22 +30,24 @@ pub struct IssueSignalContext<'a> {
     pub extra: serde_json::Value,
 }
 
-impl<'a> From<IssueSignalContext<'a>> for EmitSignalRequest {
-    fn from(ctx: IssueSignalContext<'a>) -> Self {
+impl<I: NotificationIssue> From<IssueSignalContext<'_, I>> for EmitSignalRequest {
+    fn from(ctx: IssueSignalContext<'_, I>) -> Self {
         let header = format!(
             "{}:\n{}: {}\n",
             ctx.preamble,
-            ctx.issue.name.as_deref().unwrap_or("Unknown"),
-            ctx.issue.description.as_deref().unwrap_or(""),
+            ctx.issue.name().unwrap_or("Unknown"),
+            ctx.issue.description().unwrap_or("")
         );
-        let header_tokens = CL100K_BPE.encode_with_special_tokens(&header).len();
-        let stacktrace = ctx.props.print_stacktrace(Some(8000 - header_tokens));
+        let header_tokens = crate::tokenizer::CL100K_BPE
+            .encode_with_special_tokens(&header)
+            .len();
+        let stacktrace = print_stacktrace(ctx.props, Some(8000 - header_tokens));
         let description = format!("{header}\n```\n{stacktrace}\n```");
 
         EmitSignalRequest {
             source_product: "error_tracking",
             source_type: ctx.source_type,
-            source_id: ctx.issue.id.to_string(),
+            source_id: ctx.issue.id().to_string(),
             description,
             weight: ctx.weight,
             extra: ctx.extra,
@@ -65,18 +66,22 @@ pub struct SignalClient {
 }
 
 impl SignalClient {
-    pub fn new(config: &ProcessingConfig) -> Self {
+    pub fn new_with_parts(base_url: String, secret: String) -> Self {
         Self {
             http: reqwest::Client::builder()
                 .no_proxy()
                 .build()
                 .expect("Failed to build SignalClient HTTP client"),
-            base_url: config.signals_api_base_url.clone(),
-            secret: config.resolver.internal_api_secret.clone(),
+            base_url,
+            secret,
         }
     }
 
-    pub async fn emit_issue_created(&self, issue: &Issue, props: &OutputErrProps) {
+    pub async fn emit_issue_created<I: NotificationIssue>(
+        &self,
+        issue: &I,
+        props: &OutputErrProps,
+    ) {
         let request = EmitSignalRequest::from(IssueSignalContext {
             issue,
             props,
@@ -87,10 +92,14 @@ impl SignalClient {
                 "fingerprint": props.fingerprint,
             }),
         });
-        self.send(issue.team_id, request).await;
+        self.send(issue.team_id(), request).await;
     }
 
-    pub async fn emit_issue_reopened(&self, issue: &Issue, props: &OutputErrProps) {
+    pub async fn emit_issue_reopened<I: NotificationIssue>(
+        &self,
+        issue: &I,
+        props: &OutputErrProps,
+    ) {
         let request = EmitSignalRequest::from(IssueSignalContext {
             issue,
             props,
@@ -101,12 +110,12 @@ impl SignalClient {
                 "fingerprint": props.fingerprint,
             }),
         });
-        self.send(issue.team_id, request).await;
+        self.send(issue.team_id(), request).await;
     }
 
-    pub async fn emit_issue_spiking(
+    pub async fn emit_issue_spiking<I: NotificationIssue>(
         &self,
-        issue: &Issue,
+        issue: &I,
         props: &OutputErrProps,
         computed_baseline: f64,
         current_bucket_value: f64,
@@ -126,7 +135,7 @@ impl SignalClient {
                 "fingerprint": props.fingerprint,
             }),
         });
-        self.send(issue.team_id, request).await;
+        self.send(issue.team_id(), request).await;
     }
 
     async fn send(&self, team_id: i32, body: EmitSignalRequest) {
@@ -161,7 +170,8 @@ impl SignalClient {
     }
 }
 
-/// Wraps an optional SignalClient. When signals are disabled, all calls are no-ops.
+/// Wraps an optional SignalClient. Signals are best-effort: callers should emit
+/// them after durable side effects, and failures only affect signal metrics/logs.
 #[derive(Clone)]
 pub struct MaybeSignalClient(Option<Arc<SignalClient>>);
 
@@ -174,7 +184,10 @@ impl MaybeSignalClient {
         Self(Some(Arc::new(client)))
     }
 
-    pub fn emit_issue_created(&self, issue: &Issue, props: &OutputErrProps) {
+    pub fn emit_issue_created<I>(&self, issue: &I, props: &OutputErrProps)
+    where
+        I: NotificationIssue + Clone + Send + Sync + 'static,
+    {
         if let Some(c) = self.0.clone() {
             let issue = issue.clone();
             let props = props.clone();
@@ -184,7 +197,10 @@ impl MaybeSignalClient {
         }
     }
 
-    pub fn emit_issue_reopened(&self, issue: &Issue, props: &OutputErrProps) {
+    pub fn emit_issue_reopened<I>(&self, issue: &I, props: &OutputErrProps)
+    where
+        I: NotificationIssue + Clone + Send + Sync + 'static,
+    {
         if let Some(c) = self.0.clone() {
             let issue = issue.clone();
             let props = props.clone();
@@ -194,13 +210,15 @@ impl MaybeSignalClient {
         }
     }
 
-    pub fn emit_issue_spiking(
+    pub fn emit_issue_spiking<I>(
         &self,
-        issue: &Issue,
+        issue: &I,
         props: &OutputErrProps,
         computed_baseline: f64,
         current_bucket_value: f64,
-    ) {
+    ) where
+        I: NotificationIssue + Clone + Send + Sync + 'static,
+    {
         if let Some(c) = self.0.clone() {
             let issue = issue.clone();
             let props = props.clone();
