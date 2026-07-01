@@ -313,7 +313,7 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
             # (`created_at + TTL >= now`, TTL = 2h today … 14d old), so True is a
-            # guarantee the precomputed value is well within the today TTL. A tile
+            # guarantee the precomputed value is well within the current 2h TTL. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
