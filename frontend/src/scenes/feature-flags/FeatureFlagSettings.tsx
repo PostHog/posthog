@@ -157,7 +157,11 @@ export function FlagsSecureApiKeys(): JSX.Element {
                     </Link>
                 </LemonBanner>
             )}
-            <h3 className="mt-4 mb-1 text-sm font-semibold text-muted flex items-center gap-2">
+            <h3
+                className={`${
+                    projectSecretApiKeysEnabled ? 'mt-4' : 'mt-0'
+                } mb-1 text-sm font-semibold text-muted flex items-center gap-2`}
+            >
                 Primary Key <span className="text-green-700 text-xs">(Active)</span>
                 {projectSecretApiKeysEnabled && <LemonTag type="warning">Deprecated</LemonTag>}
             </h3>
