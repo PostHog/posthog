@@ -89,7 +89,7 @@ export function FunnelStepsBarChart({
     const config = useMemo(() => {
         const base = isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig
         if (quillTooltipEnabled) {
-            return { ...base, tooltip: { placement: 'cursor' as const } }
+            return { ...base, tooltip: { pinnable: true, placement: 'cursor' as const } }
         }
         return base
     }, [isBreakdownCompare, quillTooltipEnabled])

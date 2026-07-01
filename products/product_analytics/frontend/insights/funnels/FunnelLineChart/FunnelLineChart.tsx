@@ -164,6 +164,7 @@ export function FunnelLineChart({
             funnelsFilter?.showTrendLines,
             showValuesOnSeries,
             legendConfig,
+            TOOLTIP_CONFIG,
         ]
     )
 
