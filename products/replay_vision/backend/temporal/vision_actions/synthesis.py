@@ -6,7 +6,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 """
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -210,7 +210,7 @@ def _summary_header(action: VisionAction, window_start: datetime | None, count: 
     noun = "recording" if count == 1 else "recordings"
     since = ""
     if window_start is not None:
-        tz = UTC
+        tz: tzinfo = UTC
         tz_name = action.trigger_config.get("timezone") if isinstance(action.trigger_config, dict) else None
         if tz_name:
             try:
