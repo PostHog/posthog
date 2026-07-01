@@ -84,12 +84,12 @@ def _auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", **_default_headers()}
 
 
-# The substream walk reaches `/conversations/search` and `/companies/list` via
-# POST. The shared `DEFAULT_RETRY` excludes POST from `allowed_methods`, so a
-# transient read timeout on those calls is *not* retried — unlike the GET calls
-# in the same walk, which retry transparently. These POSTs are read-only,
-# idempotent queries (the body just carries the query + cursor), so it's safe to
-# retry them on transient read timeouts and 429/5xx like everything else.
+# The substream walk reaches `/conversations/search` via POST (the companies
+# scroll walk is all GET). The shared `DEFAULT_RETRY` excludes POST from
+# `allowed_methods`, so a transient read timeout on that call is *not* retried —
+# unlike the GET calls in the same walk, which retry transparently. This POST is
+# a read-only, idempotent query (the body just carries the query + cursor), so
+# it's safe to retry it on transient read timeouts and 429/5xx like everything else.
 # Derived from DEFAULT_RETRY so the shared policy stays the single source of
 # truth — the only intentional difference is adding POST to allowed_methods.
 _INTERCOM_RETRY = Retry(
