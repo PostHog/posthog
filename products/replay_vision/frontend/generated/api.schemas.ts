@@ -277,7 +277,66 @@ export const VisionActionRunStatusEnumApi = {
 } as const
 
 /**
- * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+ * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
+ */
+export interface VisionActionRunListApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /**
+     * Short human-readable reason a run skipped or failed; null on success.
+     * @nullable
+     */
+    readonly error_reason: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionRunListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionRunListApi[]
+}
+
+/**
+ * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+ */
+export interface RunObservationApi {
+    /** Observation id; links to the observation detail view. */
+    readonly id: string
+    /** Session recording id this observation was made on. */
+    readonly session_id: string
+    /**
+     * Email of the person in the recorded session, captured at scan time; null if unidentified.
+     * @nullable
+     */
+    readonly recording_subject_email: string | null
+    /**
+     * Short title from the observation's summary; null if the observation had none.
+     * @nullable
+     */
+    readonly title: string | null
+    /** When the observation was produced. */
+    readonly created_at: string
+}
+
+/**
+ * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
  */
 export interface VisionActionRunApi {
     readonly id: string
@@ -295,8 +354,6 @@ export interface VisionActionRunApi {
     readonly scheduled_at: string | null
     /** Number of observations that fed this run's summary. */
     readonly observation_count: number
-    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-    readonly synthesized_markdown: string
     /**
      * Short human-readable reason a run skipped or failed; null on success.
      * @nullable
@@ -304,15 +361,10 @@ export interface VisionActionRunApi {
     readonly error_reason: string | null
     readonly created_at: string
     readonly updated_at: string
-}
-
-export interface PaginatedVisionActionRunListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionRunApi[]
+    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+    readonly synthesized_markdown: string
+    /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+    readonly observations: readonly RunObservationApi[]
 }
 
 /**

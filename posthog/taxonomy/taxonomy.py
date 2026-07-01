@@ -2699,6 +2699,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP is error",
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
         },
+        "$mcp_error_type": {
+            "label": "MCP error type",
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": ["rate_limited", "validation", "timeout", "api_4xx"],
+        },
+        "$mcp_error_status": {
+            "label": "MCP error status",
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "type": "Numeric",
+            "examples": [429, 500, 403],
+        },
+        "$mcp_error_message": {
+            "label": "MCP error message",
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+        },
         "$mcp_server_name": {
             "label": "MCP server name",
             "description": "The advertised name of the MCP server that handled the request.",

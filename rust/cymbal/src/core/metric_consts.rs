@@ -130,6 +130,8 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+pub const BYPASS_RULES_TRIED: &str = "cymbal_bypass_rules_tried";
+pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 
 // Remote resolution observability. Keep labels bounded: endpoint labels are
 // limited to the discovered pod set, and protocol failures are classified by

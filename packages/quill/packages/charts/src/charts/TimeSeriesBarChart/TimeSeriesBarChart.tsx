@@ -13,6 +13,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
+import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
@@ -22,6 +23,7 @@ import {
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
+import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,
@@ -53,6 +55,8 @@ export interface TimeSeriesBarChartConfig {
     animateHover?: boolean | number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
+    /** Linear or exponential trend line overlays — rendered as SVG lines on top of the bars. */
+    trendLines?: TrendLineConfig[]
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -95,6 +99,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         fillStyle,
         animateHover,
         legend,
+        trendLines,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -117,6 +122,19 @@ export function TimeSeriesBarChart<Meta = unknown>({
     // line off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
     // object stays referentially stable and doesn't re-trigger scale recomputation each render.
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
+    const trendSeries = useMemo(() => {
+        if (!trendLines?.length) {
+            return []
+        }
+        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
+        return trendLines.flatMap((tl) => {
+            const source = byKey.get(tl.seriesKey)
+            return source
+                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
+                : []
+        })
+    }, [trendLines, visibleSeries])
 
     const barChartConfig: BarChartConfig = {
         yScaleType: yAxis?.scale,
@@ -155,6 +173,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
                 {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
                 {children}
             </BarChart>

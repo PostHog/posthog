@@ -101,6 +101,52 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
     disabled_data: zod.unknown().optional(),
 })
 
+export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .unknown()
+        .optional()
+        .describe('Property-group filters that define which incoming error events bypass rate limiting.'),
+    order_key: zod
+        .number()
+        .optional()
+        .describe("Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order."),
+    disabled_data: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.'
+        ),
+})
+
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod
         .number()
