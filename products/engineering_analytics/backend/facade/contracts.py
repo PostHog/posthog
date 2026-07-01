@@ -227,8 +227,10 @@ class WorkflowRunActivityPoint:
     run_id: int
     # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / ...), or None while still running.
     conclusion: str | None
-    # None for a queued/barely-started run whose timestamp the warehouse hasn't landed yet.
-    run_started_at: datetime | None
+    # Always set here (unlike the shared WorkflowRunDetail shape): the windowed query filters on
+    # run_started_at, so a run with no parseable start timestamp is excluded — it can't be placed on the
+    # chart's time axis anyway. Non-null keeps the contract honest for this chart-only endpoint.
+    run_started_at: datetime
     # None until the run completes — duration is only computed for completed runs.
     duration_seconds: int | None
     head_branch: str

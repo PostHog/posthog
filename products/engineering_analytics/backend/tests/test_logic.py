@@ -903,6 +903,8 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         newest, failed = activity.points
         assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
         assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
+        assert all(p.run_started_at is not None for p in activity.points)
 
         # Widening the window pulls in the older run.
         wide = api.get_workflow_run_activity(

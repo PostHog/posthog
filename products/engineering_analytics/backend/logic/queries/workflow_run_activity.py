@@ -6,6 +6,10 @@ separate from ``workflow_run_list`` so the chart can span the full window — en
 scatter, the in-flight band, and the focus-lens brush — while the detail table stays capped at its
 smaller list size. Fetches ``_LIMIT + 1`` rows so an overflow is reported as ``truncated`` rather than
 silently dropped.
+
+The ``run_started_at >= date_from`` filter also excludes runs whose start timestamp didn't parse
+(``NULL``), which is intended: a run with no start time can't be placed on the chart's time axis. That
+is why ``WorkflowRunActivityPoint.run_started_at`` is non-null while the shared run-detail shape is not.
 """
 
 from datetime import datetime

@@ -220,8 +220,8 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "run_started_at": {
-                "help_text": "When the run started, or null for a queued/barely-started run.",
-                "allow_null": True,
+                "help_text": "When the run started. Never null on this endpoint: runs without a parseable "
+                "start timestamp are excluded from the window (they can't be plotted on the chart's time axis).",
             },
             "duration_seconds": {
                 "help_text": "Wall-clock duration in seconds; null until the run completes.",
