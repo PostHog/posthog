@@ -33219,6 +33219,11 @@ export namespace Schemas {
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
       /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
          */

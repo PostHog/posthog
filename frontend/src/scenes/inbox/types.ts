@@ -45,6 +45,8 @@ export interface SignalReport {
     already_addressed?: boolean | null
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
+    /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
+    scout_name?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
