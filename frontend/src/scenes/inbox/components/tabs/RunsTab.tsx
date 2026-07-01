@@ -43,7 +43,7 @@ export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean
                         runs={liveRuns}
                         empty={{
                             title: 'Nothing in motion right now',
-                            description: 'Self-driving will queue something up here when it kicks off a run.',
+                            description: 'Active runs show up here as soon as self-driving kicks one off.',
                         }}
                     />
                     {pastRuns.length > 0 && <RunsSection title="Past" count={pastRuns.length} runs={pastRuns} />}
