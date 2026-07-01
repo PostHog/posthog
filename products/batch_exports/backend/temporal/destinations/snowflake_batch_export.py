@@ -1072,9 +1072,9 @@ class SnowflakeClient:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
-            elif e.errno == 3001 and e.msg is not None:
+            elif e.errno == 3001:
                 raise SnowflakeInsufficientPrivilegesError(
-                    f"Failed to execute COPY INTO due to insufficient privileges: {e.msg}"
+                    f"Failed to execute COPY INTO due to insufficient privileges: {e.msg or 'no message provided'}"
                 )
 
             raise SnowflakeFileNotLoadedError(
