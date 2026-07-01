@@ -195,7 +195,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         label = getattr(obj, "label", None)
         if label is None:
             return None
-        return ReplayObservationLabelSerializer(label).data
+        return {"is_correct": label.is_correct, "feedback": label.feedback}
 
     class Meta:
         model = ReplayObservation
