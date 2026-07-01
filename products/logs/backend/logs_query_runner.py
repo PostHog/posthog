@@ -570,7 +570,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "resource_fingerprint": str(result[11]),
                     "instrumentation_scope": result[12],
                     "event_name": result[13],
-                    "live_logs_checkpoint": result[14],
+                    # ClickHouse returns naive datetimes; tag as UTC like timestamp/observed_timestamp
+                    # so the schema's AwareDatetime serializes with an offset rather than as a naive
+                    # string the frontend would misparse in non-UTC timezones.
+                    "live_logs_checkpoint": result[14].replace(tzinfo=ZoneInfo("UTC")) if result[14] else None,
                 }
             )
 
