@@ -15,7 +15,11 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueMergeResult,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
     FingerprintIssueNotFoundError,
     StaleAutoMergeStateError,
@@ -325,7 +329,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = True
+        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()
@@ -380,7 +384,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = False
+        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()

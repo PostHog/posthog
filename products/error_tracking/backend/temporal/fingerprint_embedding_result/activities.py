@@ -18,7 +18,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2, ErrorTrackingIssueMergeResult
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -309,13 +309,16 @@ def _merge_fingerprint_into_closest_issue(
 
     source_issue_id = source_fingerprint.issue_id
     target_issue_id = target_fingerprint.issue_id
-    if not target_fingerprint.issue.merge(
+    merge_result = target_fingerprint.issue.merge(
         issue_ids=[source_issue_id],
         expected_fingerprint_issue_ids={
             fingerprint: source_issue_id,
             closest_fingerprint.fingerprint: target_issue_id,
         },
-    ):
+    )
+    if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+        return 0
+    if merge_result != ErrorTrackingIssueMergeResult.MERGED:
         raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
 
     with ph_scoped_capture() as capture:

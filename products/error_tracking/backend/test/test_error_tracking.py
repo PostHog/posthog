@@ -15,6 +15,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueMergeResult,
     ErrorTrackingSpikeEvent,
     ErrorTrackingSymbolSet,
 )
@@ -87,7 +88,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) is False
+        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == ErrorTrackingIssueMergeResult.STALE_ISSUES
 
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
@@ -106,7 +107,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
                     "fingerprint_two": issue_two.id,
                 },
             )
-            is False
+            == ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
         )
 
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
@@ -122,7 +123,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            assert issue_two.merge(issue_ids=[issue_one.id]) is True
+            assert issue_two.merge(issue_ids=[issue_one.id]) == ErrorTrackingIssueMergeResult.MERGED
 
         sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
 
@@ -285,7 +286,9 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
 
 class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBaseTest):
-    def _run_merge(self, *, start_barrier: Barrier, target_issue_id: UUID, source_issue_ids: list[UUID]) -> bool:
+    def _run_merge(
+        self, *, start_barrier: Barrier, target_issue_id: UUID, source_issue_ids: list[UUID]
+    ) -> ErrorTrackingIssueMergeResult:
         close_old_connections()
         try:
             with connection.cursor() as cursor:
@@ -323,7 +326,8 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
 
             merge_results = [merge_to_target_one.result(timeout=20), merge_to_target_two.result(timeout=20)]
 
-        assert sorted(merge_results) == [False, True]
+        assert merge_results.count(ErrorTrackingIssueMergeResult.MERGED) == 1
+        assert merge_results.count(ErrorTrackingIssueMergeResult.STALE_ISSUES) == 1
         assert not ErrorTrackingIssue.objects.filter(id__in=[source_issue_one.id, source_issue_two.id]).exists()
         assert ErrorTrackingIssue.objects.filter(id__in=[target_issue_one.id, target_issue_two.id]).count() == 2
 
