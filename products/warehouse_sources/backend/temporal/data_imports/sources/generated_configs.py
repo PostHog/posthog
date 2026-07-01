@@ -576,7 +576,7 @@ class CannySourceConfig(config.Config):
 
 @config.config
 class CapsuleCRMSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1155,7 +1155,9 @@ class FilloutSourceConfig(config.Config):
 
 @config.config
 class FinageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
+    start_date: str | None = None
 
 
 @config.config

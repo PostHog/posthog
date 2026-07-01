@@ -309,6 +309,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-notifications:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-notifications
+        capability: error_notifications
+        ready_pattern: 'Starting cymbal-notifications consumer'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \
