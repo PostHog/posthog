@@ -192,12 +192,16 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-    def _orphaned_run(self, pending_dispatch: dict | None = None, run_source: str | None = None) -> TaskRun:
+    def _orphaned_run(
+        self, pending_dispatch: dict | None = None, run_source: str | None = None, prewarmed: bool = False
+    ) -> TaskRun:
         state: dict = {}
         if pending_dispatch is not None:
             state["pending_dispatch"] = pending_dispatch
         if run_source is not None:
             state["run_source"] = run_source
+        if prewarmed:
+            state["prewarmed"] = True
         return TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state)
 
     def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
@@ -277,3 +281,16 @@ class TestRedispatchOrphanedTaskRun(TestCase):
 
         self.assertEqual(outcome, "left_queue")
         start_workflow.assert_not_called()
+
+    def test_skips_prewarmed_run(self) -> None:
+        # Prewarmed runs are owned by the prewarmed reaper (it kills them); re-dispatching one would
+        # boot an agent with no user prompt and drop the prewarmed flag, changing boot behaviour.
+        run = self._orphaned_run(prewarmed=True)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "skipped_prewarmed")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)

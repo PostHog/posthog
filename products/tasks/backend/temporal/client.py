@@ -325,7 +325,8 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     just retries on the next sweep, and the 24h killer remains the only path that fails a run.
 
     Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
-    (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``error`` (transient).
+    (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
+    (owned by the prewarmed reaper), ``error`` (transient).
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
 
@@ -336,6 +337,12 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     )
     if task_run is None:
         return "left_queue"
+
+    # Prewarmed runs idle in QUEUED awaiting the user's first message; the dedicated prewarmed
+    # reaper *kills* them if never activated. Recovering one would boot an agent with no prompt
+    # (and re-dispatching without the prewarmed flag would change its boot behaviour), so skip.
+    if isinstance(task_run.state, dict) and task_run.state.get("prewarmed"):
+        return "skipped_prewarmed"
 
     task = task_run.task
     task_id = str(task.id)

@@ -219,7 +219,6 @@ def kill_stale_queued_task_runs() -> None:
     )
 
 
-
 @shared_task(ignore_result=True, soft_time_limit=110, time_limit=170)
 def redispatch_orphaned_queued_task_runs() -> None:
     """Re-dispatch TaskRuns stranded in QUEUED because their create-time workflow dispatch was lost.
@@ -229,7 +228,8 @@ def redispatch_orphaned_queued_task_runs() -> None:
     in the commit->callback window, or an earlier on_commit hook raises and Django skips the rest),
     the run stays QUEUED with no workflow — invisible to the workflow-start metrics — until the 24h
     killer marks it FAILED. This sweep recovers those runs in minutes instead: it re-dispatches every
-    run QUEUED past a short grace window, reading the persisted dispatch params off the row.
+    run QUEUED past a short grace window, reading the persisted dispatch params off the row. Prewarmed
+    runs are left alone (``redispatch_task_run`` skips them) — the prewarmed reaper owns them.
 
     Recovery is idempotent and safe: ``ALLOW_DUPLICATE_FAILED_ONLY`` starts a workflow only when none
     is live, so a run whose workflow already exists (slow queue, row not yet flipped to IN_PROGRESS)
@@ -268,6 +268,7 @@ def redispatch_orphaned_queued_task_runs() -> None:
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
+
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
