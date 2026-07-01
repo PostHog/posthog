@@ -4,7 +4,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { zendeskImportLogic, ZendeskImportJobApi, ZendeskImportJobStatus } from './zendeskImportLogic'
+import type { ZendeskImportJobApi } from '../../generated/api.schemas'
+import { zendeskImportLogic, ZendeskImportJobStatus } from './zendeskImportLogic'
 
 function makeJob(status: ZendeskImportJobStatus, overrides: Partial<ZendeskImportJobApi> = {}): ZendeskImportJobApi {
     return {
@@ -34,10 +35,10 @@ describe('zendeskImportLogic', () => {
         jest.useFakeTimers()
         useMocks({
             get: {
-                'api/conversations/v1/zendesk/import/status': () => [404, {}],
+                '/api/projects/:team_id/conversations/zendesk_imports/status/': () => [404, {}],
             },
             post: {
-                'api/conversations/v1/zendesk/import': () => [201, makeJob('running')],
+                '/api/projects/:team_id/conversations/zendesk_imports/': () => [201, makeJob('running')],
             },
         })
         initKeaTests()

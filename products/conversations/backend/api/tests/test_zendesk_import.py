@@ -19,7 +19,7 @@ class TestZendeskImportAPI(APIBaseTest):
         self.client.force_login(self.user)
 
     def test_status_returns_404_when_no_job(self):
-        response = self.client.get("/api/conversations/v1/zendesk/import/status")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/zendesk_imports/status/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(
@@ -33,7 +33,7 @@ class TestZendeskImportAPI(APIBaseTest):
     )
     def test_start_import_creates_job(self, _mock_start, _mock_validate):
         response = self.client.post(
-            "/api/conversations/v1/zendesk/import",
+            f"/api/projects/{self.team.id}/conversations/zendesk_imports/",
             {
                 "subdomain": "acme",
                 "email_address": "agent@example.com",
@@ -61,7 +61,7 @@ class TestZendeskImportAPI(APIBaseTest):
             job_inputs={"subdomain": "acme", "email_address": "a@b.com", "api_token": "x"},
         )
         response = self.client.post(
-            "/api/conversations/v1/zendesk/import",
+            f"/api/projects/{self.team.id}/conversations/zendesk_imports/",
             {
                 "subdomain": "acme",
                 "email_address": "agent@example.com",

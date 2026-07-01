@@ -1,27 +1,14 @@
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
+import { conversationsZendeskImportsCreate, conversationsZendeskImportsStatusRetrieve } from '../../generated/api'
+import type { ZendeskImportJobApi } from '../../generated/api.schemas'
 import type { zendeskImportLogicType } from './zendeskImportLogicType'
 
-export type ZendeskImportJobStatus = 'pending' | 'running' | 'completed' | 'failed'
-
-export interface ZendeskImportJobApi {
-    id: string
-    status: ZendeskImportJobStatus
-    total_tickets: number
-    processed_tickets: number
-    imported_tickets: number
-    skipped_tickets: number
-    failed_tickets: number
-    started_at: string | null
-    finished_at: string | null
-    latest_error: string | null
-    created_at: string
-    updated_at: string
-}
+export type ZendeskImportJobStatus = ZendeskImportJobApi['status']
 
 const TERMINAL_STATUSES: ZendeskImportJobStatus[] = ['completed', 'failed']
 const POLL_INTERVAL_MS = 3000
@@ -47,7 +34,7 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
             {
                 loadImportJob: async () => {
                     try {
-                        return await api.get<ZendeskImportJobApi>('api/conversations/v1/zendesk/import/status')
+                        return await conversationsZendeskImportsStatusRetrieve(String(getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 404) {
                             return null
@@ -56,7 +43,7 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
                     }
                 },
                 submitImport: async () => {
-                    return await api.create<ZendeskImportJobApi>('api/conversations/v1/zendesk/import', {
+                    return await conversationsZendeskImportsCreate(String(getCurrentTeamId()), {
                         subdomain: values.subdomain,
                         email_address: values.emailAddress,
                         api_token: values.apiToken,

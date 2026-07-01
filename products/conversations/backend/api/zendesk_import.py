@@ -7,17 +7,20 @@ import asyncio
 from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, status
-from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema
+from rest_framework import (
+    serializers,
+    status as drf_status,
+    viewsets,
+)
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
-from posthog.models.user import User
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import OrganizationAdminReadPermissions
 
 from products.conversations.backend.models import ZendeskImportJob
-from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskCredentials,
     validate_zendesk_credentials,
@@ -45,6 +48,10 @@ class ZendeskImportStartSerializer(serializers.Serializer):
     )
 
 
+class ZendeskImportErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable error message.")
+
+
 class ZendeskImportJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = ZendeskImportJob
@@ -63,27 +70,45 @@ class ZendeskImportJobSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier for the import job."},
+            "status": {"help_text": "Current job state: pending, running, completed, or failed."},
+            "total_tickets": {"help_text": "Total number of tickets discovered for import."},
+            "processed_tickets": {"help_text": "Number of tickets processed so far."},
+            "imported_tickets": {"help_text": "Number of tickets successfully imported."},
+            "skipped_tickets": {"help_text": "Number of tickets skipped because they were already imported."},
+            "failed_tickets": {"help_text": "Number of tickets that failed to import."},
+            "started_at": {"help_text": "When the import started running."},
+            "finished_at": {"help_text": "When the import reached a terminal state."},
+            "latest_error": {"help_text": "Generic, user-safe error message when the job failed."},
+            "created_at": {"help_text": "When the import job was created."},
+            "updated_at": {"help_text": "When the import job was last updated."},
+        }
 
 
-class ZendeskImportStartView(APIView):
-    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    # Settings-only, admin-gated, session-auth endpoint — not exposed as a public API scope.
+    scope_object = "INTERNAL"
+    serializer_class = ZendeskImportJobSerializer
+    permission_classes = [OrganizationAdminReadPermissions]
+    queryset = ZendeskImportJob.objects.unscoped()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team_id).order_by("-created_at")
 
     @extend_schema(
         request=ZendeskImportStartSerializer,
         responses={
             201: ZendeskImportJobSerializer,
-            400: OpenApiResponse(description="Invalid credentials or import already running."),
+            400: ZendeskImportErrorSerializer,
+            500: ZendeskImportErrorSerializer,
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        user = request.user
-        if not isinstance(user, User) or user.current_team is None:
-            return Response({"detail": "No current team selected"}, status=status.HTTP_400_BAD_REQUEST)
-
-        team = user.current_team
-        if not team.conversations_enabled:
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        team_id = self.team_id
+        if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled for this team"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Conversations is not enabled for this team"}, status=drf_status.HTTP_400_BAD_REQUEST
             )
 
         serializer = ZendeskImportStartSerializer(data=request.data)
@@ -96,23 +121,24 @@ class ZendeskImportStartView(APIView):
             api_token=data["api_token"],
         )
         if not validate_zendesk_credentials(credentials):
-            return Response({"detail": "Zendesk rejected the credentials"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Zendesk rejected the credentials"}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         running = (
             ZendeskImportJob.objects.unscoped()
             .filter(
-                team_id=team.id,
+                team_id=team_id,
                 status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
             )
             .exists()
         )
         if running:
             return Response(
-                {"detail": "A Zendesk import is already running for this team"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "A Zendesk import is already running for this team"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
         job = ZendeskImportJob.objects.unscoped().create(
-            team_id=team.id,
+            team_id=team_id,
             status=ZendeskImportJob.Status.PENDING,
             job_inputs={
                 "subdomain": credentials.subdomain,
@@ -123,7 +149,7 @@ class ZendeskImportStartView(APIView):
 
         try:
             workflow_id, workflow_run_id = asyncio.run(
-                start_zendesk_import_workflow(job_id=str(job.id), team_id=team.id)
+                start_zendesk_import_workflow(job_id=str(job.id), team_id=team_id)
             )
             job.workflow_id = workflow_id
             job.workflow_run_id = workflow_run_id
@@ -131,32 +157,25 @@ class ZendeskImportStartView(APIView):
             job.started_at = timezone.now()
             job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
         except Exception:
-            logger.exception("zendesk_import_workflow_start_failed", job_id=str(job.id), team_id=team.id)
+            logger.exception("zendesk_import_workflow_start_failed", job_id=str(job.id), team_id=team_id)
             job.status = ZendeskImportJob.Status.FAILED
             job.latest_error = WORKFLOW_START_FAILED_MESSAGE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
-            return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response(ZendeskImportJobSerializer(job).data, status=status.HTTP_201_CREATED)
-
-
-class ZendeskImportStatusView(APIView):
-    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+        return Response(ZendeskImportJobSerializer(job).data, status=drf_status.HTTP_201_CREATED)
 
     @extend_schema(
         responses={
             200: ZendeskImportJobSerializer,
-            404: OpenApiResponse(description="No import job found."),
+            404: ZendeskImportErrorSerializer,
         },
     )
-    def get(self, request: Request, *args, **kwargs) -> Response:
-        user = request.user
-        if not isinstance(user, User) or user.current_team is None:
-            return Response({"detail": "No current team selected"}, status=status.HTTP_400_BAD_REQUEST)
-
-        job = ZendeskImportJob.objects.unscoped().filter(team_id=user.current_team.id).order_by("-created_at").first()
+    @action(detail=False, methods=["get"])
+    def status(self, request: Request, *args, **kwargs) -> Response:
+        job = ZendeskImportJob.objects.unscoped().filter(team_id=self.team_id).order_by("-created_at").first()
         if job is None:
-            return Response({"detail": "No Zendesk import job found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "No Zendesk import job found"}, status=drf_status.HTTP_404_NOT_FOUND)
 
         return Response(ZendeskImportJobSerializer(job).data)
