@@ -72,6 +72,16 @@ def _is_server_error(exc: HTTPError) -> bool:
     return resp is not None and 500 <= resp.status_code < 600
 
 
+def _is_scroll_expired(exc: HTTPError) -> bool:
+    """A companies scroll cursor can be invalidated mid-walk (idle expiry, or a
+    concurrent scroll on the workspace — only one is allowed); the continuation
+    then returns 404. The scroll walk only ever hits `/companies/scroll`, so any
+    404 there is a dead cursor rather than a missing row — distinct from
+    `_is_not_found`, which classifies a vanished child row on a per-row fetch."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 404
+
+
 def _default_headers() -> dict[str, str]:
     return {
         "Accept": "application/json",
@@ -409,7 +419,7 @@ def _drain_company_ids(session: Session) -> list[str]:
         try:
             return [company["id"] for company in _iter_companies(session)]
         except HTTPError as exc:
-            if _is_not_found(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
+            if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
                 logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
                 continue
             raise
@@ -427,9 +437,9 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     and a slow stretch of `/companies/{id}/segments` calls between two scroll
     pages lets the cursor lapse — the next continuation then 404s mid-walk.
     Draining first keeps the scroll requests back-to-back so it stays alive;
-    only the ids are held, so the memory cost stays flat regardless of count. If
-    the cursor is still invalidated mid-drain, `_drain_company_ids` restarts the
-    walk from scratch."""
+    only the ids are held, not the full company payloads, so the memory
+    footprint stays small. If the cursor is still invalidated mid-drain,
+    `_drain_company_ids` restarts the walk from scratch."""
     company_ids = _drain_company_ids(session)
     for company_id in company_ids:
         try:
