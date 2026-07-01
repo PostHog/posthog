@@ -1584,7 +1584,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # capture_exceptions is disabled here: we capture manually below so that expected
+        # user-input errors (SLO-success outcomes: user errors, cancellations, rate limits)
+        # don't create error-tracking issues, while genuine platform failures still do.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1760,9 +1763,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # before any branch tag is set leave execution_path unset, which is honest.
                     category, outcome = _classify_error_for_slo(exc)
                     if outcome == SloOutcome.SUCCESS:
+                        # Expected user-input errors (e.g. a direct-Postgres warehouse query
+                        # exceeding statement_timeout, surfaced as ExposedHogQLError). The user
+                        # gets a clean error message; suppressing capture keeps these out of
+                        # error tracking rather than firing false-alarm issues.
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                        # Only genuine platform failures belong in error tracking. Captured
+                        # here (still inside the context) so the same context tags are attached
+                        # as when new_context auto-captured.
+                        posthoganalytics.capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(

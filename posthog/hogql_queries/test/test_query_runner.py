@@ -636,13 +636,21 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
-            with pytest.raises(type(raised_exc)):
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            with mock.patch("posthoganalytics.capture_exception") as mock_capture_exception:
+                with pytest.raises(type(raised_exc)):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         mock_emit_slo_completed.assert_called_once()
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+        # Expected user-input errors (SLO-success) must not be captured into error tracking;
+        # only genuine platform failures should be.
+        if expected_outcome == SloOutcome.SUCCESS:
+            mock_capture_exception.assert_not_called()
+        else:
+            mock_capture_exception.assert_called_once_with(raised_exc)
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
