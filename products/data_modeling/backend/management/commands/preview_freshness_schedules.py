@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.management.base import BaseCommand, CommandError
 
 from products.data_modeling.backend.logic.schedule_reconcile import DagSchedulePreview, preview_dag_schedules
@@ -24,7 +26,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dags = DAG.objects.filter(team_id=options["team_id"])
         if options["dag_id"]:
-            dags = dags.filter(id=options["dag_id"])
+            try:
+                dags = dags.filter(id=uuid.UUID(options["dag_id"]))
+            except ValueError:
+                raise CommandError(f"--dag-id must be a UUID, got {options['dag_id']!r}")
         dags = list(dags)
         if not dags:
             raise CommandError("No matching DAGs")
@@ -55,6 +60,16 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"  ⚠ unsatisfiable: {names.get(tier.node_id, tier.node_id)} would run every {tier.effective} "
                 f"but its sources only deliver every {tier.floor}"
+            )
+
+        for interval in preview.unsupported_tiers:
+            self.stdout.write(f"  ⚠ unsupported tier: {interval} is not a schedulable bucket — reconcile would refuse")
+
+        for invalid in sorted(preview.invalid_targets, key=lambda t: names.get(t.node_id, t.node_id)):
+            ceiling = str(invalid.ceiling) if invalid.ceiling is not None else "none"
+            self.stdout.write(
+                f"  ⚠ invalid declared target: {names.get(invalid.node_id, invalid.node_id)} declares "
+                f"{invalid.target} but its legal range is [{invalid.floor} … {ceiling}]"
             )
 
         if preview.best_effort_source_ids:

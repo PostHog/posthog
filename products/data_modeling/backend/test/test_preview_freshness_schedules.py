@@ -111,3 +111,31 @@ class TestPreviewFreshnessSchedules(BaseTest):
         self.assertIn("seeded from current cadence", output)
         self.assertIn("CREATE", output)
         self.assertIn("6:00:00", output)
+
+    def test_flags_unsupported_tier_and_invalid_declared_target(self):
+        # go-live audit: a 45min legacy cadence (seeded) must be flagged as unschedulable, and a
+        # declared target drifted above its descendant's demand must be flagged as invalid
+        dag = DAG.objects.create(team=self.team, name="odd-cadence", sync_frequency_interval=timedelta(minutes=45))
+        _saved_query_node(self.team, dag, "legacy_view", NodeType.VIEW)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
+        set_frequency_target(matview, H6)
+        set_frequency_target(endpoint, M15)
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        out = StringIO()
+        with mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=_no_existing_schedules())):
+            call_command(
+                "preview_freshness_schedules",
+                "--team-id",
+                str(self.team.pk),
+                "--dag-id",
+                str(dag.id),
+                "--seed",
+                stdout=out,
+            )
+
+        output = out.getvalue()
+        self.assertIn("unsupported tier: 0:45:00", output)
+        self.assertIn("invalid declared target: mv", output)

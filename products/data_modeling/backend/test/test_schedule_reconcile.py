@@ -8,7 +8,7 @@ from parameterized import parameterized
 from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import STREAMING
+from products.data_modeling.backend.logic.freshness import STREAMING, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_frequency_target
 from products.data_modeling.backend.logic.schedule_reconcile import _find_unsatisfiable, reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
@@ -157,6 +157,21 @@ class TestReconcileDagSchedules(BaseTest):
         # so the DAG stays fully covered at its current cadence rather than opening a gap
         delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
         self.assertNotEqual(created_ids[0], legacy_id)
+
+    def test_refuses_non_bucket_tier_before_touching_temporal(self):
+        # a non-bucket target would crash or silently distort build_schedule_spec mid-apply,
+        # leaving the DAG partially reconciled — the guard must fire before any Temporal call
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_frequency_target(endpoint, timedelta(minutes=45))
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with mock.patch(f"{module}.async_connect", new=mock.AsyncMock()) as connect:
+            with self.assertRaises(UnsupportedFrequencyTargetError):
+                reconcile_dag_schedules(dag)
+        connect.assert_not_called()
 
 
 class TestFindUnsatisfiable(TestCase):
