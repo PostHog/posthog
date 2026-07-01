@@ -1821,6 +1821,7 @@ class ExternalDataSourceType(StrEnum):
     NEXTDOOR_ADS = "NextdoorAds"
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
+    PLUNK = "Plunk"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2221,6 +2222,8 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     POSTGRESQL = "postgresql"
+    AWS_S3 = "aws-s3"
+    S3_COMPATIBLE = "s3-compatible"
 
 
 class IntervalType(StrEnum):
@@ -2644,6 +2647,8 @@ class ProductIntentContext(StrEnum):
     LLM_DATASET_CREATED = "llm_dataset_created"
     LLM_EVALUATION_CREATED = "llm_evaluation_created"
     LLM_PROMPT_CREATED = "llm_prompt_created"
+    MCP_ANALYTICS_VIEWED = "mcp_analytics_viewed"
+    MCP_ANALYTICS_CONNECTED = "mcp_analytics_connected"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
@@ -2794,6 +2799,7 @@ class PropertyFilterType(StrEnum):
     INTERNAL_EVENT = "internal_event"
     EVENT_METADATA = "event_metadata"
     PERSON = "person"
+    PERSON_METADATA = "person_metadata"
     ELEMENT = "element"
     FEATURE = "feature"
     SESSION = "session"
@@ -3265,6 +3271,7 @@ class TaxonomicFilterGroupType(StrEnum):
     COHORTS = "cohorts"
     COHORTS_WITH_ALL = "cohorts_with_all"
     DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_SOURCE_TABLES = "data_warehouse_source_tables"
     DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
@@ -3276,6 +3283,7 @@ class TaxonomicFilterGroupType(StrEnum):
     EVENT_METADATA = "event_metadata"
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
+    PERSON_METADATA = "person_metadata"
     PAGEVIEW_URLS = "pageview_urls"
     PAGEVIEW_EVENTS = "pageview_events"
     SCREENS = "screens"

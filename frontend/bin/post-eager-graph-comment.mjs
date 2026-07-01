@@ -164,16 +164,16 @@ if (!anyFailure && !significantChange && !existing) {
 
 const lines = [
     MARKER,
-    `## ${anyFailure ? '❌' : '🕸️'} Eager graph`,
+    `## ${anyFailure ? '🟡' : '🟢'} Eager graph`,
     '',
-    "How much code each root forces the browser to download and decode through *static* imports — the regression class total bundle size can't see.",
+    'How much code each root ships on the *eager* path — downloaded and parsed before the surface is interactive. Measured from the esbuild output chunks (post-tree-shake, static imports only); lazy `import()` / `React.lazy` chunks are not counted.',
     '',
-    '| Root | Eager closure | Δ vs base | Budget |',
+    '| Root | Eager (shipped) | Δ vs base | Budget |',
     '| --- | --- | --- | --- |',
 ]
 
 for (const r of report.roots) {
-    const status = r.overBudget ? '❌ ' : ''
+    const status = r.overBudget ? '🟡 ' : ''
     lines.push(
         `| ${status}**${r.label}**<br/>\`${r.root}\` | ${formatBytes(r.bytes)} · ${r.files.toLocaleString()} files | ${formatDelta(r.bytes, baseBytes[r.root])} | ${budgetBar(r.bytes, r.budgetBytes)} |`
     )
@@ -181,20 +181,20 @@ for (const r of report.roots) {
 lines.push('')
 
 for (const message of report.errors ?? []) {
-    lines.push(`❌ ${message}`, '')
+    lines.push(`🟡 ${message}`, '')
 }
 
 for (const r of report.roots) {
     for (const forbiddenModule of r.forbidden) {
         const hit = r.forbiddenHits.find((h) => h.module === forbiddenModule)
         if (hit) {
-            lines.push(`❌ \`${forbiddenModule}\` is statically reachable from \`${r.root}\`:`)
+            lines.push(`🟡 \`${forbiddenModule}\` ships eagerly from \`${r.root}\`:`)
             lines.push('')
             lines.push('```')
             lines.push(hit.chain.join('\n  -> '))
             lines.push('```')
         } else {
-            lines.push(`✅ \`${forbiddenModule}\` stays out of \`${r.root}\``)
+            lines.push(`🟢 \`${forbiddenModule}\` stays out of \`${r.root}\``)
         }
     }
 }
@@ -210,7 +210,7 @@ for (const r of report.roots) {
 }
 lines.push('')
 lines.push(
-    '<sub>Posted automatically by [check-eager-graph](https://github.com/PostHog/posthog/blob/master/frontend/bin/check-eager-graph.mjs) · sizes are input-source bytes from the esbuild metafile · part of #32479</sub>'
+    '<sub>Posted automatically by [check-eager-graph](https://github.com/PostHog/posthog/blob/master/frontend/bin/check-eager-graph.mjs) · sizes are eager output bytes (shipped, post-tree-shake) from the esbuild metafile · part of #32479</sub>'
 )
 
 const body = lines.join('\n')

@@ -1,7 +1,9 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -20,6 +22,9 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
+// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
+const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
+
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
     help: 'Total number of email tracking events received',
@@ -30,6 +35,14 @@ const emailTrackingErrorsCounter = new Counter({
     name: 'email_tracking_errors_total',
     help: 'Total number of email tracking processing errors',
     labelNames: ['error_type', 'source'],
+})
+
+// Skips here are expected (e.g. SES webhook for a hog_function rather than a hog_flow),
+// kept separate so alerts on `email_tracking_errors_total` don't fire on normal traffic.
+const emailTrackingLogSkipsCounter = new Counter({
+    name: 'email_tracking_log_skips_total',
+    help: 'Total number of email tracking log entries skipped (expected, non-error)',
+    labelNames: ['reason', 'source'],
 })
 
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
@@ -98,6 +111,15 @@ export const addTrackingToEmail = (
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
         if (/^\s*javascript:/i.test(href)) {
+            return m
+        }
+        // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
+        // app deeplinks resolve - routing through our cross-domain redirect breaks them.
+        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
+        // Match only the opening <a> tag so a marker in the link's inner HTML (a child
+        // element's attribute or literal link text) can't silently disable tracking.
+        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
             return m
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
@@ -216,13 +238,77 @@ export class EmailTrackingService {
         })
     }
 
+    public async trackLogs(
+        entries: {
+            functionId?: string
+            invocationId?: string
+            parentRunId?: string
+            level: LogEntryLevel
+            message: string
+        }[]
+    ): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        const uniqueFunctionIds = Array.from(
+            new Set(entries.map((e) => e.functionId).filter((id): id is string => Boolean(id)))
+        )
+
+        let hogFlows: Record<string, HogFlow | null> = {}
+        try {
+            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+        } catch (error) {
+            logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
+            emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
+            return
+        }
+
+        const now = DateTime.utc()
+        const logEntries: LogEntry[] = []
+        for (const entry of entries) {
+            if (!entry.functionId || !entry.invocationId) {
+                logger.error('[EmailTrackingService] trackLogs: Invalid custom ID', {
+                    functionId: entry.functionId,
+                    invocationId: entry.invocationId,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id', source: 'ses' })
+                continue
+            }
+
+            const hogFlow = hogFlows[entry.functionId]
+            if (!hogFlow) {
+                emailTrackingLogSkipsCounter.inc({ reason: 'non_flow', source: 'ses' })
+                continue
+            }
+
+            logEntries.push({
+                team_id: hogFlow.team_id,
+                log_source: 'hog_flow',
+                // Batch-triggered runs log under the batch run id (parentRunId); mirror the metrics path.
+                log_source_id: entry.parentRunId ?? hogFlow.id,
+                instance_id: entry.invocationId,
+                timestamp: now,
+                level: entry.level,
+                message: entry.message,
+            })
+        }
+
+        if (logEntries.length === 0) {
+            return
+        }
+
+        this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
+        await this.hogFunctionMonitoringService.flush()
+    }
+
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
 
         try {
-            const { status, body, metrics, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const { status, body, metrics, logEntries, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -240,6 +326,22 @@ export class EmailTrackingService {
                     properties: metric.properties,
                     timestamp: metric.timestamp,
                 })
+            }
+
+            // Wrapped so a failure here doesn't skip the opt-out processing below.
+            try {
+                await this.trackLogs(
+                    (logEntries || []).map((entry) => ({
+                        functionId: entry.functionId,
+                        invocationId: entry.invocationId,
+                        parentRunId: entry.parentRunId,
+                        level: entry.level,
+                        message: entry.message,
+                    }))
+                )
+            } catch (error) {
+                logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
             // Collect all emails to opt out per team, then batch each team's opt-out in one query

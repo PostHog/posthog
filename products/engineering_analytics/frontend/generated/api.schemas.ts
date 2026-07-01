@@ -18,6 +18,59 @@ export interface CICardSummaryApi {
     failing_ci: number
 }
 
+export interface RepoRefApi {
+    /** Code host provider, e.g. 'github'. */
+    provider: string
+    /** Repository owner or organization. */
+    owner: string
+    /** Repository name. */
+    name: string
+}
+
+export interface CIFailureLogLineApi {
+    /**
+     * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
+     * @nullable
+     */
+    original_line: number | null
+    /** The log line text, or the omission-marker text. */
+    text: string
+}
+
+export interface CIJobFailureLogApi {
+    /** The thinned failure-log lines in original order, with omission markers. */
+    lines: CIFailureLogLineApi[]
+    /** GitHub Actions job id of the failed job. */
+    job_id: number
+    /** Workflow run id the job belongs to. */
+    run_id: number
+    /** Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs. */
+    conclusion: string
+    /** Git branch the run was triggered on, or '' when unknown. */
+    branch: string
+    /** Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown. */
+    original_total_lines: number
+    /** Number of lines returned for this job (after the per-job cap). */
+    line_count: number
+    /** True when the job had more failure lines than the per-job cap. */
+    truncated: boolean
+}
+
+export interface CIFailureLogsApi {
+    /** Repository the pull request belongs to. */
+    repo: RepoRefApi
+    /** Failed CI jobs with their thinned failure logs, grouped by job. */
+    jobs: CIJobFailureLogApi[]
+    /** Pull request number the failure logs are for. */
+    pr_number: number
+    /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
+    runs_attributed: number
+    /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+    logs_available: boolean
+    /** True when the overall line cap across all jobs was hit. */
+    truncated: boolean
+}
+
 export interface WorkflowCostApi {
     /** GitHub Actions workflow name this cost is for. */
     workflow_name: string
@@ -57,7 +110,7 @@ export interface PRCostSummaryApi {
     by_run: RunCostApi[]
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
-    /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+    /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
     billable_minutes: number
     /**
      * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
@@ -81,15 +134,6 @@ export interface AuthorApi {
     avatar_url: string
     /** True if the author is a bot (handle ends in [bot] or is a known bot). */
     is_bot: boolean
-}
-
-export interface RepoRefApi {
-    /** Code host provider, e.g. 'github'. */
-    provider: string
-    /** Repository owner or organization. */
-    owner: string
-    /** Repository name. */
-    name: string
 }
 
 /**
@@ -409,6 +453,60 @@ export interface QuarantineFileApi {
     generated_at: string
 }
 
+/**
+ * * `quarantine` - QUARANTINE
+ * * `extend` - EXTEND
+ * * `remove` - REMOVE
+ */
+export type OperationEnumApi = (typeof OperationEnumApi)[keyof typeof OperationEnumApi]
+
+export const OperationEnumApi = {
+    Quarantine: 'quarantine',
+    Extend: 'extend',
+    Remove: 'remove',
+} as const
+
+export interface QuarantineRequestApi {
+    /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
+     *
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE */
+    operation: OperationEnumApi
+    /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+    selector: string
+    /**
+     * Optional 'owner/name' repository override; defaults to the team's most active repo.
+     * @nullable
+     */
+    repo?: string | null
+    /** Why the test is quarantined. Required for quarantine and extend; ignored by remove. */
+    reason?: string
+    /** GitHub team or user handle responsible for the fix, e.g. '@PostHog/team-x'. Required for quarantine and extend. */
+    owner?: string
+    /** Existing tracking issue URL, carried forward on extend and remove. Ignored by quarantine, which files a fresh issue. */
+    issue?: string
+    /**
+     * ISO date the quarantine expires (at most 30 days out). Defaults to 14 days from today. Ignored by remove.
+     * @nullable
+     */
+    expires?: string | null
+    /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.
+     *
+     * * `run` - RUN
+     * * `skip` - SKIP */
+    mode?: QuarantineModeEnumApi
+}
+
+export interface QuarantineRequestResultApi {
+    /** URL of the opened pull request that edits the quarantine file. */
+    pr_url: string
+    /** URL of the tracking issue filed for a new quarantine; empty for extend and remove. */
+    issue_url: string
+    /** Branch the pull request was opened from. */
+    branch: string
+}
+
 export interface GitHubSourceApi {
     /** Source id — pass as `source_id` to the other endpoints to read this source. */
     id: string
@@ -547,6 +645,21 @@ export type EngineeringAnalyticsCiCardsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsCiFailureLogsParams = {
+    /**
+     * Pull request number whose CI failure logs to fetch.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsPrCostParams = {
     /**
      * Pull request number to estimate cost for.
@@ -620,7 +733,7 @@ export type EngineeringAnalyticsQuarantineParams = {
 
 export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string
     /**
@@ -665,6 +778,10 @@ export type EngineeringAnalyticsWorkflowRunParams = {
 
 export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
@@ -687,6 +804,10 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
 }
 
 export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

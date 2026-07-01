@@ -253,34 +253,58 @@ pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn S
     }
 }
 
+/// Records a whole-batch validation abort. These errors reject the batch as a
+/// unit, so every event in it is dropped — but the request only ever ticks one
+/// `capture_v1_analytics_error`, leaving the event count invisible. Charge the
+/// full batch length to `capture_v1_events_dropped` so dup/oversize/invalid-uuid
+/// rejections show real per-event loss. Returns `err` for use at the call site.
+fn count_validation_abort(err: Error, batch_len: usize) -> Error {
+    metrics::counter!(
+        CAPTURE_V1_EVENTS_DROPPED,
+        "reason" => err.tag(),
+        "stage" => "validation_abort",
+    )
+    .increment(batch_len as u64);
+    err
+}
+
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
+    let batch_len = batch.batch.len();
     if batch.batch.is_empty() {
-        return Err(Error::EmptyBatch);
+        return Err(count_validation_abort(Error::EmptyBatch, batch_len));
     }
 
     DateTime::parse_from_rfc3339(&batch.created_at).map_err(|_| {
-        Error::InvalidBatch(format!(
-            "created_at is not valid RFC 3339: {}",
-            batch.created_at
-        ))
+        count_validation_abort(
+            Error::InvalidBatch(format!(
+                "created_at is not valid RFC 3339: {}",
+                batch.created_at
+            )),
+            batch_len,
+        )
     })?;
 
     Ok(())
 }
 
 fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
-    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
-    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
+    let batch_len = batch.batch.len();
+    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
+    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
     let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
         if event.uuid.is_empty() {
-            return Err(Error::MissingEventUuid);
+            return Err(count_validation_abort(Error::MissingEventUuid, batch_len));
         }
-        let uuid = Uuid::parse_str(&event.uuid)
-            .map_err(|_| Error::InvalidEventUuid(event.uuid.clone()))?;
+        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| {
+            count_validation_abort(Error::InvalidEventUuid(event.uuid.clone()), batch_len)
+        })?;
         if !seen.insert(uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid.clone()));
+            return Err(count_validation_abort(
+                Error::DuplicateEventUuid(event.uuid.clone()),
+                batch_len,
+            ));
         }
 
         let destination = destination_for_event_name(&event.event);
@@ -694,6 +718,37 @@ mod tests {
         serde_json::from_str(&json.to_string()).unwrap()
     }
 
+    /// Runs `f` under a local metrics recorder and returns the recorded
+    /// `capture_v1_events_dropped` counter for the given `reason`+`stage` labels,
+    /// so whole-batch-abort tests can assert the exact per-event drop count.
+    fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        f();
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_V1_EVENTS_DROPPED {
+                    return None;
+                }
+                let labels: std::collections::HashMap<&str, &str> =
+                    key.key().labels().map(|l| (l.key(), l.value())).collect();
+                if labels.get("reason") != Some(&reason) || labels.get("stage") != Some(&stage) {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(v) => Some(v),
+                    _ => None,
+                }
+            })
+    }
+
     // --- validate_batch ---
 
     #[test]
@@ -1066,6 +1121,116 @@ mod tests {
         };
         let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
+    }
+
+    // --- whole-batch abort drop counting ---
+    // Each abort rejects the entire batch, so the dropped-events counter must be
+    // charged the FULL batch length (not 1, and not just the events seen before
+    // the bad one) — that is the per-event loss the single request-level
+    // capture_v1_analytics_error tick can't show.
+
+    #[test]
+    fn duplicate_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let shared = Uuid::new_v4().to_string();
+        // dup is only detected at index 2, but all 3 events are lost.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: shared.clone(),
+                ..valid_event()
+            },
+            Event {
+                uuid: Uuid::new_v4().to_string(),
+                ..valid_event()
+            },
+            Event {
+                uuid: shared,
+                ..valid_event()
+            },
+        ]);
+
+        let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::DuplicateEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn invalid_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        // bad uuid at index 0; the 2 trailing valid events are lost too.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: "not-a-uuid".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+            valid_event(),
+        ]);
+
+        let count = dropped_count("invalid_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::InvalidEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn missing_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let batch = valid_batch(vec![
+            Event {
+                uuid: String::new(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        let count = dropped_count("missing_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::MissingEventUuid
+            ));
+        });
+        assert_eq!(count, Some(2));
+    }
+
+    #[test]
+    fn invalid_batch_abort_counts_whole_batch() {
+        let batch = Batch {
+            created_at: "not-a-timestamp".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![valid_event(), valid_event(), valid_event()],
+        };
+
+        let count = dropped_count("invalid_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::InvalidBatch(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn empty_batch_abort_counts_zero() {
+        // An empty batch loses no events, so the drop counter must not be
+        // inflated (0, whether the series is registered or absent).
+        let batch = valid_batch(vec![]);
+
+        let count = dropped_count("empty_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::EmptyBatch
+            ));
+        });
+        assert_eq!(count.unwrap_or(0), 0);
     }
 
     #[test]

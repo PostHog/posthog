@@ -181,9 +181,13 @@ export function NotebookScene(): JSX.Element {
                             }
                         />
                     )}
-                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
-                    {!sceneMenuBarEnabled && !isMarkdownNotebook && (
-                        <NotebookExpandButton type="secondary" size="small" inPanel={false} />
+                    {!sceneMenuBarEnabled && (
+                        <NotebookExpandButton
+                            type="secondary"
+                            size="small"
+                            inPanel={false}
+                            isMarkdownNotebook={isMarkdownNotebook}
+                        />
                     )}
                     {!sceneMenuBarEnabled && (
                         <LemonButton
