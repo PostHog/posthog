@@ -24,7 +24,11 @@ describe('messageTemplateLogic unsaved-changes guard', () => {
 
     it.each([
         { description: 'blocks navigation away from an unsaved new template', changed: true, expectedCalls: 1 },
-        { description: 'does not block navigation when there are no unsaved changes', changed: false, expectedCalls: 0 },
+        {
+            description: 'does not block navigation when there are no unsaved changes',
+            changed: false,
+            expectedCalls: 0,
+        },
     ])('$description', async ({ changed, expectedCalls }) => {
         if (changed) {
             logic.actions.setTemplateValue('name', 'My one-hour template')
