@@ -149,6 +149,20 @@ Fired when a toolbar mode is toggled on or off.
 `actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`,
 `product-tours/productToursLogic.ts`
 
+### `toolbar clickmap processed`
+
+Fired when the clickmap finishes matching loaded element stats to DOM elements.
+
+| Property                | Type      | Description                                                    |
+| ----------------------- | --------- | -------------------------------------------------------------- |
+| `event_count`           | `number`  | Element stats rows processed                                   |
+| `matched_element_count` | `number`  | Rows matched to a visible DOM element                          |
+| `page_element_count`    | `number`  | Elements collected from the page for matching                  |
+| `has_shadow_roots`      | `boolean` | Whether the page has shadow roots (forces the slower fallback) |
+| `duration_ms`           | `number`  | Total processing time including DOM index build                |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
 ## Element inspection
 
 ### `toolbar selected HTML element`

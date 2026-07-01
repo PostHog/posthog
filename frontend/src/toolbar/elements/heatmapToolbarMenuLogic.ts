@@ -27,7 +27,7 @@ import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
-export const ELEMENT_STATS_PAGE_LIMIT = 2000
+const ELEMENT_STATS_PAGE_LIMIT = 2000
 
 function yieldToMain(): Promise<void> {
     return new Promise((resolve) => {
@@ -373,6 +373,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     listeners(({ actions, values, cache }) => ({
         processElements: async (_, breakpoint) => {
             const SLICE_BUDGET_MS = 10
+            const startedAt = performance.now()
 
             const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
 
@@ -425,6 +426,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
             actions.startElementObservation()
             actions.setIsRefreshing(false)
+
+            toolbarPosthogJS.capture('toolbar clickmap processed', {
+                event_count: totalEvents,
+                matched_element_count: allTrimmedElements.length,
+                page_element_count: pageElements.length,
+                has_shadow_roots: hasShadowRoots,
+                duration_ms: Math.round(performance.now() - startedAt),
+            })
         },
 
         enableHeatmap: () => {
