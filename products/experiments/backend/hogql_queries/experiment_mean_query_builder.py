@@ -5,6 +5,9 @@ from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode,
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+
 from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
@@ -405,4 +408,118 @@ class MeanQueryBuilder:
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
 
+        return query
+
+    def _build_value_breakdown_expr(self, breakdown_property: str, table_alias: str) -> ast.Expr:
+        """
+        Builds the expression that reads the split property off the metric event.
+
+        Mirrors BreakdownInjector's NULL handling (coalesce to the shared null label) so an
+        absent property lands in a single, recognizable bucket instead of vanishing.
+        """
+        properties_chain = get_properties_chain(
+            breakdown_type="event",
+            breakdown_field=breakdown_property,
+            group_type_index=None,
+        )
+        property_expr = ast.Field(chain=[table_alias, *properties_chain])
+        return parse_expr(
+            "coalesce(toString({property_expr}), {null_label})",
+            placeholders={
+                "property_expr": property_expr,
+                "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+            },
+        )
+
+    def build_mean_value_breakdown_query(self, breakdown_property: str) -> ast.SelectQuery:
+        """
+        Builds the effect-decomposition query: one row per (variant, metric-event property value).
+
+        This is deliberately *not* the breakdown path. Breakdown partitions users (one bucket per
+        user, attributed from the exposure event) and gives each segment its own denominator. This
+        instead splits the metric *value* read off the metric event across the full exposed
+        population: a single user can contribute to several values, and every split keeps the full
+        per-variant exposure count as its denominator. Because each metric event maps to exactly one
+        value, the per-value sums add back to the un-split total (Σ_v sum_v == total_sum), so the
+        per-value means decompose the overall mean.
+
+        Only valid for count ('total') and 'sum' math, with an event/action source — both enforced
+        by the runner before this is called.
+        """
+        assert isinstance(self._b.metric, ExperimentMeanMetric)
+        assert isinstance(self._b.metric.source, (ActionsNode, EventsNode)), (
+            "value breakdown only supports event/action sources"
+        )
+
+        source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
+
+        placeholders: dict = {
+            "exposure_select_query": self._b._get_exposure_query(),
+            "entity_key": source_info.entity_key,
+            "metric_timestamp_field": ast.Field(chain=[source_info.timestamp_field]),
+            "metric_table": ast.Field(chain=[source_info.table_name]),
+            "metric_predicate": self._b._build_metric_predicate(table_alias=source_info.table_name),
+            "value_expr": self._b._build_value_expr(),
+            "breakdown_value_expr": self._build_value_breakdown_expr(breakdown_property, source_info.table_name),
+            "value_agg": self._b._build_value_aggregation_expr(),
+            "conversion_window_predicate": self._b._build_conversion_window_predicate(),
+        }
+
+        query = parse_select(
+            """
+            WITH
+            exposures AS (
+                {exposure_select_query}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {metric_timestamp_field} AS timestamp,
+                    {value_expr} AS value,
+                    {breakdown_value_expr} AS breakdown_value
+                FROM {metric_table}
+                WHERE {metric_predicate}
+            ),
+
+            -- One row per (user, property value): the user's accumulated metric value for that
+            -- value. INNER JOIN is intentional — a user with no events for a value contributes 0
+            -- to both its sum and its sum-of-squares, so it needs no row here. The full
+            -- denominator is restored from variant_exposures below.
+            entity_value_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    metric_events.breakdown_value AS breakdown_value,
+                    {value_agg} AS value
+                FROM exposures
+                INNER JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {conversion_window_predicate}
+                GROUP BY exposures.entity_id, exposures.variant, metric_events.breakdown_value
+            ),
+
+            -- Full exposure denominator per variant — the same count the un-split metric uses, so
+            -- each split is measured over every exposed user, not just those who hit the value.
+            variant_exposures AS (
+                SELECT
+                    variant,
+                    count(entity_id) AS num_users
+                FROM exposures
+                GROUP BY variant
+            )
+
+            SELECT
+                entity_value_metrics.variant AS variant,
+                entity_value_metrics.breakdown_value AS breakdown_value_1,
+                any(variant_exposures.num_users) AS num_users,
+                sum(entity_value_metrics.value) AS total_sum,
+                sum(power(entity_value_metrics.value, 2)) AS total_sum_of_squares
+            FROM entity_value_metrics
+            INNER JOIN variant_exposures ON entity_value_metrics.variant = variant_exposures.variant
+            GROUP BY entity_value_metrics.variant, entity_value_metrics.breakdown_value
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
         return query

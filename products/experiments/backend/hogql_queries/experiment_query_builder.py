@@ -372,6 +372,20 @@ class ExperimentQueryBuilder:
         """
         return self._mean_query_builder().build_mean_query_with_winsorization()
 
+    def build_mean_value_breakdown_query(self, breakdown_property: str) -> ast.SelectQuery:
+        """
+        Builds the effect-decomposition query for a mean metric, split by ``breakdown_property``
+        read off the metric event. See MeanQueryBuilder.build_mean_value_breakdown_query.
+
+        Public entry point (parallel to build_query) because the runner executes this as a
+        second query alongside the un-split headline result.
+        """
+        query = self._mean_query_builder().build_mean_value_breakdown_query(breakdown_property)
+        # Mirror build_query: set an explicit generous limit so the HogQL executor does not
+        # inject LIMIT 100 and silently truncate high-cardinality value splits.
+        query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
+        return query
+
     def _build_ratio_query(self) -> ast.SelectQuery:
         """
         Builds query for ratio metrics.
