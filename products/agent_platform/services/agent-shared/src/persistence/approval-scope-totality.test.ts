@@ -5,6 +5,9 @@ import { effectiveApprovalType } from './approval-store'
 
 describe('approval-authority totality', () => {
     it('every concrete ApprovalType round-trips (no silent downgrade)', () => {
+        // Floor: an empty domain would pass vacuously — fail loud if the
+        // vocabulary projection ever collapses.
+        expect(ApprovalTypeSchema.options.length).toBeGreaterThanOrEqual(2)
         for (const type of ApprovalTypeSchema.options) {
             const resolved = effectiveApprovalType({ type, allow_edit: false })
             expect(resolved, `authority "${type}" must resolve to itself, not the default gate`).toBe(type)

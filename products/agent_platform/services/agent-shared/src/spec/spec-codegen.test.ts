@@ -10,6 +10,12 @@ import { GENERATED_ARTIFACTS } from './spec-codegen'
  * goes red. Set UPDATE_GENERATED=1 to (re)write the files instead of asserting.
  */
 describe('spec generated artifacts', () => {
+    // Floor: `it.each([])` registers zero tests and passes green — a vacuous guard.
+    // Assert the registry is populated so an emptied `GENERATED_ARTIFACTS` fails loud.
+    it('the artifact registry is non-empty (guard is non-vacuous)', () => {
+        expect(GENERATED_ARTIFACTS.length).toBeGreaterThanOrEqual(3)
+    })
+
     if (process.env.UPDATE_GENERATED) {
         for (const artifact of GENERATED_ARTIFACTS) {
             // Atomic write: an interrupted regen must not leave a half-file that
