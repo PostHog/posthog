@@ -87,6 +87,7 @@ the row lists both.
 | campayn                 | HTTP                        | requests                                                        | ✅                          |
 | canny                   | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission | HTTP                        | requests                                                        | ✅                          |
+| chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk              | HTTP                        | requests                                                        | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
@@ -345,7 +346,6 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chameleon
 - chargify
 - chatwoot
 - chift
