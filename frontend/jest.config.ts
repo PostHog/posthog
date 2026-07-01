@@ -83,6 +83,7 @@ const esmModules = [
 function rootDirectories(): string[] {
     return [
         '<rootDir>/src',
+        '<rootDir>/bin',
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
