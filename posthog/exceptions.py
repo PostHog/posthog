@@ -82,8 +82,10 @@ class ClickHouseQueryTimeOut(APIException):
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
-    status_code = 504
-    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+    # 512 (like ClickHouseEstimatedQueryExecutionTimeTooLong) so the frontend surfaces the detail
+    # in the actionable "problem with this query" panel rather than the generic error state.
+    status_code = 512  # Custom error code
+    default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters. If this insight used to work, it may be a regression on our side — contact support and we'll investigate."
 
 
 class ExceptionContext(TypedDict):

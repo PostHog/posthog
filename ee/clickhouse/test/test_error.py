@@ -39,7 +39,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=241,
             ),
             "ClickHouseQueryMemoryLimitExceeded",
-            "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize.",
+            "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters. If this insight used to work, it may be a regression on our side — contact support and we'll investigate.",
             None,
             "CHQueryErrorMemoryLimitExceeded",
         ),

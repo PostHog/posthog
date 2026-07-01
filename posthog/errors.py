@@ -501,7 +501,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     240: ErrorCodeMeta("CANNOT_MREMAP"),
     241: ErrorCodeMeta(
         "MEMORY_LIMIT_EXCEEDED",
-        user_safe="Query exceeds memory limits. Try reducing its scope by changing the time range.",
+        user_safe="This query ran out of memory before it could finish. Try a shorter date range or narrower filters.",
         category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),

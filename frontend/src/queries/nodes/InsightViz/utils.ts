@@ -184,7 +184,7 @@ export const getQueryBasedDashboard = (
 
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        // We use 512 for query timeouts
+        // We use 512 for query timeouts and memory-limit errors — both are surfaced as actionable validation messages
         // Async queries put the error message on data.error_message, while synchronous ones use detail
         return error?.status === 400 || error?.status === 512
             ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
