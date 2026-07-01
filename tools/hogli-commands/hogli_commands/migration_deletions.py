@@ -1,6 +1,6 @@
 """hogli lint:migration-deletions — fail when a PR deletes a historical Django migration.
 
-Reads removed/renamed paths from stdin (the check-deleted-migrations CI job feeds them
+Reads removed/renamed paths from stdin (the repo-checks CI job feeds them
 from the GitHub PR-files API) and fails on any Django migration the allowlist doesn't
 acknowledge. Those paths are removed relative to the PR base, so each already-existing
 migration among them is historical. See _GUIDANCE and

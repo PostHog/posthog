@@ -248,7 +248,8 @@ jobs:
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
                       # Any migration file in any app (broader than `migrations` above,
-                      # which omits ee/ and posthog sub-package dirs). Gates check-deleted-migrations.
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
                       migrations_any:
                         - '**/migrations/*.py'
                       persons_sql:
@@ -868,6 +869,7 @@ jobs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -897,12 +899,30 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            # Above the boundary: a gh-api flake here is retryable setup, not a
+            # run-cancelling deterministic failure. The classifier runs below.
+            - name: Fetch deleted migration paths
+              id: fetch-deleted-migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-deleted-migration-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
+
+            # Below the boundary so a real deletion trips the early-cancel gate (see
+            # safe-django-migrations.md). Gated on the fetch outcome so a skipped fetch
+            # skips this too, rather than reading a file it never wrote.
+            - name: Check deleted migrations
+              if: steps.fetch-deleted-migrations.outcome == 'success'
+              run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
 
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -1018,56 +1038,6 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners $names
-
-    # Block deleting historical migration files (see safe-django-migrations.md).
-    # Gated on any migration-file change: a deletion or product move always touches a
-    # migrations/*.py path, so nothing slips and the bootstrap is skipped otherwise.
-    check-deleted-migrations:
-        needs: [changes]
-        if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
-        name: Check deleted migrations
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        permissions:
-            contents: read
-            pull-requests: read
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
-            - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Fail if a historical migration file was deleted
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: |
-                  # "removed"/"renamed" files existed on the PR base — i.e. historical
-                  # migrations (renames carry the old path in previous_filename). Retry
-                  # transient gh-api errors so a hiccup can't red this required check.
-                  for attempt in 1 2 3; do
-                      if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
-                            --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then
-                          break
-                      fi
-                      if [ "$attempt" = 3 ]; then
-                          echo "::error::could not list PR files after 3 attempts" >&2
-                          exit 1
-                      fi
-                      echo "::warning::gh api attempt ${attempt} failed; retrying" >&2
-                      sleep $((attempt * 5))
-                  done
-                  printf '%s\n' "$removed" | ./bin/hogli lint:migration-deletions
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -2826,7 +2796,6 @@ jobs:
             [
                 django,
                 check-migrations,
-                check-deleted-migrations,
                 check-openapi-types,
                 async-migrations,
                 turbo-discover,
@@ -2849,7 +2818,6 @@ jobs:
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
-                    echo "| check-deleted-migrations | ${{ needs.check-deleted-migrations.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
@@ -2910,7 +2878,6 @@ jobs:
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
-                  check_required_result "Deleted migration check" "${{ needs.check-deleted-migrations.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"

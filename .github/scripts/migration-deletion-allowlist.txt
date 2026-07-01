@@ -1,5 +1,5 @@
 # Migration files whose deletion is intentional and reviewed — listed here to pass the
-# check-deleted-migrations guard (hogli lint:migration-deletions). Deleting a migration
+# deleted-migration guard in repo-checks (hogli lint:migration-deletions). Deleting a migration
 # that exists on master diverges fresh DBs from deployed ones; see
 # docs/published/handbook/engineering/safe-django-migrations.md.
 #
