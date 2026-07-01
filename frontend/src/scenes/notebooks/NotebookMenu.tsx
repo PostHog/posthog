@@ -19,10 +19,10 @@ import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
+    const { notebook, showHistory, isLocalOnly, content } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(notebookLogic({ shortId }))
-    const isMarkdownNotebook = isMarkdownNotebookContent(notebook?.content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
 
     return (
         <DropdownMenu>

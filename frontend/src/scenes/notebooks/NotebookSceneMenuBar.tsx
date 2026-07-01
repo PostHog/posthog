@@ -34,7 +34,7 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, showHistory, isLocalOnly } = useValues(logic)
+    const { notebook, showHistory, isLocalOnly, content } = useValues(logic)
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -42,7 +42,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo } =
         useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const isMarkdownNotebook = isMarkdownNotebookContent(notebook?.content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canDelete = !isLocalOnly && !notebook?.is_template
     const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
     const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
