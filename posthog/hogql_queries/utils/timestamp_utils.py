@@ -203,18 +203,13 @@ def _get_earliest_timestamp_from_node(
         or isinstance(node, FunnelsDataWarehouseNode)
         or isinstance(node, LifecycleDataWarehouseNode)
     ):
-        is_warehouse_node = True
         query = _get_data_warehouse_earliest_timestamp_query(node)
     else:
-        is_warehouse_node = False
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    # This is team-scoped date-range metadata (cached per team+node, not per user) that runs without a
-    # request user. Access to the warehouse table is enforced on the insight's executed query; bypass
-    # warehouse access control here so building the database doesn't fail closed in this userless context.
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, bypass_warehouse_access_control=is_warehouse_node)
+        result = execute_hogql_query(query=query, team=team)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
