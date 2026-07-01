@@ -166,9 +166,6 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
     if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
         return false
     }
-    if (yData.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
-        return false
-    }
     return true
 }
 
@@ -473,13 +470,24 @@ export function buildComboChartConfig({
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
+    const leftSeries = seriesForAxis(ySeriesData, 'left')
+    const rightSeries = seriesForAxis(ySeriesData, 'right')
+
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(
-            chartSettings.leftYAxisSettings,
-            seriesForAxis(ySeriesData, 'left'),
-            chartSettings.yAxisAtZero
-        ),
+        yAxis:
+            rightSeries.length > 0
+                ? [
+                      buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                          id: 'left',
+                          position: 'left',
+                      }),
+                      buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
+                          id: 'right',
+                          position: 'right',
+                      }),
+                  ]
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
