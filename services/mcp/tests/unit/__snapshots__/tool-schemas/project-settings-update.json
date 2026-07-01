@@ -452,20 +452,31 @@
         "marketing_analytics_config": {
             "properties": {
                 "attribution_mode": {
-                    "description": "* `first_touch` - First Touch\n* `last_touch` - Last Touch\n* `linear` - Linear\n* `time_decay` - Time Decay\n* `position_based` - Position Based",
+                    "description": "Attribution mode: first_touch, last_touch, linear, time_decay, or position_based.\n\n* `first_touch` - First Touch\n* `last_touch` - Last Touch\n* `linear` - Linear\n* `time_decay` - Time Decay\n* `position_based` - Position Based",
                     "enum": ["first_touch", "last_touch", "linear", "time_decay", "position_based"],
                     "type": "string"
                 },
                 "attribution_window_days": {
+                    "description": "Attribution window in days (1-90).",
                     "maximum": 90,
                     "minimum": 1,
                     "type": "number"
                 },
-                "campaign_field_preferences": {},
-                "campaign_name_mappings": {},
-                "conversion_goals": {},
-                "custom_source_mappings": {},
-                "sources_map": {}
+                "campaign_field_preferences": {
+                    "description": "Maps each integration type to a field-matching config, e.g. {\"match_field\": \"campaign_name\"}."
+                },
+                "campaign_name_mappings": {
+                    "description": "Maps each data-source id to a dict of clean campaign name -> list of raw UTM campaign values."
+                },
+                "conversion_goals": {
+                    "description": "List of conversion goals, one per query series. Each entry is a ConversionGoalFilter object matching the node given by its `kind`: an EventsNode (`kind: \"EventsNode\"`), an ActionsNode (`kind: \"ActionsNode\"`, with an integer `id`), or a DataWarehouseNode (`kind: \"DataWarehouseNode\"`, with `id`, `id_field`, `distinct_id_field`, `table_name`, and `timestamp_field`). Every entry requires a unique `conversion_goal_name` (used as a SQL column alias) plus a `schema_map` object. See the ConversionGoalFilter1/2/3 schema for the full field list."
+                },
+                "custom_source_mappings": {
+                    "description": "Maps each integration type to a list of custom UTM source values (unique across integrations)."
+                },
+                "sources_map": {
+                    "description": "Maps each data-source id to a dict of schema-field -> mapped-column overrides."
+                }
             },
             "type": "object"
         },
