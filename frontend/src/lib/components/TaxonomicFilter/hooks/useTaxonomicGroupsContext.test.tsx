@@ -101,4 +101,36 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.HogQLExpression)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
     })
+
+    it.each([
+        {
+            description: 'an active flag is selectable',
+            flag: { id: 1, key: 'my-flag', name: 'My flag', active: true },
+            expectedDisabled: false,
+            expectedName: 'my-flag',
+        },
+        {
+            description: 'an explicitly inactive flag is disabled',
+            flag: { id: 1, key: 'my-flag', name: 'My flag', active: false },
+            expectedDisabled: true,
+            expectedName: 'my-flag (disabled)',
+        },
+        {
+            // Recents/pinned entries are persisted stripped to { name, id }, so they carry no
+            // `active` field; a missing `active` must not read as disabled or recently-used
+            // flags can no longer be picked as flag-dependency match criteria in this (rebuild)
+            // group definition either. See the same guard in taxonomicFilterLogic.test.ts.
+            description: 'a recently-used flag missing the active field stays selectable',
+            flag: { name: '732889', id: 732889 },
+            expectedDisabled: false,
+            expectedName: '732889',
+        },
+    ])('Feature Flags group getIsDisabled/getName: $description', ({ flag, expectedDisabled, expectedName }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+        const groups = buildTaxonomicGroups(result.current)
+        const flagGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.FeatureFlags)
+        expect(flagGroup?.getIsDisabled).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+        expect(flagGroup?.getIsDisabled?.(flag as any)).toBe(expectedDisabled)
+        expect(flagGroup?.getName?.(flag as any)).toBe(expectedName)
+    })
 })
