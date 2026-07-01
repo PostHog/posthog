@@ -175,11 +175,18 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
     if not team_ids:
         return {}
 
+    # Both flag_definitions caches are always constructed with a batch_load_fn; bind it
+    # to narrow the Optional type and fail loudly if that invariant ever breaks.
+    with_cohorts_load = flag_definitions_hypercache.batch_load_fn
+    without_cohorts_load = flag_definitions_without_cohorts_hypercache.batch_load_fn
+    if with_cohorts_load is None or without_cohorts_load is None:
+        raise RuntimeError("flag_definitions hypercaches must be configured with a batch_load_fn")
+
     try:
         teams = list(Team.objects.filter(id__in=team_ids))
         teams_by_id = {team.id: team for team in teams}
-        with_cohorts = flag_definitions_hypercache.batch_load_fn(teams)
-        without_cohorts = flag_definitions_without_cohorts_hypercache.batch_load_fn(teams)
+        with_cohorts = with_cohorts_load(teams)
+        without_cohorts = without_cohorts_load(teams)
     except SoftTimeLimitExceeded:
         raise
     except Exception:
