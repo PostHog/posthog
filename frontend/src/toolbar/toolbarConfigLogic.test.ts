@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -344,6 +345,65 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check exception capture', () => {
+        let captureExceptionSpy: jest.SpyInstance
+
+        // posthog-js fires its own captureException calls at init (e.g. the /_preflight/
+        // probe) — filter to just the reachability-check context we care about.
+        const uiHostCheckCaptures = (): unknown[][] =>
+            captureExceptionSpy.mock.calls.filter(
+                (c) => (c[1] as Record<string, unknown>)?.toolbar_context === 'ui_host_check'
+            )
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it('does not capture an exception for an expected client-error (404) reachability failure', async () => {
+            // A reverse-proxied / misconfigured uiHost that doesn't serve the route 404s.
+            // This is already recorded as the `toolbar ui host check` analytics event, so
+            // capturing it as an exception too is pure error-tracking noise.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(uiHostCheckCaptures()).toHaveLength(0)
+        })
+
+        it('does not capture an exception for a network/CORS reachability failure', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(uiHostCheckCaptures()).toHaveLength(0)
+        })
+
+        it('captures an exception with ui_host_source and status for an unexpected server error (5xx)', async () => {
+            // A 5xx from a host that IS serving the route points at a real backend
+            // regression worth surfacing in error tracking.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 503 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            const captures = uiHostCheckCaptures()
+            expect(captures).toHaveLength(1)
+            expect(captures[0][1]).toEqual(
+                expect.objectContaining({
+                    error_type: 'http_error',
+                    http_status: 503,
+                    ui_host_source: 'window_origin',
+                })
+            )
         })
     })
 
