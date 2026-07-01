@@ -69,8 +69,10 @@ correspondingly high — file a report only for a dated, segment-named divergenc
 stand behind as a standalone inbox item a human will act on. A divergence the inbox
 already covers that's still moving (or recovered then relapsed) is an **edit**, not a new
 report. The harness prompt carries the full report-channel contract (fields, status
-mapping, reviewer routing, dedupe, and the edit rules); this body adds only the
-web-analytics-specific framing.
+mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit
+rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference
+(readable in-run via `skill-file-get`); this body adds only the web-analytics-specific
+framing — do not restate the generic mechanics.
 
 ## Quick close-out: is there web traffic at all?
 
@@ -350,46 +352,25 @@ stands out immediately and cheaply.
 
 ### Decide
 
-Before you author, check whether this segment already has a report — the
-`report:web-analytics:<segment>` scratchpad pointer is the reliable path: it holds the
-`report_id`, so `inbox-reports-retrieve` it directly. Only with no pointer fall back to an
-`inbox-reports-list` search (`ordering=-updated_at`), and search the segment's _specific_
-terms (the channel, the entry path, the referrer domain, the vitals path) — a broad word
-like `bounce` returns hundreds of unrelated reports on a busy project and buries yours.
-Then, for each candidate:
+The generic report mechanics — search the inbox first (via the
+`report:web-analytics:<segment>` pointer, else an `inbox-reports-list` search on the
+segment's _specific_ terms, not a broad word like `bounce`), edit-vs-author, the status
+rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields —
+live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do
+not re-derive them here. This section is only the web-analytics judgment layered on top:
 
-- **Edit** the existing report via `signals-scout-edit-report` when the inbox already
-  covers the segment. A divergence rarely resolves in one tick — a channel still cliffed,
-  a bounce step still elevated, tagged share still depressed: `append_note` with the fresh
-  window's numbers (or rewrite the title/summary on a report you authored). This is the
-  default when a match exists **and it's still live in the inbox**; don't mint a
-  near-duplicate. **A persistent divergence is one report across runs:** a new aligned
-  window confirming it's still ongoing is a _re-escalation_ — `append_note` the fresh
-  window onto the report your `report:web-analytics:<segment>` pointer names and advance
-  the `dedupe:` gate; do **not** author a fresh report per tick. **But check the matched
-  report's status first:** `edit-report` can't change status, so appending to a
-  `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item.
-  When the prior report is no longer live, **author a fresh report** for the relapse and
-  repoint `report:web-analytics:<segment>` at the new id.
-- **Author** a fresh report via `signals-scout-emit-report` only when nothing live in the
-  inbox covers the segment. A report-worthy finding names the segment (channel, path,
-  referrer, campaign), quantifies the step against both aligned windows, shows the
-  aggregate held (that's what makes it yours), dates the onset, and names the moving part
-  inside the segment, with the query results in the `evidence`. An acquisition divergence,
-  attribution break, bounce step, 404 spike, or vitals regression is an investigation, not
-  a one-line code fix, so set `actionability=requires_human_input` and `repository=NO_REPO`
-  (leaving `repository` unset while `priority` + `suggested_reviewers` are set spins up a
-  repo-selection sandbox that only no-ops). **Always set `priority` (P0–P4) +
-  `priority_explanation`:** an acquisition cliff or 404 spike on a major surface, or
-  attribution breakage (mechanical fix, compounding cost), is **P2**; a bounce step or
-  page-scoped vitals regression is **P3**, **P2** if the page is a top-3 landing surface.
-  **Always set `suggested_reviewers`** — resolve the owning person via
-  `signals-scout-members-list` and pass their resolved `github_login` (or a `{user_uuid}`)
-  as an object, since `suggested_reviewers` is a **list of objects, not bare strings**
-  (cache the login under `reviewer:web-analytics:<area>`); left empty, the report is
-  assigned to nobody and is likely missed. After authoring, write a
-  `report:web-analytics:<segment>` scratchpad entry with the `report_id` so the next run
-  edits it instead of duplicating.
+- **Edit** when a still-live report already tracks the segment — a channel still cliffed, a
+  bounce step still elevated, tagged share still depressed. A persistent divergence is one
+  report across runs: a new aligned window confirming it's ongoing is a re-escalation
+  (`append_note` the fresh numbers), not a fresh report per tick.
+- **Author** when nothing live covers the segment. A report-worthy finding names the
+  segment (channel, path, referrer, campaign), quantifies the step against both aligned
+  windows, shows the aggregate held (that's what makes it yours), dates the onset, and
+  names the moving part inside the segment, with the query results in the `evidence`. These
+  are investigations, not code fixes → `actionability=requires_human_input`. Priority: an
+  acquisition cliff or 404 spike on a major surface, or attribution breakage (mechanical
+  fix, compounding cost), is **P2**; a bounce step or page-scoped vitals regression is
+  **P3**, **P2** if the page is a top-3 landing surface.
 - **Remember** if it's below the bar but worth carrying forward (a channel drifting inside
   the noise band, a new referrer building history, a vitals p75 creeping), or to record
   what you ruled out and why.
@@ -480,17 +461,13 @@ Direct calls (read-only):
 - `read-data-schema` — confirm `$web_vitals` and any 404-event candidates exist before
   aggregating.
 
-Inbox & reviewer routing:
+Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
-- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox;
-  check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
-- `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
-  `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — this project's members with their resolved `github_login`,
-  to route `suggested_reviewers` to a marketing / web / perf owner (wrap as a
-  `{github_login}` object, or pass the member's `{user_uuid}` and let the server resolve;
-  null `github_login` → try the next owner). The in-run roster; the org-scoped resolver
-  tools aren't available in a scout run.
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating.
+- `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
+- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to a
+  marketing / web / perf owner.
 
 Harness-level:
 
