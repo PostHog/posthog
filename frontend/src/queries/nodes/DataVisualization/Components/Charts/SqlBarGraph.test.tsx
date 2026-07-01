@@ -109,7 +109,7 @@ describe('SqlBarGraph', () => {
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
             expect(tooltip.value('a')).toBe('3,000')
-            expect(tooltip.label()).toBe('2025-12-01')
+            expect(tooltip.label()).toBe('Dec 1, 2025')
             expect(tooltip.swatchColors()).toHaveLength(1)
         })
     })

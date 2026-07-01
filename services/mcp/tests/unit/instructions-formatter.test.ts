@@ -24,7 +24,7 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const realisticMetadata =
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 

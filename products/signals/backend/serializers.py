@@ -91,7 +91,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(

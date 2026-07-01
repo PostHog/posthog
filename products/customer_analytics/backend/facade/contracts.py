@@ -239,13 +239,25 @@ class CustomerProfileConfigView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyReference:
+    """A place that uses a custom property definition. ``type`` discriminates the kind of
+    referrer (``workflow`` for now); ``id``/``name``/``status`` identify the referring entity."""
+
+    id: str
+    name: str
+    status: str
+    type: str = "workflow"
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
-    the old model serializer's ``PrimaryKeyRelatedField`` output.
+    the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
+    property is used (workflows), resolved by definition id.
     """
 
     id: UUID | None = None
@@ -256,6 +268,7 @@ class CustomPropertyDefinitionView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    references: list[CustomPropertyReference] = field(default_factory=list)
 
 
 @stdlib_dataclass(frozen=True)
@@ -327,3 +340,40 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValue:
+    """An account's value for a custom property."""
+
+    id: UUID
+    account_id: UUID
+    definition_id: UUID
+    value: float | bool | str | datetime | None
+    created_at: datetime
+    created_by_id: int | None
+
+
+class ExternalAccountCustomPropertiesError(Enum):
+    """Failure modes of the external custom-property write, each mapping to a distinct
+    HTTP response in the view."""
+
+    ACCOUNT_NOT_FOUND = "account_not_found"
+    DEFINITION_NOT_FOUND = "definition_not_found"
+    INVALID_VALUE = "invalid_value"
+    CONFLICT = "conflict"
+    UPDATE_FAILED = "update_failed"
+
+
+@dataclass(frozen=True)
+class ExternalAccountCustomPropertiesResult:
+    """Outcome of the external custom-property write, modeled so the view can map each
+    case to its exact HTTP status and error string without holding write logic.
+
+    Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` failures; it is None otherwise.
+    """
+
+    values: list[CustomPropertyValue] | None = None
+    error: ExternalAccountCustomPropertiesError | None = None
+    error_field: str | None = None

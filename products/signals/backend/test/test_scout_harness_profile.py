@@ -60,7 +60,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 

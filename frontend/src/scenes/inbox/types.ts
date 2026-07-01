@@ -200,16 +200,23 @@ export interface SignalTeamConfig {
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
+/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
+export type ScoutOrigin = 'canonical' | 'custom'
+
 /** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
 export interface SignalScoutConfig {
     id: string
     /** The `signals-scout-*` skill this config controls. Fixed at creation. */
     skill_name: string
+    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
+    description: string
+    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
+    scout_origin: ScoutOrigin
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
     emit: boolean
-    /** Minutes between runs (10–43200). */
+    /** Minutes between runs (30–43200). */
     run_interval_minutes: number
     /** When the coordinator last dispatched this scout; null if never. */
     last_run_at: string | null
@@ -243,6 +250,12 @@ export interface SignalScoutRunSummary {
     summary: string
     emitted_count: number
     emitted_finding_ids: string[]
+    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
+     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
+    emitted_report_ids: string[]
+    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
+     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
+    edited_report_ids: string[]
 }
 
 /** One finding a scout run emitted to the inbox. */

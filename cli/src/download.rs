@@ -7,7 +7,8 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use posthog_symbol_data::{
-    read_symbol_data, AppleDsym, HermesMap, ProguardMapping, SourceAndMap, SymbolDataError,
+    read_symbol_data, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping, SourceAndMap,
+    SymbolDataError,
 };
 use tracing::info;
 
@@ -15,6 +16,10 @@ use crate::{api::symbol_sets, invocation_context::context};
 
 #[derive(Subcommand)]
 pub enum SymbolSetsSubcommand {
+    /// Upload native (ELF) debug symbols from a directory. ELF executables,
+    /// shared libraries, and `objcopy --only-keep-debug` companions with debug
+    /// info are uploaded; other files (dSYM bundles, etc.) are reported and skipped.
+    Upload(crate::debug_symbols::upload::Args),
     /// Download and extract a symbol set (sourcemap, hermes, proguard, or dSYM)
     Download(DownloadArgs),
     /// Extract a local symbol set binary file (decompress and split)
@@ -84,11 +89,9 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()> {
     fs::create_dir_all(output).context("Failed to create output directory")?;
 
-    let owned = data.to_vec();
-
     // Try each type — read_symbol_data returns InvalidDataType when the
     // header type field doesn't match, so we use that to fall through.
-    if let Ok(parsed) = read_symbol_data::<SourceAndMap>(owned.clone()) {
+    if let Ok(parsed) = read_symbol_data::<SourceAndMap>(data) {
         let source_path = output.join(format!("{base_name}.js"));
         fs::write(&source_path, &parsed.minified_source).context("Failed to write source file")?;
         info!("Wrote {}", source_path.display());
@@ -101,7 +104,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         return Ok(());
     }
 
-    if let Ok(parsed) = read_symbol_data::<HermesMap>(owned.clone()) {
+    if let Ok(parsed) = read_symbol_data::<HermesMap>(data) {
         let map_path = output.join(format!("{base_name}.hbc.map"));
         fs::write(&map_path, &parsed.sourcemap).context("Failed to write hermes sourcemap")?;
         info!("Wrote {}", map_path.display());
@@ -110,7 +113,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         return Ok(());
     }
 
-    if let Ok(parsed) = read_symbol_data::<ProguardMapping>(owned.clone()) {
+    if let Ok(parsed) = read_symbol_data::<ProguardMapping>(data) {
         let map_path = output.join(format!("{base_name}.txt"));
         fs::write(&map_path, &parsed.content).context("Failed to write proguard mapping")?;
         info!("Wrote {}", map_path.display());
@@ -119,7 +122,14 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         return Ok(());
     }
 
-    match read_symbol_data::<AppleDsym>(owned) {
+    if let Ok(parsed) = read_symbol_data::<ElfDebugInfo>(data) {
+        // Same ZIP layout as dSYM uploads: the binary as `dwarf` at the root
+        // plus an optional `__source/` bundle.
+        extract_dsym_zip(&parsed.data, base_name, output)?;
+        return Ok(());
+    }
+
+    match read_symbol_data::<AppleDsym>(data) {
         Ok(parsed) => {
             extract_dsym_zip(&parsed.data, base_name, output)?;
             Ok(())

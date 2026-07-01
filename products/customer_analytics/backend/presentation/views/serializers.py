@@ -34,6 +34,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
+    CustomPropertyReference,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -265,6 +266,20 @@ class AccountNotebookSerializer(DataclassSerializer):
         ]
 
 
+class CustomPropertyReferenceSerializer(DataclassSerializer):
+    """A place that uses a custom property definition (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="Id of the referring entity (e.g. the workflow id).")
+    name = serializers.CharField(read_only=True, help_text="Display name of the referring entity.")
+    status = serializers.CharField(read_only=True, help_text="Status of the referring entity (e.g. workflow status).")
+    type = serializers.CharField(read_only=True, help_text="Kind of reference. Currently always 'workflow'.")
+
+    class Meta:
+        dataclass = CustomPropertyReference
+        ref_name = "CustomPropertyReference"
+        fields = ["id", "name", "status", "type"]
+
+
 class CustomPropertyDefinitionSerializer(DataclassSerializer):
     """A team-scoped definition of a custom account property — the attribute side of the model.
 
@@ -299,6 +314,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    references = CustomPropertyReferenceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Workflows that use this property, resolved by definition id.",
+    )
 
     class Meta:
         dataclass = CustomPropertyDefinitionView
@@ -314,4 +334,47 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "references",
         ]
+
+
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
+class CustomPropertyValueField(serializers.Field):
+    """A custom property value — a JSON scalar (string, number, or boolean).
+
+    Datetimes are sent and returned as ISO-8601 strings. The concrete type a property accepts is
+    set by its definition and validated server-side.
+    """
+
+    def to_internal_value(self, data):
+        if data is None or isinstance(data, dict | list):
+            raise serializers.ValidationError("Value must be a string, number, or boolean.")
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class CustomPropertyValueWriteSerializer(serializers.Serializer):
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition whose value to set for this account."
+    )
+    value = CustomPropertyValueField(
+        help_text=(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a "
+            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        )
+    )
+
+
+class CustomPropertyValueSerializer(serializers.Serializer):
+    """An account's current value for a custom property (read shape)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this value record.")
+    account_id = serializers.UUIDField(read_only=True, help_text="Account the value belongs to.")
+    definition_id = serializers.UUIDField(read_only=True, help_text="Custom property definition the value is for.")
+    value = CustomPropertyValueField(read_only=True, help_text="The stored value, typed per the property's data type.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this value was set.")
+    created_by_id = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Id of the user who set this value, if known."
+    )

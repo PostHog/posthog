@@ -19,10 +19,9 @@ from posthog.hogql_queries.access_controlled_resources import (
     queried_access_controlled_resources,
 )
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQueriedAccessControlledResources(BaseTest):

@@ -57,6 +57,9 @@ tools:
     hog-flows-partial-update:
         operation: hog_flows_partial_update
         enabled: false
+    hog-flows-rerun-create:
+        operation: hog_flows_rerun_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false
@@ -71,6 +74,9 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-batch-jobs-status-update:
+        operation: internal_hog_flows_batch_jobs_status_update
         enabled: false
     internal-hog-flows-process-due-schedules-create:
         operation: internal_hog_flows_process_due_schedules_create

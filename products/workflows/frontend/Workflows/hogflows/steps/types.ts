@@ -74,6 +74,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'posthog_ticket_tags',
         'posthog_business_hours',
         'non_failure_status_codes',
+        'customer_analytics_account_properties',
     ]),
     key: z.string(),
     label: z.string(),
@@ -314,6 +315,14 @@ export const isTriggerFunction = (
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
     return ['webhook', 'tracking_pixel', 'manual'].includes(trigger.config.type)
+}
+
+export const isScheduleTrigger = (action: HogFlowAction): boolean => {
+    if (action.type !== 'trigger') {
+        return false
+    }
+    const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
+    return trigger.config.type === 'schedule'
 }
 
 export interface HogflowTestResult {

@@ -39,11 +39,10 @@ export default {
 // (which auto-freezes); we use them directly to keep the revision draft.
 function defaultSpec(): Record<string, unknown> {
     return {
-        model: 'faux/faux',
+        models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
         triggers: [
             { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
         ],
-        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
     }
 }
 
@@ -95,28 +94,28 @@ describe('typed bundle authoring API: real e2e', () => {
             // skills + tools start empty.
             expect(res.body.bundle.skills).toEqual([])
             expect(res.body.bundle.tools).toEqual([])
-            expect(res.body.bundle.spec).toEqual(expect.objectContaining({ model: 'faux/faux' }))
+            expect(res.body.bundle.spec).toEqual(
+                expect.objectContaining({
+                    models: { mode: 'manual', models: [{ model: 'faux/faux' }], optimize_for: 'cost' },
+                })
+            )
             expect(res.body.warnings).toEqual([])
         })
     })
 
     describe('PUT /bundle full payload → GET /bundle round-trip', () => {
-        it('returns the exact payload back, plus server-derived compiled.js stamps', async () => {
+        it('round-trips agent_md/tools/spec and leaves skills (managed via /skills/<id>) intact', async () => {
             const rid = await newDraft(c)
+            // Skills are store-backed now — authored via the single-resource
+            // `/skills/<id>` PUT (and at freeze from `skill_refs`), never through
+            // the full `/bundle` payload. Seed one to prove the full PUT below
+            // doesn't manage or clobber it.
+            await request(c.janitor).put(`/revisions/${rid}/skills/notify`).send({
+                description: 'How to ping ops.',
+                body: '# notify',
+            })
             const payload = {
                 agent_md: 'system prompt',
-                skills: [
-                    {
-                        id: 'research',
-                        description: 'When to deep-dive.',
-                        body: '# research\nDo your homework.',
-                    },
-                    {
-                        id: 'notify',
-                        description: 'How to ping ops.',
-                        body: '# notify',
-                    },
-                ],
                 tools: [
                     {
                         id: 'echo',
@@ -126,7 +125,7 @@ describe('typed bundle authoring API: real e2e', () => {
                     },
                 ],
                 spec: {
-                    model: 'faux/faux',
+                    models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                     triggers: [
                         {
                             type: 'chat',
@@ -134,7 +133,6 @@ describe('typed bundle authoring API: real e2e', () => {
                             auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                         },
                     ],
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 },
             }
             const put = await request(c.janitor).put(`/revisions/${rid}/bundle`).send(payload)
@@ -143,10 +141,10 @@ describe('typed bundle authoring API: real e2e', () => {
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
             expect(get.status).toBe(200)
             expect(get.body.bundle.agent_md).toBe('system prompt')
-            expect(get.body.bundle.skills.map((s: { id: string }) => s.id).sort()).toEqual(['notify', 'research'])
             expect(get.body.bundle.tools).toHaveLength(1)
             expect(get.body.bundle.tools[0].id).toBe('echo')
-            // Skill body roundtripped.
+            // The skill set before the full PUT survives — `/bundle` doesn't own skills.
+            expect(get.body.bundle.skills.map((s: { id: string }) => s.id)).toEqual(['notify'])
             const notify = get.body.bundle.skills.find((s: { id: string; body: string }) => s.id === 'notify')
             expect(notify.body).toBe('# notify')
 
@@ -243,12 +241,16 @@ describe('typed bundle authoring API: real e2e', () => {
             })
             const newSpec = {
                 ...defaultSpec(),
-                model: 'faux/changed',
+                models: { mode: 'manual', models: [{ model: 'faux/changed' }] },
             }
             const put = await request(c.janitor).put(`/revisions/${rid}/spec`).send({ spec: newSpec })
             expect(put.status).toBe(200)
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
-            expect(get.body.bundle.spec.model).toBe('faux/changed')
+            expect(get.body.bundle.spec.models).toEqual({
+                mode: 'manual',
+                models: [{ model: 'faux/changed' }],
+                optimize_for: 'cost',
+            })
             expect(get.body.bundle.skills).toHaveLength(1)
             expect(get.body.bundle.tools).toHaveLength(1)
         })
@@ -316,7 +318,7 @@ describe('typed bundle authoring API: real e2e', () => {
     // ─── Full-replace PUT /bundle ────────────────────────────────────
 
     describe('PUT /bundle is a true full replace', () => {
-        it('skills not in payload are deleted', async () => {
+        it('a full /bundle replace does NOT manage skills — they are owned by /skills/<id> + freeze', async () => {
             const rid = await newDraft(c)
             for (const id of ['a', 'b', 'c']) {
                 await request(c.janitor)
@@ -326,25 +328,19 @@ describe('typed bundle authoring API: real e2e', () => {
                         body: `# ${id}`,
                     })
             }
-            await request(c.janitor)
-                .put(`/revisions/${rid}/bundle`)
-                .send({
-                    agent_md: 'top',
-                    skills: [
-                        { id: 'a', description: 'updated', body: '# new a' },
-                        { id: 'd', description: 'd', body: '# d' },
-                    ],
-                    tools: [],
-                    spec: defaultSpec(),
-                })
+            // A full replace that omits skills (the only shape the PUT body accepts —
+            // `skills` was dropped from the payload schema). Skills are NOT swept by
+            // this; they are store-backed and only freeze reconciles them to skill_refs.
+            await request(c.janitor).put(`/revisions/${rid}/bundle`).send({
+                agent_md: 'top',
+                tools: [],
+                spec: defaultSpec(),
+            })
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
             const ids = get.body.bundle.skills.map((s: { id: string }) => s.id).sort()
-            expect(ids).toEqual(['a', 'd'])
-            const a = get.body.bundle.skills.find((s: { id: string }) => s.id === 'a')
-            expect(a.body).toBe('# new a')
-            // S3 doesn't keep orphaned files behind.
-            expect(await c.bundle.exists(rid, 'skills/b/SKILL.md')).toBe(false)
-            expect(await c.bundle.exists(rid, 'skills/c/SKILL.md')).toBe(false)
+            expect(ids).toEqual(['a', 'b', 'c'])
+            expect(await c.bundle.exists(rid, 'skills/b/SKILL.md')).toBe(true)
+            expect(await c.bundle.exists(rid, 'skills/c/SKILL.md')).toBe(true)
         })
 
         it('tools not in payload are deleted (source + compiled + schema)', async () => {
@@ -750,16 +746,15 @@ export default {
 
             const rid = await newDraft(c, 'sre-roundtrip')
 
-            // 1. ACCEPTED — the typed PUT /bundle takes the SKILL.md bodies.
-            const put = await request(c.janitor)
-                .put(`/revisions/${rid}/bundle`)
-                .send({
-                    agent_md: await readFile(join(exampleRoot, 'agent.md'), 'utf-8'),
-                    skills,
-                    tools: [],
-                    spec: defaultSpec(),
-                })
-            expect(put.status).toBe(200)
+            // 1. ACCEPTED — each skill is authored through the single-resource
+            //    `/skills/<id>` PUT (the store-backed authoring path; the full
+            //    `/bundle` payload no longer carries skills).
+            for (const s of skills) {
+                const put = await request(c.janitor)
+                    .put(`/revisions/${rid}/skills/${s.id}`)
+                    .send({ description: s.description, body: s.body })
+                expect(put.status).toBe(200)
+            }
 
             // 2. STORED — each body lands at exactly `skills/<id>/SKILL.md` in S3.
             for (const s of skills) {

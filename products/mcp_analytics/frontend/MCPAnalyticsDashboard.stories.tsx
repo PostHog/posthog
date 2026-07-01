@@ -39,12 +39,14 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
+// harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
-    ['claude-code/1.2.0', 6200, 240, 820],
-    ['cursor-vscode/0.42', 2100, 96, 410],
-    ['codex-cli', 980, 71, 180],
-    ['claude-ai', 760, 22, 240],
-    ['visual studio code', 540, 12, 120],
+    { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
+    { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
+    { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
+    { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
 ]
 
 const SESSION_LIST = {
@@ -306,11 +308,15 @@ const meta: Meta = {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
-                    // The harness breakdown resolves the client from several signals and
-                    // aliases the result `AS client`; match that output alias rather than any
-                    // one input property so the mock survives changes to the resolution.
-                    if (query.includes('AS client')) {
+                    // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
+                    // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
+                    }
+                    // Onboarding gate: report the project as instrumented so the scene
+                    // renders the dashboard/tabs instead of the empty state.
+                    if (query.includes('has_initialize')) {
+                        return [200, { results: [[true, true]] }]
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]

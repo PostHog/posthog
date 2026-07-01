@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -112,7 +112,7 @@ export function HeatmapsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Heatmaps].iconType || 'default',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewHeatmap"
                         keybind={[keyBinds.new]}
                         intent="New heatmap"
@@ -129,7 +129,7 @@ export function HeatmapsScene(): JSX.Element {
                         >
                             New heatmap
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
             <LemonBanner
@@ -144,7 +144,7 @@ export function HeatmapsScene(): JSX.Element {
                 </p>
             </LemonBanner>
             <div className="flex justify-between gap-2 items-center flex-wrap">
-                <AppShortcut
+                <Shortcut
                     name="SearchHeatmaps"
                     keybind={[keyBinds.filter]}
                     intent="Search heatmaps"
@@ -157,7 +157,7 @@ export function HeatmapsScene(): JSX.Element {
                         onChange={(value) => setHeatmapsFilters({ ...filters, search: value || '' })}
                         value={filters.search || ''}
                     />
-                </AppShortcut>
+                </Shortcut>
 
                 <div className="flex items-center gap-2">
                     <span>Created by:</span>
