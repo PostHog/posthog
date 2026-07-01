@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange } from '~/queries/schema/schema-general'
