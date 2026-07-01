@@ -70,6 +70,7 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert self._active(self.acme, self.mrr_def).value_num == 100.0
         assert self._active(self.globex, self.mrr_def).value_num == 200.0
         assert self._active(self.acme, self.plan_def).value_str == "enterprise"
+        assert self._active(self.globex, self.plan_def).value_str == "free"
 
     def test_skips_and_counts_unmatched_keys(self):
         self._source(self.mrr_def, "mrr")
