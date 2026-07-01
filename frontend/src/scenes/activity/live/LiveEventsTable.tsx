@@ -36,18 +36,17 @@ export const scene: SceneExport = {
 }
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, streamPaused, filters } = useValues(liveEventsLogic)
-    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
+    const logic = liveEventsLogic({ showLiveStreamErrorToast: true })
+    const { events, streamPaused, filters } = useValues(logic)
+    const { pauseStream, resumeStream, setFilters, clearEvents, setPageVisible } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { isVisible } = usePageVisibility()
     useEffect(() => {
-        if (isVisible) {
-            resumeStream()
-        } else {
-            pauseStream()
-        }
-    }, [isVisible, resumeStream, pauseStream])
+        // Report visibility only; the logic reconciles it with the user's play/pause intent so a
+        // backgrounded tab doesn't silently override a manual Play (or Pause).
+        setPageVisible(isVisible)
+    }, [isVisible, setPageVisible])
 
     return (
         <SceneContent data-attr="manage-events-table">

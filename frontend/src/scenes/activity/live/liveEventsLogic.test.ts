@@ -82,6 +82,28 @@ describe('liveEventsLogic', () => {
         })
     })
 
+    describe('visibility reconciliation', () => {
+        it('reconnects when visible again but never resurrects a user-paused stream or flips intent', async () => {
+            const callsAfterMount = streamSpy.mock.calls.length
+
+            // Hiding the tab tears down the connection but must not touch the user's play intent
+            await expectLogic(logic, () => {
+                logic.actions.setPageVisible(false)
+            }).toMatchValues({ streamPaused: false })
+
+            // Becoming visible again reopens the stream
+            logic.actions.setPageVisible(true)
+            expect(streamSpy.mock.calls.length).toBeGreaterThan(callsAfterMount)
+
+            // Once the user pauses, a hidden→visible bounce must not reconnect behind their back
+            logic.actions.pauseStream()
+            const callsAfterPause = streamSpy.mock.calls.length
+            logic.actions.setPageVisible(false)
+            logic.actions.setPageVisible(true)
+            expect(streamSpy.mock.calls.length).toBe(callsAfterPause)
+        })
+    })
+
     describe('stream URL property filters', () => {
         it.each([
             {
