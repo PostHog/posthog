@@ -2089,17 +2089,19 @@ def _get_rows_to_sync(
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
-    except psycopg.errors.QueryCanceled:
-        # On incremental syncs re-raise: this COUNT shares its WHERE with the real chunked read, so
-        # a statement_timeout here predicts the extraction will time out too — the caller maps it to
-        # the actionable "add an index on your incremental field" message. On full-table syncs the
-        # COUNT is a full scan while extraction streams sequentially via a server cursor, so a
-        # timeout here says nothing about whether extraction will succeed. Fall back to an unknown
-        # total (0) like the sibling `_get_table_chunk_size` probe rather than failing the whole
-        # sync at setup on a best-effort estimate.
+    except psycopg.errors.QueryCanceled as e:
+        # QueryCanceled means the COUNT was cancelled — usually the statement_timeout, but possibly a
+        # lock_timeout or an admin cancel (we don't inspect which). On incremental syncs re-raise:
+        # this COUNT shares its WHERE with the real chunked read, so a cancellation here predicts the
+        # extraction will hit the same wall — the caller maps it to the actionable "add an index on
+        # your incremental field" message. On full-table syncs the COUNT is a full scan while
+        # extraction streams sequentially via a server cursor, so a cancelled count says nothing
+        # about whether extraction will succeed. Fall back to an unknown total (0) like the sibling
+        # `_get_table_chunk_size` probe rather than failing the whole sync at setup on a best-effort
+        # estimate.
         if should_use_incremental_field:
             raise
-        logger.debug("_get_rows_to_sync: COUNT hit statement_timeout on a full-table sync. Using 0 as rows to sync")
+        logger.debug(f"_get_rows_to_sync: COUNT cancelled on a full-table sync ({e}). Using 0 as rows to sync")
         return 0
     except Exception as e:
         # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
