@@ -14,7 +14,8 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
@@ -3251,6 +3252,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
+        },
+    })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            // Only guard while actively arranging tiles with edits that haven't been saved.
+            if (!logic.values.layoutEditMode || !logic.values.hasUnsavedLayoutChanges) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave dashboard?\nYour layout changes will be lost.',
+        onConfirm: () => {
+            // Reuse the discard flow to revert tiles to the last saved layout snapshot.
+            logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 
