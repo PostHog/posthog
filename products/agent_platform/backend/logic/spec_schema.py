@@ -15,31 +15,19 @@ Django concern (the promote gate reads `encrypted_env`) and has no schema.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
+
+from .generated import TRIGGER_REQUIRED_SECRETS
 
 # ── Per-trigger-type required secrets ──────────────────────────────────────
 #
-# NOT authored here. `TRIGGER_REQUIRED_SECRETS` is owned by the TS registry
-# (`services/agent-shared/src/spec/trigger-secrets.ts`), which is total by
-# construction (`Record<TriggerType, …>`). That registry emits the checked-in
-# JSON we load below; there is no Python copy to keep in lockstep. This is the
-# same move Django already made for the agent-spec schema — a hand-maintained
-# Python mirror was a recurring drift hazard. Regenerate the JSON after editing
-# the TS registry (a freshness test guards it):
-#
-#   UPDATE_GENERATED=1 npx vitest run src/spec/trigger-secrets-codegen.test.ts
-#
-# The slack trigger handler in agent-ingress reads these same keys via the TS
-# constants; the freeze / promote gate here rejects revisions whose agent's
-# `encrypted_env` is missing a `required` key.
+# `TRIGGER_REQUIRED_SECRETS` imported from the generated artifact (source: trigger-secrets.ts).
+# The promote gate here rejects revisions whose `encrypted_env` misses a `required` key.
 
 SLACK_SIGNING_SECRET_KEY = "SLACK_SIGNING_SECRET"
 SLACK_BOT_TOKEN_KEY = "SLACK_BOT_TOKEN"
 
-_GENERATED_REGISTRY = Path(__file__).parent / "trigger_required_secrets.generated.json"
-TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = json.loads(_GENERATED_REGISTRY.read_text())
+__all__ = ["SLACK_SIGNING_SECRET_KEY", "SLACK_BOT_TOKEN_KEY", "TRIGGER_REQUIRED_SECRETS", "missing_required_secrets"]
 
 
 def _auth_mode_secret_requirement(mode: dict[str, Any]) -> dict[str, Any] | None:

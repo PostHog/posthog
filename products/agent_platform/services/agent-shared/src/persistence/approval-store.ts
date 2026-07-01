@@ -17,7 +17,20 @@ import { createHash } from 'node:crypto'
 
 import { ApprovalType, ApprovalTypeSchema, AssistantMessageRecord, legacyApproversToApprovalType } from '../spec/spec'
 
-export type ApprovalRequestState = 'queued' | 'approving' | 'dispatched' | 'dispatched_failed' | 'rejected' | 'expired'
+/**
+ * Source of truth for the approval-request state vocabulary: Django's DRF
+ * `choices` and the DB `CheckConstraint` derive from the emitted JSON (see
+ * `spec/spec-codegen.ts`), not a hand-copy. Lifecycle order; terminal last.
+ */
+export const APPROVAL_REQUEST_STATES = [
+    'queued',
+    'approving',
+    'dispatched',
+    'dispatched_failed',
+    'rejected',
+    'expired',
+] as const
+export type ApprovalRequestState = (typeof APPROVAL_REQUEST_STATES)[number]
 
 export interface ApprovalRequest {
     id: string

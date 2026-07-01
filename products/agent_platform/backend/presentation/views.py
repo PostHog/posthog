@@ -72,6 +72,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.generated import APPROVAL_REQUEST_STATES
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
@@ -1472,14 +1473,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
-            choices=[
-                "queued",
-                "approving",
-                "dispatched",
-                "dispatched_failed",
-                "rejected",
-                "expired",
-            ],
+            # Imported from the generated artifact (source: approval-store.ts) so it can't drift from what the runner writes.
+            choices=APPROVAL_REQUEST_STATES,
             help_text="Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.",
         ),
         "decision_by": drf_serializers.CharField(
