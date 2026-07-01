@@ -5,6 +5,8 @@ import type { Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
+import { CompareLabelType } from '~/types'
+
 import type { TrendsSeriesMeta } from '../trends/shared/trendsSeriesMeta'
 import { InsightSeriesTooltip, type InsightSeriesTooltipProps } from './InsightSeriesTooltip'
 
@@ -37,7 +39,11 @@ function Chart({
                 series={series}
                 labels={LABELS}
                 theme={theme}
-                config={{ showGrid: true, showCrosshair: true, tooltip: { pinnable: true, placement: 'cursor' } }}
+                config={{
+                    yAxis: { showGrid: true },
+                    showCrosshair: true,
+                    tooltip: { pinnable: true, placement: 'cursor' },
+                }}
                 tooltip={(ctx: TooltipContext<TrendsSeriesMeta>) => (
                     <InsightSeriesTooltip<TrendsSeriesMeta> context={ctx} {...tooltipProps} />
                 )}
@@ -130,7 +136,7 @@ export const ComparePeriod: Story = {
                     meta: {
                         action: ACTION,
                         breakdown_value: 'https://hedgebox.net',
-                        compare_label: 'current' as const,
+                        compare_label: CompareLabelType.Current,
                         days: LABELS,
                         order: 0,
                     },
@@ -143,7 +149,7 @@ export const ComparePeriod: Story = {
                     meta: {
                         action: ACTION,
                         breakdown_value: 'https://hedgebox.net',
-                        compare_label: 'previous' as const,
+                        compare_label: CompareLabelType.Previous,
                         days: LABELS,
                         order: 1,
                     },
@@ -156,7 +162,7 @@ export const ComparePeriod: Story = {
                     meta: {
                         action: ACTION,
                         breakdown_value: 'https://hedgebox.net/pricing?utm_source=google',
-                        compare_label: 'current' as const,
+                        compare_label: CompareLabelType.Current,
                         days: LABELS,
                         order: 2,
                     },
@@ -169,7 +175,7 @@ export const ComparePeriod: Story = {
                     meta: {
                         action: ACTION,
                         breakdown_value: 'https://hedgebox.net/pricing?utm_source=google',
-                        compare_label: 'previous' as const,
+                        compare_label: CompareLabelType.Previous,
                         days: LABELS,
                         order: 3,
                     },

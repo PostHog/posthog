@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { CompareLabelType } from '~/types'
+
 import { SeriesLabel } from './InsightSeriesTooltip'
 
 const meta: Meta<typeof SeriesLabel> = {
@@ -41,7 +43,7 @@ export const BreakdownCurrentPeriod: Story = {
         datum: {
             ...BASE_DATUM,
             breakdown_value: 'https://hedgebox.net/files/019-very-long-path-that-truncates',
-            compare_label: 'current' as const,
+            compare_label: CompareLabelType.Current,
         },
         hasMultipleEvents: false,
     },
@@ -53,7 +55,7 @@ export const BreakdownPreviousPeriod: Story = {
         datum: {
             ...BASE_DATUM,
             breakdown_value: 'https://hedgebox.net/pricing',
-            compare_label: 'previous' as const,
+            compare_label: CompareLabelType.Previous,
         },
         hasMultipleEvents: false,
     },
@@ -62,7 +64,7 @@ export const BreakdownPreviousPeriod: Story = {
 /** Multiple events — event name prefix prepended in muted text. */
 export const MultipleEventsWithBreakdown: Story = {
     args: {
-        datum: { ...BASE_DATUM, breakdown_value: 'San Francisco', compare_label: 'current' as const },
+        datum: { ...BASE_DATUM, breakdown_value: 'San Francisco', compare_label: CompareLabelType.Current },
         hasMultipleEvents: true,
     },
 }
