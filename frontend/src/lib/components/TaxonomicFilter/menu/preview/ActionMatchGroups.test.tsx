@@ -11,7 +11,7 @@ import { ActionMatchGroups } from './ActionMatchGroups'
 
 const TEST_ACTION = {
     id: 282580,
-    name: "Vasco's Test action",
+    name: 'Test action',
     steps: [
         {
             event: '$pageview',
