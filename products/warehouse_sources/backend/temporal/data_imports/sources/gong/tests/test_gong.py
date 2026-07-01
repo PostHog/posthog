@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -168,6 +169,17 @@ class TestCursorPagination:
         # Non-windowed endpoints do not persist resume state.
         assert manager.saved_states == []
 
+    def test_404_on_non_windowed_endpoint_raises(self) -> None:
+        session = _FakeSession([_FakeResponse(status_code=404, text="not found")])
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            with pytest.raises(Exception):
+                list(get_rows("key", "secret", "users", mock.MagicMock(), manager))
+
     def test_single_page_without_records(self) -> None:
         session = _FakeSession([_FakeResponse(json_data={"workspaces": [{"id": "w1"}]})])
         manager = _FakeResumableManager()
@@ -238,6 +250,37 @@ class TestWindowedCalls:
 
         assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
         assert "cursor=page2" in session.requested_urls[1]
+
+    def test_404_empty_window_is_skipped(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    status_code=404, text='{"errors":["No calls found corresponding to the provided filters."]}'
+                )
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        assert batches == []
+        # The window still advances and progress is persisted, so the sync isn't aborted.
+        assert len(manager.saved_states) == 1
 
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)
