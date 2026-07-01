@@ -46,11 +46,9 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
@@ -117,7 +115,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
-    from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
+    from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 
     if saved_query.managed_viewset is not None:
         raise serializers.ValidationError(
@@ -433,8 +431,8 @@ class DataWarehouseSavedQuerySerializer(
                 self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
-            from products.data_modeling.backend.models.dag import DAG
-            from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+            from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+            from products.data_modeling.backend.facade.models import DAG
 
             dag_obj = None
             if dag_id:
@@ -586,8 +584,8 @@ class DataWarehouseSavedQuerySerializer(
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
-                from products.data_modeling.backend.models.dag import DAG
-                from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+                from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+                from products.data_modeling.backend.facade.models import DAG
 
                 dag_obj = None
                 if dag_id:
@@ -616,10 +614,13 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
 
         context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
-        select_ast = parse_select(query["query"])
+        try:
+            select_ast = parse_select(query["query"])
 
-        find_placeholders = FindPlaceholders()
-        find_placeholders.visit(select_ast)
+            find_placeholders = FindPlaceholders()
+            find_placeholders.visit(select_ast)
+        except ExposedHogQLError as err:
+            raise exceptions.ValidationError(detail=f"Invalid query: {err}")
         if len(find_placeholders.placeholder_fields) > 0:
             placeholder = find_placeholders.placeholder_fields.pop()
             placeholder_string = ".".join(str(field) for field in placeholder if field is not None)
@@ -726,7 +727,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         serializer.save(team_id=self.team_id, created_by=self.request.user)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError
 
         folder: DataWarehouseSavedQueryFolder = self.get_object()
         remaining_queries = {
@@ -866,7 +867,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
@@ -898,9 +899,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
+        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule, materialize_saved_query
+
         saved_query = self.get_object()
 
-        trigger_saved_query_schedule(saved_query)
+        if is_saved_query_on_v2_schedule(saved_query):
+            materialize_saved_query(saved_query)
+        else:
+            trigger_saved_query_schedule(saved_query)
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -935,8 +941,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         # set data modeling node type to view
         try:
-            from products.data_modeling.backend.models.node import NodeType
-            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+            from products.data_modeling.backend.facade.api import update_node_type
+            from products.data_modeling.backend.facade.models import NodeType
 
             update_node_type(saved_query, NodeType.VIEW)
         except Exception as e:
@@ -994,8 +1000,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         # set data modeling node type to matview
         try:
-            from products.data_modeling.backend.models.node import NodeType
-            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+            from products.data_modeling.backend.facade.api import update_node_type
+            from products.data_modeling.backend.facade.models import NodeType
 
             update_node_type(saved_query, NodeType.MAT_VIEW)
         except Exception as e:

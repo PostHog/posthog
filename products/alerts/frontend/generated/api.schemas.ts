@@ -227,6 +227,8 @@ export const FunnelsAlertConfigApiType = {
 } as const
 
 export interface FunnelsAlertConfigApi {
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean | null
     /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
     funnel_step?: number | null
     metric: FunnelConversionMetricApi
@@ -515,7 +517,7 @@ export interface AlertApi {
      * @nullable
      */
     readonly checks_total: number | null
-    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -596,7 +598,7 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly checks_total?: number | null
-    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.

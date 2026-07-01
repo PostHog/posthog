@@ -27,6 +27,7 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -88,6 +89,10 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
+    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    snapshot_mount_path: str | None = None
+    snapshot_source: str = "none"
+    snapshot_restored: bool = False
     ttl_seconds: int = SANDBOX_TTL_SECONDS
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
@@ -109,7 +114,9 @@ class SandboxConfig(BaseModel):
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
 
-WORKING_DIR = "/tmp/workspace"
+WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
+
+REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
@@ -258,6 +265,8 @@ class SandboxBase(ABC):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -267,7 +276,16 @@ class SandboxBase(ABC):
         ...
 
     @abstractmethod
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+
+    @abstractmethod
+    def mark_repo_ready(self, repo_ready_file: str) -> None: ...
+
+    @abstractmethod
     def create_snapshot(self) -> str: ...
+
+    @abstractmethod
+    def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
     def destroy(self) -> None: ...
@@ -275,15 +293,15 @@ class SandboxBase(ABC):
     @abstractmethod
     def is_running(self) -> bool: ...
 
-    def read_agent_server_boot_ms(self) -> int | None:
+    def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
-    def _read_health_boot_ms(self, port: int) -> int | None:
+    def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
             payload = json.loads(result.stdout or "{}")
-            boot_ms = payload.get("bootMs")
-            return int(boot_ms) if isinstance(boot_ms, int | float) else None
+            session_init_ms = payload.get("sessionInitMs")
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
 

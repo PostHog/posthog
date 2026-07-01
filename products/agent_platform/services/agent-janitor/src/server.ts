@@ -78,6 +78,8 @@ import {
     RevisionStore,
     SessionQueue,
     skillBodyPath,
+    SPEC_SCHEMA_SECTIONS,
+    specJsonSchema,
     TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
@@ -455,6 +457,29 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         asyncHandler(async (_req, res) => {
             const catalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
             res.json({ models: catalogToModels(catalog), levels: resolveLevels(catalog) })
+        })
+    )
+
+    /* ──────────────────────────── spec schema ──────────────────────────── */
+    // The agent-spec JSON Schema, emitted from the canonical zod `AgentSpecSchema`
+    // (no hand-maintained mirror). Powers the `agent-applications-spec-schema` MCP
+    // tool so any client can derive the full spec shape — incl. `spec.models` —
+    // from the schema itself instead of guessing. `?section=` returns one
+    // top-level slice (e.g. `models`, `triggers`, `limits`) to save tokens.
+    app.get(
+        '/spec-schema',
+        asyncHandler(async (req, res) => {
+            const section = typeof req.query.section === 'string' && req.query.section ? req.query.section : undefined
+            const result = specJsonSchema(section)
+            if (!result) {
+                res.status(400).json({
+                    error: 'unknown_section',
+                    message: `Unknown spec section "${section}". Valid sections: ${SPEC_SCHEMA_SECTIONS.join(', ')}.`,
+                    sections: SPEC_SCHEMA_SECTIONS,
+                })
+                return
+            }
+            res.json(result)
         })
     )
 

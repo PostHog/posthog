@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import psycopg
@@ -38,6 +38,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
+    get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
@@ -1656,6 +1657,18 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
         )
+        snowflake_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="Analytics Snowflake",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"account_id": "acct", "database": "TPCH_SF1"},
+            connection_metadata={"engine": "snowflake", "database": "TPCH_SF1"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -1664,6 +1677,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             payload,
             [
+                {
+                    "id": str(snowflake_source.pk),
+                    "prefix": "Analytics Snowflake",
+                    "engine": "snowflake",
+                },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
@@ -2982,7 +3000,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertIn("not supported for direct-query sources", str(response.json()))
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3757,7 +3775,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3773,7 +3791,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -3995,6 +4013,49 @@ class TestExternalDataSource(APIBaseTest):
 
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("expected_source_error", False),
+            ("unexpected_source_error", True),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_captures_only_unexpected_source_errors(
+        self, _name, expect_capture, mock_get_source, mock_capture_exception
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            BigQueryDatasetNotFoundError,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+
+        error: Exception = (
+            RuntimeError("schema discovery exploded")
+            if expect_capture
+            else BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR)
+        )
+        source = BigQuerySource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=error),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "BigQuery"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == str(error)
+        if expect_capture:
+            mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
+        else:
+            mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
         """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
@@ -5108,6 +5169,58 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         persisted_host = "attacker.example.net" if expected_status == 200 else "api.example.com"
         assert persisted_host in source.job_inputs["manifest_json"]
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    def _custom_oauth2_source(self, token_url: str) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": token_url},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_oauth2_client_secret": "cs_existing"},
+        )
+
+    @parameterized.expand(
+        [("without_credentials", {}, 400), ("with_credentials", {"auth_oauth2_client_secret": "cs_new"}, 200)]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_oauth2_token_url_change_requires_reentry(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The OAuth2 token endpoint receives the stored client_secret. Repointing token_url to a new
+        # host without re-supplying the secret would exfiltrate it to a server the editor chose — so it
+        # is gated exactly like a base_url change. This is the net-new credential-redirect coverage that
+        # the Smokescreen egress proxy structurally cannot provide.
+        source = self._custom_oauth2_source("https://auth.example.com/oauth2/token")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://attacker.example.net/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
         # The credential probe only runs once the re-entry gate has passed.
         assert mock_validate_credentials.called == (expected_status == 200)
 
@@ -6598,6 +6711,50 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    @parameterized.expand(
+        [
+            # name, query string, expected source-type keys (None = unfiltered, expect full catalog)
+            ("unfiltered", "", None),
+            ("single_type", "?source_type=Stripe", {"Stripe"}),
+            ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+        ]
+    )
+    def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 200
+        if expected_keys is None:
+            assert len(response.json()) > 2  # sanity: unfiltered returns the full catalog
+        else:
+            assert set(response.json().keys()) == expected_keys
+
+    def test_get_wizard_sources_unknown_source_type_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
+        )
+        assert response.status_code == 400
+        assert "NotARealSource" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            # name, endpoint suffix, body
+            ("create", "", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            (
+                "database_schema",
+                "database_schema/",
+                {"source_type": "Postgres", "password": {"secretRef": "ref-123"}, "host": "db.example.com"},
+            ),
+        ]
+    )
+    def test_unresolved_secret_ref_rejected(self, _name, suffix, body):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{suffix}",
+            data=body,
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "secretRef" in response.json()["message"]
 
     @parameterized.expand(
         [
@@ -10099,3 +10256,35 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
+
+
+class TestGetDirectConnectionMetadata(SimpleTestCase):
+    def _source_impl(self, error: Exception, non_retryable: dict | None = None) -> Mock:
+        impl = Mock()
+        impl.get_connection_metadata.side_effect = error
+        impl.get_non_retryable_errors.return_value = non_retryable or {}
+        return impl
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_expected_connection_error_is_not_captured(self, mock_capture):
+        # An unreachable customer host fails the best-effort metadata probe — already surfaced by
+        # credential validation, so it must degrade to the fallback without flooding error tracking.
+        impl = self._source_impl(
+            psycopg.OperationalError('connection to server at "192.0.2.1", port 5432 failed: Network is unreachable')
+        )
+        fallback = {"database": "existing"}
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=fallback)
+
+        self.assertEqual(result, fallback)
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_unexpected_error_is_still_captured(self, mock_capture):
+        error = ValueError("unexpected bug in metadata probe")
+        impl = self._source_impl(error)
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=None)
+
+        self.assertEqual(result, {})
+        mock_capture.assert_called_once_with(error)

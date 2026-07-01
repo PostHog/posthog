@@ -60,7 +60,7 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
             firstTimestamp,
         })
     )
-    const keysToRedirect = await overflowRedirectService.handleEventBatch('events', batches)
+    const keysToRedirect = await overflowRedirectService.handleEventBatch(batches)
 
     return inputs.map((input, index) => {
         const eventKey = perInputKeys[index]

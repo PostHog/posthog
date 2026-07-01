@@ -3,12 +3,59 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    EngineeringAnalyticsCiFailureLogsQueryParams,
+    EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
     EngineeringAnalyticsWorkflowHealthQueryParams,
+    EngineeringAnalyticsWorkflowJobsQueryParams,
+    EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
 } from '@/generated/engineering_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
+
+const engineeringAnalyticsCiFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsCiFailureLogsSchema,
+    Schemas.CIFailureLogs
+> => ({
+    name: 'engineering-analytics-ci-failure-logs',
+    schema: EngineeringAnalyticsCiFailureLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsCiFailureLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CIFailureLogs>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/ci_failure_logs/`,
+            query: {
+                pr_number: params.pr_number,
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
+
+const EngineeringAnalyticsPrCostSchema = EngineeringAnalyticsPrCostQueryParams
+
+const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCostSchema, Schemas.PRCostSummary> => ({
+    name: 'engineering-analytics-pr-cost',
+    schema: EngineeringAnalyticsPrCostSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsPrCostSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PRCostSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pr_cost/`,
+            query: {
+                pr_number: params.pr_number,
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
 
 const EngineeringAnalyticsSourcesSchema = z.object({})
 
@@ -29,14 +76,56 @@ const engineeringAnalyticsSources = (): ToolBase<
     },
 })
 
-const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams.extend({
-    pr_number: EngineeringAnalyticsPrLifecycleQueryParams.shape['pr_number'].describe(
-        'Pull request number to inspect.'
-    ),
-    repo: EngineeringAnalyticsPrLifecycleQueryParams.shape['repo'].describe(
-        "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo."
-    ),
+const EngineeringAnalyticsWorkflowJobsSchema = EngineeringAnalyticsWorkflowJobsQueryParams
+
+const engineeringAnalyticsWorkflowJobs = (): ToolBase<
+    typeof EngineeringAnalyticsWorkflowJobsSchema,
+    WithPostHogUrl<Schemas.WorkflowJob[]>
+> => ({
+    name: 'engineering-analytics-workflow-jobs',
+    schema: EngineeringAnalyticsWorkflowJobsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowJobsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowJob[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
+            query: {
+                run_attempt: params.run_attempt,
+                run_id: params.run_id,
+                source_id: params.source_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
 })
+
+const EngineeringAnalyticsWorkflowRunnerCostsSchema = EngineeringAnalyticsWorkflowRunnerCostsQueryParams
+
+const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
+    typeof EngineeringAnalyticsWorkflowRunnerCostsSchema,
+    WithPostHogUrl<Schemas.WorkflowRunnerCost[]>
+> => ({
+    name: 'engineering-analytics-workflow-runner-costs',
+    schema: EngineeringAnalyticsWorkflowRunnerCostsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowRunnerCost[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_runner_costs/`,
+            query: {
+                branch: params.branch,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                repo: params.repo,
+                source_id: params.source_id,
+                workflow_name: params.workflow_name,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
+const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams
 
 const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> => ({
     name: 'pr-lifecycle',
@@ -109,7 +198,11 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
+    'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-sources': engineeringAnalyticsSources,
+    'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,
+    'engineering-analytics-workflow-runner-costs': engineeringAnalyticsWorkflowRunnerCosts,
     'pr-lifecycle': prLifecycle,
     'pull-requests': pullRequests,
     'workflow-health': workflowHealth,
