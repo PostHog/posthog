@@ -33,5 +33,34 @@
             }
         </script>
         <div id="root"></div>
+
+        {# Deferred inline scripts — data is only needed after React mounts #} {% if not opt_out_capture and
+        js_posthog_api_key %}
+        <script nonce="{{ request.csp_nonce }}">
+            window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
+            window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
+            if (window.JS_POSTHOG_HOST.trim().length === 0) {
+                window.JS_POSTHOG_HOST = window.location.origin;
+            }
+            window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
+            window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
+            window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
+            window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};
+            window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
+            {% if js_posthog_identity_distinct_id %}
+                window.JS_POSTHOG_IDENTITY_DISTINCT_ID = "{{ js_posthog_identity_distinct_id|escapejs }}";
+                window.JS_POSTHOG_IDENTITY_HASH = "{{ js_posthog_identity_hash|escapejs }}";
+            {% endif %}
+        </script>
+        {% endif %} {% if stripe_public_key %}
+        <script nonce="{{ request.csp_nonce }}">
+            window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}'
+        </script>
+        {% endif %}
+        <script nonce="{{ request.csp_nonce }}">
+            window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
+            window.JS_URL = "{{ js_url|default:"" }}";
+            window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
+        </script>
     </body>
 </html>

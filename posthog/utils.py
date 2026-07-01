@@ -403,6 +403,62 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
+def _resolve_vite_entry_assets() -> tuple[str, list[str]]:
+    """
+    Read the Vite production manifest and return (css_url, [js_preload_urls]) for preloading.
+    Returns empty strings/lists in debug/dev mode or if the manifest doesn't exist.
+    """
+    import os
+
+    from django.conf import settings
+
+    if settings.DEBUG:
+        return ("", [])
+
+    MANIFEST_PATH = os.path.join(settings.BASE_DIR, "frontend", "dist", ".vite", "manifest.json")
+    ENTRY_SRC = "src/index.tsx"
+    try:
+        if not os.path.isfile(MANIFEST_PATH):
+            return ("", [])
+        with open(MANIFEST_PATH) as f:
+            import json
+
+            manifest = json.load(f)
+        entry = manifest.get(ENTRY_SRC)
+        if not entry:
+            return ("", [])
+        # CSS: find it among the entry's static imports
+        css_url = ""
+        for imp_src in entry.get("imports", []):
+            imp_entry = manifest.get(imp_src)
+            if imp_entry and imp_entry.get("css"):
+                css_list = imp_entry["css"]
+                if css_list:
+                    css_url = css_list[0]
+                    break
+        # JS preloads: the App chunk (first dynamic import) + its heavy static imports
+        js_urls: list[str] = []
+        for dimp_src in entry.get("dynamicImports", []):
+            dimp_entry = manifest.get(dimp_src)
+            if dimp_entry:
+                app_file = dimp_entry["file"]
+                js_urls.append(app_file)
+                # Also preload heavy static imports of the App chunk (>50KB)
+                for app_imp in dimp_entry.get("imports", []):
+                    app_imp_entry = manifest.get(app_imp)
+                    if app_imp_entry:
+                        imp_file = app_imp_entry["file"]
+                        imp_path = os.path.join(os.path.dirname(MANIFEST_PATH), "..", imp_file)
+                        if os.path.isfile(imp_path) and os.path.getsize(imp_path) > 50 * 1024:
+                            if imp_file not in js_urls:
+                                js_urls.append(imp_file)
+                break
+        return (css_url, js_urls)
+    except Exception:
+        return ("", [])
+    return ("", [])
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -626,6 +682,10 @@ def _build_template_context(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    # Resolve the production CSS URL from the Vite manifest for CSS preloading
+    # This lets the browser discover and start loading CSS before JS finishes parsing
+    context["vite_css_url"], context["vite_js_url"] = _resolve_vite_entry_assets()
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting

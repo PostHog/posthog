@@ -1,11 +1,13 @@
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React, { Suspense, useEffect } from 'react'
-import { Slide, ToastContainer } from 'react-toastify'
+
+import { PostHogProvider } from '@posthog/react'
 
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
@@ -20,11 +22,41 @@ import { userLogic } from 'scenes/userLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { initKea } from '../initKea'
+import { loadPostHogJS } from '../loadPostHogJS'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
+
+// Kea must initialize synchronously before any component mounts
+initKea()
+// PostHog self-capture initialization deferred to microtask — posthog-js singleton is
+// already importable, and init() just configures it. Deferring lets the App chunk
+// evaluate faster and React start rendering before posthog-js network calls complete.
+queueMicrotask(loadPostHogJS)
+
+// Deferred idle work — pre-warm decompression workers, polyfill emoji flags, etc.
+const idle =
+    typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback.bind(window)
+        : (cb: () => void) => setTimeout(cb, 200)
+
+idle(() => {
+    void import('./session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+        .then(({ preWarmDecompression }) => preWarmDecompression())
+        .catch(() => {})
+
+    // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
+    try {
+        void import('country-flag-emoji-polyfill').then(({ polyfillCountryFlagEmojis }) =>
+            polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+        )
+    } catch {
+        /* best-effort polyfill */
+    }
+})
 
 /**
  * Wraps each rendered scene so that when the scene unmounts (on tab change
@@ -38,15 +70,19 @@ window.process = MOCK_NODE_PROCESS
 function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
     return (
-        // `className="contents"` is load-bearing: the wrapper must take a DOM
-        // node so the ref has something to attach to (we need an element to
-        // call `getAnimations({ subtree: true })` on), but it must also be
-        // transparent to layout. `display: contents` removes it from the box
-        // tree so children render as if there's no wrapper.
         <div ref={ref} className="contents">
             {children}
         </div>
     )
+}
+
+/** Lazy-loaded Kea devtools panel — only rendered in dev mode with dev tools open */
+function KeaDevtoolsLoader(): JSX.Element | null {
+    const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
+    React.useEffect(() => {
+        import('lib/KeaDevTools').then((mod) => setDevTools(() => mod.KeaDevtools)).catch(() => {})
+    }, [])
+    return DevTools ? <DevTools /> : null
 }
 
 export function App(): JSX.Element | null {
@@ -54,13 +90,8 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
-    // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
-    // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
 
-    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
-    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
-    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
         void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
@@ -71,22 +102,34 @@ export function App(): JSX.Element | null {
 
     useThemedHtml()
 
-    // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
-    // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {
-        return <OAuthCallback />
-    }
-
-    if (showApp) {
         return (
-            <>
-                <AppScene />
-                {showingDevTools ? <KeaDevtools /> : null}
-            </>
+            <ErrorBoundary>
+                <PostHogProvider client={posthog}>
+                    <OAuthCallback />
+                </PostHogProvider>
+            </ErrorBoundary>
         )
     }
 
-    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    const sceneContent = (
+        <ErrorBoundary>
+            <PostHogProvider client={posthog}>
+                <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
+                    {showApp ? (
+                        <>
+                            <AppScene />
+                            {showingDevTools ? <KeaDevtoolsLoader /> : null}
+                        </>
+                    ) : (
+                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                    )}
+                </BaseTooltip.Provider>
+            </PostHogProvider>
+        </ErrorBoundary>
+    )
+
+    return sceneContent
 }
 
 function AppScene(): JSX.Element | null {
@@ -96,9 +139,6 @@ function AppScene(): JSX.Element | null {
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    // Once we know the user is authenticated, kick off an idle prefetch of the
-    // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
-    // when the shell mounts. No-op on prefetch failure — Suspense still works.
     useEffect(() => {
         if (!user) {
             return
@@ -108,21 +148,26 @@ function AppScene(): JSX.Element | null {
                 ? window.requestIdleCallback.bind(window)
                 : (cb: () => void) => setTimeout(cb, 200)
         idle(() => {
-            void import('./AuthenticatedShell').catch(() => {
-                /* prefetch is best-effort; the real Suspense load will surface failures */
-            })
+            void import('./AuthenticatedShell').catch(() => {})
         })
     }, [user])
 
-    const unauthToastContainer = (
-        <ToastContainer
+    const [ToastLazy, setToastLazy] = React.useState<typeof import('react-toastify') | null>(null)
+    useEffect(() => {
+        if (!user) {
+            import('react-toastify').then((mod) => setToastLazy(mod)).catch(() => {})
+        }
+    }, [user])
+
+    const unauthToastContainer = ToastLazy ? (
+        <ToastLazy.ToastContainer
             autoClose={6000}
-            transition={Slide}
+            transition={ToastLazy.Slide}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
-    )
+    ) : null
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
@@ -146,7 +191,6 @@ function AppScene(): JSX.Element | null {
 
     const wrappedSceneElement = (
         <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
-            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
@@ -164,7 +208,6 @@ function AppScene(): JSX.Element | null {
         <ChunkLoadErrorBoundary>
             <Suspense
                 fallback={
-                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
                     <div className="relative h-screen">
                         <SpinnerOverlay sceneLevel />
                     </div>
