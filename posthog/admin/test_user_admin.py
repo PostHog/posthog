@@ -80,4 +80,8 @@ class TestUserAdminPasswordReset(BaseTest):
         user.refresh_from_db()
         self.assertIsNotNone(user.requested_password_reset_at)
         mock_send_password_reset.delay.assert_called_once()
-        self.assertEqual(mock_send_password_reset.delay.call_args.args[0], user.pk)
+        user_pk, token = mock_send_password_reset.delay.call_args.args[:2]
+        self.assertEqual(user_pk, user.pk)
+        # A usable reset token must be forwarded — an empty/None token would email a dead link.
+        self.assertIsInstance(token, str)
+        self.assertTrue(token)
