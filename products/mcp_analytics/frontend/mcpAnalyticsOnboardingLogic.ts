@@ -2,8 +2,9 @@ import { afterMount, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { addProductIntent } from 'lib/utils/product-intents'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { mcpAnalyticsOnboardingLogicType } from './mcpAnalyticsOnboardingLogicType'
 
@@ -84,6 +85,17 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
     }),
     listeners(({ values, cache }) => ({
         loadSignalsSuccess: () => {
+            // Mark the diagnostic middle of the funnel: the SDK is connected but no
+            // tool calls have landed yet. Separates an install problem (never
+            // instrumented) from a traffic problem (wired up, but the server isn't
+            // being called). Registered once per mount so the poll doesn't repeat it.
+            if (values.onboardingState === 'connected-no-calls' && !cache.registeredConnected) {
+                cache.registeredConnected = true
+                void addProductIntent({
+                    product_type: ProductKey.MCP_ANALYTICS,
+                    intent_context: ProductIntentContext.MCP_ANALYTICS_CONNECTED,
+                })
+            }
             // Once tool calls show up the gate flips for good — stop polling.
             if (values.isOnboarded) {
                 cache.disposables.dispose('poll')
@@ -92,6 +104,12 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
     })),
     afterMount(({ actions, cache }) => {
         actions.loadSignals()
+        // Register product intent so activation lands in the standard cross-customer
+        // funnel (`has_activated_mcp_analytics` flips once tool calls arrive too).
+        void addProductIntent({
+            product_type: ProductKey.MCP_ANALYTICS,
+            intent_context: ProductIntentContext.MCP_ANALYTICS_VIEWED,
+        })
         cache.disposables.add(() => {
             const id = window.setInterval(() => actions.loadSignals(), POLL_INTERVAL_MS)
             return () => clearInterval(id)

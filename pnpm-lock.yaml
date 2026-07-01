@@ -18,6 +18,9 @@ catalogs:
     '@playwright/test':
       specifier: 1.60.0
       version: 1.60.0
+    '@posthog/brand':
+      specifier: 0.3.0
+      version: 0.3.0
     '@posthog/icons':
       specifier: ^0.37.4
       version: 0.37.4
@@ -585,6 +588,9 @@ importers:
       '@monaco-editor/react':
         specifier: 4.7.0
         version: 4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/docs-onboarding':
         specifier: workspace:*
         version: link:../docs/onboarding
@@ -2547,6 +2553,9 @@ importers:
 
   products/ai_gateway:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2584,6 +2593,9 @@ importers:
 
   products/ai_observability:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2867,6 +2879,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.3.1)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2915,6 +2930,9 @@ importers:
 
   products/dashboards:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2999,6 +3017,9 @@ importers:
 
   products/data_warehouse:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3495,6 +3516,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.3.1)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3612,6 +3636,9 @@ importers:
 
   products/mcp_analytics:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -3672,6 +3699,9 @@ importers:
 
   products/metrics:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3914,6 +3944,9 @@ importers:
 
   products/replay_vision:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4144,6 +4177,9 @@ importers:
 
   products/tracing:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4184,6 +4220,9 @@ importers:
 
   products/user_interviews:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4220,6 +4259,9 @@ importers:
 
   products/visual_review:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4297,6 +4339,9 @@ importers:
 
   products/workflows:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -9908,6 +9953,15 @@ packages:
 
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
+
+  '@posthog/brand@0.3.0':
+    resolution: {integrity: sha512-OY7dLa0AEERWKnfDbuJPN5EH3OKSI7to2B9TASBubU8CswbxGXpEjtSTo6mrJu7zGcC6diGSk9BePe/OcNHgPg==}
+    engines: {node: '>=22.18'}
+    peerDependencies:
+      react: 18.3.1
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@posthog/core@1.23.1':
     resolution: {integrity: sha512-GViD5mOv/mcbZcyzz3z9CS0R79JzxVaqEz4sP5Dsea178M/j3ZWe6gaHDZB9yuyGfcmIMQ/8K14yv+7QrK4sQQ==}
@@ -20232,7 +20286,6 @@ packages:
     engines: {node: '>=0.6.0', teleport: '>=0.2.0'}
     deprecated: |-
       You or someone you depend on is using Q, the JavaScript Promise library that gave JavaScript developers strong feelings about promises. They can almost certainly migrate to the native JavaScript promise now. Thank you literally everyone for joining me in this bet against the odds. Be excellent to each other.
-
       (For a CapTP with native promises, see @endo/eventual-send and @endo/captp)
 
   qrcode.react@4.2.0:
@@ -30449,6 +30502,10 @@ snapshots:
       supports-color: 10.2.2
 
   '@poppinss/exception@1.2.3': {}
+
+  '@posthog/brand@0.3.0(react@18.3.1)':
+    optionalDependencies:
+      react: 18.3.1
 
   '@posthog/core@1.23.1':
     dependencies:
