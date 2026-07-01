@@ -1,1 +1,7 @@
-["stop", "length", "toolUse", "error", "aborted"]
+[
+    "stop",
+    "length",
+    "toolUse",
+    "error",
+    "aborted"
+]

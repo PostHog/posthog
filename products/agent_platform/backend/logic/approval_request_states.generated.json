@@ -1,1 +1,8 @@
-["queued", "approving", "dispatched", "dispatched_failed", "rejected", "expired"]
+[
+    "queued",
+    "approving",
+    "dispatched",
+    "dispatched_failed",
+    "rejected",
+    "expired"
+]
