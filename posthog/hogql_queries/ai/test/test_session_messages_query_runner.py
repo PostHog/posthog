@@ -335,44 +335,6 @@ class TestSessionMessagesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(response.results) == 1
         assert response.results[0].properties["$ai_trace_id"] == "trace-old"
 
-    @parameterized.expand(
-        [
-            # (name, date_range, expect_returned) — the events fallback IS timestamp-bounded.
-            ("in_window", DateRange(date_from="2025-01-10", date_to="2025-01-20"), True),
-            ("window_starts_after_event", DateRange(date_from="2025-01-16", date_to="2025-01-20"), False),
-            ("window_ends_before_event", DateRange(date_from="2025-01-01", date_to="2025-01-10"), False),
-            # No date range → backend default (last 7 days of the frozen 2025-01-15 now) covers it.
-            ("default_window", None, True),
-        ]
-    )
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
-    def test_events_fallback_is_time_bounded(self, _name, date_range, expect_returned, _mock_flag):
-        # Kill switch off → the runner serves the session straight from the shared events table,
-        # where the timestamp bound is mandatory for performance. The event sits at 2025-01-15.
-        session_id = f"session-events-bound-{_name}"
-        _create_event(
-            event="$ai_generation",
-            distinct_id="person1",
-            team=self.team,
-            timestamp=datetime(2025, 1, 15, 10, 0, tzinfo=UTC),
-            properties={
-                "$ai_session_id": session_id,
-                "$ai_trace_id": "trace-bounded",
-                "$ai_input": [{"role": "user", "content": "bounded"}],
-            },
-        )
-
-        response = SessionMessagesQueryRunner(
-            team=self.team,
-            query=SessionMessagesQuery(sessionId=session_id, dateRange=date_range),
-        ).calculate()
-
-        if expect_returned:
-            assert len(response.results) == 1
-            assert response.results[0].properties["$ai_trace_id"] == "trace-bounded"
-        else:
-            assert response.results == []
-
     @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
     def test_merges_all_six_heavy_columns_into_properties(self, _mock_flag):
         # The central behavioral contract: every heavy AI property stripped from the

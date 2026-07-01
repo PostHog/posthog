@@ -82,11 +82,12 @@ class TestAppRuntimeStartApp(BaseTest):
         assert version.snapshot_id is not None
         assert version.snapshot_created_at is not None
 
-        from products.tasks.backend.models import SandboxSnapshot
+        from products.tasks.backend.facade import api as tasks_facade
 
-        snapshot = SandboxSnapshot.objects.get(id=version.snapshot_id)
+        snapshot = tasks_facade.get_sandbox_snapshot(version.snapshot_id)
+        assert snapshot is not None
         assert snapshot.external_id == "snapshot-abc"
-        assert snapshot.status == SandboxSnapshot.Status.COMPLETE
+        assert snapshot.status == tasks_facade.SandboxSnapshotStatus.COMPLETE
 
     def test_cold_start_ignores_requirements_txt_in_zip(self, mock_get_sandbox_class, _mock_wait):
         """requirements.txt support was deleted: a zip with one is accepted but

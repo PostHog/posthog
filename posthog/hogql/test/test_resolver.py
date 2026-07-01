@@ -5,11 +5,13 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
+import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -695,6 +697,82 @@ class TestResolver(BaseTest):
             "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
         )
 
+    def _cte_build_ids(self, query: str) -> list[int]:
+        # A repeated id means a CTE table was rebuilt instead of served from the cache.
+        built_ids: list[int] = []
+        real = resolver_utils._build_cte_database_table
+
+        def counting(select_query_type, context):
+            built_ids.append(id(select_query_type))
+            return real(select_query_type, context)
+
+        with patch.object(resolver_utils, "_build_cte_database_table", side_effect=counting):
+            self._print_hogql(query)
+        return built_ids
+
+    def test_cte_synthetic_table_built_at_most_once(self):
+        built_ids = self._cte_build_ids(
+            "with base as (select event from events), "
+            "mid as (select x.event from base x, base y), "
+            "top as (select p.event from mid p, mid q) "
+            "select r.event from top r, top s"
+        )
+        assert len(built_ids) == len(set(built_ids)), (
+            f"a CTE table was rebuilt: {len(built_ids)} builds for {len(set(built_ids))} distinct CTEs"
+        )
+        assert len(set(built_ids)) == 3, "all 3 CTEs (base, mid, top) should be built exactly once"
+
+    def test_same_named_ctes_in_different_scopes_do_not_collide(self):
+        # Same name, different scopes: keyed by type identity not name, so they must not collide.
+        query = (
+            "with base as (select event as outer_col from events) "
+            "select inner_q.inner_col, base.outer_col "
+            "from (with base as (select timestamp as inner_col from events) select inner_col from base) inner_q, base"
+        )
+        build_ids = self._cte_build_ids(query)
+        assert len(build_ids) == 2
+        assert len(set(build_ids)) == 2
+
+    @parameterized.expand([(2, 2), (4, 2), (6, 2), (3, 3), (5, 3)])
+    def test_cte_chain_built_once(self, depth: int, fanout: int):
+        # Each level references the previous `fanout` times; uncached, the base rebuilds fanout**depth times.
+        ctes = ["c0 as (select event from events)"]
+        for i in range(1, depth):
+            refs = ", ".join(f"c{i - 1} a{j}" for j in range(fanout))
+            ctes.append(f"c{i} as (select a0.event from {refs})")
+        final_refs = ", ".join(f"c{depth - 1} z{j}" for j in range(fanout))
+        query = "with " + ", ".join(ctes) + f" select z0.event from {final_refs}"
+
+        build_ids = self._cte_build_ids(query)
+        assert len(build_ids) == len(set(build_ids)), (
+            f"a CTE table was rebuilt: {len(build_ids)} builds for {len(set(build_ids))} distinct CTEs"
+        )
+        assert len(set(build_ids)) == depth
+
+    def test_cte_select_star_chain_built_once(self):
+        # SELECT * re-expands the upstream columns on every build.
+        query = (
+            "with base as (select event, timestamp from events), "
+            "mid as (select * from base) "
+            "select m1.event from mid m1, mid m2"
+        )
+        build_ids = self._cte_build_ids(query)
+        assert len(build_ids) == len(set(build_ids))
+        assert len(set(build_ids)) == 2
+
+    def test_shared_base_cte_built_once_across_consumers(self):
+        # One base CTE reused by several independent consumers — built once, not once per consumer.
+        query = (
+            "with base as (select event, timestamp from events), "
+            "a as (select base.event from base), "
+            "b as (select base.timestamp from base), "
+            "c as (select base.event from base) "
+            "select a.event, b.timestamp, c.event from a, b, c"
+        )
+        build_ids = self._cte_build_ids(query)
+        assert len(build_ids) == len(set(build_ids))
+        assert len(set(build_ids)) == 4
+
     def test_ctes_with_aliases_in_joins(self):
         self.assertEqual(
             self._print_hogql(
@@ -1123,16 +1201,25 @@ class TestResolver(BaseTest):
 
         # all columns resolve to a type in the end
         assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="event", array=None, nullable=False
+            name="event",
+            array=None,
+            nullable=False,
+            description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="person_id", array=None, nullable=False
+            name="person_id",
+            array=None,
+            nullable=False,
+            description="Resolved person this distinct_id belongs to; matches `persons.id`.",
         )
         assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
             name="person_properties", nullable=False
         )
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
-            name="created_at", array=None, nullable=False
+            name="created_at",
+            array=None,
+            nullable=False,
+            description="When the person was first seen by PostHog.",
         )
 
     def test_visit_hogqlx_tag(self):

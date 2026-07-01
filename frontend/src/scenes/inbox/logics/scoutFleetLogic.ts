@@ -6,9 +6,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/tasks/frontend/types'
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
+import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
@@ -67,6 +70,39 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     return await api.signalScout.configs.list()
+                },
+            },
+        ],
+        scoutMetadata: [
+            null as ScoutMetadataApi | null,
+            {
+                loadScoutMetadata: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        return await signalsScoutMetadataGet(String(teamId))
+                    } catch {
+                        // The metadata feeds only the optional alpha banner, so a transient
+                        // backend blip should degrade silently rather than surface a hard error.
+                        return null
+                    }
+                },
+            },
+        ],
+        // Cheap fleet-wide findings tally for the "Scout findings" callout — one backend query over
+        // emitted runs, so the callout no longer waits on the full paginated runs-window walk (which
+        // could take ~10s and was the reason the callout appeared long after the modal opened).
+        fleetFindingsSummary: [
+            null as FleetFindingsSummaryApi | null,
+            {
+                loadFleetFindingsSummary: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutRunsFindingsSummary(String(teamId))
                 },
             },
         ],
@@ -164,9 +200,23 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 loadRunsWindowSuccess: () => true,
             },
         ],
+        // Flips true once the cheap findings summary lands, so the callout can tell "not loaded yet"
+        // from "loaded, genuinely zero" without the full runs window. Like `runsWindowLoadedOnce`,
+        // deliberately NOT set on failure: a failed load keeps the callout hidden, not falsely empty.
+        fleetFindingsSummaryLoadedOnce: [
+            false,
+            {
+                loadFleetFindingsSummarySuccess: () => true,
+            },
+        ],
     }),
 
     selectors({
+        // Editorial alpha/announcement banner from the signals-scout flag, or null when unset.
+        scoutBannerMessage: [
+            (s) => [s.scoutMetadata],
+            (scoutMetadata): string | null => scoutMetadata?.banner_message ?? null,
+        ],
         rollups: [
             (s) => [s.runsWindow],
             (runsWindow): Map<string, ScoutRollup> => computeScoutRollups(runsWindow.runs),
@@ -200,6 +250,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
+        // Fleet-wide findings tally for the "Scout findings" callout, read from the cheap backend
+        // summary rather than the paginated runs window. The backend counts the same capped set the
+        // findings page renders (most recent 120 emitted runs in the window), so the callout can't
+        // over-advertise. Zeroed until the summary loads.
+        emittedFindingsSummary: [
+            (s) => [s.fleetFindingsSummary],
+            (
+                fleetFindingsSummary: FleetFindingsSummaryApi | null
+            ): { count: number; scoutCount: number; latestAt: string | null } => ({
+                count: fleetFindingsSummary?.count ?? 0,
+                scoutCount: fleetFindingsSummary?.scout_count ?? 0,
+                latestAt: fleetFindingsSummary?.latest_at ?? null,
+            }),
+        ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
             (scoutConfigs): number =>
@@ -250,10 +314,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startRunsPolling: () => {
             // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
             // fresh. The keyed disposable replaces any prior poll and is torn down on
-            // stopRunsPolling / unmount / tab hide.
+            // stopRunsPolling / unmount / tab hide. The cheap findings summary rides the same
+            // cadence so the "Scout findings" callout fills in on its own fast query rather than
+            // waiting on the paginated runs-window walk.
             actions.loadRunsWindow()
+            actions.loadFleetFindingsSummary()
             cache.disposables.add(() => {
-                const interval = setInterval(() => actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                const interval = setInterval(() => {
+                    actions.loadRunsWindow()
+                    actions.loadFleetFindingsSummary()
+                }, RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)
             }, 'runsPoll')
         },
@@ -267,6 +337,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
             actions.loadScoutConfigs()
+            // Metadata carries the alpha banner; a one-shot read is enough (it changes rarely).
+            actions.loadScoutMetadata()
         },
     })),
 ])

@@ -1,10 +1,14 @@
-import { HealthCheckResult } from '../../../types'
+import { Component } from '~/ingestion/common/scopes'
+import { HealthCheckResult } from '~/types'
+
 import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'
 import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType } from './overflow-redis-repository'
 
 export interface OverflowLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
+    /** Redis keyspace this service operates on. Fixed per pipeline. */
+    overflowType: OverflowType
 }
 
 /**
@@ -23,12 +27,16 @@ export interface OverflowLaneOverflowRedirectConfig {
  */
 export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
     private redisRepository: OverflowRedisRepository
+    private overflowType: OverflowType
 
     constructor(config: OverflowLaneOverflowRedirectConfig) {
         this.redisRepository = config.redisRepository
+        this.overflowType = config.overflowType
     }
 
-    async handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>> {
+    async handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>> {
+        const type = this.overflowType
+
         // Refresh TTL for all keys in the batch
         if (batch.length > 0) {
             await this.redisRepository.batchRefreshTTL(
@@ -54,5 +62,15 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
 
     async shutdown(): Promise<void> {
         // No local state to clean up in overflow lane implementation
+    }
+}
+
+/** Scope component for the overflow-lane TTL refresh service. */
+export class OverflowLaneOverflowRedirectComponent implements Component<OverflowRedirectService> {
+    constructor(private readonly config: OverflowLaneOverflowRedirectConfig) {}
+
+    start(): Promise<{ value: OverflowRedirectService; stop: () => Promise<void> }> {
+        const service = new OverflowLaneOverflowRedirect(this.config)
+        return Promise.resolve({ value: service, stop: () => service.shutdown() })
     }
 }

@@ -124,8 +124,10 @@ tools:
         description: >
 
             List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
-            (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID
-            to get full details including filters, calculation status,
+            (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search'
+            rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram
+            search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the
+            cohort ID to get full details including filters, calculation status,
 
             and query definition.
         param_overrides:
@@ -133,6 +135,8 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+            search:
+                description: Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.
             hide_behavioral_cohorts:
                 description: Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.
         ui_app: cohort-list

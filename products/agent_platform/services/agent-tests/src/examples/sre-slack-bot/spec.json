@@ -1,5 +1,5 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
     "triggers": [
         {
             "auth": {
@@ -48,9 +48,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -59,9 +58,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -70,9 +68,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -81,9 +78,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -92,9 +88,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -103,9 +98,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -114,9 +108,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -125,9 +118,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
                 "allow_edit": false,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": false
         },
@@ -136,9 +128,8 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 604800000,
-                "approvers": ["team_admins"],
                 "allow_edit": true,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": true
         },
@@ -147,48 +138,68 @@
             "kind": "native",
             "approval_policy": {
                 "ttl_ms": 604800000,
-                "approvers": ["team_admins"],
                 "allow_edit": true,
-                "allow_agent_approver": false
+                "type": "agent"
             },
             "requires_approval": true
         }
     ],
     "secrets": [
-        { "name": "SLACK_BOT_TOKEN", "allowed_hosts": ["slack.com"] },
+        {
+            "name": "SLACK_BOT_TOKEN",
+            "allowed_hosts": ["slack.com"]
+        },
         "SLACK_SIGNING_SECRET",
-        { "name": "INCIDENT_IO_TOKEN", "allowed_hosts": ["api.incident.io"] },
         "WEBHOOK_SECRET"
     ],
     "skills": [
         {
             "id": "triage-playbook",
             "path": "skills/triage-playbook/SKILL.md",
-            "description": "Structured triage flow — phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
+            "description": "Structured triage flow \u2014 phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
         },
         {
             "id": "slack-thread-protocol",
             "path": "skills/slack-thread-protocol/SKILL.md",
-            "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
+            "description": "Conventions for replying in Slack \u2014 TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
         },
         {
             "id": "incident-io-playbook",
             "path": "skills/incident-io-playbook/SKILL.md",
-            "description": "How to query and update incident.io — list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
+            "description": "How to work incident.io through its connected MCP \u2014 list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
         },
         {
             "id": "runbook-memory",
             "path": "skills/runbook-memory/SKILL.md",
-            "description": "The runbook corpus in agent memory — the folder taxonomy (runbooks/alerts, runbooks/systems, runbooks/procedures), how to read it during triage, how to write a GOOD runbook entry, and the approval-gated flow for proposing a new or updated runbook on a user's behalf. ALWAYS load before reading or proposing any change to a runbook — i.e. at the start of triage (to consult) and after a resolution (to capture the lesson)."
+            "description": "The runbook corpus in agent memory \u2014 the folder taxonomy (runbooks/alerts, runbooks/systems, runbooks/procedures), how to read it during triage, how to write a GOOD runbook entry, and the approval-gated flow for proposing a new or updated runbook on a user's behalf. ALWAYS load before reading or proposing any change to a runbook \u2014 i.e. at the start of triage (to consult) and after a resolution (to capture the lesson)."
         }
     ],
-    "integrations": [],
     "limits": {
         "max_turns": 30,
         "max_tool_calls": 100,
         "max_wall_seconds": 600
     },
     "reasoning": "high",
-    "mcps": [],
-    "entrypoint": "agent.md"
+    "mcps": [
+        {
+            "kind": "agent",
+            "id": "incident-io",
+            "url": "https://mcp.incident.io/mcp",
+            "connection": "00000000-0000-0000-0000-000000000000",
+            "default_tool_approval": "approve"
+        },
+        {
+            "kind": "principal",
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "default_tool_approval": "allow",
+            "auth": { "provider": "posthog" }
+        }
+    ],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": ["openid", "profile", "email", "user:read", "query:read", "insight:read", "error_tracking:read"]
+        }
+    ]
 }

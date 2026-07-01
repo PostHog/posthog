@@ -5,6 +5,7 @@ use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
+use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
@@ -439,6 +440,10 @@ pub struct FlagDetailsMetadata {
     pub version: i32,
     pub description: Option<String>,
     pub payload: Option<Value>,
+    /// True if the flag has at least one non-deleted linked experiment. SDKs use this to
+    /// decide whether to keep all $feature_flag_called event properties or send a minimal event.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -457,6 +462,7 @@ pub trait FromFeatureAndMatch {
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -464,7 +470,8 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false, None, None)
+        // Timezone is only consulted for detailed analysis, which is off here.
+        Self::create_with_analysis(flag, flag_match, false, None, None, Tz::UTC)
     }
 
     fn create_with_analysis(
@@ -473,6 +480,7 @@ impl FromFeatureAndMatch for FlagDetails {
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -489,6 +497,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+                has_experiment: flag.has_experiment,
             },
             conditions: if detailed_analysis {
                 Some(Self::build_condition_analysis(
@@ -496,6 +505,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     flag_match,
                     property_values,
                     flag_evaluation_results,
+                    team_timezone,
                 ))
             } else {
                 None
@@ -519,6 +529,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: None,
+                has_experiment: flag.has_experiment,
             },
             conditions: None,
         }
@@ -558,6 +569,7 @@ impl FlagDetails {
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -588,6 +600,9 @@ impl FlagDetails {
 
                     let type_str = match property.prop_type {
                         crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::PersonMetadata => {
+                            "person_metadata"
+                        }
                         crate::properties::property_models::PropertyType::Group => "group",
                         crate::properties::property_models::PropertyType::Cohort => "cohort",
                         crate::properties::property_models::PropertyType::Flag => "flag",
@@ -654,7 +669,8 @@ impl FlagDetails {
 
                     let (property_matched, actual_value) = if let Some(props) = property_values {
                         let actual = props.get(&property.key).cloned();
-                        let matched = match_property(property, props, false).unwrap_or(false);
+                        let matched =
+                            match_property(property, props, false, team_timezone).unwrap_or(false);
                         (matched, actual)
                     } else {
                         // No properties available, fall back to condition-level match
@@ -1037,6 +1053,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(json!({"key": "value"})),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1060,6 +1077,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: None,
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1083,6 +1101,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(Value::Null),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1234,8 +1253,13 @@ mod tests {
         property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
 
         // Build condition analysis
-        let analysis =
-            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values), None);
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            chrono_tz::Tz::UTC,
+        );
 
         // Verify we have analysis for both conditions
         assert_eq!(analysis.len(), 2);
@@ -1316,6 +1340,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1347,6 +1372,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1379,6 +1405,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             None, // empty — dependency flag 42 absent
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);

@@ -35,6 +35,7 @@ import type {
     EvaluationRun,
     EvaluationSummary,
     EvaluationSummaryFilter,
+    EvaluationTarget,
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
@@ -43,6 +44,10 @@ import type {
     SentimentEvaluation,
 } from './types'
 
+// Mirrors TRACE_EVAL_DEFAULT_WINDOW_SECONDS on the backend — the value pre-filled when an
+// evaluation is switched to the trace target. The backend re-defaults and clamps regardless.
+export const DEFAULT_TRACE_WINDOW_SECONDS = 30 * 60
+
 export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
 let result := length(output) > 0
 if (not result) {
@@ -50,7 +55,18 @@ if (not result) {
 }
 return result`
 
+// Trace Hog globals expose `events` and `trace`, not a top-level `output`, so the generation
+// default can't run against them — seed a trace-shaped check instead.
+export const DEFAULT_TRACE_HOG_SOURCE = `// Check that the trace produced at least one event
+let result := length(events) > 0
+if (not result) {
+    print('Trace has no events')
+}
+return result`
+
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
+const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
+const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
 
 function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation {
     return {
@@ -66,7 +82,7 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: DEFAULT_HOG_SOURCE },
+        evaluation_config: { source: evaluation.target === 'trace' ? DEFAULT_TRACE_HOG_SOURCE : DEFAULT_HOG_SOURCE },
         output_type: 'boolean',
         model_configuration: null,
         output_config: { ...evaluation.output_config, allows_na: false },
@@ -81,18 +97,46 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
         output_type: 'sentiment',
         output_config: {},
         model_configuration: null,
+        // Sentiment is per-message within a single generation; a trace target is unsupported.
+        target: 'generation',
+        target_config: {},
     }
+}
+
+function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] {
+    if (filter === 'all') {
+        return runs
+    }
+
+    const completedRuns = runs.filter((r) => r.status === 'completed')
+    if (filter === 'pass') {
+        return completedRuns.filter((r) => r.result === true)
+    }
+    if (filter === 'fail') {
+        return completedRuns.filter((r) => r.result === false)
+    }
+    if (filter === 'na') {
+        return completedRuns.filter((r) => r.result === null)
+    }
+
+    return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
 }
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    evaluationType?: EvaluationType
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}${
+                props.evaluationType ? `-${props.evaluationType}` : ''
+            }`
+    ),
 
     connect(() => ({
         values: [
@@ -125,6 +169,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
+        setTraceWindowSeconds: (windowSeconds: number) => ({ windowSeconds }),
         setHogSource: (source: string) => ({ source }),
 
         // Signal emission
@@ -299,6 +345,40 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                     return toLLMJudgeEvaluation(state)
                 },
+                setEvaluationTarget: (state, { target }) => {
+                    if (!state) {
+                        return null
+                    }
+                    // Seed the window when switching to trace so the field shows a sane default;
+                    // clear the bag when switching back so we don't persist a stale window.
+                    const target_config = target === 'trace' ? { window_seconds: DEFAULT_TRACE_WINDOW_SECONDS } : {}
+                    // Swap the default Hog source to match the new target, but only while it's still the
+                    // untouched default for the other target — never clobber a source the user edited.
+                    if (state.evaluation_type === 'hog') {
+                        const source = state.evaluation_config.source
+                        if (target === 'trace' && source === DEFAULT_HOG_SOURCE) {
+                            return {
+                                ...state,
+                                target,
+                                target_config,
+                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_TRACE_HOG_SOURCE },
+                            }
+                        }
+                        if (target !== 'trace' && source === DEFAULT_TRACE_HOG_SOURCE) {
+                            return {
+                                ...state,
+                                target,
+                                target_config,
+                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_HOG_SOURCE },
+                            }
+                        }
+                    }
+                    return { ...state, target, target_config }
+                },
+                setTraceWindowSeconds: (state, { windowSeconds }) =>
+                    state
+                        ? { ...state, target_config: { ...state.target_config, window_seconds: windowSeconds } }
+                        : null,
                 setHogSource: (state, { source }) =>
                     state && state.evaluation_type === 'hog'
                         ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
@@ -369,6 +449,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,
+                setEvaluationTarget: () => true,
+                setTraceWindowSeconds: () => true,
                 setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
@@ -379,6 +461,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             'all' as EvaluationSummaryFilter,
             {
                 setEvaluationSummaryFilter: (_, { filter }) => filter,
+                loadEvaluationSuccess: (_, { evaluation }) =>
+                    evaluation?.evaluation_type === 'sentiment' ? DEFAULT_SENTIMENT_RUNS_FILTER : 'all',
             },
         ],
         // Clear summary when filter changes so stale summary doesn't mismatch current filter
@@ -441,34 +525,45 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active' as const,
                     status_reason: null,
+                    status_reason_detail: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 0,
+                            rollout_percentage: DEFAULT_CONDITION_ROLLOUT_PERCENTAGE,
                             properties: [],
                         },
                     ],
+                    target: 'generation' as const,
+                    target_config: {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 }
                 const newEvaluation: EvaluationConfig =
-                    template?.evaluation_type === 'hog'
+                    props.evaluationType === 'sentiment'
                         ? {
                               ...baseFields,
-                              evaluation_type: 'hog' as const,
-                              evaluation_config: { source: template.source, bytecode: [] },
+                              evaluation_type: 'sentiment' as const,
+                              evaluation_config: { source: DEFAULT_SENTIMENT_SOURCE },
+                              output_type: 'sentiment' as const,
+                              output_config: {},
                           }
-                        : {
-                              ...baseFields,
-                              evaluation_type: 'llm_judge' as const,
-                              evaluation_config: {
-                                  prompt: template && 'prompt' in template ? template.prompt : '',
-                              },
-                          }
+                        : template?.evaluation_type === 'hog'
+                          ? {
+                                ...baseFields,
+                                evaluation_type: 'hog' as const,
+                                evaluation_config: { source: template.source, bytecode: [] },
+                            }
+                          : {
+                                ...baseFields,
+                                evaluation_type: 'llm_judge' as const,
+                                evaluation_config: {
+                                    prompt: template && 'prompt' in template ? template.prompt : '',
+                                },
+                            }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
@@ -527,6 +622,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active',
                     status_reason: null,
+                    status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -536,10 +632,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 0,
+                            rollout_percentage: DEFAULT_CONDITION_ROLLOUT_PERCENTAGE,
                             properties: [],
                         },
                     ],
+                    target: 'generation',
+                    target_config: {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
@@ -769,21 +867,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         filteredEvaluationRuns: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
-                if (filter === 'all') {
-                    return runs
-                }
-                // Only consider completed runs for filtering
-                const completedRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    return completedRuns.filter((r) => r.result === true)
-                }
-                if (filter === 'fail') {
-                    return completedRuns.filter((r) => r.result === false)
-                }
-                // na
-                return completedRuns.filter((r) => r.result === null)
-            },
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] =>
+                filterEvaluationRuns(runs, filter),
         ],
 
         runsToSummarizeCount: [

@@ -35,6 +35,50 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(saved.target_widths, [768, 1024])
         mock_task.assert_called_once_with(saved.id)
 
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_defaults_consent_blocking_off(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertFalse(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_persists_consent_blocking_when_enabled(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "block_consent_modals": True},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_partial_update_consent_toggle_triggers_regenerate(self, mock_task):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+            type=SavedHeatmap.Type.SCREENSHOT,
+            block_consent_modals=False,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
+
+        r = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"block_consent_modals": True},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["block_consent_modals"])
+        self.assertEqual(r.data["status"], "processing")
+        mock_task.delay.assert_called_once_with(saved.id)
+        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
+
     def test_content_returns_202_until_snapshot_exists(self):
         saved = SavedHeatmap.objects.create(team=self.team, url="https://example.com", created_by=self.user)
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")

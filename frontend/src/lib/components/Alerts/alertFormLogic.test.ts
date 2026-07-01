@@ -23,6 +23,7 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview } from './funnelAlertPreview'
 import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -317,7 +318,7 @@ describe('alertFormLogic', () => {
 
         it.each([
             {
-                name: 'prefills the single numeric column when none is picked (no label in last-row mode)',
+                name: 'prefills the value column and the first non-evaluated column as label (last-row mode)',
                 config: {},
                 insightData: {
                     columns: ['day', 'count'],
@@ -327,28 +328,28 @@ describe('alertFormLogic', () => {
                     ],
                 },
                 expectedColumn: 'count',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'day',
             },
             {
-                name: 'keeps an explicit pick',
+                name: 'keeps an explicit pick and labels by the other column',
                 config: { column: 'a' },
                 insightData: { columns: ['a', 'b'], results: [[1, 2]] },
                 expectedColumn: 'a',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'b',
             },
             {
                 name: 'prefills the last numeric column when several are numeric',
                 config: {},
                 insightData: { columns: ['a', 'b'], results: [[1, 2]] },
                 expectedColumn: 'b',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'a',
             },
             {
                 name: 'skips a trailing non-numeric column when picking the last numeric one',
                 config: {},
                 insightData: { columns: ['value', 'day'], results: [[5, '2026-06-01']] },
                 expectedColumn: 'value',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'day',
             },
             {
                 name: 'does not prefill when no column is numeric',
@@ -367,6 +368,13 @@ describe('alertFormLogic', () => {
             {
                 name: 'prefills the first non-evaluated column as the label in any-row mode',
                 config: { evaluation: 'any_row' },
+                insightData: { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
+                expectedColumn: 'count',
+                expectedLabelColumn: 'day',
+            },
+            {
+                name: 'prefills the label in first-row mode too (all modes unified)',
+                config: { evaluation: 'first_row' },
                 insightData: { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
                 expectedColumn: 'count',
                 expectedLabelColumn: 'day',
@@ -654,6 +662,133 @@ describe('alertFormLogic', () => {
                 null
             )
             expect(preview?.status).toBe('ok')
+        })
+    })
+
+    describe('deriveFunnelAlertPreview', () => {
+        const FROM_START = { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', funnel_step: null } as const
+        const steps = (...counts: number[]): Record<string, any>[] =>
+            counts.map((count, order) => ({ order, count, breakdown_value: null }))
+        const value = (label: string | null, rate: number, breaching: boolean): Record<string, any> => ({
+            label,
+            rate,
+            breaching,
+        })
+
+        it.each([
+            ['not a funnel config', { result: steps(100, 40) }, { type: 'HogQLAlertConfig' }, undefined, null],
+            ['no result loaded', null, FROM_START, undefined, null],
+            ['empty result', { result: [] }, FROM_START, undefined, null],
+            ['breakdown with an empty step list', { result: [[]] }, FROM_START, undefined, { status: 'no-data' }],
+            [
+                'from_start at the last step, no bounds',
+                { result: steps(100, 40) },
+                FROM_START,
+                undefined,
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'lower bound breached flags the value and sets hasBounds',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 50 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'value within bounds is not breaching',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 30 },
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'upper bound breached flags the value',
+                { result: steps(100, 40) },
+                FROM_START,
+                { upper: 30 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'within a lower+upper range is not breaching',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 10, upper: 80 },
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'breaching the upper of a lower+upper range flags the value',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 10, upper: 30 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'from_previous divides by the prior step',
+                { result: steps(100, 50, 10) },
+                { type: 'FunnelsAlertConfig', metric: 'conversion_from_previous', funnel_step: 2 },
+                undefined,
+                { status: 'ok', values: [value(null, 20, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'zero base evaluates to 0%',
+                { result: steps(0, 5) },
+                FROM_START,
+                undefined,
+                { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'breakdown computes a rate per value and flags only the breaching one',
+                {
+                    result: [
+                        [
+                            { order: 0, count: 100, breakdown_value: 'US' },
+                            { order: 1, count: 40, breakdown_value: 'US' },
+                        ],
+                        [
+                            { order: 0, count: 80, breakdown_value: 'DE' },
+                            { order: 1, count: 20, breakdown_value: 'DE' },
+                        ],
+                    ],
+                },
+                FROM_START,
+                { lower: 30 },
+                {
+                    status: 'ok',
+                    values: [value('US', 40, false), value('DE', 25, true)],
+                    isBreakdown: true,
+                    hasBounds: true,
+                },
+            ],
+            [
+                'compared funnel evaluates the current period only',
+                {
+                    result: [
+                        { order: 0, count: 1000, compare_label: 'current', breakdown_value: null },
+                        { order: 1, count: 100, compare_label: 'current', breakdown_value: null },
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'ok', values: [value(null, 10, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'compared funnel with only previous-period rows shows no-data, not unloaded',
+                {
+                    result: [
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'no-data' },
+            ],
+        ])('%s', (_name, insightData, config, bounds, expected) => {
+            expect(
+                deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
+            ).toEqual(expected)
         })
     })
 })

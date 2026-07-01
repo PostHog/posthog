@@ -10,13 +10,10 @@ import { resolveResourceHandler } from '@/tools/agentPlatform/resolveResource'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
-// Canonical source: the agent-builder bundle's skills dir (one `<id>/SKILL.md`
-// per skill). The build copies these into shared/playbooks/ (embedded) — both
+// Canonical source: the MCP builder-playbooks dir (one `<id>/SKILL.md` per
+// playbook). The build copies these into shared/playbooks/ (embedded) — both
 // must stay in lockstep with PLAYBOOK_IDS.
-const SKILLS_DIR = resolve(
-    __dirname,
-    '../../../../products/agent_platform/services/agent-tests/src/examples/agent-builder/skills'
-)
+const PLAYBOOKS_DIR = resolve(__dirname, '../../playbooks')
 
 // Context whose api key carries the given scopes (drives the live tool surface).
 const ctxWithScopes = (scopes: string[]): Context =>
@@ -64,12 +61,12 @@ describe('agent-resolve-resource', () => {
     })
 
     describe('playbook inventory', () => {
-        it('PLAYBOOK_IDS matches the skill dirs in the concierge bundle', () => {
-            const skillDirs = readdirSync(SKILLS_DIR, { withFileTypes: true })
+        it('PLAYBOOK_IDS matches the dirs in the MCP playbooks source', () => {
+            const playbookDirs = readdirSync(PLAYBOOKS_DIR, { withFileTypes: true })
                 .filter((e) => e.isDirectory())
                 .map((e) => e.name)
                 .sort()
-            expect(skillDirs).toEqual([...PLAYBOOK_IDS].sort())
+            expect(playbookDirs).toEqual([...PLAYBOOK_IDS].sort())
         })
 
         it('every id has embedded, non-empty content', () => {
@@ -134,7 +131,7 @@ describe('agent-resolve-resource', () => {
         })
 
         it('playbooks with no associated tools omit the surface section', async () => {
-            const result = await resolveResourceHandler(ctxWithScopes(['*']), { resource: 'safety-and-boundaries' })
+            const result = await resolveResourceHandler(ctxWithScopes(['*']), { resource: 'platform-mental-model' })
             expect(result.content).not.toContain('Tools for this playbook')
             expect(result.tools.callable).toHaveLength(0)
             expect(result.tools.gated).toHaveLength(0)

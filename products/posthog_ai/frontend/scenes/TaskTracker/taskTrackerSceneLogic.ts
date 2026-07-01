@@ -1,0 +1,218 @@
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
+import { ClaudeRuntimeAdapterEnumApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
+import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { tasksLogic } from '../../logics/tasksLogic'
+import type { RepositoryConfig } from '../../types/taskTypes'
+import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
+import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
+
+export interface TaskCreateForm {
+    description: string
+    repositoryConfig: RepositoryConfig
+    model: string
+    reasoningEffort: ReasoningEffortEnumApi
+}
+
+// The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
+// want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
+export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
+
+const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
+
+const EMPTY_TASK_FORM: TaskCreateForm = {
+    description: '',
+    repositoryConfig: {
+        integrationId: undefined,
+        repository: undefined,
+    },
+    model: DEFAULT_COMPOSER_MODEL,
+    reasoningEffort: DEFAULT_COMPOSER_EFFORT,
+}
+
+export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
+    path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
+
+    connect(() => ({
+        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+        actions: [
+            tasksLogic,
+            ['loadTasks', 'loadRepositories', 'deleteTask'],
+            integrationsLogic,
+            ['loadIntegrationsSuccess'],
+        ],
+    })),
+
+    actions({
+        setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
+        resetNewTaskData: true,
+        submitNewTask: true,
+        submitNewTaskSuccess: true,
+        submitNewTaskFailure: (error: string) => ({ error }),
+        maybeAutoSelectIntegration: true,
+        setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
+        applySuggestion: (item: SuggestionItem) => ({ item }),
+        setHeadline: (headline: string) => ({ headline }),
+        setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+    }),
+
+    reducers({
+        newTaskData: [
+            EMPTY_TASK_FORM as TaskCreateForm,
+            {
+                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                resetNewTaskData: () => EMPTY_TASK_FORM,
+            },
+        ],
+        isSubmittingTask: [
+            false,
+            {
+                submitNewTask: () => true,
+                submitNewTaskSuccess: () => false,
+                submitNewTaskFailure: () => false,
+            },
+        ],
+        // Last repo/integration the user picked, persisted to localStorage so the composer comes back pre-filled.
+        persistedRepositoryConfig: [
+            {} as PersistedRepositoryConfig,
+            { persist: true, storageKey: LAST_REPOSITORY_CONFIG_STORAGE_KEY },
+            {
+                setPersistedRepositoryConfig: (_, { config }) => config,
+            },
+        ],
+        activeSuggestionGroup: [
+            null as SuggestionGroup | null,
+            {
+                setActiveSuggestionGroup: (_, { group }) => group,
+                // Clearing the description (e.g. after submit/reset) collapses any open dropdown.
+                setNewTaskData: (state, { data }) =>
+                    data.description !== undefined && !data.description ? null : state,
+                resetNewTaskData: () => null,
+            },
+        ],
+        headline: [
+            DEFAULT_HEADLINES[0],
+            {
+                setHeadline: (_, { headline }) => headline,
+            },
+        ],
+    }),
+
+    selectors({
+        sendDisabledReason: [
+            (s) => [s.newTaskData],
+            (newTaskData): string | undefined =>
+                !newTaskData.description.trim() ? 'Describe the task first' : undefined,
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
+        // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
+        setNewTaskData: ({ data }) => {
+            if (data.repositoryConfig?.repository) {
+                const { integrationId, repository } = data.repositoryConfig
+                actions.setPersistedRepositoryConfig({ integrationId, repository })
+            }
+        },
+        // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
+        // chosen yet. The IntegrationChoice picker that used to own this selection is no longer rendered.
+        maybeAutoSelectIntegration: () => {
+            if (values.newTaskData.repositoryConfig.integrationId) {
+                return
+            }
+            const githubIntegrations = values.integrations?.filter((integration) => integration.kind === 'github') ?? []
+            if (githubIntegrations.length === 0) {
+                return
+            }
+            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
+            // GitHubBranchCombobox re-selects the repo's actual default branch.
+            const { integrationId, repository } = values.persistedRepositoryConfig
+            if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
+                actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
+                return
+            }
+            actions.setNewTaskData({
+                repositoryConfig: {
+                    ...values.newTaskData.repositoryConfig,
+                    integrationId: githubIntegrations[0].id,
+                },
+            })
+        },
+        loadIntegrationsSuccess: () => {
+            actions.maybeAutoSelectIntegration()
+        },
+        // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
+        // typing (the component focuses the textarea in that case).
+        applySuggestion: ({ item }) => {
+            actions.setNewTaskData({ description: item.content })
+            if (!item.requiresUserInput) {
+                actions.submitNewTask()
+            }
+        },
+        submitNewTask: async () => {
+            const { description, repositoryConfig, model, reasoningEffort } = values.newTaskData
+
+            if (!description.trim()) {
+                lemonToast.error('Description is required')
+                actions.submitNewTaskFailure('Description is required')
+                return
+            }
+
+            try {
+                const taskData: TaskUpsertProps = {
+                    title: '',
+                    description,
+                    origin_product: OriginProduct.POSTHOG_AI,
+                    // PostHog AI can run without a repo; null means the task is not scoped to any repository.
+                    repository: repositoryConfig.repository ?? null,
+                    github_integration: repositoryConfig.integrationId ?? null,
+                }
+
+                const newTask = await api.tasks.create(taskData)
+                lemonToast.success('Task created successfully')
+
+                // Auto-run the task after creation; the detail scene shows the latest run by default. The
+                // run checks out the chosen branch (server falls back to the repo's default branch if unset)
+                // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                await api.tasks.run(newTask.id, {
+                    branch: repositoryConfig.branch ?? null,
+                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+                    model,
+                    reasoning_effort: resolveEffortForModel(reasoningEffort, model),
+                })
+                router.actions.push(`/tasks/${newTask.id}`)
+
+                actions.submitNewTaskSuccess()
+                actions.resetNewTaskData()
+                actions.loadTasks(values.taskListParams)
+                actions.loadRepositories()
+            } catch (error) {
+                lemonToast.error('Failed to create task')
+                actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
+            }
+        },
+    })),
+
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            actions.loadTasks(values.taskListParams)
+            actions.loadRepositories()
+            // Roll a headline once per mount (pickHeadline forces index 0 under Storybook for stable snapshots).
+            actions.setHeadline(pickHeadline())
+            // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
+            // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
+            // integrations already cached by an earlier mount.
+            actions.maybeAutoSelectIntegration()
+        },
+    })),
+])

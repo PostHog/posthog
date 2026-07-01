@@ -152,10 +152,10 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert pat is not None
         assert pat.label == self.team.name[:40]
 
-    def test_create_resource_pat_inherits_app_scope_ceiling(self):
+    def test_create_resource_pat_narrowed_to_granted_token_scope(self):
+        # The test bearer is granted only query:read; the PAT must not widen to the
+        # full ceiling even when the app's grantable set is broader.
         token = self._get_bearer_token()
-        # Seed the grandfathered app's ceiling after minting the bearer so the PAT is
-        # capped at the app's scopes rather than the old hardcoded ["*"].
         app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
         app.scopes = ["insight:read", "query:read"]
         app.save(update_fields=["scopes"])
@@ -166,9 +166,24 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.scopes == ["insight:read", "query:read"]
+        assert pat.scopes == ["query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+
+    def test_create_resource_pat_excludes_optional_scopes_outside_grant(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["query:read"]
+        app.optional_scopes = ["insight:read"]
+        app.save(update_fields=["scopes", "optional_scopes"])
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.scopes == ["query:read"]
 
     def test_create_resource_omits_pat_when_app_gate_off(self):
         token = self._get_bearer_token()
@@ -198,7 +213,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             scopes=["insight:read"],
             provisioning_issues_personal_api_key=gate_on,
         )
-        result = _maybe_create_provisioned_pat(self.user, self.team, app)
+        result = _maybe_create_provisioned_pat(self.user, self.team, app, "insight:read")
         if gate_on:
             assert result is not None
             pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -740,7 +755,9 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         ]
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
-        api_key = _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix=label_prefix)
+        api_key = _maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", label_prefix=label_prefix
+        )
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
@@ -749,7 +766,9 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60
         self.team.save()
-        _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix="LongPartnerName")
+        _maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", label_prefix="LongPartnerName"
+        )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
         assert len(pat.label) == 40
@@ -761,5 +780,5 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
         assert app.scopes == []
         initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
-        assert _maybe_create_provisioned_pat(self.user, self.team, app) is None
+        assert _maybe_create_provisioned_pat(self.user, self.team, app, "query:read") is None
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count

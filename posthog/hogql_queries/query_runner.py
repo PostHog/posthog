@@ -43,6 +43,14 @@ from posthog.schema import (
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    MCPHarnessBreakdownQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolStatsQuery,
+    MCPToolTopUsersQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -95,6 +103,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -114,6 +123,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -309,6 +319,14 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MCPHarnessBreakdownQuery,
+    MCPToolTopUsersQuery,
+    MCPToolFailuresQuery,
+    MCPToolStatsQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolNeighborsQuery,
 ]
 
 
@@ -938,6 +956,94 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPHarnessBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPHarnessBreakdownQueryRunner
+
+        return MCPHarnessBreakdownQueryRunner(
+            query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolTopUsersQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolTopUsersQueryRunner
+
+        return MCPToolTopUsersQueryRunner(
+            query=cast(MCPToolTopUsersQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolFailuresQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailuresQueryRunner
+
+        return MCPToolFailuresQueryRunner(
+            query=cast(MCPToolFailuresQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolStatsQueryRunner
+
+        return MCPToolStatsQueryRunner(
+            query=cast(MCPToolStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDailyStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDailyStatsQueryRunner
+
+        return MCPToolDailyStatsQueryRunner(
+            query=cast(MCPToolDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDescriptionsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDescriptionsQueryRunner
+
+        return MCPToolDescriptionsQueryRunner(
+            query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolSampleIntentsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolSampleIntentsQueryRunner
+
+        return MCPToolSampleIntentsQueryRunner(
+            query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolNeighborsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
+
+        return MCPToolNeighborsQueryRunner(
+            query=cast(MCPToolNeighborsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -1026,7 +1132,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.facade.queries import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
@@ -1038,7 +1144,7 @@ def get_query_runner(
         )
 
     if kind == "AccountsQuery":
-        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+        from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
             query=query,
@@ -1891,6 +1997,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if geoip_dict_fallback_team_in_env(self.team.pk):
             payload["geoip_dict_fallback"] = True
 
+        # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
+        # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
+        # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is not None:
+            payload["events_retention_floor_months"] = retention_months
+
         return payload
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
@@ -2239,10 +2352,20 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
+        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL
+        # feature is unavailable and a user is provided (i.e. not a userless query or a project token)
+        user = cast("Optional[User | SyntheticUser]", self.user)
+        if (
+            user is not None
+            and not isinstance(user, SyntheticUser)
+            and not self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        ):
+            return payload
+
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query)
+        queried_resources = queried_access_controlled_resources(self.query, self.team)
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():

@@ -13,6 +13,11 @@ ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERR
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
+# Max attempts per metric before it's marked failed. The workflow's requeue loop owns retries (the activity
+# runs with maximum_attempts=1), so this caps how many times a transient failure is requeued. Kept low because
+# each extra attempt adds backoff (5s, 10s, 20s, ...) to the tail of a fully-failing run.
+MAX_METRIC_ATTEMPTS = 3
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:

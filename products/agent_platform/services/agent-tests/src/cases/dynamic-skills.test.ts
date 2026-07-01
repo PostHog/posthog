@@ -63,6 +63,40 @@ describe('dynamic skill loading: real e2e', () => {
         expect(parsed.body).toContain('ask questions')
     })
 
+    it('model loads a skill companion file via the file param', async () => {
+        // Multi-file skills (the shape a store skill materializes into the bundle):
+        // SKILL.md plus companion files under skills/<id>/. load-skill fetches a
+        // companion when given `file`.
+        c.setScript([
+            fauxCallTool('@posthog/load-skill', { id: 'research', file: 'references/deep.md' }),
+            fauxText('used the companion'),
+        ])
+        await c.deployAgent({
+            slug: 'skill-companion-agent',
+            spec: {
+                skills: [{ id: 'research', path: 'skills/research/SKILL.md', description: 'How to research' }],
+            },
+            files: {
+                'agent.md': 'you have a research skill with companion docs.',
+                'skills/research/SKILL.md': 'See references/deep.md for the deep dive.',
+                'skills/research/references/deep.md': 'DEEP DIVE: triangulate three independent sources.',
+            },
+        })
+        const res = await request(c.ingress).post('/agents/skill-companion-agent/run').send({ message: 'go' })
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        const toolResult = session!.conversation[2] as unknown as {
+            role: 'toolResult'
+            content: Array<{ text: string }>
+        }
+        expect(toolResult.role).toBe('toolResult')
+        const parsed = JSON.parse(toolResult.content[0].text) as { id: string; path: string; body: string }
+        expect(parsed.id).toBe('research')
+        expect(parsed.path).toBe('skills/research/references/deep.md')
+        expect(parsed.body).toContain('triangulate three independent sources')
+    })
+
     it('@posthog/load-skill errors when the id is unknown', async () => {
         c.setScript([fauxCallTool('@posthog/load-skill', { id: 'ghost' }), fauxText('oops')])
         await c.deployAgent({

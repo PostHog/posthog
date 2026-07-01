@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
@@ -37,16 +37,31 @@ function OverviewPanel({
     )
 }
 
+// Spinner while stats load, otherwise the empty-state message — shared by the type-specific overview panels.
+function PanelEmpty({ loading, message }: { loading: boolean; message: string }): JSX.Element {
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-6 text-muted">
+                <Spinner />
+            </div>
+        )
+    }
+    return <div className="text-muted text-sm">{message}</div>
+}
+
 function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { monitorStats, hasActiveObservationFilters } = useValues(replayScannerLogic({ id: scannerId }))
+    const { monitorStats, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
     const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
         return (
             <OverviewPanel title="Verdict mix">
-                <div className="text-muted text-sm">
-                    {hasActiveObservationFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
-                </div>
+                <PanelEmpty
+                    loading={observationStatsApiLoading}
+                    message={hasActiveObservationFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
+                />
             </OverviewPanel>
         )
     }
@@ -59,7 +74,7 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
             <LemonProgress percent={yesPct} />
             <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
-                    <LemonTag type="success">Yes</LemonTag>
+                    <LemonTag type="highlight">Yes</LemonTag>
                     <span className="tabular-nums">
                         {yesTotal} ({yesPct}%)
                     </span>
@@ -84,7 +99,7 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, classifierTagStats, hasActiveObservationFilters } = useValues(
+    const { scanner, classifierTagStats, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const { fixedRanked, freeformRanked } = classifierTagStats
@@ -103,7 +118,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
         if (ranked.length === 0) {
-            return <div className="text-muted text-sm">{emptyMessage}</div>
+            return <PanelEmpty loading={observationStatsApiLoading} message={emptyMessage} />
         }
         // Cap at the 5 most common so the panels stay compact.
         const top = ranked.slice(0, 5)
@@ -150,18 +165,21 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 }
 
 function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scorerSummary, scorerHistogram, hasActiveObservationFilters } = useValues(
+    const { scorerSummary, scorerHistogram, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
         return (
             <OverviewPanel title="Score distribution">
-                <div className="text-muted text-sm">
-                    {hasActiveObservationFilters
-                        ? 'No scored observations match the current filter.'
-                        : 'No scored observations yet.'}
-                </div>
+                <PanelEmpty
+                    loading={observationStatsApiLoading}
+                    message={
+                        hasActiveObservationFilters
+                            ? 'No scored observations match the current filter.'
+                            : 'No scored observations yet.'
+                    }
+                />
             </OverviewPanel>
         )
     }
@@ -203,6 +221,18 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     const showChart = scannerType !== 'summarizer'
     if (!showChart && !typeOverview) {
         return null
+    }
+    // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
+    if (scannerType === 'scorer') {
+        return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
+                <div className="min-w-0">
+                    <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
+                </div>
+                <div className="min-w-0">{typeOverview}</div>
+            </div>
+        )
     }
     return (
         <div className="space-y-4">

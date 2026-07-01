@@ -38,6 +38,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_posthog_ai_access_request,
     send_provisioning_welcome,
     should_send_pipeline_error_notification,
 )
@@ -1635,6 +1636,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Test Customer" in mocked_email_messages[0].html_body
         assert "Hello, I need help with something" in mocked_email_messages[0].html_body
 
+    def test_send_posthog_ai_access_request(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, _owner = create_org_team_and_user("2022-01-02 00:00:00", "ai-owner@posthog.com")
+        team = org.teams.first()
+        assert team is not None
+        member = User.objects.create_and_join(
+            organization=org,
+            email="ai-member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=member.id)
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "posthog_ai_access_requested"
+        # The owner who can enable PostHog AI is notified, not the requesting member.
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {"ai-owner@posthog.com"}
+        assert message.properties["organization_name"] == org.name
+        assert (
+            message.properties["posthog_ai_url"]
+            == f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+        )
+        assert message.html_body
+
+    def test_send_posthog_ai_access_request_no_admins_is_noop(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, owner = create_org_team_and_user("2022-01-02 00:00:00", "solo-member@posthog.com")
+        # Drop the only admin to a member so there's nobody who could enable PostHog AI.
+        membership = OrganizationMembership.objects.get(organization=org, user=owner)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=owner.id)
+
+        assert len(mocked_email_messages) == 0
+
     def test_send_new_ticket_notification_no_recipients(self, MockEmailMessage: MagicMock) -> None:
         from products.conversations.backend.models import Ticket
 
@@ -1880,8 +1923,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1913,8 +1955,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1937,8 +1978,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2016,8 +2056,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

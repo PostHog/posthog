@@ -17,7 +17,7 @@ import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
-import { isSlackTriggerMetadata, SlackTriggerMetadata } from './slack-reply'
+import type { SlackTriggerMetadata } from './trigger-metadata'
 
 export interface SlackFailureNotifierDeps {
     http: HttpFetcher
@@ -33,7 +33,7 @@ export class SlackFailureNotifier implements FailureNotifier {
 
     async notify(input: FailureNotifierInput): Promise<void> {
         const meta = input.session.trigger_metadata
-        if (!isSlackTriggerMetadata(meta)) {
+        if (meta?.kind !== 'slack') {
             return
         }
         const token = await this.resolveTokenSafely(input.revision, input.application, input.session.id)

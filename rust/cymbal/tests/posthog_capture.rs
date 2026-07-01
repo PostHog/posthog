@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{body::Body, http::Request};
 use common_redis::MockRedisClient;
-use cymbal::{app_context::AppContext, config::Config, router::get_router};
+use cymbal::{app_context::AppContext, modes::processing::ProcessingConfig, router::get_router};
 use httpmock::prelude::*;
 use mockall::predicate;
 use serde_json::json;
@@ -24,12 +24,12 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     let capture = posthog
         .mock_async(|when, then| {
             when.method(POST)
-                .path("/i/v0/e/")
+                .path("/i/v1/analytics/events")
                 .body_contains("\"$exception\"")
                 .body_contains("UnhandledError")
                 .body_contains("\"service\":\"cymbal-test\"")
                 .body_contains("\"request_id\"");
-            then.status(200).body("{\"status\": 1}");
+            then.status(200).body("{\"results\":{}}");
         })
         .await;
     // Catch-all so an unexpected payload shape fails the specific assertion
@@ -37,7 +37,7 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     let fallback = posthog
         .mock_async(|when, then| {
             when.path_contains("/");
-            then.status(200).body("{\"status\": 1}");
+            then.status(200).body("{\"results\":{}}");
         })
         .await;
 
@@ -45,8 +45,8 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         .await
         .expect("posthog init");
 
-    let mut config = Config::init_with_defaults().unwrap();
-    config.object_storage_bucket = STORAGE_BUCKET.to_string();
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.object_storage_bucket = STORAGE_BUCKET.to_string();
 
     let mut s3_client = MockS3Client::new();
     s3_client

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
 import { Sparkline, SparklineReferenceLine, SparklineTimeSeries } from 'lib/components/Sparkline'
@@ -106,7 +106,7 @@ function formatBytes(bytes: number): string {
 
 export function LogsSamplingForm(): JSX.Element {
     const { samplingForm, samplingFormErrors, filterPreview, filterPreviewLoading } = useValues(logsSamplingFormLogic)
-    const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
+    const { setSamplingFormValue, refreshFilterPreview } = useActions(logsSamplingFormLogic)
 
     const isRateLimit = samplingForm.rule_type === RuleTypeEnumApi.RateLimit
     const hasFilters = samplingForm.filter_group.values.length > 0
@@ -224,7 +224,7 @@ export function LogsSamplingForm(): JSX.Element {
                             <div className="h-full flex items-center justify-center text-muted text-xs">
                                 Add a filter above to preview matching log volume
                             </div>
-                        ) : filterPreviewLoading || !filterPreview ? (
+                        ) : filterPreviewLoading ? (
                             <Sparkline
                                 data={[]}
                                 labels={[]}
@@ -232,6 +232,13 @@ export function LogsSamplingForm(): JSX.Element {
                                 className="w-full h-full"
                                 maximumIndicator={false}
                             />
+                        ) : !filterPreview ? (
+                            <div className="h-full flex flex-col gap-1 items-center justify-center text-muted text-xs">
+                                <span>Couldn't load the volume preview.</span>
+                                <LemonButton size="xsmall" type="secondary" onClick={refreshFilterPreview}>
+                                    Retry
+                                </LemonButton>
+                            </div>
                         ) : series.length === 0 ? (
                             <div className="h-full flex items-center justify-center text-muted text-xs">
                                 No logs match these filters in the last 24h

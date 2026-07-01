@@ -8,17 +8,18 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.constants import filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
-from products.tasks.backend.services.connection_token import (
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -33,16 +34,10 @@ from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
 
-RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
-    "POSTHOG_PERSONAL_API_KEY",
-    "POSTHOG_API_URL",
-    "POSTHOG_PROJECT_ID",
-    "JWT_PUBLIC_KEY",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "LLM_GATEWAY_URL",
-    "POSTHOG_RESUME_RUN_ID",
-    "BASH_ENV",
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
 }
 
 
@@ -107,11 +102,23 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
+    base = host[2:] if host.startswith("*.") else host
+    for wildcard_base in wildcard_bases:
+        if host.startswith("*.") and base == wildcard_base:
+            continue
+        if base == wildcard_base or base.endswith("." + wildcard_base):
+            return True
+    return False
+
+
 def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
 
-    Modal fences the whole sandbox, so union in the infra (and local tunnel) domains
-    the agent needs, and drop loopback aliases Modal rejects as invalid domains.
+    Modal fences the whole sandbox and supports `*.` wildcards that match the
+    apex and any subdomain, so union in the infra (and local tunnel) domains the
+    agent needs, drop loopback aliases Modal rejects as invalid domains, and
+    collapse entries already covered by a wildcard.
     """
     domains = list(allowed_domains)
     extra = list(INFRASTRUCTURE_DOMAINS)
@@ -120,7 +127,18 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     for domain in extra:
         if domain not in domains:
             domains.append(domain)
-    return [d for d in domains if "." in d and d != "host.docker.internal"]
+
+    fqdns = [d for d in domains if "." in d and d != "host.docker.internal"]
+    wildcard_bases = {d[2:] for d in fqdns if d.startswith("*.")}
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for domain in fqdns:
+        if domain in seen or _is_covered_by_wildcard(domain, wildcard_bases):
+            continue
+        seen.add(domain)
+        result.append(domain)
+    return result
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -172,25 +190,19 @@ def _build_environment_variables(
     if ctx.sandbox_environment_id:
         sandbox_environment = ctx.get_sandbox_environment()
         if sandbox_environment and sandbox_environment.environment_variables:
-            skipped_keys: list[str] = []
-            added_keys = 0
-            for key, value in sandbox_environment.environment_variables.items():
-                if key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
-                    skipped_keys.append(key)
-                    continue
-                environment_variables[key] = value
-                added_keys += 1
+            safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+            environment_variables.update(safe_vars)
 
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Applied {added_keys} sandbox environment variable(s) from '{sandbox_environment.name}'",
+                f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
             )
             if skipped_keys:
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Skipped reserved sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
+                    f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
     if github_token:
@@ -198,12 +210,15 @@ def _build_environment_variables(
         environment_variables["GH_TOKEN"] = github_token
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
-    # agent-server launch (see `_build_agent_server_command`) so backend maintenance execs
-    # don't source a script that a resume snapshot could control. It stays in
-    # RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS so a user-supplied env var can't add it here.
+    # agent-server launch (see the sandbox services) so backend maintenance execs don't source
+    # a script that a resume snapshot could control. It's blocked (constants.py) so a
+    # user-supplied env var can't add it here.
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    if ctx.allowed_domains is not None:
+        environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
 
     environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
@@ -212,6 +227,12 @@ def _build_environment_variables(
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
     elif run_state.handoff_resumed:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
+
+    # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
+    # wizard's scopes, so the wizard's access stays independent of the agent's sandbox token above.
+    # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
+    if ctx.wizard_config is not None:
+        environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
 
     return environment_variables
 
@@ -401,8 +422,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             **ctx.sandbox_resource_overrides(),
         )
 
-        # Request a small slice and let the box burst up to the configured size. The decision is
-        # captured once in the context at workflow start, so it's stable across activity retries.
+        # Request a small slice and let the box burst up to the configured size. Burstable by
+        # default, but the per-run state can opt out to pin a fixed-size box (request == limit).
+        # The decision is captured once in the context at workflow start, so it's stable across
+        # activity retries.
         if ctx.burstable_sandbox_resources_enabled:
             config.burstable_resources = True
             emit_agent_log(

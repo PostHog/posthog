@@ -140,6 +140,9 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
                 # apps; to cut off an abusive one, block its metadata URL rather than editing scopes.
                 readonly.append("scopes")
+                # Model validation also rejects optional_scopes on CIMD apps: a split would
+                # let the partner grow the locked required set via metadata refresh.
+                readonly.append("optional_scopes")
             return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
@@ -166,7 +169,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
@@ -190,7 +193,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),

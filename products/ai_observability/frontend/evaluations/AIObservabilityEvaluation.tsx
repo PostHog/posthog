@@ -19,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -47,9 +48,9 @@ import {
     evaluationTypeSupportsSignalEmission,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
-import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
-import { statusReasonLabel } from './statusDisplay'
-import { EvaluationType } from './types'
+import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
+import { EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -78,6 +79,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setEvaluationTarget,
+        setTraceWindowSeconds,
         setSignalEmission,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
@@ -223,16 +226,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
 
-    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = featureFlags[
-        FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'hog',
+            label: 'Hog code',
+        },
     ]
-        ? [
-              {
-                  value: 'hog',
-                  label: 'Hog code',
-              },
-          ]
-        : []
     const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
         evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
             ? [
@@ -325,10 +324,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <div className="space-y-1">
                         <p className="font-semibold">This evaluation was automatically disabled</p>
                         <p>
-                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
-                            supported model or add a provider API key in settings), then re-enable the evaluation to
-                            resume running.
+                            {statusReasonLabel(evaluation.status_reason)}.{' '}
+                            {statusReasonRecoveryLabel(evaluation.status_reason)}
                         </p>
+                        {evaluation.status_reason_detail && (
+                            <div className="space-y-1">
+                                <p className="font-semibold">Error details</p>
+                                <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-bg-light p-2 font-mono text-xs">
+                                    {evaluation.status_reason_detail}
+                                </pre>
+                            </div>
+                        )}
                     </div>
                 </LemonBanner>
             )}
@@ -444,7 +450,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of user messages on each matching generation.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
@@ -457,6 +463,54 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     'Use an LLM to evaluate each generation against a natural-language prompt.'
                                                 )}
                                             </p>
+
+                                            {featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_TRACE_TARGET] &&
+                                                !isSentiment && (
+                                                    <>
+                                                        <Field name="target" label="Evaluate">
+                                                            <LemonSelect<EvaluationTarget>
+                                                                value={evaluation.target ?? 'generation'}
+                                                                onChange={setEvaluationTarget}
+                                                                options={[
+                                                                    {
+                                                                        value: 'generation',
+                                                                        label: 'Each generation',
+                                                                    },
+                                                                    {
+                                                                        value: 'trace',
+                                                                        label: 'Whole trace',
+                                                                    },
+                                                                ]}
+                                                                fullWidth
+                                                            />
+                                                        </Field>
+                                                        <p className="text-muted text-sm -mt-2">
+                                                            {evaluation.target === 'trace'
+                                                                ? 'Runs once per trace on all of its events together, after a delay that lets the trace complete.'
+                                                                : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                        </p>
+                                                        {evaluation.target === 'trace' && (
+                                                            <Field name="trace_window" label="Wait before evaluating">
+                                                                <div className="space-y-1">
+                                                                    <DurationPicker
+                                                                        value={
+                                                                            evaluation.target_config.window_seconds ??
+                                                                            DEFAULT_TRACE_WINDOW_SECONDS
+                                                                        }
+                                                                        onChange={setTraceWindowSeconds}
+                                                                    />
+                                                                    <p className="text-muted text-xs">
+                                                                        How long to wait after the first matching
+                                                                        generation before pulling the whole trace
+                                                                        (10s–2h). Captured when the run is scheduled —
+                                                                        changing it won't affect trace runs already in
+                                                                        flight.
+                                                                    </p>
+                                                                </div>
+                                                            </Field>
+                                                        )}
+                                                    </>
+                                                )}
 
                                             <Field name="description" label="Description (optional)">
                                                 <LemonTextArea
@@ -554,10 +608,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                                            <EvaluationModelPicker />
-                                        )}
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
+                                        <EvaluationModelPicker />
+                                    )}
 
                                     {/* Trigger Configuration */}
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -645,5 +698,6 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        evaluationType: searchParams.type === 'sentiment' ? 'sentiment' : undefined,
     }),
 }

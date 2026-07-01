@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from django.db import models
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EvaluationType(models.TextChoices):
@@ -64,6 +64,43 @@ class SentimentEvalConfig(BaseModel):
 
 class SentimentOutputConfig(BaseModel):
     """Configuration for sentiment output type."""
+
+
+# Trace-target aggregation window: how long to wait after the first matching generation before
+# pulling the whole trace and evaluating it. The default is intentionally generous — even heavy
+# tool-using turns settle well under it — while the floor stays low so local testing doesn't
+# require waiting half an hour. The workflow re-clamps to the same ceiling as a safety net.
+TRACE_EVAL_DEFAULT_WINDOW_SECONDS = 30 * 60
+TRACE_EVAL_MIN_WINDOW_SECONDS = 10
+TRACE_EVAL_MAX_WINDOW_SECONDS = 2 * 60 * 60
+
+
+class TraceTargetConfig(BaseModel):
+    """Configuration for trace-target evaluations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    window_seconds: int = Field(
+        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+        ge=TRACE_EVAL_MIN_WINDOW_SECONDS,
+        le=TRACE_EVAL_MAX_WINDOW_SECONDS,
+        description="Seconds to wait after the first matching generation before evaluating the whole trace.",
+    )
+
+
+def validate_target_config(target: str, target_config: dict) -> dict:
+    """Validate target_config based on target.
+
+    Trace targets carry a `{window_seconds}` config (defaulted when absent). Every other target
+    (generation today) carries no config, so its bag is normalized to empty — this also strips a
+    stale window if a user switches a trace eval back to generation.
+    """
+    if target == "trace":
+        try:
+            return TraceTargetConfig(**(target_config or {})).model_dump()
+        except Exception as e:
+            raise ValueError(f"Invalid target_config for trace: {str(e)}") from e
+    return {}
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)

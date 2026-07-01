@@ -32,6 +32,7 @@ import type { alertFormLogicType } from './alertFormLogicType'
 import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import {
@@ -80,7 +81,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
-export type InsightAlertKind = 'trends' | 'hogql'
+export type InsightAlertKind = 'trends' | 'hogql' | 'funnels'
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
@@ -96,6 +97,9 @@ const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']):
     if (kind === 'hogql') {
         // last_row is the default — the most common SQL alert shape is a chronological series.
         return { type: 'HogQLAlertConfig', evaluation: 'last_row' }
+    }
+    if (kind === 'funnels') {
+        return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
     }
     return {
         type: 'TrendsAlertConfig',
@@ -236,6 +240,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         date_from:
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        // SQL insights have no series_index; the config carries the evaluated column
+                        // and read direction so the preview matches what the alert will score.
+                        config: formConfig,
                     })
                 },
                 clearSimulation: () => null,
@@ -409,6 +416,20 @@ export const alertFormLogic = kea<alertFormLogicType>([
             ): HogQLAlertPreview | null =>
                 props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData, config, bounds) : null,
         ],
+        /** The conversion rate(s) a funnel alert would evaluate right now, with breach status; null until the result loads. */
+        funnelAlertPreview: [
+            (s) => [
+                s.insightData,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+            ],
+            (
+                insightData: Record<string, any> | null,
+                config: AlertConfig | null | undefined,
+                bounds: InsightsThresholdBounds | null | undefined
+            ): FunnelAlertPreview | null =>
+                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config, bounds) : null,
+        ],
         /** Result column names of the SQL insight, for the column pickers. */
         hogqlResultColumns: [
             (s) => [s.insightData],
@@ -436,10 +457,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ? numericColumns[numericColumns.length - 1]
                     : null,
         ],
-        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and, in
-         * any-row mode, the label (first column that isn't evaluated — the backend fallback).
-         * Computed together so prefilling lands in a single form write with no ordering
-         * between the fields. Null when there's nothing to fill. */
+        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and the
+         * label (first column that isn't evaluated — the backend fallback). Both apply in every
+         * evaluation mode: the label names the evaluated row(s) in breach messages regardless of
+         * last/first/any-row. Computed together so prefilling lands in a single form write with
+         * no ordering between the fields. Null when there's nothing to fill. */
         hogqlConfigPrefill: [
             (s) => [
                 s.hogqlResultColumns,
@@ -459,7 +481,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     patch.column = suggestedColumn
                 }
                 const evaluated = config.column ?? suggestedColumn
-                if (config.evaluation === 'any_row' && config.label_column == null && evaluated != null) {
+                if (config.label_column == null && evaluated != null) {
                     const label = resultColumns?.find((column) => column !== evaluated)
                     if (label != null) {
                         patch.label_column = label

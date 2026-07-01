@@ -1,12 +1,11 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { UUIDT } from '../../../src/utils/utils'
+import { UUIDT } from '~/common/utils/utils'
 import {
     parseDate,
     parseEventTimestamp,
     toStartOfDayInTimezone,
     toYearMonthDayInTimezone,
-} from '../../../src/worker/ingestion/timestamps'
+} from '~/ingestion/common/timestamps'
+import { PluginEvent } from '~/plugin-scaffold'
 
 describe('parseDate()', () => {
     // Get local timezone offset for Oct 29, 2021 at midnight

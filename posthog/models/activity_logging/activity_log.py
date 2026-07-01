@@ -252,9 +252,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "job_inputs",
     ],
     "OrganizationDomain": [
-        "scim_bearer_token",
+        "_scim_bearer_token",
         "verification_challenge",
-        "saml_x509_cert",
+        "_saml_x509_cert",
     ],
     "User": [
         "email",
@@ -279,6 +279,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
+        "is_ai_data_processing_approved": "third-party AI services",
     },
     "BatchExport": {
         "paused": "enabled",
@@ -296,10 +297,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
         "sso_enforcement": "SSO enforcement",
-        "saml_entity_id": "SAML entity ID",
-        "saml_acs_url": "SAML ACS URL",
-        "saml_x509_cert": "SAML X.509 certificate",
-        "scim_enabled": "SCIM provisioning",
+        "_saml_entity_id": "SAML entity ID",
+        "_saml_acs_url": "SAML ACS URL",
+        "_saml_x509_cert": "SAML X.509 certificate",
+        "_scim_enabled": "SCIM provisioning",
         "verified_at": "domain verification",
     },
 }
@@ -420,6 +421,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Experiment": [
         "feature_flag",
+        "feature_flag_auto_archived",
         "exposure_cohort",
         "holdout",
         "saved_metrics",
@@ -535,7 +537,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "setup_section_2_completed",
         "plugins_access_level",
         "is_hipaa",
-        "is_ai_data_processing_approved",
         "never_drop_data",
     ],
     "BatchExport": [

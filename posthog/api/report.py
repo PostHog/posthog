@@ -4,7 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from rest_framework import status
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_batch_internal_routed, capture_internal_routed
+from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
 from posthog.api.csp import process_csp_report
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
@@ -59,12 +59,12 @@ def get_csp_event(request):
             token = ""
 
         if isinstance(csp_report, list):
-            result = capture_batch_internal_routed(
+            result = capture_batch_internal(
                 events=csp_report, event_source="get_csp_report", token=token, process_person_profile=False
             )
             result.raise_for_status()
         else:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=token,
                 event_name=csp_report.get("event", ""),
                 event_source="get_csp_report",
@@ -77,7 +77,7 @@ def get_csp_event(request):
 
         return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-    except CaptureRoutedError as cre:
+    except CaptureInternalError as cre:
         capture_exception(cre, {"capture-http": "csp_report", "ph-team-token": token})
         logger.exception("csp_report_capture_http_error", exc_info=cre)
         return cors_response(

@@ -19,9 +19,11 @@ import requests
 import structlog
 from celery import shared_task
 
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.rate_limiting.github_observability import record_github_api_response
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
@@ -49,6 +51,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
     get_slack_client,
     handle_member_joined_channel,
@@ -79,9 +82,10 @@ from products.conversations.backend.teams import (
     post_help_card,
     post_teams_channel_message_via_graph,
 )
+from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -424,7 +428,7 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         )
         return None
 
-    if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+    if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
         logger.warning(
             "🖼️ slack_reply_image_too_large",
             team_id=team_id,
@@ -904,12 +908,22 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
 TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
+# Graph list-replies caps $top at 50; larger values return 400 Bad Request.
+TEAMS_REPLIES_PAGE_SIZE = 50
 # Cap the number of tickets whose threads we poll per channel per run.
 # Oldest-synced tickets are polled first so the sweep round-robins through
 # the backlog across successive every-minute runs.
 TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL = 20
 # Only poll threads on tickets created within this window.
 TEAMS_REPLIES_TICKET_AGE_DAYS = 30
+# Re-scan a small window behind the watermark so replies aren't silently dropped when
+# Graph's createdDateTime and our stored watermark disagree by a few seconds (clock skew
+# between the polling worker and Graph). Dedup downstream makes the overlap harmless.
+TEAMS_REPLIES_WATERMARK_LOOKBACK = timedelta(minutes=5)
+# Safety cap on delta-triggered reply fetches per run. Delta only surfaces threads with
+# fresh activity (so this is naturally traffic-bounded), but a pathological burst across
+# many threads shouldn't fan out into unbounded Graph /replies calls in a single run.
+TEAMS_REPLIES_MAX_DELTA_TRIGGERED_PER_CHANNEL = 50
 
 
 def _sync_one_ticket_thread_replies(
@@ -925,16 +939,28 @@ def _sync_one_ticket_thread_replies(
     """Ingest new thread replies for one shared-channel ticket via Graph."""
     root_message_id = parse_teams_root_message_id(ticket.teams_conversation_id)
     if not root_message_id:
+        logger.debug(
+            "poll_teams_shared_channel_replies_no_root",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
         return
 
-    watermark = ticket.teams_thread_replies_synced_at or ticket.created_at
+    raw_watermark = ticket.teams_thread_replies_synced_at or ticket.created_at
+    watermark = raw_watermark - TEAMS_REPLIES_WATERMARK_LOOKBACK
     latest_synced_at = ticket.teams_thread_replies_synced_at
 
     url: str | None = (
-        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies?$top=200"
+        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies"
+        f"?$top={TEAMS_REPLIES_PAGE_SIZE}"
     )
     headers = {"Authorization": f"Bearer {token}"}
     pages = 0
+    replies_fetched = 0
+    # "matched" = reply resolved to this ticket (covers both new comments and dedup
+    # hits); create_or_update_teams_ticket doesn't distinguish, so we don't claim to.
+    replies_matched = 0
 
     while url and pages < TEAMS_REPLIES_MAX_PAGES_PER_TICKET:
         pages += 1
@@ -955,12 +981,15 @@ def _sync_one_ticket_thread_replies(
                 team_id=team.id,
                 channel_id=channel_id,
                 ticket_id=str(ticket.id),
+                root_message_id=root_message_id,
                 status=resp.status_code,
+                body=resp.text[:500],
             )
             return
 
         data = resp.json()
         replies = data.get("value") or []
+        replies_fetched += len(replies)
 
         page_had_failure = False
         for reply in replies:
@@ -972,12 +1001,14 @@ def _sync_one_ticket_thread_replies(
             if activity is None:
                 continue
 
+            reply_images = extract_teams_graph_images(reply, team, teams_team_id, channel_id, token)
             try:
                 result = create_or_update_teams_ticket(
                     team=team,
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
+                    images=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -989,6 +1020,8 @@ def _sync_one_ticket_thread_replies(
                 page_had_failure = True
                 continue
 
+            if result:
+                replies_matched += 1
             if result and msg_created and (latest_synced_at is None or msg_created > latest_synced_at):
                 latest_synced_at = msg_created
 
@@ -997,9 +1030,58 @@ def _sync_one_ticket_thread_replies(
 
         url = data.get("@odata.nextLink")
 
+    if replies_fetched:
+        logger.info(
+            "poll_teams_shared_channel_replies_synced",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+            root_message_id=root_message_id,
+            replies_fetched=replies_fetched,
+            replies_matched=replies_matched,
+            watermark=raw_watermark.isoformat(),
+        )
+
     new_watermark = latest_synced_at or timezone.now()
     if new_watermark != ticket.teams_thread_replies_synced_at:
         Ticket.objects.filter(id=ticket.id, team=team).update(teams_thread_replies_synced_at=new_watermark)
+
+
+def _sync_ticket_thread_replies_safe(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+    ticket: Ticket,
+) -> None:
+    """Run ``_sync_one_ticket_thread_replies`` with the standard error handling."""
+    try:
+        _sync_one_ticket_thread_replies(
+            team=team,
+            tenant_id=tenant_id,
+            token=token,
+            teams_team_id=teams_team_id,
+            channel_id=channel_id,
+            service_url=service_url,
+            ticket=ticket,
+        )
+    except requests.RequestException:
+        logger.warning(
+            "poll_teams_shared_channel_replies_network_error",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
+    except Exception:
+        logger.exception(
+            "poll_teams_shared_channel_replies_unexpected",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
 
 
 def _sync_shared_channel_thread_replies(
@@ -1010,14 +1092,26 @@ def _sync_shared_channel_thread_replies(
     teams_team_id: str,
     channel_id: str,
     service_url: str,
+    surfaced_conversation_ids: set[str] | None = None,
 ) -> None:
-    """Pull new thread replies for every Teams ticket in a shared channel."""
+    """Pull new thread replies for every Teams ticket in a shared channel.
+
+    ``surfaced_conversation_ids`` are threads delta saw activity on this run; their
+    tickets are always synced (on top of the round-robin selection) so a fresh reply
+    is pulled the same minute even when the ticket isn't in the oldest-synced window.
+    """
     sync = TeamConversationsTeamsChannelSync.objects.for_team(team.id).filter(channel_id=channel_id).first()
     if not sync or not sync.primed:
+        logger.debug(
+            "poll_teams_shared_channel_replies_not_primed",
+            team_id=team.id,
+            channel_id=channel_id,
+            has_sync=bool(sync),
+        )
         return
 
     age_cutoff = timezone.now() - timedelta(days=TEAMS_REPLIES_TICKET_AGE_DAYS)
-    tickets = (
+    tickets = list(
         Ticket.objects.filter(
             team=team,
             channel_source=Channel.TEAMS,
@@ -1030,31 +1124,44 @@ def _sync_shared_channel_thread_replies(
         .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[:TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL]
     )
 
-    for ticket in tickets:
-        try:
-            _sync_one_ticket_thread_replies(
+    selected_ids = {ticket.id for ticket in tickets}
+    delta_triggered = 0
+    if surfaced_conversation_ids:
+        surfaced_tickets = (
+            Ticket.objects.filter(
                 team=team,
-                tenant_id=tenant_id,
-                token=token,
-                teams_team_id=teams_team_id,
-                channel_id=channel_id,
-                service_url=service_url,
-                ticket=ticket,
+                channel_source=Channel.TEAMS,
+                teams_channel_id=channel_id,
+                teams_conversation_id__in=surfaced_conversation_ids,
             )
-        except requests.RequestException:
-            logger.warning(
-                "poll_teams_shared_channel_replies_network_error",
-                team_id=team.id,
-                channel_id=channel_id,
-                ticket_id=str(ticket.id),
-            )
-        except Exception:
-            logger.exception(
-                "poll_teams_shared_channel_replies_unexpected",
-                team_id=team.id,
-                channel_id=channel_id,
-                ticket_id=str(ticket.id),
-            )
+            .exclude(status=Status.RESOLVED)
+            .exclude(id__in=selected_ids)
+            .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[
+                :TEAMS_REPLIES_MAX_DELTA_TRIGGERED_PER_CHANNEL
+            ]
+        )
+        for ticket in surfaced_tickets:
+            tickets.append(ticket)
+            delta_triggered += 1
+
+    logger.debug(
+        "poll_teams_shared_channel_replies_tickets_selected",
+        team_id=team.id,
+        channel_id=channel_id,
+        tickets_selected=len(tickets),
+        delta_triggered=delta_triggered,
+    )
+
+    for ticket in tickets:
+        _sync_ticket_thread_replies_safe(
+            team=team,
+            tenant_id=tenant_id,
+            token=token,
+            teams_team_id=teams_team_id,
+            channel_id=channel_id,
+            service_url=service_url,
+            ticket=ticket,
+        )
 
 
 def _poll_one_shared_channel(
@@ -1065,13 +1172,16 @@ def _poll_one_shared_channel(
     teams_team_id: str,
     channel_id: str,
     service_url: str,
-) -> None:
+) -> set[str]:
     """Pull new top-level messages for one shared channel via Graph messages/delta.
 
     First run for a channel primes the delta cursor without ingesting (no history
     dump); subsequent runs map each new root message onto the existing ticket path.
     Idempotency is handled by ``create_or_update_teams_ticket`` (dedup on
     channel + normalized conversation id), so re-delivering a message is a no-op.
+
+    Returns the set of conversation ids whose root message delta re-surfaced this run,
+    so the caller can prioritize their thread-reply sync.
     """
     sync, created = TeamConversationsTeamsChannelSync.objects.for_team(team.id).get_or_create(
         channel_id=channel_id,
@@ -1097,7 +1207,7 @@ def _poll_one_shared_channel(
                 status=ch_resp.status_code,
             )
             sync.delete()
-            return
+            return set()
 
     url: str | None = sync.delta_link or (
         f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/delta"
@@ -1107,6 +1217,10 @@ def _poll_one_shared_channel(
     new_delta_link: str | None = None
     latest_message_at: datetime | None = None
     pages = 0
+    # Root messages delta re-surfaced this run (Graph bumps a root's lastModifiedDateTime
+    # when a thread reply lands). Their tickets get a targeted reply sync below so the
+    # reply is pulled the same minute, independent of the round-robin reply sweep.
+    surfaced_conversation_ids: set[str] = set()
 
     while url and pages < TEAMS_DELTA_MAX_PAGES_PER_RUN:
         pages += 1
@@ -1119,10 +1233,10 @@ def _poll_one_shared_channel(
             sync.last_polled_at = timezone.now()
             sync.save(update_fields=["delta_link", "primed", "last_polled_at", "updated_at"])
             logger.info("poll_teams_shared_channel_resync", team_id=team.id, channel_id=channel_id)
-            return
+            return set()
         if resp.status_code == 429:
             logger.warning("poll_teams_shared_channel_throttled", team_id=team.id, channel_id=channel_id)
-            return
+            return set()
         if resp.status_code in (401, 402, 403):
             # 401: token rejected (next run refreshes if stale). 402: metered/payment
             # gate. 403: lost channel membership / missing scope. Skip, don't crash.
@@ -1132,7 +1246,7 @@ def _poll_one_shared_channel(
                 channel_id=channel_id,
                 status=resp.status_code,
             )
-            return
+            return set()
         if resp.status_code != 200:
             logger.warning(
                 "poll_teams_shared_channel_error",
@@ -1140,7 +1254,7 @@ def _poll_one_shared_channel(
                 channel_id=channel_id,
                 status=resp.status_code,
             )
-            return
+            return set()
 
         data = resp.json()
         messages = data.get("value") or []
@@ -1153,6 +1267,10 @@ def _poll_one_shared_channel(
                 activity = graph_message_to_activity(msg, channel_id, service_url)
                 if activity is None:
                     continue
+                conversation_id = (activity.get("conversation") or {}).get("id")
+                if conversation_id:
+                    surfaced_conversation_ids.add(conversation_id)
+                images = extract_teams_graph_images(msg, team, teams_team_id, channel_id, token)
                 try:
                     create_or_update_teams_ticket(
                         team=team,
@@ -1163,6 +1281,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
+                        images=images,
                     )
                 except Exception:
                     logger.exception(
@@ -1198,6 +1317,11 @@ def _poll_one_shared_channel(
         update_fields.append("last_message_at")
 
     sync.save(update_fields=update_fields)
+
+    # Delta only surfaces roots, never the replies themselves. A re-surfaced root signals
+    # thread activity, so the caller passes these ids to the reply sweep to pull their
+    # replies the same minute regardless of the round-robin selection.
+    return surfaced_conversation_ids
 
 
 @shared_task(ignore_result=True)
@@ -1239,7 +1363,7 @@ def poll_team_shared_channels(team_id: int) -> None:
         if not channel_id or not teams_team_id:
             continue
         try:
-            _poll_one_shared_channel(
+            surfaced_conversation_ids = _poll_one_shared_channel(
                 team=team,
                 tenant_id=tenant_id,
                 token=token,
@@ -1254,6 +1378,7 @@ def poll_team_shared_channels(team_id: int) -> None:
                 teams_team_id=teams_team_id,
                 channel_id=channel_id,
                 service_url=service_url,
+                surfaced_conversation_ids=surfaced_conversation_ids,
             )
         except requests.RequestException:
             logger.warning("poll_teams_shared_channel_network_error", team_id=team_id, channel_id=channel_id)
@@ -1294,6 +1419,36 @@ def poll_teams_shared_channels() -> None:
 WAKE_SNOOZE_BATCH_SIZE = 100
 
 
+def _log_snooze_expired(ticket: Ticket, old_status: str, old_snoozed_until: datetime | None) -> None:
+    """Record the system snooze-expiry (and reopen, unless already open) in the activity log."""
+
+    changes = [
+        Change(
+            type="Ticket",
+            field="snoozed_until",
+            before=old_snoozed_until.isoformat() if old_snoozed_until else None,
+            after=None,
+            action="changed",
+        )
+    ]
+    if old_status not in (Status.OPEN, Status.NEW):
+        changes.append(Change(type="Ticket", field="status", before=old_status, after=Status.OPEN, action="changed"))
+
+    try:
+        log_activity(
+            organization_id=ticket.team.organization_id,
+            team_id=ticket.team_id,
+            user=None,  # system actor — distinguishes auto-expiry from a manual unsnooze
+            was_impersonated=False,
+            item_id=str(ticket.id),
+            scope="Ticket",
+            activity="updated",
+            detail=Detail(name=f"Ticket #{ticket.ticket_number}", changes=changes),
+        )
+    except Exception:
+        logger.exception("wake_snoozed_ticket_activity_log_failed", ticket_id=str(ticket.id))
+
+
 @shared_task(ignore_result=True)
 def wake_snoozed_tickets() -> None:
     """Reopen tickets whose snooze period has expired, in batches."""
@@ -1304,7 +1459,8 @@ def wake_snoozed_tickets() -> None:
     while True:
         with transaction.atomic():
             batch = list(
-                Ticket.objects.select_for_update(skip_locked=True)
+                Ticket.objects.select_for_update(skip_locked=True, of=("self",))
+                .select_related("team")
                 .filter(snoozed_until__isnull=False, snoozed_until__lte=now)
                 .order_by("snoozed_until")[:WAKE_SNOOZE_BATCH_SIZE]
             )
@@ -1313,9 +1469,12 @@ def wake_snoozed_tickets() -> None:
 
             for ticket in batch:
                 old_status = ticket.status
+                old_snoozed_until = ticket.snoozed_until
                 ticket.snoozed_until = None
 
-                if old_status == Status.ON_HOLD:
+                # An expiring snooze reopens the ticket, unless it's already active (open or
+                # new) — then there's just the snooze to clear, no status change.
+                if old_status not in (Status.OPEN, Status.NEW):
                     ticket.status = Status.OPEN
                     ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
                     try:
@@ -1324,6 +1483,8 @@ def wake_snoozed_tickets() -> None:
                         logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
                 else:
                     ticket.save(update_fields=["snoozed_until", "updated_at"])
+
+                _log_snooze_expired(ticket, old_status, old_snoozed_until)
 
             total += len(batch)
             if len(batch) < WAKE_SNOOZE_BATCH_SIZE:
@@ -1631,6 +1792,7 @@ def post_reply_to_github(
             },
             timeout=15,
         )
+        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
         if resp.status_code not in (200, 201):
             logger.warning(
                 "github_reply_post_failed",
@@ -1702,6 +1864,7 @@ def create_github_issue(
             },
             timeout=15,
         )
+        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))

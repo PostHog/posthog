@@ -26,17 +26,26 @@ import {
     AgentSession,
     AnalyticsSink,
     ApprovalStore,
+    buildAskerIdentity,
     BundleStore,
     categorize,
     createLogger,
     CredentialBroker,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityStore,
     FailureNotifier,
+    filterServableEntries,
+    GatewayCatalog,
     GatewayClient,
     getSecretAllowedHosts,
     HttpFetcher,
     LogSink,
+    McpConnectionStore,
     MemoryStore,
+    modelPolicyToList,
     TabularStore,
+    WebSearchProvider,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -47,8 +56,8 @@ import {
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
-import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
-import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
+import { McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
+import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
@@ -61,15 +70,16 @@ export interface WorkerDeps {
     broker: SecretBroker
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>
-    resolveIntegrations: (
-        session: AgentSession
-    ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     /**
-     * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
-     * to `resolveModelCached(spec.model)` which works for built-in providers.
-     * Override for custom-endpoint models (ai-gateway) or test faux models.
+     * Resolve a single model-id string (one entry of the resolved policy list)
+     * to a concrete pi-ai Model. Defaults to `resolveModelCached` which works
+     * for built-in providers. Override for custom-endpoint models (ai-gateway)
+     * or test faux models. Applied per-entry across `modelPolicyToList(spec)`.
      */
     resolveModel?: (specModel: string) => Model<string>
+    /** Served-model catalog. Filters the resolved model list to servable models
+     *  before dispatch and feeds `ToolContext` for the models tool. */
+    gatewayCatalog?: GatewayCatalog
     /**
      * Per-session API key resolver. The resolved key is passed to the driver's
      * loop config; defaults to no key. On the ai-gateway path this returns
@@ -134,11 +144,11 @@ export interface WorkerDeps {
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps per-turn max_tokens below model ceiling. */
     maxOutputTokens?: number
     /**
-     * Set to true when calls go through PostHog's ai-gateway. The runner
-     * keeps token counts but drops pi-ai's `cost.*` accumulation — the
-     * gateway tracks cost server-side; client-side estimates are unreliable.
+     * True on the ai-gateway path: the gateway emits the `$ai_generation`
+     * (settled cost + forwarded attribution), so the runner suppresses its
+     * duplicate. pi-ai's `cost.*` estimates are never used regardless.
      */
-    useGatewayCost?: boolean
+    gatewayEmitsGenerations?: boolean
     /**
      * Approval-gated tools store. MANDATORY and
      * fail-closed: `requires_approval` in spec.tools is a security control, so
@@ -149,9 +159,11 @@ export interface WorkerDeps {
     approvals: ApprovalStore
     /**
      * Builds the deep link the synthetic queued tool_result surfaces to
-     * the model. Wire from config so prod hits the real domain.
+     * the model. Wire from config so prod hits the real domain. Takes the
+     * agent slug so the link can carry `?agent=<slug>` — the deep-link
+     * approval modal needs it to address the (slug-routed) ingress directly.
      */
-    buildApprovalUrl?: (requestId: string) => string
+    buildApprovalUrl?: (requestId: string, slug: string) => string
     /**
      * S3-backed memory store for `@posthog/memory-*` tools. Wired from
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
@@ -160,6 +172,12 @@ export interface WorkerDeps {
     /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
     tabularStore?: TabularStore
     /**
+     * Web-search provider chain for `@posthog/web-search`, built from
+     * AGENT_WEB_SEARCH_* config at boot. Threaded onto each session's
+     * ToolContext. Empty / absent → the tool is gated out of the session.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
+    /**
      * Per-session credential broker, populated by ingress at /run + /send.
      * The runner passes this through to `runSession` → tool deps →
      * `ToolContext.credentials.resolve(target)`. Optional — tests can
@@ -167,13 +185,14 @@ export interface WorkerDeps {
      */
     credentialBroker?: CredentialBroker
     /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
-     * The driver passes it through to `approval.ts` so a gated call from a
-     * user who already satisfies the approver scope dispatches directly
-     * instead of queueing. Omit to keep the always-queue default.
+     * Per-asker identity linking (spec.identity_providers). Passed through to
+     * `runSession` → `ctx.identity`. Omit to disable identity tools.
      */
-    isAskerInApproverScope?: IsAskerInApproverScope
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    identities?: IdentityStore
+    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    linkRedirectBaseUrl?: string
     /**
      * Override the MCP transport factory. Defaults to
      * `StreamableHTTPClientTransport`. The e2e harness substitutes an
@@ -183,15 +202,10 @@ export interface WorkerDeps {
      */
     mcpTransportFactory?: McpTransportFactory
     /**
-     * Per-call validator that gates attaching a connected integration's
-     * bearer token to an outbound MCP request. **Required to use
-     * `auth.integration` on any `external` MCP ref** — without it,
-     * `openMcpClients` fails closed (a spec author can't redirect a
-     * team's OAuth token to an arbitrary URL). Production wires this
-     * against a per-integration-kind host registry (`linear:*` →
-     * `mcp.linear.app`, etc.); tests can supply `() => true` to opt-in.
+     * Shared-credential MCP resolver (`spec.mcps[].connection`). The worker binds
+     * it to the session's `team_id`. Omit to disable the connection path.
      */
-    integrationHostValidator?: IntegrationHostValidator
+    mcpConnections?: McpConnectionStore
     /**
      * Dev-only bearer forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
      * Sourced from `AGENT_DEV_MCP_BEARER_TOKEN`; the runner's `index.ts`
@@ -241,6 +255,8 @@ export class Worker {
             )
         }
         this.maxConcurrency = Math.max(1, deps.maxConcurrency ?? 8)
+        metrics.maxConcurrency.set(this.maxConcurrency)
+        metrics.inflightSessions.set(0)
     }
 
     /** Signal a graceful shutdown. In-flight sessions suspend back to PG. */
@@ -316,6 +332,7 @@ export class Worker {
             try {
                 session = await this.deps.queue.claim(claimMs)
                 consecutiveClaimFailures = 0
+                metrics.consecutiveClaimFailures.set(0)
             } catch (err) {
                 // Transient PG error / malformed row mapping. Log and back off
                 // before retrying — without this guard a single bad row crashes
@@ -323,6 +340,8 @@ export class Worker {
                 // spins the loop hot. Equal jitter keeps the floor growing while
                 // de-syncing retries across pods recovering together.
                 consecutiveClaimFailures++
+                metrics.claimFailures.inc()
+                metrics.consecutiveClaimFailures.set(consecutiveClaimFailures)
                 const window = Math.min(backoffMaxMs, backoffBaseMs * 2 ** (consecutiveClaimFailures - 1))
                 const delayMs = Math.round(window / 2 + Math.random() * (window / 2))
                 log.error(
@@ -355,8 +374,10 @@ export class Worker {
                 })
                 .finally(() => {
                     this.inflight.delete(claimedSession.id)
+                    metrics.inflightSessions.set(this.inflight.size)
                 })
             this.inflight.set(claimedSession.id, p)
+            metrics.inflightSessions.set(this.inflight.size)
         }
 
         // Drain any still-in-flight sessions before returning so the caller
@@ -367,6 +388,7 @@ export class Worker {
     async runOne(session: AgentSession): Promise<void> {
         const sLog = log.child({ session_id: session.id, application_id: session.application_id })
         sLog.debug({ revision_id: session.revision_id }, 'session.claim')
+        const runStartedAt = Date.now()
         let sandbox = null
         let sandboxInstanceId: string | null = null
         // `mcpClose` is the batched closer returned by `openMcpClients`. The
@@ -390,7 +412,6 @@ export class Worker {
             // Friendly name for the session's `$ai_trace` (LLM Analytics). Best-
             // effort — a missing app just falls back to the id in the driver.
             const application = await this.deps.revisions.getApplication(session.application_id).catch(() => null)
-            const integrations = await this.deps.resolveIntegrations(session)
             const secrets = await this.deps.resolveSecrets(session)
             const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
             if (customTools.length > 0) {
@@ -418,6 +439,7 @@ export class Worker {
                     })
                     sandboxInstanceId = created.id
                 }
+                const sandboxStartedAt = Date.now()
                 try {
                     sandbox = await this.deps.sandboxes.acquireForSession({
                         sessionId: session.id,
@@ -434,6 +456,9 @@ export class Worker {
                             cpuCores: rev.spec.limits.max_cpu_cores,
                         },
                     })
+                    metrics.sandboxAcquire
+                        .labels({ provider: this.deps.sandboxes.kind, outcome: 'ok' })
+                        .observe((Date.now() - sandboxStartedAt) / 1000)
                     if (sandboxInstanceId) {
                         // Real provider id (Modal sandbox id, Docker container hash,
                         // or sessionId fallback for in-process) so the janitor
@@ -441,6 +466,9 @@ export class Worker {
                         await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.providerSandboxId)
                     }
                 } catch (err) {
+                    metrics.sandboxAcquire
+                        .labels({ provider: this.deps.sandboxes.kind, outcome: 'error' })
+                        .observe((Date.now() - sandboxStartedAt) / 1000)
                     if (sandboxInstanceId) {
                         await this.deps.sandboxInstances!.markFailed(sandboxInstanceId, (err as Error).message)
                     }
@@ -454,12 +482,36 @@ export class Worker {
             // a sandbox-pool slot; the order is otherwise unobservable.
             let mcpFailures: Awaited<ReturnType<typeof openMcpClients>>['failures'] = []
             if (rev.spec.mcps.length > 0) {
+                // Build the per-asker resolver only when an MCP needs it (auth.provider),
+                // so the common secret / BYO-token path pays nothing.
+                const mcpNeedsIdentity = rev.spec.mcps.some((m) => m.auth?.provider)
+                const mcpIdentity =
+                    mcpNeedsIdentity && this.deps.identityCredentials && this.deps.identityLinks
+                        ? await buildAskerIdentity(rev, session, {
+                              credentials: this.deps.identityCredentials,
+                              links: this.deps.identityLinks,
+                              identities: this.deps.identities,
+                              credentialBroker: this.deps.credentialBroker,
+                              http: this.deps.http,
+                              secret: (name) => secrets[name],
+                              posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                              linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
+                              log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
+                          })
+                        : undefined
+                // Bind the connection resolver to this session's team.
+                const mcpConnections = this.deps.mcpConnections
+                    ? {
+                          resolve: (connectionId: string) =>
+                              this.deps.mcpConnections!.resolve(connectionId, session.team_id),
+                      }
+                    : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
-                    integrations,
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
-                    integrationHostValidator: this.deps.integrationHostValidator,
+                    identity: mcpIdentity,
+                    connections: mcpConnections,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                     http: this.deps.http,
@@ -467,6 +519,9 @@ export class Worker {
                 openedMcpClients = opened.clients
                 mcpClose = opened.close
                 mcpFailures = opened.failures
+                for (const f of mcpFailures) {
+                    metrics.mcpOpenFailures.labels({ category: f.category }).inc()
+                }
                 // Persist the per-ref failure detail to log_entries so the
                 // agent owner can debug via the session-detail page. The
                 // bus + system prompt only see the coarse category — raw
@@ -493,17 +548,44 @@ export class Worker {
                         )
                 }
             }
+            // Expand the policy to a priority list, then drop entries the gateway
+            // no longer serves (no-op without a catalog; never empties a non-empty
+            // list — see `filterServableEntries`).
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
-            const model = resolveModel(rev.spec.model)
+            const catalogModels = this.deps.gatewayCatalog ? await this.deps.gatewayCatalog.list() : []
+            const policyList = modelPolicyToList(rev.spec)
+            if (this.deps.gatewayCatalog && catalogModels.length === 0) {
+                // Fail-open: with no catalog we can't filter, so the policy list
+                // ships as-authored. An empty catalog behind a *configured*
+                // gateway is either a fetch that failed with no cached fallback
+                // or a gateway serving nothing — both can dispatch a delisted
+                // model that 400s on the first call. Surface it loudly so it's
+                // not indistinguishable from a healthy run. Cleanly refusing to
+                // start on a genuinely-empty (vs transiently-unreachable) catalog
+                // needs a freshness signal on the catalog read — tracked as a
+                // follow-up (see PR review).
+                sLog.warn(
+                    { policy_entries: policyList.length },
+                    'model.catalog_empty_fail_open — dispatching unfiltered model policy'
+                )
+            }
+            const policyEntries = filterServableEntries(policyList, catalogModels)
+            const models = policyEntries.map((entry) => ({
+                model: resolveModel(entry.model),
+                reasoning: entry.reasoning,
+            }))
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
+            // Bind the agent slug into the approval-link builder so the deep link
+            // carries `?agent=<slug>` — the ingress-routed approval modal needs it
+            // to address the agent's ingress directly.
+            const buildApprovalUrl = this.deps.buildApprovalUrl
             const outcome = await runSession(rev, session, {
-                model,
+                models,
                 apiKey,
                 bundle: this.deps.bundle,
                 sandbox,
-                integrations,
                 secrets,
                 broker: this.deps.broker,
                 bus: this.deps.bus,
@@ -512,19 +594,26 @@ export class Worker {
                 applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
                 getSessionState: async (id) => (await this.deps.queue.get(id))?.state ?? null,
-                useGatewayCost: this.deps.useGatewayCost,
+                gatewayEmitsGenerations: this.deps.gatewayEmitsGenerations,
                 gatewayHeaders,
                 gatewayUsage,
                 approvals: this.deps.approvals,
-                buildApprovalUrl: this.deps.buildApprovalUrl,
+                buildApprovalUrl: buildApprovalUrl
+                    ? (requestId) => buildApprovalUrl(requestId, application?.slug ?? '')
+                    : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
-                isAskerInApproverScope: this.deps.isAskerInApproverScope,
+                identityCredentials: this.deps.identityCredentials,
+                identityLinks: this.deps.identityLinks,
+                identities: this.deps.identities,
+                linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                 mcpClients: openedMcpClients,
                 mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                gatewayCatalog: this.deps.gatewayCatalog,
                 maxOutputTokensOverride: this.deps.maxOutputTokens,
                 inputs: this.deps.queue,
                 onTurnPersist: async (s) => {
@@ -562,6 +651,9 @@ export class Worker {
                 conversation: session.conversation,
                 usage_total: session.usage_total,
             })
+            metrics.sessionOutcomes.labels({ outcome: outcome.state }).inc()
+            metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
+            metrics.sessionTurns.observe(outcome.turns)
         } catch (err) {
             // Pre-runSession failures (revision load, secrets, sandbox acquire,
             // MCP open) skip the driver's bus / log / conversation hooks. Without
@@ -576,6 +668,9 @@ export class Worker {
             const category = categorize(reason)
             const userText = userFacingMessage(category)
             sLog.error({ err: reason, stack: e.stack, category }, 'session.crashed')
+            metrics.sessionOutcomes.labels({ outcome: 'failed' }).inc()
+            metrics.sessionFailures.labels({ category }).inc()
+            metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
 
             // 1. Synthetic assistant message — so the user sees something in the
             //    transcript instead of their lone user turn followed by silence.

@@ -42,7 +42,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -63,11 +63,12 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
     cached_response: CachedSessionMessagesQueryResponse
 
     def _calculate(self) -> SessionMessagesQueryResponse:
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=self._build_query(),
             placeholders=self._build_placeholders(),
             team=self.team,
             query_type=NodeKind.SESSION_MESSAGES_QUERY,
+            fall_back_to_events=True,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

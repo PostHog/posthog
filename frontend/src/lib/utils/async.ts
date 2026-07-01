@@ -87,6 +87,59 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     throw lastError
 }
 
+/** Thrown by {@link withTimeout} when the wrapped promise does not settle in time. */
+export class PromiseTimeoutError extends Error {
+    constructor(message?: string) {
+        super(message ?? 'Promise timed out')
+        this.name = 'PromiseTimeoutError'
+    }
+}
+
+/**
+ * Races a promise against a timeout. If it does not settle within `timeoutMs`, the returned
+ * promise rejects with a {@link PromiseTimeoutError}.
+ *
+ * Pass a factory `(signal) => Promise<T>` rather than a bare promise to get cancellation: on
+ * timeout the {@link AbortSignal} is aborted so the underlying request stops instead of running to
+ * completion in the background (which otherwise keeps loading the server long after the client gave
+ * up). A bare promise still works but cannot be cancelled.
+ *
+ * Use this to guard against a fetch that can stall indefinitely without ever resolving or
+ * rejecting (e.g. a hung connection). Such a fetch leaves any awaiting loader permanently
+ * "loading", which is exactly what freezes the global search page on a loading skeleton.
+ *
+ * @example
+ * const response = await withTimeout(
+ *     (signal) => api.fileSystem.list({ ...params, signal }),
+ *     10000,
+ *     'loadRecents timed out'
+ * )
+ */
+export function withTimeout<T>(
+    promiseOrFactory: Promise<T> | ((signal: AbortSignal) => Promise<T>),
+    timeoutMs: number,
+    message?: string
+): Promise<T> {
+    const controller = typeof promiseOrFactory === 'function' ? new AbortController() : undefined
+    const promise = typeof promiseOrFactory === 'function' ? promiseOrFactory(controller!.signal) : promiseOrFactory
+    return new Promise<T>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            controller?.abort()
+            reject(new PromiseTimeoutError(message ?? `Promise timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+        promise.then(
+            (value) => {
+                clearTimeout(timeoutId)
+                resolve(value)
+            },
+            (error) => {
+                clearTimeout(timeoutId)
+                reject(error)
+            }
+        )
+    })
+}
+
 export function promiseResolveReject<T>(): {
     resolve: (value: T) => void
     reject: (reason?: any) => void

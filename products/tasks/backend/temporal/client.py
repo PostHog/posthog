@@ -145,6 +145,7 @@ async def execute_task_processing_workflow_async(
     slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    prewarmed: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -154,9 +155,14 @@ async def execute_task_processing_workflow_async(
         "execute_task_processing_workflow_async_called",
         extra={"task_id": task_id, "run_id": run_id},
     )
-    task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
-    observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
+    # Keep the metrics lookups inside the try: if either raises, the except clauses must still
+    # terminalize the run. When they ran before the try, an exception here aborted the dispatch
+    # without marking the run FAILED, orphaning it in QUEUED until the 24h janitor swept it.
+    # observe_task_run_workflow_start tolerates a None task_run.
+    task_run_for_metrics: TaskRun | None = None
     try:
+        task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
         await sync_to_async(_capture_sandbox_event_ingest_flag)(run_id)
 
@@ -168,6 +174,7 @@ async def execute_task_processing_workflow_async(
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            prewarmed=prewarmed,
         )
 
         logger.info(
@@ -219,14 +226,18 @@ def execute_task_processing_workflow(
     slack_thread_context: Optional["SlackThreadContext"] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    prewarmed: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
     """
-    task_run_for_metrics = _get_task_run_for_metrics(run_id)
-    observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
+    # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
+    # leave the run orphaned in QUEUED (see the async variant above).
+    task_run_for_metrics: TaskRun | None = None
     try:
+        task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         logger.info(
             "execute_task_processing_workflow_called",
             extra={"task_id": task_id, "run_id": run_id, "team_id": team_id, "user_id": user_id},
@@ -243,6 +254,7 @@ def execute_task_processing_workflow(
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            prewarmed=prewarmed,
         )
 
         logger.info(

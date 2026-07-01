@@ -10,6 +10,7 @@ Product = Literal[
     "llm_gateway",
     "posthog_code",
     "background_agents",
+    "slack_app",
     "slack_app_routing",
     "wizard",
     "django",
@@ -23,6 +24,8 @@ Product = Literal[
     "subscriptions",
     "signals",
     "conversations",
+    "warehouse_semantic_enrichment",
+    "warehouse_custom_source_builder",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
@@ -108,7 +111,11 @@ def get_async_llm_client(product: Product = "django", team_id: int | None = None
     )
 
 
-def get_async_anthropic_gateway_client(product: Product = "django", team_id: int | None = None) -> AsyncAnthropic:
+def get_async_anthropic_gateway_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
+) -> AsyncAnthropic:
     """
     Get an Anthropic-native async client pointed at the internal LLM gateway.
 
@@ -127,14 +134,22 @@ def get_async_anthropic_gateway_client(product: Product = "django", team_id: int
     rationale — it is sent identically as a default `x-posthog-property-team_id` header. For
     per-call tags, pass `extra_headers={"x-posthog-property-<key>": "<value>"}` on the individual
     `messages.create(...)` call, and the user identifier as `metadata={"user_id": ...}`.
+
+    Set `use_bedrock_fallback=True` to opt into the gateway's Bedrock fallback: if Anthropic
+    returns a 5xx/429 (or its circuit breaker is open) the gateway retries the request against
+    Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    default_headers = _team_id_header(team_id) if team_id is not None else {}
+    if use_bedrock_fallback:
+        default_headers["x-posthog-use-bedrock-fallback"] = "true"
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
     return AsyncAnthropic(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        default_headers=default_headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )

@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -199,7 +199,7 @@ function RunInProgressEmptyState({
                     )}
                 </LemonBanner>
             ) : null}
-            <DetectiveHog className="w-32 h-32" />
+            <HedgehogMagnifyingGlass className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
                 {copy}
@@ -227,6 +227,7 @@ export function VisualReviewRunScene(): JSX.Element {
         isRecomputing,
         isRunInProgress,
         isRunProcessing,
+        isReportingOnly,
         failedThumbnails,
         thumbnailBasePath,
         addImagesToComment,
@@ -389,7 +390,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
+                    !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         <div className="flex items-center gap-2">
                             <LemonCheckbox
                                 checked={addImagesToComment}
@@ -413,6 +414,13 @@ export function VisualReviewRunScene(): JSX.Element {
             />
             <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
+            {isReportingOnly && (
+                <LemonBanner type="info" className="mb-4">
+                    Tracking-only run — this is a push to the default branch, so there's nothing to approve. Visual
+                    changes are recorded for history and reported to GitHub as a non-blocking status.
+                </LemonBanner>
+            )}
+
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
                     This run has been superseded by a newer run.{' '}
@@ -424,7 +432,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
+            {!isReportingOnly && allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -605,9 +613,12 @@ export function VisualReviewRunScene(): JSX.Element {
                             repoFullName={repoFullName}
                             runType={run.run_type}
                             githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isReportingOnly={isReportingOnly}
                             isRecomputing={isRecomputing}
                             onRecompute={
-                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                                !isReportingOnly && run.status === 'completed' && !run.approved && !run.is_stale
+                                    ? recomputeRun
+                                    : undefined
                             }
                             recomputeDisabledReason={
                                 ciRetriggerUnavailableReason ??

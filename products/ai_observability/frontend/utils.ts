@@ -248,6 +248,12 @@ export function eventLabel(event: LLMTraceEvent): string {
     return asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
 }
 
+const TRACE_STEP_EVENT_TYPES = new Set(['$ai_generation', '$ai_span', '$ai_embedding'])
+
+export function getTraceStepCount(trace: Partial<Pick<LLMTrace, 'events'>>): number {
+    return trace.events?.filter((event) => TRACE_STEP_EVENT_TYPES.has(event.event)).length ?? 0
+}
+
 export function formatAiErrorForDisplay(value: unknown): string {
     if (typeof value === 'string') {
         return value || 'Unknown error'
@@ -1137,16 +1143,18 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
     generationEventId?: string
+    traceId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, generationEventId, forceRefresh } = params
+    const { evaluationId, generationEventId, traceId, forceRefresh } = params
 
-    if (!evaluationId && !generationEventId) {
-        throw new Error('Either evaluationId or generationEventId must be provided')
+    const propertyValue = evaluationId || generationEventId || traceId
+
+    if (!propertyValue) {
+        throw new Error('Either evaluationId, generationEventId, or traceId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_target_event_id'
-    const propertyValue = evaluationId || generationEventId
+    const propertyName = evaluationId ? '$ai_evaluation_id' : generationEventId ? '$ai_target_event_id' : '$ai_trace_id'
 
     const query = hogql`
         SELECT
