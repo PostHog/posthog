@@ -210,8 +210,12 @@ class TestExperimentValueBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertEqual(split.baseline.number_of_samples, plain.baseline.number_of_samples)
         self.assertAlmostEqual(split.baseline.sum, plain.baseline.sum, places=6)
         self.assertAlmostEqual(split.baseline.sum_squares, plain.baseline.sum_squares, places=6)
-        self.assertEqual(len(split.variant_results), len(plain.variant_results))
-        for plain_variant, split_variant in zip(plain.variant_results, split.variant_results):
+        # stats_config is frequentist, so the variant lists are ExperimentVariantResultFrequentist;
+        # cast narrows the list[Frequentist] | list[Bayesian] union (which mypy joins to BaseModel).
+        plain_variants = cast(list[ExperimentVariantResultFrequentist], plain.variant_results)
+        split_variants = cast(list[ExperimentVariantResultFrequentist], split.variant_results)
+        self.assertEqual(len(split_variants), len(plain_variants))
+        for plain_variant, split_variant in zip(plain_variants, split_variants):
             self.assertEqual(split_variant.number_of_samples, plain_variant.number_of_samples)
             self.assertAlmostEqual(split_variant.sum, plain_variant.sum, places=6)
         self.assertIsNone(plain.breakdown_results)
