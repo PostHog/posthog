@@ -59,6 +59,16 @@ class QueryError(ExposedHogQLError):
     pass
 
 
+class TableAccessDeniedError(QueryError):
+    """Access control denied the querying principal access to a table/view.
+
+    A QueryError subclass so the user-facing message is unchanged, but callers (e.g. cache warming)
+    can distinguish an expected access denial from a genuine query error.
+    """
+
+    pass
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 
