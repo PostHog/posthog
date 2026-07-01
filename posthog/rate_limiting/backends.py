@@ -19,7 +19,7 @@ from limits import RateLimitItemPerSecond
 from limits.storage import MemoryStorage, RedisStorage
 from limits.strategies import SlidingWindowCounterRateLimiter
 
-from posthog.rate_limiting.policies import RateLimit, RatePolicy
+from posthog.rate_limiting.policies import Priority, RateLimit, RatePolicy
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -41,14 +41,32 @@ def _items(limits: tuple[RateLimit, ...]) -> list[RateLimitItemPerSecond]:
     return [RateLimitItemPerSecond(count, int(period_seconds)) for count, period_seconds in limits]
 
 
-def _check(limiter: SlidingWindowCounterRateLimiter, items: list[RateLimitItemPerSecond], key: str, n: int) -> bool:
-    # Allowed only if every window has room; consume from all. Best-effort, not atomic across windows:
-    # testing all first avoids the deterministic partial-consume (hit window A, then deny window B), but
-    # a concurrent caller landing between test and hit can still leave one window consumed on a denied
-    # call. The drift is deny-biased (we err toward denying, never over-allowing the shared budget) and
-    # bounded by headroom plus the consumer's reactive backoff — fine for egress; cross-window atomicity
-    # (a custom multi-window Lua) isn't worth it at v1.
-    if not all(limiter.test(item, key, cost=n) for item in items):
+def _reserves(policy: RatePolicy, priority: Priority, limits: tuple[RateLimit, ...]) -> list[int]:
+    # Per-window headroom (in units) this priority must leave free, parallel to _items. Goes through
+    # RatePolicy.reserve_amount so admission and the facade's _validate share one floor formula.
+    return [policy.reserve_amount(priority, count) for count, _ in limits]
+
+
+def _check(
+    limiter: SlidingWindowCounterRateLimiter,
+    items: list[RateLimitItemPerSecond],
+    key: str,
+    n: int,
+    reserves: list[int],
+) -> bool:
+    # Allowed only if every window has room for n PLUS the priority's reserved floor; if so, consume
+    # only the real n. test inflates the cost by the reserve so lower-priority calls are denied while
+    # that headroom is still owed to higher-priority traffic — but hit never charges the reserve, so
+    # the budget stays shared (no per-priority buckets). CRITICAL/no-reserve => reserve 0 => test and
+    # hit both cost n, the original behavior exactly.
+    #
+    # Best-effort, not atomic across windows: testing all first avoids the deterministic
+    # partial-consume (hit window A, then deny window B), but a concurrent caller landing between test
+    # and hit can still leave one window consumed on a denied call. The drift is deny-biased (we err
+    # toward denying, never over-allowing the shared budget) and bounded by headroom plus the
+    # consumer's reactive backoff — fine for egress; cross-window atomicity (a custom multi-window Lua)
+    # isn't worth it at v1.
+    if not all(limiter.test(item, key, cost=n + reserve) for item, reserve in zip(items, reserves)):
         return False
     return all(limiter.hit(item, key, cost=n) for item in items)
 
@@ -65,16 +83,20 @@ class LimitsBackend:
         self._memory: SlidingWindowCounterRateLimiter | None = None
         self._lock = threading.Lock()
 
-    async def acquire(self, key: str, policy: RatePolicy, n: int) -> bool:
+    async def acquire(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
         # Offload the blocking Redis call so the event loop isn't held.
-        return await asyncio.to_thread(self.consume_sync, key, policy, n)
+        return await asyncio.to_thread(self.consume_sync, key, policy, n, priority)
 
-    def consume_sync(self, key: str, policy: RatePolicy, n: int) -> bool:
+    def consume_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
         try:
-            return _check(self._redis_limiter(), _items(policy.limits), key, n)
+            limits = policy.limits
+            return _check(self._redis_limiter(), _items(limits), key, n, _reserves(policy, priority, limits))
         except _REDIS_ERRORS:
             logger.warning("outbound_rate_limit_redis_unavailable", key=key, fallback="in_memory")
-            return _check(self._memory_limiter(), _items(self._shrunk(policy)), key, n)
+            # Reserve off the shrunk fallback budget so the floor scales with the smaller per-process
+            # limit rather than the full one.
+            shrunk = self._shrunk(policy)
+            return _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
 
     @staticmethod
     def _shrunk(policy: RatePolicy) -> tuple[RateLimit, ...]:

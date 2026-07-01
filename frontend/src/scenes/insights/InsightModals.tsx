@@ -105,6 +105,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     insightId={insight.id as number}
                     insightShortId={insight.short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                 />
             )}
 

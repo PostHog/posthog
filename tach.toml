@@ -83,6 +83,7 @@ depends_on = [
     "products.data_warehouse",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -595,6 +596,7 @@ depends_on = [
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -621,6 +623,7 @@ depends_on = [
     "products.notifications",
     "products.product_analytics",
     "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 
