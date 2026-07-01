@@ -416,6 +416,10 @@ jobs:
               run: pnpm --filter=@posthog/frontend build:with-report
 
             - name: Build base branch for size comparison
+              # A broken base build (install/esbuild — which --report-only does not cover) must
+              # only cost the vs-base delta, never redden every open PR's job. The comment steps
+              # below already degrade to "no base measurement" when the base reports are absent.
+              continue-on-error: true
               if: github.event_name == 'pull_request'
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
