@@ -27283,6 +27283,11 @@ export namespace Schemas {
       ids: number[];
     }
 
+    /**
+     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+     * Do not instantiate it for validation: the declared ``errors`` field shadows DRF's inherited
+     * ``Serializer.errors`` property, so ``.is_valid()`` / ``.errors`` would not behave as expected.
+     */
     export interface InsightBulkDeleteResponse {
       /** IDs of the insights that were successfully soft-deleted. */
       deleted: number[];
