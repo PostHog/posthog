@@ -183,8 +183,13 @@ frontend/src/scenes/onboarding/sdks/surveys/ @PostHog/team-surveys
 frontend/src/scenes/settings/ @PostHog/team-growth
 frontend/src/scenes/organization/ @PostHog/team-growth
 frontend/src/scenes/project/ @PostHog/team-growth
-frontend/src/scenes/instance/ @PostHog/team-growth
-# ...except the query performance scene, owned by @PostHog/team-experiments
+# instance/ admin scenes are team-growth's, except QueryPerformance (team-experiments).
+# The assign-reviewers script unions the owners of every matching rule — it does NOT
+# apply last-match-wins — so growth must be scoped to its specific subfolders rather
+# than the whole instance/ dir, or growth gets tagged on QueryPerformance PRs too.
+frontend/src/scenes/instance/AsyncMigrations/ @PostHog/team-growth
+frontend/src/scenes/instance/DeadLetterQueue/ @PostHog/team-growth
+frontend/src/scenes/instance/SystemStatus/ @PostHog/team-growth
 frontend/src/scenes/instance/QueryPerformance/ @PostHog/team-experiments
 
 # Weekly digest - owned by @PostHog/team-growth
