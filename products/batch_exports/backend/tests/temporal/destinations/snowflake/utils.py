@@ -117,6 +117,11 @@ class FakeSnowflakeCursor:
 
     def execute_async(self, query, params=None, file_stream=None):
         self._execute_async_calls.append({"query": query, "params": params, "file_stream": file_stream})
+        if self._fail == "copy_permission" and "COPY INTO" in query:
+            raise snowflake.connector.errors.ProgrammingError(
+                msg="SQL access control error:\nInsufficient privileges to operate on table 'events'.",
+                errno=3001,
+            )
 
     def get_results_from_sfqid(self, query_id):
         pass

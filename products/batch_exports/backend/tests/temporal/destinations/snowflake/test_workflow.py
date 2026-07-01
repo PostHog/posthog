@@ -14,6 +14,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pyarrow as pa
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -27,9 +28,15 @@ from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
+    NON_RETRYABLE_ERROR_TYPES,
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
+    SnowflakeClient,
+    SnowflakeField,
     SnowflakeInsertInputs,
+    SnowflakePermissionError,
+    SnowflakeTable,
+    SnowflakeType,
     insert_into_snowflake_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -297,6 +304,39 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
         assert isinstance(err.__cause__, ActivityError)
         assert isinstance(err.__cause__.__cause__, ApplicationError)
         assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
+
+
+async def test_snowflake_copy_permission_error_is_non_retryable():
+    client = SnowflakeClient(
+        user="user",
+        account="account",
+        warehouse="warehouse",
+        database="POSTHOG",
+        schema="PUBLIC",
+        password="password",
+    )
+    table = SnowflakeTable(
+        name="events",
+        fields=(SnowflakeField("uuid", SnowflakeType("TEXT", False), pa.string(), True),),
+        parents=("POSTHOG", "PUBLIC"),
+    )
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            return_value=FakeSnowflakeConnection(failure_mode="copy_permission"),
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.SnowflakeClient.DEFAULT_POLL_INTERVAL",
+            0.01,
+        ),
+    ):
+        async with client.connect(use_namespace=False):
+            with pytest.raises(SnowflakePermissionError) as exc_info:
+                await client.copy_loaded_files_to_snowflake_table(table, timeout=1)
+
+    assert "SnowflakePermissionError" in NON_RETRYABLE_ERROR_TYPES
+    assert "Insufficient privileges" in str(exc_info.value)
 
 
 async def test_snowflake_export_workflow_handles_unexpected_insert_activity_errors(

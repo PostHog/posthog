@@ -96,6 +96,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "SnowflakeIncompatibleSchemaError",
+    # Raised when Snowflake rejects a query because the role is missing privileges.
+    "SnowflakePermissionError",
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
@@ -181,6 +183,12 @@ class SnowflakeIncompatibleSchemaError(Exception):
         )
 
 
+class SnowflakePermissionError(Exception):
+    """Raised when Snowflake rejects a query because the role is missing privileges."""
+
+    pass
+
+
 class SnowflakeQueryClientTimeoutError(TimeoutError):
     """Raised when a Snowflake query times out."""
 
@@ -258,6 +266,17 @@ class SnowflakeDestinationField(typing.NamedTuple):
     name: str
     type: SnowflakeTypeName
     is_nullable: bool
+
+
+def is_snowflake_permission_error_message(message: str) -> bool:
+    """Return whether a Snowflake error message is caused by missing privileges."""
+    normalized_message = message.lower()
+    return "sql access control error" in normalized_message or "insufficient privileges" in normalized_message
+
+
+def is_snowflake_permission_error(exc: snowflake.connector.errors.ProgrammingError) -> bool:
+    """Return whether a Snowflake programming error is caused by missing privileges."""
+    return exc.errno == 3001 or is_snowflake_permission_error_message(exc.msg or str(exc))
 
 
 def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
@@ -1060,6 +1079,8 @@ class SnowflakeClient:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
+            elif is_snowflake_permission_error(e):
+                raise SnowflakePermissionError(e.msg or str(e)) from e
 
             raise SnowflakeFileNotLoadedError(
                 table.name,
@@ -1088,11 +1109,15 @@ class SnowflakeClient:
 
             if status != "LOADED":
                 errors_seen, first_error = query_result[5:7]
+                first_error_message = first_error or "NO ERROR MESSAGE"
+                if is_snowflake_permission_error_message(first_error_message):
+                    raise SnowflakePermissionError(first_error_message)
+
                 raise SnowflakeFileNotLoadedError(
                     table.name,
                     status or "NO STATUS",
                     errors_seen or 0,
-                    first_error or "NO ERROR MESSAGE",
+                    first_error_message,
                 )
 
         self.logger.info("Finished copying files into destination table")
