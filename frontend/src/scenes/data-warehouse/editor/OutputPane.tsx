@@ -1043,20 +1043,14 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 const EmptyResultsState = (): JSX.Element => {
     return (
         <div
-            className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-3 text-center"
+            className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-2 text-center"
             data-attr="sql-editor-output-pane-no-rows-state"
         >
-            <span className="font-semibold">Your query ran successfully but returned no rows</span>
-            <div className="text-secondary max-w-xl flex flex-col gap-2">
-                <span>A few things worth checking:</span>
-                <ul className="list-disc text-left pl-5 space-y-1">
-                    <li>Make sure the event or table name is spelled exactly right</li>
-                    <li>Widen your date range — the rows you're after may fall outside it</li>
-                    <li>
-                        Querying a warehouse source? Confirm it's <Link to={urls.sources()}>connected and synced</Link>.
-                    </li>
-                </ul>
-            </div>
+            <span className="font-semibold">Your query returned no rows</span>
+            <span className="text-secondary max-w-xl">
+                It ran successfully but didn't match any data. Try widening your date range, or check that your{' '}
+                <Link to={urls.sources()}>warehouse source</Link> is connected and synced.
+            </span>
         </div>
     )
 }
