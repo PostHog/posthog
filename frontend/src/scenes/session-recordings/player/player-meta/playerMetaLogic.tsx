@@ -501,45 +501,50 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, props }) => ({
-        setPinnedProperties: () => {
+    listeners(({ actions, values, props }) => {
+        // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
+        const maybeLoadRecordingProperties = (): void => {
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
+                actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
+            }
+        }
+        return {
             // a newly pinned session property may not be in the cached recording properties yet
-            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
-                actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
-            }
-        },
-        loadRecordingMetaSuccess: () => {
-            // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
-            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
-                actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
-            }
-            if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
-                actions.summarizeSession()
-            }
-        },
-        sessionSummaryFeedback: ({ feedback }) => {
-            posthog.capture('session summary feedback', {
-                feedback,
-                session_summary: values.sessionSummary,
-                summary_id: values.sessionSummaryId,
-                summarized_session_id: props.sessionRecordingId,
-            })
-            actions.markFeedbackGiven(props.sessionRecordingId)
-        },
-        summarizeSession: () => {
-            // TODO: Remove after testing
-            const local = false
-            if (local) {
-                actions.setSummary(props.sessionRecordingId, aiSummaryMock)
-                return
-            }
-            const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
-            if (!id) {
-                return
-            }
-            // Delegates the SSE stream + per-session state to the singleton so that
-            // progress survives navigation away from and back to a recording mid-stream.
-            actions.startSummarization(id)
-        },
-    })),
+            setPinnedProperties: maybeLoadRecordingProperties,
+            loadRecordingMetaSuccess: () => {
+                maybeLoadRecordingProperties()
+                if (
+                    values.sessionPlayerMetaData?.has_summary &&
+                    !values.sessionSummary &&
+                    !values.sessionSummaryLoading
+                ) {
+                    actions.summarizeSession()
+                }
+            },
+            sessionSummaryFeedback: ({ feedback }) => {
+                posthog.capture('session summary feedback', {
+                    feedback,
+                    session_summary: values.sessionSummary,
+                    summary_id: values.sessionSummaryId,
+                    summarized_session_id: props.sessionRecordingId,
+                })
+                actions.markFeedbackGiven(props.sessionRecordingId)
+            },
+            summarizeSession: () => {
+                // TODO: Remove after testing
+                const local = false
+                if (local) {
+                    actions.setSummary(props.sessionRecordingId, aiSummaryMock)
+                    return
+                }
+                const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
+                if (!id) {
+                    return
+                }
+                // Delegates the SSE stream + per-session state to the singleton so that
+                // progress survives navigation away from and back to a recording mid-stream.
+                actions.startSummarization(id)
+            },
+        }
+    }),
 ])
