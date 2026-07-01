@@ -2336,9 +2336,7 @@ def start_task_run(
     except Exception:
         touched_keys = set(state_updates.keys()) | set(state_remove_keys)
         if touched_keys:
-            rollback_updates = {
-                key: previous_state[key] for key in touched_keys if key in previous_state
-            } or None
+            rollback_updates = {key: previous_state[key] for key in touched_keys if key in previous_state} or None
             rollback_remove_keys = [key for key in touched_keys if key not in previous_state] or None
             TaskRun.update_state_atomic(run.id, updates=rollback_updates, remove_keys=rollback_remove_keys)
         raise
