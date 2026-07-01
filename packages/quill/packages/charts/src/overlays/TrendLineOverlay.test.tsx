@@ -80,7 +80,6 @@ describe('TrendLineOverlay', () => {
         const { container } = renderOverlayInChart(<TrendLineOverlay trendSeries={series} />, baseContext)
         const svg = container.querySelector('svg')
         expect(svg).not.toBeNull()
-        // pointer-events: none ensures the overlay doesn't swallow chart interactions.
         expect(svg?.style.pointerEvents).toBe('none')
     })
 })

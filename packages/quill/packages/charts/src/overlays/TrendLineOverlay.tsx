@@ -10,29 +10,13 @@ interface TrendLineOverlayProps {
     trendSeries: Series[]
 }
 
-/**
- * Renders trend lines as SVG polylines over any chart type that uses ChartLayoutContext.
- * Designed for bar charts where the underlying BarChart canvas can't draw mixed line/bar —
- * this overlay draws the regression line on top as a DOM element using chart scales.
- * Only supports vertical charts — horizontal bar charts swap axes in a way the SVG layout
- * does not account for, so the overlay returns null for that orientation.
- */
-let _nextId = 0
-
+/** Renders trend lines as SVG polylines over vertical bar and combo charts. */
 export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.ReactElement | null {
-    // Stable per-instance ID — allocate exactly once per component instance.
-    // Cannot use useRef(expr) directly because the initialiser runs on every render
-    // (React discards it after the first, but the side-effect of _nextId++ still fires).
-    const clipIdRef = React.useRef('')
-    if (!clipIdRef.current) {
-        clipIdRef.current = `tlo-${_nextId++}`
-    }
-    const clipId = clipIdRef.current
+    const clipId = React.useId()
     const { scales, dimensions, labels, axis } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
 
     const lines = useMemo(() => {
-        // Horizontal bar charts swap the value/band axes — SVG coordinates would be wrong.
         if (axis.orientation === 'horizontal') {
             return []
         }
