@@ -9,7 +9,7 @@ Native `@posthog/*` tools the runner can dispatch, plus the intrinsic approval c
 ## works when
 
 - typechecks
-- boundary "native-tool-approval-floor" at NATIVE_TOOL_APPROVAL via test "classifies every registered native tool"
+- boundary "native-tool-approval-floor" at NATIVE_TOOL_APPROVAL via test "native tool authorization totality"
 
 ## why
 

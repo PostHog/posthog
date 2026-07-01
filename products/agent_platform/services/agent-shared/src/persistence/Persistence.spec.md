@@ -11,9 +11,10 @@ Postgres-backed stores for the agent runtime, including the approval-gated tool-
 ## works when
 
 - typechecks
-- boundary "approval-authority-totality" at effectiveApprovalType via test "every concrete ApprovalType round-trips"
-- boundary "approval-wire-resolved" at serializeApprovalRequest via test "resolves a legacy approvers"
-- boundary "approval-state-vocabulary" at APPROVAL_REQUEST_STATES via test "matches its TS source"
+- boundary "approval-authority-totality" at effectiveApprovalType via test "approval-authority totality"
+- boundary "approval-wire-resolved" at serializeApprovalRequest
+- passes test "resolves a legacy approvers"
+- boundary "approval-state-vocabulary" at APPROVAL_REQUEST_STATES via test "spec generated artifacts"
 
 ## why
 

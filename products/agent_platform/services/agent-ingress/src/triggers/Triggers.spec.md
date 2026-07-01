@@ -9,7 +9,7 @@ Inbound trigger modules — each ships one self-describing route list from which
 ## works when
 
 - typechecks
-- boundary "trigger-edge-conformance" at TRIGGER_MODULES via test "fixture totality"
+- boundary "trigger-edge-conformance" at TRIGGER_MODULES via test "trigger-module conformance suite"
 
 ## why
 

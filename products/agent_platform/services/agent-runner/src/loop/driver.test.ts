@@ -813,7 +813,7 @@ describe('driver runSession', () => {
      * under any approval authority a gated call queues and never runs the real
      * executor; an unbranded tool throws at `assertToolsGated` before dispatch.
      */
-    describe('gate chokepoint (fail-closed dispatch)', () => {
+    describe('gate chokepoint — fail-closed dispatch', () => {
         it('enumerates at least two approval authorities — an empty enum would pass every case below vacuously', () => {
             expect(ApprovalTypeSchema.options.length).toBeGreaterThanOrEqual(2)
         })

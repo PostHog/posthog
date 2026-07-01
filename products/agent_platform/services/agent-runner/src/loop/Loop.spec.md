@@ -9,7 +9,7 @@ The session turn loop: model streaming, tool dispatch, and the approval gate tha
 ## works when
 
 - typechecks
-- boundary "gated-dispatch-single-path" at gateTool via test "gate chokepoint"
+- boundary "gated-dispatch-single-path" at gateTool via test "gate chokepoint — fail-closed dispatch"
 
 ## why
 

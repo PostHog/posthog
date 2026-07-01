@@ -11,9 +11,9 @@ The agent spec schema (`AgentSpecSchema`, zod) — the single source of truth fo
 ## works when
 
 - typechecks
-- boundary "tenant-array-bounds" at AgentSpecSchema via test "every top-level array field is bounded"
-- boundary "generated-vocabulary-single-source" at GENERATED_ARTIFACTS via test "matches its TS source"
-- boundary "trigger-routes-single-source" at TRIGGER_ROUTES via test "matches its TS source"
+- boundary "tenant-array-bounds" at AgentSpecSchema via test "agent spec tenant-array bounds"
+- boundary "generated-vocabulary-single-source" at GENERATED_ARTIFACTS via test "spec generated artifacts"
+- boundary "trigger-routes-single-source" at TRIGGER_ROUTES via test "spec generated artifacts"
 
 ## why
 
