@@ -861,7 +861,7 @@ jobs:
                   GITHUB_ACTIONS: 'false'
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: .github/scripts/list-deleted-migration-paths.sh | ./bin/hogli lint:migration-deletions
+              run: .github/scripts/list-removed-renamed-paths.sh | ./bin/hogli lint:migration-deletions
 
     validate-product-yamls:
         needs: [changes]
