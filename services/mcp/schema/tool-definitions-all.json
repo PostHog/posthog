@@ -3899,7 +3899,7 @@
         }
     },
     "feature-flags-copy-flags-create": {
-        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Copy feature flag across projects",
