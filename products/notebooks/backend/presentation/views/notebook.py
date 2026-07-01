@@ -1,11 +1,13 @@
 import math
+import time
 import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
 import structlog
@@ -45,8 +47,13 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.data_v2 import DataV2KernelNotRunning, dispatch_data_v2_run, is_data_v2_enabled
+from products.notebooks.backend.data_v2_serializers import (
+    NotebookDataV2RunRequestSerializer,
+    NotebookDataV2RunResponseSerializer,
+)
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -860,6 +867,70 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
 
         return Response(data)
+
+    @extend_schema(request=NotebookDataV2RunRequestSerializer, responses=NotebookDataV2RunResponseSerializer)
+    @action(methods=["POST"], url_path="data_v2/run", detail=True)
+    def data_v2_run(self, request: Request, **kwargs):
+        user = self._current_user()
+        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
+        if not (settings.DEBUG or is_data_v2_enabled(user)):
+            raise Http404()
+
+        serializer = NotebookDataV2RunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        run = NotebookNodeRun.objects.create(
+            team_id=self.team_id,
+            notebook=notebook,
+            node_id=serializer.validated_data["node_id"],
+            status=NotebookNodeRun.Status.RUNNING,
+        )
+
+        try:
+            dispatch_data_v2_run(notebook, user, run)
+        except DataV2KernelNotRunning:
+            run.status = NotebookNodeRun.Status.FAILED
+            run.error = "Kernel is not running. Start the instance first."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"detail": "Kernel is not running. Start the instance first."}, status=409)
+
+        return Response({"run_id": str(run.id)})
+
+    @extend_schema(responses={(200, "text/event-stream"): OpenApiTypes.STR})
+    @action(
+        methods=["GET"],
+        url_path="data_v2/runs/(?P<run_id>[^/.]+)/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def data_v2_run_stream(self, request: Request, run_id: str | None = None, **kwargs):
+        user = self._current_user()
+        if not (settings.DEBUG or is_data_v2_enabled(user)):
+            raise Http404()
+
+        team_id = self.team_id
+        renderer = SafeJSONRenderer()
+
+        def stream():
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                run = NotebookNodeRun.objects.filter(id=run_id, team_id=team_id).first()
+                if run is None:
+                    payload_json = renderer.render({"error": "Run not found"}).decode()
+                    yield f"event: error\ndata: {payload_json}\n\n".encode()
+                    return
+                if run.status != NotebookNodeRun.Status.RUNNING:
+                    payload = run.envelope or {"status": run.status, "error": run.error}
+                    payload_json = renderer.render(payload).decode()
+                    yield f"event: result\ndata: {payload_json}\n\n".encode()
+                    return
+                time.sleep(0.5)
+            payload_json = renderer.render({"error": "Timed out waiting for result"}).decode()
+            yield f"event: error\ndata: {payload_json}\n\n".encode()
+
+        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
+        return sse_streaming_response(streaming_content)
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])
