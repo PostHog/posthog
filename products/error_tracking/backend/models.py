@@ -36,9 +36,13 @@ class ErrorTrackingIssueManager(models.Manager):
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
+    # The merge completed and moved source fingerprints onto the target issue.
     MERGED = "merged"
+    # The request only referenced the target issue, duplicate source IDs, or no source IDs.
     NO_SOURCE_ISSUES = "no_source_issues"
+    # The target or at least one source issue disappeared before row locks were acquired.
     STALE_ISSUES = "stale_issues"
+    # A guarded fingerprint no longer belongs to the issue observed before the merge transaction.
     STALE_FINGERPRINTS = "stale_fingerprints"
 
 
