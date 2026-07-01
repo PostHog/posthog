@@ -117,6 +117,7 @@ def send_agent_command(
     params: dict[str, Any] | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     auth_token: str | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> CommandResult:
     """Send a JSON-RPC command to the sandbox agent.
 
@@ -127,6 +128,10 @@ def send_agent_command(
             When provided, sent as Authorization header with connect_token
             as ``_modal_connect_token`` query param for Modal tunnel auth.
             When omitted, connect_token is used directly as Authorization.
+        meta: Optional metadata attached verbatim under ``_meta`` on the
+            JSON-RPC params — used to tag automated turns (e.g. CI follow-ups)
+            so the desktop client can render them distinctly. When omitted, the
+            payload is byte-identical to a call without it.
     """
     sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
     if not sandbox_url:
@@ -160,6 +165,10 @@ def send_agent_command(
         "id": 1,
         "method": method,
     }
+    if meta is not None:
+        # Merge into a fresh dict so we never mutate the caller's params and so
+        # a params-less command still carries `_meta`.
+        params = {**(params or {}), "_meta": meta}
     if params:
         payload["params"] = params
 
@@ -252,8 +261,13 @@ def send_user_message(
     artifacts: list[dict[str, Any]] | None = None,
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
+    meta: dict[str, Any] | None = None,
 ) -> CommandResult:
-    """Send a user_message command to the sandbox agent."""
+    """Send a user_message command to the sandbox agent.
+
+    ``meta`` is forwarded verbatim to ``_meta`` on the JSON-RPC params (see
+    ``send_agent_command``). Human turns pass ``meta=None`` and stay untagged.
+    """
     params: dict[str, Any] = {}
     if message:
         params["content"] = message
@@ -265,6 +279,7 @@ def send_user_message(
         params=params,
         auth_token=auth_token,
         timeout=timeout,
+        meta=meta,
     )
 
 

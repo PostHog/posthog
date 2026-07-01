@@ -57,6 +57,13 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 # Upper bound on how many CI rounds the orchestrator will dispatch.
 MAX_CI_REPETITIONS = 3
 
+# Discriminator on the `_meta.automatedCheck` object attached to automated CI
+# follow-up turns. The desktop client keys off this to render them as a
+# collapsed "Automated CI check" row rather than a message in the user's voice.
+# Kept as a named constant (one `kind` for now) so other automated turn kinds
+# can reuse the same `_meta` plumbing later.
+CI_FOLLOWUP_META_KIND = "pr_ci_followup"
+
 # Long-lived SSE relay activity timeout. The relay reconnects internally on
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)

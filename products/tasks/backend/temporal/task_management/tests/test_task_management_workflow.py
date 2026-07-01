@@ -300,6 +300,8 @@ class TestShouldRunCIFollowUp:
         assert decision is CIFollowUpDecision.FIRE
         # Fingerprint must persist so the next tick with the same fp returns SKIP.
         assert workflow._pr_fingerprint == "fp-1"
+        # The PR url is stashed so the CI follow-up's meta can carry `prUrl`.
+        assert workflow._pr_url == "https://github.com/org/repo/pull/1"
 
     async def test_returns_skip_when_fingerprint_unchanged(self, monkeypatch, silent_workflow_logger):
         workflow = TaskManagementWorkflow()
@@ -328,6 +330,9 @@ class TestMaybeDispatchCIFollowUp:
         workflow._context = _build_context(ci_prompt="custom prompt")
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
+        # A real FIRE always has a PR url (stashed by `_should_run_ci_follow_up`,
+        # which is mocked here); mimic it so the meta carries `prUrl`.
+        workflow._pr_url = "https://github.com/org/repo/pull/1"
 
         monkeypatch.setattr(workflow, "_should_run_ci_follow_up", AsyncMock(return_value=CIFollowUpDecision.FIRE))
         signal_mock = AsyncMock()
@@ -337,7 +342,21 @@ class TestMaybeDispatchCIFollowUp:
 
         assert workflow._ci_repetitions == 1
         assert workflow._last_active_time == fixed_now.now
-        signal_mock.assert_awaited_once_with(message="custom prompt", artifact_ids=[], source="ci")
+        # The dispatched turn is tagged as an automated CI follow-up; iteration
+        # is 1-based (first repetition), maxIterations mirrors the cap.
+        signal_mock.assert_awaited_once_with(
+            message="custom prompt",
+            artifact_ids=[],
+            source="ci",
+            meta={
+                "automatedCheck": {
+                    "kind": "pr_ci_followup",
+                    "iteration": 1,
+                    "maxIterations": MAX_CI_REPETITIONS,
+                    "prUrl": "https://github.com/org/repo/pull/1",
+                }
+            },
+        )
 
     async def test_fire_falls_back_to_default_ci_message(self, monkeypatch, fixed_now):
         workflow = TaskManagementWorkflow()
@@ -350,7 +369,19 @@ class TestMaybeDispatchCIFollowUp:
 
         await workflow._maybe_dispatch_ci_follow_up()
 
-        signal_mock.assert_awaited_once_with(message=DEFAULT_CI_MESSAGE, artifact_ids=[], source="ci")
+        # No PR url stashed → the optional `prUrl` key is omitted from the meta.
+        signal_mock.assert_awaited_once_with(
+            message=DEFAULT_CI_MESSAGE,
+            artifact_ids=[],
+            source="ci",
+            meta={
+                "automatedCheck": {
+                    "kind": "pr_ci_followup",
+                    "iteration": 1,
+                    "maxIterations": MAX_CI_REPETITIONS,
+                }
+            },
+        )
 
     async def test_no_pr_disables_ci_loop(self, monkeypatch, silent_workflow_logger):
         # No PR → there will never be one; we have to disable the loop entirely
@@ -406,7 +437,13 @@ class TestDrainExternalSignals:
         workflow._pending_external_complete = ("completed", None)
 
         call_order: list[str] = []
-        followup_mock = AsyncMock(side_effect=lambda **kw: call_order.append(f"followup:{kw['message']}"))
+        drained_metas: list = []
+
+        def _record_followup(**kw):
+            call_order.append(f"followup:{kw['message']}")
+            drained_metas.append(kw["meta"])
+
+        followup_mock = AsyncMock(side_effect=_record_followup)
         complete_mock = AsyncMock(side_effect=lambda *a, **kw: call_order.append(f"complete:{a[0]}"))
         monkeypatch.setattr(workflow, "_signal_child_followup", followup_mock)
         monkeypatch.setattr(workflow, "_signal_child_complete", complete_mock)
@@ -415,6 +452,8 @@ class TestDrainExternalSignals:
         await workflow._drain_external_signals()
 
         assert call_order == ["followup:m1", "followup:m2", "complete:completed"]
+        # Human follow-ups forward `meta=None` so they stay untagged downstream.
+        assert drained_metas == [None, None]
         assert workflow._pending_external_followups == []
         assert workflow._pending_external_complete is None
 
@@ -534,6 +573,34 @@ class TestSignalChildFollowup:
         # signal_args must mirror the exact bytes we sent so the retry loop
         # can replay them — the child dedupes on ack_id so a replay is safe.
         assert slot.signal_args == ["ack-generated", "m", ["a"], "ci"]
+
+    async def test_appends_meta_as_fifth_arg_when_present(self, monkeypatch, fixed_now):
+        # A tagged (automated) follow-up appends meta as a 5th signal arg. The
+        # 4-arg case above is the untagged (human) wire shape — keeping the two
+        # distinct preserves byte-identical payloads for human turns.
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+
+        handle = Mock()
+        handle.signal = AsyncMock()
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", lambda: "ack-generated")
+
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 2, "maxIterations": 3}}
+        await workflow._signal_child_followup(message="m", artifact_ids=[], source="ci", meta=meta)
+
+        handle.signal.assert_awaited_once_with(
+            "send_followup_message",
+            args=["ack-generated", "m", [], "ci", meta],
+        )
+        # The retry loop replays the 5-arg shape verbatim, so the re-dispatch
+        # stays tagged with the same meta.
+        assert workflow._pending_ack_slots["ack-generated"].signal_args == ["ack-generated", "m", [], "ci", meta]
 
     async def test_skips_when_no_sandbox_id(self, monkeypatch, silent_workflow_logger):
         # If the sandbox workflow id was never set we have nowhere to deliver
@@ -942,6 +1009,29 @@ class TestSandboxSessionCompletionReset:
         assert workflow._pending_ack_slots == {}
         persist_mock.assert_awaited()
 
+    async def test_requeued_ci_followup_preserves_meta_tag(self, monkeypatch, silent_workflow_logger, fixed_now):
+        # A tagged (CI) follow-up still awaiting ACK when the session ends must
+        # keep its `_meta` through the re-queue (signal_args has a 5th element),
+        # so the re-dispatch to the next sandbox stays tagged with the same
+        # iteration rather than reverting to an untagged turn.
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._child_completion = ChildCompletion(success=True, error=None, sandbox_id="sb-1", timed_out=False)
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 2, "maxIterations": 3}}
+        workflow._pending_ack_slots["ack-ci"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["ack-ci", "address ci", [], "ci", meta],
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        await workflow._on_sandbox_session_completed()
+
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(message="address ci", artifact_ids=[], source="ci", meta=meta)
+        ]
+
 
 class TestPendingFollowupPersistence:
     async def test_restore_pending_seeds_in_memory_queue(self, monkeypatch, silent_workflow_logger):
@@ -1011,4 +1101,6 @@ class TestPendingFollowupPersistence:
         await workflow._persist_pending_followups()
 
         assert captured["input"].run_id == "run-id"
-        assert captured["input"].followups == [{"message": "persist-me", "artifact_ids": ["a1"], "source": "user"}]
+        assert captured["input"].followups == [
+            {"message": "persist-me", "artifact_ids": ["a1"], "source": "user", "meta": None}
+        ]

@@ -280,36 +280,79 @@ class TestSendAgentCommand:
         assert "content filtering" in (result.error or "")
         assert not result.retryable
 
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_meta_added_to_params_under_meta_key_when_provided(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
+        mock_post.return_value = mock_resp
+
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 2, "maxIterations": 3}}
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc", connect_token="tok")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"}, meta=meta)
+
+        assert result.success
+        sent_params = mock_post.call_args.kwargs["json"]["params"]
+        assert sent_params["_meta"] == meta
+        # Existing params are preserved alongside `_meta`.
+        assert sent_params["content"] == "hi"
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_no_meta_key_when_meta_absent(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc", connect_token="tok")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+
+        assert result.success
+        # Byte-identical to before the feature: no `_meta` key is added.
+        assert mock_post.call_args.kwargs["json"]["params"] == {"content": "hi"}
+
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
     @pytest.mark.parametrize(
-        "message,artifacts,expected_params",
+        "message,artifacts,meta,expected_params",
         [
-            ("hello world", None, {"content": "hello world"}),
+            ("hello world", None, None, {"content": "hello world"}),
             (
                 None,
                 [{"id": "artifact-1", "name": "notes.txt"}],
+                None,
                 {"artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
             ),
             (
                 "hello world",
                 [{"id": "artifact-1", "name": "notes.txt"}],
+                None,
                 {"content": "hello world", "artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
             ),
+            # An automated (CI) turn forwards its `_meta` tag to send_agent_command.
+            (
+                "address ci",
+                None,
+                {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 1, "maxIterations": 3}},
+                {"content": "address ci"},
+            ),
         ],
-        ids=["message_only", "artifacts_only", "message_and_artifacts"],
+        ids=["message_only", "artifacts_only", "message_and_artifacts", "ci_meta_forwarded"],
     )
-    def test_sends_user_message_method(self, mock_send, message, artifacts, expected_params):
+    def test_sends_user_message_method(self, mock_send, message, artifacts, meta, expected_params):
         mock_send.return_value = CommandResult(success=True, status_code=200)
         task_run = MagicMock()
-        result = send_user_message(task_run, message, artifacts=artifacts)
+        result = send_user_message(task_run, message, artifacts=artifacts, meta=meta)
         mock_send.assert_called_once_with(
             task_run,
             method="user_message",
             params=expected_params,
             auth_token=None,
             timeout=15,
+            meta=meta,
         )
         assert result.success
 

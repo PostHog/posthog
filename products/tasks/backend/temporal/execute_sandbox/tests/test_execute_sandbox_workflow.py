@@ -212,6 +212,20 @@ class TestSignalHandlers:
             PendingFollowup(message=None, artifact_ids=[], ack_id="ack-3", source="user")
         ]
 
+    async def test_send_followup_message_preserves_meta_tag(self, silent_workflow_logger):
+        # A tagged (CI) follow-up carries `meta` onto the queued PendingFollowup
+        # so it survives to the sandbox `user_message` `_meta`. If the handler
+        # dropped it here, the whole tag would be lost at ingestion.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 2, "maxIterations": 3}}
+        await workflow.send_followup_message("ack-ci", "address ci", source="ci", meta=meta)
+
+        assert workflow._pending_followups == [
+            PendingFollowup(message="address ci", artifact_ids=[], ack_id="ack-ci", source="ci", meta=meta)
+        ]
+
     async def test_heartbeat_from_relay_sets_flag_and_forwards(self, silent_workflow_logger):
         # Heartbeats only ever flow child -> parent. The in-workflow relay
         # signals us; we record activity locally and forward to the parent
@@ -386,7 +400,12 @@ class TestHandleFollowup:
         ]
         flush_mock.assert_awaited()
 
-    async def test_success_dispatches_and_acks_accepted(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "meta",
+        [None, {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 1, "maxIterations": 3}}],
+        ids=["untagged", "ci_tagged"],
+    )
+    async def test_success_dispatches_and_acks_accepted(self, monkeypatch, meta):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
         workflow._parent_workflow_id = "parent-wf"
@@ -396,10 +415,12 @@ class TestHandleFollowup:
         monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
 
         await workflow._handle_followup(
-            PendingFollowup(message="msg", artifact_ids=["art-1"], ack_id="ack-ok", source="user")
+            PendingFollowup(message="msg", artifact_ids=["art-1"], ack_id="ack-ok", source="user", meta=meta)
         )
 
-        send_mock.assert_awaited_once_with(message="msg", artifact_ids=["art-1"])
+        # `_handle_followup` threads the followup's meta straight to dispatch —
+        # None stays untagged, a CI tag rides through to the sandbox.
+        send_mock.assert_awaited_once_with(message="msg", artifact_ids=["art-1"], meta=meta)
         assert workflow._pending_outbound == [
             OutboundSignal(
                 target_signal=PARENT_ACK_SIGNAL,
@@ -433,6 +454,28 @@ class TestHandleFollowup:
         assert ack.args[1] == "ack-fail"
         assert ack.args[2] is False
         assert "sandbox is dead" in (ack.args[3] or "")
+
+
+class TestSendFollowupToSandbox:
+    async def test_threads_meta_into_activity_input(self, monkeypatch, silent_workflow_logger):
+        # The last workflow-side hop before the activity: meta must land on
+        # SendFollowupToSandboxInput, or the live CI path reaches the sandbox
+        # untagged despite everything upstream carrying the tag.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+
+        captured: dict = {}
+
+        async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
+            captured["input"] = input_arg
+            return None
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 1, "maxIterations": 3}}
+        await workflow._send_followup_to_sandbox(message="m", artifact_ids=[], meta=meta)
+
+        assert captured["input"].meta == meta
 
 
 class TestReapOrphanedSandbox:
@@ -737,7 +780,7 @@ class TestHandleFollowupInFlightTracking:
 
         snapshot: dict[str, bool] = {}
 
-        async def fake_send(message=None, artifact_ids=None):
+        async def fake_send(message=None, artifact_ids=None, meta=None):
             snapshot["in_flight_at_await"] = "ack-track" in workflow._in_flight_followup_ack_ids
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send)
@@ -755,7 +798,7 @@ class TestHandleFollowupInFlightTracking:
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
 
-        async def fake_send_raises(message=None, artifact_ids=None):
+        async def fake_send_raises(message=None, artifact_ids=None, meta=None):
             raise RuntimeError("sandbox dead")
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_raises)

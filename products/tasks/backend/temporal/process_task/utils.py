@@ -255,6 +255,9 @@ class RunState(BaseModel, extra="allow"):
     pending_user_message: str | None = None
     pending_user_artifact_ids: list[str] | None = None
     pending_user_message_ts: str | None = None
+    # Automated-turn metadata for a staged `pending_user_message` (forwarded to
+    # the sandbox `user_message` under `_meta`). None for human/first messages.
+    pending_user_message_meta: dict[str, Any] | None = None
     initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None

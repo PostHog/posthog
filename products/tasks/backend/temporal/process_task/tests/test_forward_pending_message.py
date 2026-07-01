@@ -94,8 +94,33 @@ class TestForwardPendingUserMessage(TestCase):
 
         mock_send.assert_called_once()
         assert mock_send.call_args[0][1] == "fix the tests"
+        # Untagged first message: no automated-check meta forwarded.
+        assert mock_send.call_args.kwargs["meta"] is None
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_pending_message_meta_forwarded_and_cleared(self, mock_send, mock_token):
+        # A staged automated tag (e.g. a CI follow-up routed via state) is
+        # forwarded under _meta and cleared alongside the message, so it never
+        # leaks onto a later human turn.
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 2, "maxIterations": 3}}
+        run = self._make_run(
+            state={
+                "pending_user_message": "address ci",
+                "pending_user_message_meta": meta,
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        forward_pending_user_message(str(run.id))
+
+        assert mock_send.call_args.kwargs["meta"] == meta
+        run.refresh_from_db()
+        assert "pending_user_message" not in run.state
+        assert "pending_user_message_meta" not in run.state
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")

@@ -162,13 +162,16 @@ class PendingFollowup:
 
     `ack_id` is echoed back to the parent once the follow-up has been
     dispatched to the sandbox. `source` is metadata for logs/metrics — the
-    child does not branch on it; the parent has already decided.
+    child does not branch on it; the parent has already decided. `meta` is
+    forwarded verbatim to the sandbox `user_message` under `_meta` (present
+    only for automated turns the parent tagged, e.g. CI follow-ups).
     """
 
     message: str | None
     artifact_ids: list[str]
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    meta: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -636,12 +639,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
+        meta: Optional[dict[str, Any]] = None,
     ) -> None:
         """Accept a follow-up message from the parent and queue it.
 
         Whether this is a user-driven message or a CI prompt is decided by
         the parent; the `source` value is only used for logs/metrics. The
-        child always dispatches what it is told.
+        child always dispatches what it is told. `meta` (present only on
+        automated turns) rides through to the sandbox `user_message` `_meta`.
+        The param defaults to None so pre-existing 4-arg signals — human
+        follow-ups and in-flight replays — deserialize unchanged.
         """
         context = self._context
         workflow.logger.info(
@@ -677,6 +684,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 artifact_ids=artifact_ids or [],
                 ack_id=ack_id,
                 source=source,
+                meta=meta,
             )
         )
 
@@ -721,6 +729,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    meta=followup.meta,
                 )
                 self._enqueue_ack(signal_name=SEND_FOLLOWUP_SIGNAL, ack_id=followup.ack_id)
             except Exception as e:
@@ -1169,7 +1178,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         elif result.error:
             workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self, message: str | None, artifact_ids: list[str], meta: Optional[dict[str, Any]] = None
+    ) -> None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
             run_id=self.context.run_id,
@@ -1183,6 +1194,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
+                meta=meta,
             ),
             start_to_close_timeout=timedelta(minutes=35),
             retry_policy=RetryPolicy(maximum_attempts=1),

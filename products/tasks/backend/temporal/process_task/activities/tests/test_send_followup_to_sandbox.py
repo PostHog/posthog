@@ -65,3 +65,24 @@ class TestSendFollowupToSandbox(BaseTest):
         payload = mock_conn.xadd.call_args.args[1]["data"]
         event = json.loads(payload)
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
+
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+    )
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message")
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun.objects")
+    def test_forwards_meta_to_user_message(
+        self, mock_task_run_objects, mock_send_user_message, mock_get_tasks_stream_redis_sync
+    ):
+        # The activity is the exit seam of the live CI path — it must pass the
+        # input's meta through to send_user_message (which puts it under _meta).
+        task_run = MagicMock()
+        task_run.task.created_by = None
+        mock_task_run_objects.select_related.return_value.get.return_value = task_run
+        mock_send_user_message.return_value = MagicMock(success=True, data={"result": {"stopReason": "end_turn"}})
+        mock_get_tasks_stream_redis_sync.return_value = MagicMock()
+
+        meta = {"automatedCheck": {"kind": "pr_ci_followup", "iteration": 1, "maxIterations": 3}}
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-123", message="hello", meta=meta))
+
+        self.assertEqual(mock_send_user_message.call_args.kwargs["meta"], meta)

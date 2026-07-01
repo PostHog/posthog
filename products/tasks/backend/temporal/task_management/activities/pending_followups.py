@@ -30,7 +30,7 @@ PENDING_FOLLOWUPS_STATE_KEY = "pending_external_followups"
 @dataclass
 class PersistPendingFollowupsInput:
     run_id: str
-    # Pre-serialized list of {message, artifact_ids, source}. The workflow
+    # Pre-serialized list of {message, artifact_ids, source, meta}. The workflow
     # serializes its `PendingExternalFollowup` dataclasses here so the
     # activity doesn't need to import workflow-side types.
     followups: list[dict[str, Any]]

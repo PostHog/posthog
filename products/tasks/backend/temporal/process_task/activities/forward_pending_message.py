@@ -76,6 +76,10 @@ def forward_pending_user_message(run_id: str) -> None:
         state = task_run.state or {}
         pending_message = state.get("pending_user_message")
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
+        # Automated-turn tag staged alongside the message (e.g. a CI follow-up
+        # forwarded via state rather than the live signal). None for human
+        # first messages, which stay untagged.
+        pending_message_meta = state.get("pending_user_message_meta")
         if not pending_message and not pending_user_artifact_ids:
             return
 
@@ -103,6 +107,7 @@ def forward_pending_user_message(run_id: str) -> None:
             artifacts=pending_artifacts or None,
             auth_token=auth_token,
             timeout=90,
+            meta=pending_message_meta,
         )
         logger.info(
             "forward_pending_message_attempted",
@@ -117,6 +122,7 @@ def forward_pending_user_message(run_id: str) -> None:
                 artifacts=pending_artifacts or None,
                 auth_token=auth_token,
                 timeout=90,
+                meta=pending_message_meta,
             )
 
         if not result.success and result.retryable:
@@ -139,7 +145,12 @@ def forward_pending_user_message(run_id: str) -> None:
 
         TaskRun.update_state_atomic(
             run_id,
-            remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
+            remove_keys=[
+                "pending_user_message",
+                "pending_user_artifact_ids",
+                "pending_user_message_ts",
+                "pending_user_message_meta",
+            ],
         )
 
         if result.success:

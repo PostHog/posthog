@@ -15,6 +15,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     CI_FOLLOW_UP_DELAY,
+    CI_FOLLOWUP_META_KIND,
     DEFAULT_CI_MESSAGE,
     HEARTBEAT_DEBOUNCE,
     MAX_ACK_RETRIES,
@@ -87,6 +88,11 @@ class PendingExternalFollowup:
     message: str | None
     artifact_ids: list[str]
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    # Automated-turn metadata (e.g. `{"automatedCheck": {...}}`) forwarded to
+    # the sandbox's `user_message` under `_meta`. None for human follow-ups.
+    # Carried through re-queue and persistence so a re-dispatched CI follow-up
+    # keeps the iteration it was tagged with.
+    meta: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -198,6 +204,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._last_active_time: Optional[datetime] = None
         self._ci_repetitions: int = 0
         self._pr_fingerprint: Optional[str] = None
+        # Last PR url seen for this sandbox session; fed into the CI follow-up's
+        # `_meta.automatedCheck.prUrl`. Set whenever `_should_run_ci_follow_up`
+        # finds a PR.
+        self._pr_url: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Input parsing
@@ -516,6 +526,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 message=followup.message,
                 artifact_ids=followup.artifact_ids,
                 source=followup.source,
+                meta=followup.meta,
             )
         # The persisted queue is the orchestrator's recovery buffer — keep
         # it in sync after every drain so a restart sees an accurate picture
@@ -569,11 +580,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
     def _handle_shutdown_rejection(self, slot: PendingAckSlot) -> bool:
         """Re-queue rejected follow-up work. Returns True if anything was re-queued."""
         if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-            # signal_args = [ack_id, message, artifact_ids, source]
-            _ack_id, message, artifact_ids, source = slot.signal_args
+            # signal_args = [ack_id, message, artifact_ids, source, (meta?)] —
+            # meta is only present on tagged (CI) follow-ups.
+            _ack_id, message, artifact_ids, source, *rest = slot.signal_args
+            meta = rest[0] if rest else None
             self._pending_external_followups.insert(
                 0,
-                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source),
+                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, meta=meta),
             )
             workflow.logger.warning(
                 "task_management_followup_requeued_after_shutdown",
@@ -619,9 +632,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
         requeued = 0
         for slot in list(self._pending_ack_slots.values()):
             if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-                _ack_id, message, artifact_ids, source = slot.signal_args
+                # signal_args = [ack_id, message, artifact_ids, source, (meta?)].
+                _ack_id, message, artifact_ids, source, *rest = slot.signal_args
+                meta = rest[0] if rest else None
                 self._pending_external_followups.append(
-                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source)
+                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, meta=meta)
                 )
                 requeued += 1
         if requeued:
@@ -639,6 +654,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._sandbox_alive = False
         self._ci_repetitions = 0
         self._pr_fingerprint = None
+        self._pr_url = None
         self._heartbeat_received = False
         self._last_active_time = None
 
@@ -670,6 +686,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     message=item.get("message"),
                     artifact_ids=list(item.get("artifact_ids") or []),
                     source=item.get("source", FOLLOWUP_SOURCE_USER),
+                    meta=item.get("meta"),
                 )
             )
         # Seed the persistence snapshot so the next `_persist_pending_followups`
@@ -760,6 +777,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         message: str | None,
         artifact_ids: list[str],
         source: str = FOLLOWUP_SOURCE_USER,
+        meta: Optional[dict[str, Any]] = None,
     ) -> None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
@@ -770,6 +788,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         ack_id = self._new_ack_id()
         signal_args: list[Any] = [ack_id, message, artifact_ids, source]
+        # Append meta only when present, so untagged (human) follow-ups keep the
+        # exact 4-arg wire shape they had before — byte-identical on the wire
+        # and across replay. The child's signal handler defaults meta to None.
+        if meta is not None:
+            signal_args.append(meta)
         # Register the slot *before* sending so an in-flight send-failure
         # leaves the slot intact for the retry loop to re-attempt. The child
         # dedupes by ack_id so re-sending is safe.
@@ -907,6 +930,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             return CIFollowUpDecision.NO_PR
+        # `get_pr_context` only returns a context when a PR url is present, so
+        # this is always the live PR — stash it for the CI follow-up's meta.
+        self._pr_url = pr_context.pr_url
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed",
@@ -931,10 +957,29 @@ class TaskManagementWorkflow(PostHogWorkflow):
         return CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
+        # Tag the turn *before* the increment: `_ci_repetitions` is the count
+        # already done, so the turn being dispatched is `+ 1` (1-based).
+        meta = self._build_ci_follow_up_meta(iteration=self._ci_repetitions + 1)
         self._ci_repetitions += 1
         ci_message = (self._context.ci_prompt if self._context else None) or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
-        await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI)
+        await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI, meta=meta)
+
+    def _build_ci_follow_up_meta(self, *, iteration: int) -> dict[str, Any]:
+        """Build the `_meta` tagging an automated CI follow-up turn.
+
+        The desktop client reads `_meta.automatedCheck` to render these turns as
+        a compact, collapsed row instead of a wall of text in the user's voice.
+        `prUrl` is only included when a PR url is known.
+        """
+        automated_check: dict[str, Any] = {
+            "kind": CI_FOLLOWUP_META_KIND,
+            "iteration": iteration,
+            "maxIterations": MAX_CI_REPETITIONS,
+        }
+        if self._pr_url:
+            automated_check["prUrl"] = self._pr_url
+        return {"automatedCheck": automated_check}
 
     # ------------------------------------------------------------------
     # Activities used directly by the parent

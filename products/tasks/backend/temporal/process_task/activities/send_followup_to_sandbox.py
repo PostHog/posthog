@@ -42,6 +42,9 @@ class SendFollowupToSandboxInput:
     message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     artifact_ids: list[str] | None = None
+    # Automated-turn metadata forwarded to the sandbox `user_message` under
+    # `_meta`. None for human follow-ups.
+    meta: dict[str, Any] | None = None
 
 
 @activity.defn
@@ -88,6 +91,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         artifacts=artifacts,
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
+        meta=input.meta,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
