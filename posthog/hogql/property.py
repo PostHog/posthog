@@ -41,7 +41,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.database.models import BooleanDatabaseField, FloatDatabaseField, IntegerDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
@@ -375,6 +375,68 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+# Operators that compare the property against `value`, so a numeric column needs a numeric constant.
+_NUMERIC_COMPARISON_OPERATORS = {
+    PropertyOperator.EXACT,
+    PropertyOperator.IS_NOT,
+    PropertyOperator.LT,
+    PropertyOperator.LTE,
+    PropertyOperator.GT,
+    PropertyOperator.GTE,
+    PropertyOperator.MIN,
+    PropertyOperator.MAX,
+    PropertyOperator.BETWEEN,
+    PropertyOperator.NOT_BETWEEN,
+    PropertyOperator.IN_,
+    PropertyOperator.NOT_IN,
+}
+
+
+def _is_numeric_metric_property(property: Property) -> bool:
+    """Whether the property targets a numeric session or recording metric column.
+
+    These resolve to Int/Float columns in ClickHouse (e.g. session ``$autocapture_count``
+    or recording ``click_count``), so comparing them against a raw string constant makes
+    ClickHouse fail the whole query with "Cannot convert string to Int"."""
+    if property.type == "session":
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        return isinstance(field_definition, IntegerDatabaseField | FloatDatabaseField)
+    if property.type == "recording":
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        prop_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("replay", {}).get(property.key)
+        return bool(prop_def and prop_def.get("type") == "Numeric")
+    return False
+
+
+def _coerce_to_number(value: ValueT, property: Property) -> ValueT:
+    """Coerce a single filter value to int/float, or raise a clean QueryError.
+
+    Booleans and ``None`` pass through untouched; already-numeric values are returned
+    as-is. A non-numeric value (e.g. an element label mistakenly paired with a numeric
+    metric key) raises a user-facing error instead of falling through to ClickHouse."""
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        pass
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        raise QueryError(f"Cannot filter numeric property '{property.key}' by non-numeric value '{value}'")
+
+
+def _handle_numeric_values(value: ValueT, property: Property) -> ValueT:
+    """Coerce filter values for numeric session/recording metric columns (see
+    ``_is_numeric_metric_property``). No-op for every other property type."""
+    if not _is_numeric_metric_property(property):
+        return value
+    if isinstance(value, list):
+        return [_coerce_to_number(v, property) for v in value]
+    return _coerce_to_number(value, property)
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -497,7 +559,11 @@ def _expr_to_compare_op(
             left=expr,
             right=ast.Constant(value=None),
         )
-    elif operator == PropertyOperator.ICONTAINS:
+
+    if operator in _NUMERIC_COMPARISON_OPERATORS:
+        value = _handle_numeric_values(value, property)
+
+    if operator == PropertyOperator.ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
             return _multi_search_found(_create_multi_search_call(expr, value))

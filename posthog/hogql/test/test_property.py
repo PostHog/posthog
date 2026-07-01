@@ -1046,6 +1046,51 @@ class TestProperty(BaseTest):
             self._parse_expr("session.$is_bounce = false"),
         )
 
+    @parameterized.expand(
+        [
+            ("exact", "session.$autocapture_count = 5"),
+            ("is_not", "session.$autocapture_count != 5"),
+            ("gt", "session.$autocapture_count > 5"),
+            ("lt", "session.$autocapture_count < 5"),
+            ("gte", "session.$autocapture_count >= 5"),
+            ("lte", "session.$autocapture_count <= 5"),
+        ]
+    )
+    def test_session_numeric_property_coercion(self, operator: str, expected: str):
+        # A raw string value against the Int `$autocapture_count` column would make ClickHouse
+        # fail the whole query with "Cannot convert string to Int" — the value must be coerced.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$autocapture_count", "value": "5", "operator": operator},
+                scope="event",
+            ),
+            self._parse_expr(expected),
+        )
+
+    def test_recording_numeric_property_coercion(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "recording", "key": "click_count", "value": "5", "operator": "gt"},
+                scope="replay",
+            ),
+            self._parse_expr("click_count > 5"),
+        )
+
+    @parameterized.expand(
+        [
+            ("session", "$autocapture_count", "event"),
+            ("recording", "click_count", "replay"),
+        ]
+    )
+    def test_numeric_property_non_numeric_value_raises_query_error(self, prop_type: str, key: str, scope: str):
+        # A numeric metric key paired with a text value (e.g. an element label) must raise a
+        # clean QueryError rather than falling through to ClickHouse as an unhandled 500.
+        with self.assertRaisesMessage(QueryError, f"Cannot filter numeric property '{key}' by non-numeric value"):
+            self._property_to_expr(
+                {"type": prop_type, "key": key, "value": "Save Changes", "operator": "exact"},
+                scope=scope,  # type: ignore[arg-type]
+            )
+
     def test_data_warehouse_person_property(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
