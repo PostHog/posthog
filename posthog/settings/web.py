@@ -573,6 +573,7 @@ SPECTACULAR_SETTINGS = {
             "event_metadata",
             "feature",
             "person",
+            "person_metadata",
             "cohort",
             "element",
             "static-cohort",

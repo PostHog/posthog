@@ -265,6 +265,7 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Read',
+            key: 'read_bytes',
             width: 130,
             sorter: (a, b) => groupBytes(a) - groupBytes(b),
             render: function Read(_, item): JSX.Element {

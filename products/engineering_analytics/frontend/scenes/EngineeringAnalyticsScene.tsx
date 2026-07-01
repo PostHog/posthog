@@ -59,7 +59,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent>
                 <SceneTitleSection
-                    name="CI analytics"
+                    name="Engineering analytics"
                     description={TAB_DESCRIPTIONS[activeTab]}
                     resourceType={{ type: 'health' }}
                     actions={
@@ -89,7 +89,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
-                    CI analytics is in alpha. Metrics are limited to CI events, and details may change.
+                    Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
                 <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
