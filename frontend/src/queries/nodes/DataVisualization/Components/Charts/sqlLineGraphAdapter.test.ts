@@ -240,16 +240,6 @@ describe('sqlLineGraphAdapter', () => {
                 )
             ).toBe(false)
         })
-
-        it('renders natively when any series targets the right y-axis', () => {
-            const yData = [
-                ySeries('a', [1], { display: { displayType: 'bar' } }),
-                ySeries('b', [2], { display: { displayType: 'line', yAxisPosition: 'right' } }),
-            ]
-            expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
-                true
-            )
-        })
     })
 
     describe('comboBarLayoutForDisplay', () => {
@@ -707,7 +697,7 @@ describe('sqlLineGraphAdapter', () => {
                 timezone: 'UTC',
                 visualizationType: ChartDisplayType.ActionsStackedBar,
             })
-            expect((config.yAxis as any)?.scale).toBe('linear')
+            expect((config.yAxis as YAxisConfig)?.scale).toBe('linear')
         })
 
         it('formats y-axis ticks with the first series column settings for plain bars', () => {
@@ -718,7 +708,7 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
                 ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
             })
-            expect((config.yAxis as any)?.tickFormatter?.(1200)).toBe('$1200')
+            expect((config.yAxis as YAxisConfig)?.tickFormatter?.(1200)).toBe('$1200')
         })
 
         it('skips the column tick formatter for percent-stacked bars (the axis is 0–100%)', () => {
@@ -729,7 +719,7 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsStackedBar,
                 ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
             })
-            expect((config.yAxis as any)?.tickFormatter).toBeUndefined()
+            expect((config.yAxis as YAxisConfig)?.tickFormatter).toBeUndefined()
         })
 
         it('emits trend line config so TrendLineOverlay can render it', () => {

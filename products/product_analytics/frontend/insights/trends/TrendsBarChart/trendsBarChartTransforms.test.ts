@@ -1,3 +1,5 @@
+import type { YAxisConfig } from '@posthog/quill-charts'
+
 import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -328,7 +330,7 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             isGrouped: false,
             trendsFilter: { aggregationAxisFormat: 'currency' },
         })
-        expect((cfg.yAxis as any)?.format).toBe('percentage_scaled')
+        expect((cfg.yAxis as YAxisConfig)?.format).toBe('percentage_scaled')
     })
 
     it('maps schema goal lines through the shared adapter', () => {
@@ -349,7 +351,7 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             yAxisLabel: 'Total events',
         })
         expect(cfg.xAxis?.label).toBe('Signup date')
-        expect((cfg.yAxis as any)?.label).toBe('Total events')
+        expect((cfg.yAxis as YAxisConfig)?.label).toBe('Total events')
     })
 
     it('passes valueLabels and tooltip through unchanged', () => {
