@@ -791,7 +791,9 @@ class CommercetoolsSourceConfig(config.Config):
 
 @config.config
 class ConcordSourceConfig(config.Config):
-    pass
+    api_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+    organization_id: str | None = None
 
 
 @config.config
