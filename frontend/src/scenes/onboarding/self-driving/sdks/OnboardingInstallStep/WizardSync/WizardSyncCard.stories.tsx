@@ -14,6 +14,9 @@ const meta: Meta<typeof WizardSyncCard> = {
         onExpand: { action: 'expand' },
         onDismiss: { action: 'dismiss' },
     },
+    // Most stories here render an in-progress spinner by design (connecting/running phases), which never
+    // resolves — skip the test runner's default "wait for loaders to hide" check.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     decorators: [
         (Story) => (
             <div className="bg-primary p-8 flex justify-end">

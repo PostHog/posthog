@@ -64,6 +64,9 @@ export const Default: Story = { args: { installing: false, repository: null, cod
  * turned-off ones read "Available" — turn any on and it gets installed too. */
 export const Installing: Story = {
     args: { installing: true, repository: 'acme-co/web', codebase: CONNECTED_CODEBASE },
+    // The install-in-progress spinner is the point of this story — it never resolves, so skip
+    // the test runner's default "wait for loaders to hide" check.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 /** GitHub not connected — the codebase-access card offers a "Connect GitHub" button to activate it as a

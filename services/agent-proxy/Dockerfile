@@ -28,7 +28,7 @@ RUN corepack enable
 # Copy lockfile + workspace manifests first so the install layer caches across
 # unrelated source changes. `patches/` is needed because pnpm-lock.yaml may
 # reference workspace-level patch files.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json .pnpmfile.cjs ./
 COPY patches/ patches/
 
 # pnpm needs every referenced workspace package's `package.json` BEFORE install

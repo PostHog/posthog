@@ -84,6 +84,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: { [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test' },
+        // These stories render the full app shell around a wizard step that's mid-flight by design
+        // (connecting/polling/queued) — skip the test runner's default "wait for loaders to hide" check.
+        testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
         mswDecorator({

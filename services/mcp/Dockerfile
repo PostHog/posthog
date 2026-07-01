@@ -29,7 +29,7 @@ RUN corepack enable
 # references workspace-level patch files (e.g. `heatmap.js@2.0.5.patch`).
 # Root `tsconfig.json` is needed because product tsconfigs (`products/*/tsconfig.json`)
 # extend it via relative path; vite reads it during the UI apps build.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json .pnpmfile.cjs ./
 COPY patches/ patches/
 
 # pnpm needs every referenced workspace package's `package.json` BEFORE install

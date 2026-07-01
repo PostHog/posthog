@@ -14,6 +14,9 @@ const meta: Meta<typeof InstallationProgressContent> = {
     // Provide the local-fallback callback to every story so the failed-run states show the full
     // "Run it yourself" + "Read the docs" recovery (no-op on non-error phases).
     argTypes: { onRetryLocally: { action: 'retry-locally' } },
+    // Most stories here render an in-progress spinner by design (connecting/running phases), which never
+    // resolves — skip the test runner's default "wait for loaders to hide" check.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     // Width-bound to the onboarding card so the stepper wraps as it does in product.
     decorators: [
         (Story) => (
