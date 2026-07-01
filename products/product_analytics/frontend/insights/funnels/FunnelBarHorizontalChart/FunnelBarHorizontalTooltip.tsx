@@ -65,7 +65,7 @@ export function FunnelBarHorizontalTooltip({
     }
 
     return quillTooltipEnabled ? (
-        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
+        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} color={entry.color} />
     ) : (
         <FunnelTooltip {...sharedProps} />
     )

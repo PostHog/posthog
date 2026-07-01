@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { TooltipSurface } from '@posthog/quill-charts'
+import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -23,6 +23,8 @@ export interface FunnelStepTooltipProps {
     aggregateConversionRate?: number | null
     /** True when the cursor is over the unfilled track area (drop-off region) rather than the bar. */
     isDropOffHover?: boolean
+    /** Series color — renders a swatch dot next to the step header. */
+    color?: string
 }
 
 export function FunnelStepTooltip({
@@ -34,6 +36,7 @@ export function FunnelStepTooltip({
     comparePeriodDateRange,
     aggregateConversionRate,
     isDropOffHover = false,
+    color,
 }: FunnelStepTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -93,7 +96,8 @@ export function FunnelStepTooltip({
 
     return (
         <TooltipSurface>
-            <div className="font-semibold mb-0.5">
+            <div className="flex items-center gap-1.5 font-semibold mb-0.5">
+                {color && <TooltipSwatch color={color} />}
                 Step {stepIndex + 1}: {eventName}
             </div>
             {subLabel && <div className="mb-1 text-xs opacity-50 truncate">{subLabel}</div>}
