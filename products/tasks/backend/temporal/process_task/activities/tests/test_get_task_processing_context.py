@@ -146,21 +146,47 @@ class TestGetTaskProcessingContextActivity:
         assert result.has_github_credentials is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_requires_slack_actor(self, activity_environment, team, user):
+    def test_get_task_processing_context_requires_valid_slack_actor(self, activity_environment, team, user):
         task = Task.objects.create(
             team=team,
             created_by=user,
-            title="Slack task without actor",
+            title="Slack task with unresolvable actor",
             description="Summarize the thread",
             origin_product=Task.OriginProduct.SLACK,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "user",
+                "slack_actor_user_id": user.id + 999_999,
+            }
+        )
 
         with pytest.raises(TaskInvalidStateError):
             async_to_sync(activity_environment.run)(
                 get_task_processing_context,
                 GetTaskProcessingContextInput(run_id=str(task_run.id)),
             )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_grandfathers_slack_runs_without_actor_state(
+        self, activity_environment, team, user
+    ):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task started before actor tracking",
+            description="Summarize the thread",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.distinct_id == get_actor_distinct_id(user)
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_general_task_kind(self, activity_environment, team, user):

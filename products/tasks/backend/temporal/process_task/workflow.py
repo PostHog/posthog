@@ -56,7 +56,9 @@ from .activities.send_followup_to_sandbox import (
     send_followup_to_sandbox,
 )
 from .activities.send_permission_response_to_sandbox import (
+    SendPermissionDenialGuidanceInput,
     SendPermissionResponseToSandboxInput,
+    send_permission_denial_guidance,
     send_permission_response_to_sandbox,
 )
 from .activities.start_agent_server import (
@@ -986,6 +988,32 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _send_permission_response_to_sandbox(self, response: PendingPermissionResponse) -> None:
+        if response.is_denial and response.denial_message:
+            # Best-effort and single-attempt: the guidance message is not idempotent,
+            # so it must not share a retry boundary with the response delivery below,
+            # and a failure to deliver it must not block the rejection itself.
+            try:
+                await workflow.execute_activity(
+                    send_permission_denial_guidance,
+                    SendPermissionDenialGuidanceInput(
+                        run_id=self.context.run_id,
+                        request_id=response.request_id,
+                        actor_user_id=response.actor_user_id,
+                        denial_message=response.denial_message,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=20),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.warning(
+                    "permission_denial_guidance_failed",
+                    extra={
+                        "run_id": self.context.run_id,
+                        "request_id": response.request_id,
+                        "error": str(e),
+                    },
+                )
+
         await workflow.execute_activity(
             send_permission_response_to_sandbox,
             SendPermissionResponseToSandboxInput(
@@ -995,7 +1023,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 actor_user_id=response.actor_user_id,
                 actor_slack_user_id=response.actor_slack_user_id,
                 is_denial=response.is_denial,
-                denial_message=response.denial_message,
                 broker_reason=response.broker_reason,
             ),
             start_to_close_timeout=timedelta(seconds=45),

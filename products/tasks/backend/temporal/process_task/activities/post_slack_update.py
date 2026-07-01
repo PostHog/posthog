@@ -67,6 +67,8 @@ _RECOVERY_PROMPTS = {
     ),
 }
 
+SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+
 
 @dataclass
 class PostSlackUpdateInput:
@@ -248,7 +250,7 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
 
     if _is_suppressed_permission_rejection_error(task_run, error):
         handler.update_reaction("hedgehog")
-        handler.delete_progress()
+        handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
         handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))

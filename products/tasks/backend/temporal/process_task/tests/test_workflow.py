@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,
     GetSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
+    SendPermissionDenialGuidanceInput,
     SendPermissionResponseToSandboxInput,
     StartAgentServerOutput,
     TaskProcessingContext,
@@ -39,6 +40,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    send_permission_denial_guidance,
     send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
@@ -359,10 +361,10 @@ class TestProcessTaskWorkflowUnit:
             },
         )
 
-    async def test_send_permission_response_to_sandbox_activity_scheduled(self, monkeypatch):
+    async def test_denial_schedules_guidance_before_permission_response(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[tuple[object, SendPermissionResponseToSandboxInput]] = []
+        activity_calls: list[tuple[object, object]] = []
 
         async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
             activity_calls.append((activity_fn, activity_input))
@@ -382,19 +384,73 @@ class TestProcessTaskWorkflowUnit:
             )
         )
 
-        assert len(activity_calls) == 1
-        activity_fn, activity_input = activity_calls[0]
-        assert activity_fn is send_permission_response_to_sandbox
-        assert activity_input == SendPermissionResponseToSandboxInput(
+        assert [call[0] for call in activity_calls] == [
+            send_permission_denial_guidance,
+            send_permission_response_to_sandbox,
+        ]
+        assert activity_calls[0][1] == SendPermissionDenialGuidanceInput(
+            run_id="run-id",
+            request_id="perm-1",
+            actor_user_id=42,
+            denial_message="Please choose another path.",
+        )
+        assert activity_calls[1][1] == SendPermissionResponseToSandboxInput(
             run_id="run-id",
             request_id="perm-1",
             option_id="reject",
             actor_user_id=42,
             actor_slack_user_id="U123",
             is_denial=True,
-            denial_message="Please choose another path.",
             broker_reason="slack_human_response",
         )
+
+    async def test_denial_guidance_failure_still_delivers_permission_response(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is send_permission_denial_guidance:
+                raise RuntimeError("sandbox unavailable")
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="reject",
+                actor_user_id=42,
+                is_denial=True,
+                denial_message="Please choose another path.",
+            )
+        )
+
+        assert activity_calls == [send_permission_denial_guidance, send_permission_response_to_sandbox]
+
+    async def test_approval_skips_denial_guidance_activity(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
+            activity_calls.append(activity_fn)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="allow",
+                actor_user_id=42,
+                broker_reason="slack_human_response",
+            )
+        )
+
+        assert activity_calls == [send_permission_response_to_sandbox]
 
     @pytest.mark.parametrize(
         "state, expected",

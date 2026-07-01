@@ -450,7 +450,7 @@ class TestGetGitIdentityEnvVars(TestCase):
 
 
 class TestSlackTaskRunActorUser(TestCase):
-    def test_credential_user_fails_closed_when_slack_actor_missing(self) -> None:
+    def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:
         from posthog.models import Organization, Team
         from posthog.models.user import User
 
@@ -463,9 +463,28 @@ class TestSlackTaskRunActorUser(TestCase):
             created_by=creator,
             origin_product=Task.OriginProduct.SLACK,
         )
+        # Slack runs started before actor tracking carry no slack_actor_user_id at all;
+        # they must keep running on the creator's credentials across the rollout.
         state = {"interaction_origin": "slack"}
 
         assert get_task_run_actor_user(task, state) == creator
+        assert get_task_run_credential_user(task, state) == creator
+
+    def test_credential_user_fails_closed_when_slack_actor_invalid(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-invalid-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-invalid-team")
+        creator = User.objects.create(email="creator-invalid@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id + 999_999}
+
         assert get_task_run_credential_user(task, state) is None
 
     def test_credential_user_allows_creator_when_slack_actor_is_creator(self) -> None:

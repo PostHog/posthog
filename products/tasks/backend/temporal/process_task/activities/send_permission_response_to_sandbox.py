@@ -13,8 +13,16 @@ from products.tasks.backend.temporal.process_task.utils import get_actor_distinc
 
 logger = structlog.get_logger(__name__)
 
-PERMISSION_DENIAL_FOLLOWUP_TIMEOUT_SECONDS = 5
+PERMISSION_DENIAL_GUIDANCE_TIMEOUT_SECONDS = 10
 PERMISSION_RESPONSE_TIMEOUT_SECONDS = 30
+
+
+@dataclass
+class SendPermissionDenialGuidanceInput:
+    run_id: str
+    request_id: str
+    actor_user_id: int
+    denial_message: str
 
 
 @dataclass
@@ -25,54 +33,74 @@ class SendPermissionResponseToSandboxInput:
     actor_user_id: int
     actor_slack_user_id: str | None = None
     is_denial: bool = False
-    denial_message: str | None = None
     broker_reason: str | None = None
+
+
+def _load_run_and_actor(run_id: str, request_id: str, actor_user_id: int) -> tuple[TaskRun, User]:
+    try:
+        task_run = TaskRun.objects.select_related("task", "task__created_by", "task__team").get(id=run_id)
+    except TaskRun.DoesNotExist as e:
+        logger.warning("permission_response_run_not_found", run_id=run_id, request_id=request_id)
+        raise RuntimeError("Task run not found") from e
+
+    try:
+        actor = User.objects.get(id=actor_user_id)
+    except User.DoesNotExist as e:
+        logger.warning(
+            "permission_response_actor_not_found",
+            run_id=run_id,
+            request_id=request_id,
+            actor_user_id=actor_user_id,
+        )
+        raise RuntimeError("Permission response actor not found") from e
+
+    return task_run, actor
 
 
 @activity.defn
 @close_db_connections
-def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxInput) -> None:
-    """Deliver an agent permission response from the durable task workflow."""
-    try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by", "task__team").get(id=input.run_id)
-    except TaskRun.DoesNotExist as e:
-        logger.warning("permission_response_run_not_found", run_id=input.run_id, request_id=input.request_id)
-        raise RuntimeError("Task run not found") from e
+def send_permission_denial_guidance(input: SendPermissionDenialGuidanceInput) -> None:
+    """Give the agent context about why its request was denied.
 
-    try:
-        actor = User.objects.get(id=input.actor_user_id)
-    except User.DoesNotExist as e:
-        logger.warning(
-            "permission_response_actor_not_found",
-            run_id=input.run_id,
-            request_id=input.request_id,
-            actor_user_id=input.actor_user_id,
-        )
-        raise RuntimeError("Permission response actor not found") from e
+    Runs as its own single-attempt activity so retries of the permission response
+    can never re-send the guidance message. The workflow treats a failure here as
+    best-effort: the rejection itself is still delivered.
+    """
+    task_run, actor = _load_run_and_actor(input.run_id, input.request_id, input.actor_user_id)
 
     auth_token = create_sandbox_connection_token(
         task_run,
         user_id=actor.id,
         distinct_id=get_actor_distinct_id(actor),
     )
-
-    if input.is_denial and input.denial_message:
-        denial_result = send_user_message(
-            task_run,
-            input.denial_message,
-            auth_token=auth_token,
-            timeout=PERMISSION_DENIAL_FOLLOWUP_TIMEOUT_SECONDS,
+    result = send_user_message(
+        task_run,
+        input.denial_message,
+        auth_token=auth_token,
+        timeout=PERMISSION_DENIAL_GUIDANCE_TIMEOUT_SECONDS,
+    )
+    if not result.success:
+        logger.warning(
+            "permission_response_denial_guidance_failed",
+            run_id=input.run_id,
+            request_id=input.request_id,
+            status_code=result.status_code,
+            error=result.error,
         )
-        if not denial_result.success:
-            logger.warning(
-                "permission_response_denial_followup_failed",
-                run_id=input.run_id,
-                request_id=input.request_id,
-                option_id=input.option_id,
-                status_code=denial_result.status_code,
-                error=denial_result.error,
-            )
-            raise RuntimeError(denial_result.error or "Failed to send permission denial follow-up")
+        raise RuntimeError(result.error or "Failed to send permission denial guidance")
+
+
+@activity.defn
+@close_db_connections
+def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxInput) -> None:
+    """Deliver an agent permission response from the durable task workflow."""
+    task_run, actor = _load_run_and_actor(input.run_id, input.request_id, input.actor_user_id)
+
+    auth_token = create_sandbox_connection_token(
+        task_run,
+        user_id=actor.id,
+        distinct_id=get_actor_distinct_id(actor),
+    )
 
     result = send_agent_command(
         task_run,

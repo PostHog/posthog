@@ -105,8 +105,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.temporal.client import signal_task_permission_response
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -3237,18 +3236,13 @@ def _sync_permission_config_to_task_run(context: dict[str, Any], integration: In
         return
 
     try:
-        task_run = TaskRun.objects.only("id", "status").get(
-            id=run_id,
-            task_id=task_id,
-            team_id=integration.team_id,
-        )
-    except (TaskRun.DoesNotExist, ValidationError, ValueError):
+        task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    except (ValidationError, ValueError):
+        return
+    if task_run is None or str(task_run.task_id) != task_id or task_run.is_terminal:
         return
 
-    if task_run.is_terminal:
-        return
-
-    TaskRun.update_state_atomic(task_run.id, updates={"slack_autonomy_tier": selected_tier})
+    tasks_facade.update_task_run_state(task_run.id, updates={"slack_autonomy_tier": selected_tier})
 
 
 def _handle_permission_config_select(payload: dict) -> HttpResponse:
@@ -3328,13 +3322,8 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(option_id, str) or option_id not in options_by_id:
         return HttpResponse(status=200)
 
-    try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by").get(
-            id=run_id,
-            task_id=task_id,
-            team_id=integration.team_id,
-        )
-    except TaskRun.DoesNotExist:
+    task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    if task_run is None or str(task_run.task_id) != task_id:
         return HttpResponse(status=200)
 
     if task_run.is_terminal:
@@ -3367,25 +3356,25 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if action_id == SLACK_PERMISSION_ACTION_DENY:
         denial_message = _build_permission_denial_followup_message(context, option_label)
 
-    try:
-        signal_task_permission_response(
-            task_run.workflow_id,
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_context.user.id,
-            actor_slack_user_id=clicker_slack_user_id,
-            is_denial=action_id == SLACK_PERMISSION_ACTION_DENY,
-            denial_message=denial_message,
-            broker_reason="slack_human_response",
-        )
-    except Exception:
+    signaled = tasks_facade.signal_task_run_permission_response(
+        task_run.id,
+        task_run.task_id,
+        integration.team_id,
+        request_id=request_id,
+        option_id=option_id,
+        actor_user_id=actor_context.user.id,
+        actor_slack_user_id=clicker_slack_user_id,
+        is_denial=action_id == SLACK_PERMISSION_ACTION_DENY,
+        denial_message=denial_message,
+        broker_reason="slack_human_response",
+    )
+    if signaled is not True:
         logger.warning(
             "slack_app_permission_response_signal_failed",
             run_id=run_id,
             request_id=request_id,
             option_id=option_id,
             actor_user_id=actor_context.user.id,
-            exc_info=True,
         )
         _post_permission_ephemeral_feedback(
             payload,

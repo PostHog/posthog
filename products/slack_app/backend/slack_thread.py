@@ -490,6 +490,13 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
+    def post_note(self, text: str) -> None:
+        """Post a plain one-line note to the thread, replacing any progress message."""
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        ]
+        self._delete_progress_and_post(text, blocks)
+
     def delete_progress(self) -> None:
         """Delete the progress message if it exists."""
         try:

@@ -34,7 +34,9 @@ from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .send_permission_response_to_sandbox import (
+    SendPermissionDenialGuidanceInput,
     SendPermissionResponseToSandboxInput,
+    send_permission_denial_guidance,
     send_permission_response_to_sandbox,
 )
 from .start_agent_server import (
@@ -77,6 +79,7 @@ __all__ = [
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
     "RelaySandboxEventsInput",
+    "SendPermissionDenialGuidanceInput",
     "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
@@ -86,6 +89,7 @@ __all__ = [
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",
+    "send_permission_denial_guidance",
     "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",

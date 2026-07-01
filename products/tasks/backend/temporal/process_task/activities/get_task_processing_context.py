@@ -32,7 +32,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
     get_pr_authorship_mode,
-    get_task_run_actor_user,
+    get_task_run_credential_user,
     is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
@@ -528,11 +528,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
-    actor_user = get_task_run_actor_user(
-        task,
-        state,
-        allow_task_creator_fallback=not is_slack_interaction_state(state),
-    )
+    actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
             f"Task {task.id} has no valid Slack actor",

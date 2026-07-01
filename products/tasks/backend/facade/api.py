@@ -166,11 +166,13 @@ __all__ = [
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
+    "send_permission_response",
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_title",
     "signal_report_queryset",
+    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -2033,6 +2035,47 @@ def signal_task_run_user_message(
         signal_task_followup_message(run.workflow_id, content, artifact_ids)
     except Exception:
         logger.exception("Failed to signal follow-up message for task run %s", run.id)
+        return False
+    return True
+
+
+def signal_task_run_permission_response(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    request_id: str,
+    option_id: str,
+    actor_user_id: int,
+    actor_slack_user_id: str | None = None,
+    is_denial: bool = False,
+    denial_message: str | None = None,
+    broker_reason: str | None = None,
+) -> bool | None:
+    """Queue an agent permission response signal on the run's workflow.
+
+    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        signal_task_permission_response,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    try:
+        signal_task_permission_response(
+            run.workflow_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_user_id,
+            actor_slack_user_id=actor_slack_user_id,
+            is_denial=is_denial,
+            denial_message=denial_message,
+            broker_reason=broker_reason,
+        )
+    except Exception:
+        logger.exception("Failed to signal permission response for task run %s", run.id)
         return False
     return True
 
@@ -4001,6 +4044,27 @@ def send_user_message(
     if timeout is not None:
         extra["timeout"] = timeout
     return _send(run, message, auth_token=auth_token, **extra)
+
+
+def send_permission_response(
+    run_id: str | UUID,
+    *,
+    request_id: str,
+    option_id: str,
+    auth_token: str | None = None,
+):
+    """Answer a pending agent permission request in a run's live sandbox."""
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_agent_command,
+    )
+
+    run = TaskRun.objects.select_related("task").get(id=run_id)
+    return send_agent_command(
+        run,
+        method="permission_response",
+        params={"requestId": request_id, "optionId": option_id},
+        auth_token=auth_token,
+    )
 
 
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
