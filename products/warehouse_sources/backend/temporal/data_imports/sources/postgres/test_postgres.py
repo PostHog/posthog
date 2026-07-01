@@ -305,6 +305,10 @@ class TestPostgresSourceNonRetryableErrors:
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
+            # The socket-level variant of the same TLS drop (network blip / idle cull mid-stream). It
+            # triggers the offset-chunking recovery and must stay retryable — only the reconnect wall it
+            # can hit on a hot-standby-disabled replica is non-retryable (see the permanent cases below).
+            "consuming input failed: SSL SYSCALL error: EOF detected",
             "the connection is lost",
         ],
     )
@@ -334,6 +338,10 @@ class TestPostgresSourceNonRetryableErrors:
             # Manager), not PostgreSQL's "password authentication failed for user". Newlines are
             # normalized to spaces upstream, so the real message arrives as the doubled single line.
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong. connection to server at "127.0.0.1", port 35425 failed: FATAL:  This RDS Proxy requires TLS connections',
+            # A read replica started with `hot_standby = off` refuses every connection (SQLSTATE 57P03).
+            # Newlines are normalized to spaces upstream, so the FATAL/DETAIL pair arrives on one line.
+            # Permanent until the replica's config changes or it's promoted — must not keep retrying.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  the database system is not accepting connections DETAIL:  Hot standby mode is disabled.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -1062,6 +1070,14 @@ class TestIsConnectionDroppedError:
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :etimedout}"),
+            # The connection-refused sibling: Supavisor's TCP connect to its upstream backend is
+            # refused while the backend is briefly down, carrying "{:error, :econnrefused}". Same
+            # transient class as :etimedout — the in-process recovery reconnect must catch it rather
+            # than letting it escape and fail the whole sync.
+            psycopg.errors.ConnectionFailure(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  Failed to connect to database: {:error, :econnrefused}"
+            ),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -1090,6 +1106,11 @@ class TestIsConnectionDroppedError:
             # non-recoverable — the InternalError_ match is scoped to the known pooler codes
             # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
+            # libpq's bare English "Connection refused" is a permanent wrong-host/port
+            # misconfiguration (non-retryable in source.py) and must NOT be confused with Supavisor's
+            # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
+            # "refused" substring would wrongly retry it.
+            psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -3921,6 +3942,52 @@ class TestGetRowsToSync:
                 _get_rows_to_sync(cast(Any, cursor), count_query, logger)
 
         # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expect_raise",
+        [
+            # Full-table sync: the COUNT is a full scan while extraction streams sequentially via a
+            # server cursor, so a statement_timeout here says nothing about whether extraction will
+            # succeed. It must degrade to an unknown total (0), not fail setup with a raw, retryable
+            # QueryCanceled that floods error tracking and Temporal re-attempts forever.
+            (False, False),
+            # Incremental sync: the COUNT shares its WHERE with the chunked read, so the timeout is
+            # predictive — re-raise so the caller surfaces the "add an index" guidance.
+            (True, True),
+        ],
+    )
+    def test_statement_timeout_degrades_for_full_table_but_re_raises_for_incremental(
+        self, should_use_incremental_field, expect_raise
+    ):
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
+            if expect_raise:
+                with pytest.raises(psycopg.errors.QueryCanceled):
+                    _get_rows_to_sync(
+                        cast(Any, cursor),
+                        count_query,
+                        logger,
+                        should_use_incremental_field=should_use_incremental_field,
+                    )
+            else:
+                assert (
+                    _get_rows_to_sync(
+                        cast(Any, cursor),
+                        count_query,
+                        logger,
+                        should_use_incremental_field=should_use_incremental_field,
+                    )
+                    == 0
+                )
+
         mock_capture.assert_not_called()
 
 
