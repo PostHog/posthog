@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { ImproveFromLabelsButton } from '../ImproveFromLabelsButton'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -259,6 +260,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
+                {scanner && (
+                    <ImproveFromLabelsButton
+                        scannerId={scannerId}
+                        scannerName={scanner.name || 'Scanner'}
+                        scannerType={scanner.scanner_type}
+                        prompt={scanner.scanner_config.prompt}
+                    />
+                )}
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
