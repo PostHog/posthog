@@ -11,6 +11,8 @@ from unittest.mock import patch
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 
+from posthog.models import Team
+
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -22,6 +24,8 @@ from products.error_tracking.backend.models import (
 
 
 class ErrorTrackingIssueTestMixin:
+    team: Team
+
     def create_issue(self, fingerprints: list[str]) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         for fingerprint in fingerprints:

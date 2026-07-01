@@ -1,4 +1,5 @@
 import time
+from collections.abc import Sequence
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -66,7 +67,7 @@ class ErrorTrackingIssue(UUIDTModel):
         db_table = "posthog_errortrackingissue"
 
     def merge(
-        self, issue_ids: list[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
+        self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
     ) -> ErrorTrackingIssueMergeResult:
         team_id = self.team_id
         target_issue_id = self.id
@@ -212,7 +213,7 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
         db_table = "posthog_errortrackingissuefingerprintv2"
 
 
-def _normalize_source_issue_ids(*, issue_ids: list[str | UUID], target_issue_id: UUID) -> list[UUID]:
+def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue_id: UUID) -> list[UUID]:
     source_issue_ids: set[UUID] = set()
     for issue_id in issue_ids:
         normalized_issue_id = UUID(str(issue_id))
@@ -247,14 +248,14 @@ def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_i
 def _sync_error_tracking_issue_changes_on_commit(
     *, team_id: int, issue_ids: list[UUID], overrides: list[ErrorTrackingIssueFingerprintV2]
 ) -> None:
-    transaction.on_commit(
-        lambda team_id=team_id, overrides=overrides: update_error_tracking_issue_fingerprint_overrides(
-            team_id=team_id, overrides=overrides
-        )
-    )
-    transaction.on_commit(
-        lambda team_id=team_id, issue_ids=issue_ids: sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
-    )
+    def sync_fingerprint_overrides() -> None:
+        update_error_tracking_issue_fingerprint_overrides(team_id=team_id, overrides=overrides)
+
+    def sync_issues() -> None:
+        sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
+
+    transaction.on_commit(sync_fingerprint_overrides)
+    transaction.on_commit(sync_issues)
 
 
 class ErrorTrackingRelease(UUIDTModel):
