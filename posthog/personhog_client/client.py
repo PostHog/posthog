@@ -12,6 +12,7 @@ import structlog
 from prometheus_client import Counter, Enum, Histogram
 
 from posthog.personhog_client.interceptor import (
+    _RETRYABLE_CODES,
     ClientNameInterceptor,
     ConsistencyHeaderInterceptor,
     MetricsInterceptor,
@@ -171,7 +172,7 @@ class PersonHogClient:
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
         client_idle_timeout_ms: int = 0,
-        max_retries: int = 1,
+        max_retries: int = 2,
         initial_backoff_ms: int = 50,
         max_backoff_ms: int = 1000,
     ):
@@ -420,6 +421,16 @@ def require_personhog_client() -> PersonHogClient:
     return client
 
 
+def _is_transient_grpc_error(exc: BaseException) -> bool:
+    """A transient gRPC error is one the RetryInterceptor would have retried.
+
+    These are connection-level blips (router deploys, brief network stutters) rather
+    than genuine server faults, so callers should surface them as a retryable 503
+    instead of a hard 500.
+    """
+    return isinstance(exc, grpc.RpcError) and getattr(exc, "code", lambda: None)() in _RETRYABLE_CODES
+
+
 def personhog_call(
     operation: str,
     fn: Callable[[], _T],
@@ -433,7 +444,13 @@ def personhog_call(
     ``reraise_as`` wraps the exception in the given type before re-raising.
     Error metrics and a warning log are always recorded on failure regardless
     of ``reraise_as``.
+
+    Transient gRPC errors (e.g. UNAVAILABLE from a connection reset) that survive
+    the client's retries are translated into a retryable 503 (``PersonHogUnavailable``)
+    rather than bubbling up as an unhandled 500 — unless ``reraise_as`` is set, in which
+    case the caller's chosen wrapper takes precedence.
     """
+    from posthog.exceptions import PersonHogUnavailable
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.metrics import (
         PERSONHOG_ROUTING_ERRORS_TOTAL,
@@ -456,6 +473,8 @@ def personhog_call(
         logger.warning("personhog_%s_failure", operation, exc_info=True)
         if reraise_as is not None:
             raise reraise_as(f"personhog {operation} failed") from exc
+        if _is_transient_grpc_error(exc):
+            raise PersonHogUnavailable() from exc
         raise
 
     PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()

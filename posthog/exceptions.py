@@ -67,6 +67,12 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class PersonHogUnavailable(APIException):
+    status_code = 503
+    default_code = "personhog_unavailable"
+    default_detail = "Person data is temporarily unavailable. Please try again in a moment."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
