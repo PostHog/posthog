@@ -8,6 +8,7 @@
                 "enum": ["conversations", "error_tracking", "session_replay"],
                 "type": "string"
             },
+            "minItems": 1,
             "type": "array"
         }
     },
