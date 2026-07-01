@@ -42,9 +42,14 @@ function toPickerValue(dateFrom: string | null, dateTo: string | null): DateTime
             return { start: range.rangeSetter(now), end: now, range }
         }
     }
+    // Relative strings the LemonUI side can produce but that aren't in RANGE_TO_RELATIVE
+    // (e.g. "-14d", "mStart", "all") parse to an Invalid Date — fall back to the default
+    // window rather than render "Invalid Date" or throw on a later toISOString().
+    const parsedFrom = dateFrom ? dayjs(dateFrom) : null
+    const parsedTo = dateTo ? dayjs(dateTo) : null
     return {
-        start: dateFrom ? dayjs(dateFrom).toDate() : dayjs(now).subtract(7, 'day').toDate(),
-        end: dateTo ? dayjs(dateTo).toDate() : now,
+        start: parsedFrom?.isValid() ? parsedFrom.toDate() : dayjs(now).subtract(7, 'day').toDate(),
+        end: parsedTo?.isValid() ? parsedTo.toDate() : now,
         range: CUSTOM_RANGE,
     }
 }
