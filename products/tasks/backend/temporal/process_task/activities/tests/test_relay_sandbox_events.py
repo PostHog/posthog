@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import httpx_sse
@@ -413,6 +413,72 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
+    async def test_permission_request_dispatches_slack_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        permission_event = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "perm-1",
+                    "options": [{"kind": "allow_once", "optionId": "allow"}],
+                    "toolCall": {"rawInput": {"toolName": "Bash"}},
+                },
+            },
+        }
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+        task_run = SimpleNamespace(id="run-id")
+        dispatch_mock = MagicMock()
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(permission_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def fake_to_thread(func, *args):
+            func(*args)
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(relay_sandbox_events_module, "_safe_dispatch_slack_permission_request", dispatch_mock)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(object, task_run),
+        )
+
+        redis_stream.write_event.assert_any_await(permission_event)
+        dispatch_mock.assert_called_once_with(task_run, permission_event)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

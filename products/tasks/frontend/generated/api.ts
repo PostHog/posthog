@@ -47,6 +47,11 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunLivingArtifactCreateRequestApi,
+    TaskRunLivingArtifactEditRequestApi,
+    TaskRunLivingArtifactOpenResponseApi,
+    TaskRunLivingArtifactResponseApi,
+    TaskRunLivingArtifactsResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -843,6 +848,110 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsLivingArtifactsListUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/living_artifacts/`
+}
+
+/**
+ * Returns stable, versioned artifact handles created by a task run.
+ * @summary List living artifacts for a task run
+ */
+export const tasksRunsLivingArtifactsList = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactsResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi>(getTasksRunsLivingArtifactsListUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/living_artifacts/`
+}
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunLivingArtifactCreateRequestApi: TaskRunLivingArtifactCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(getTasksRunsLivingArtifactsCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunLivingArtifactCreateRequestApi),
+    })
+}
+
+export const getTasksRunsLivingArtifactsOpenUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/living_artifacts/${artifactId}/`
+}
+
+/**
+ * Return a stable living artifact handle and the current content when the adapter supports reads.
+ * @summary Open a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsOpen = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactOpenResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactOpenResponseApi>(
+        getTasksRunsLivingArtifactsOpenUrl(projectId, taskId, id, artifactId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsEditUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/living_artifacts/${artifactId}/edit/`
+}
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEdit = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    taskRunLivingArtifactEditRequestApi?: TaskRunLivingArtifactEditRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsEditUrl(projectId, taskId, id, artifactId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {

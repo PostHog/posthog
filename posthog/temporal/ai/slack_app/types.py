@@ -33,6 +33,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # Slack sets this on the event envelope for Slack Connect channels. It is
+    # threaded through to task run state so customer-facing Slack replies remain
+    # approval-gated even when a user's internal-write tier is full-auto.
+    is_ext_shared_channel: bool = False
 
 
 @dataclass

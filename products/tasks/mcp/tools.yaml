@@ -149,6 +149,18 @@ tools:
     tasks-runs-create:
         operation: tasks_runs_create
         enabled: false
+    tasks-runs-living-artifacts-create:
+        operation: tasks_runs_living_artifacts_create
+        enabled: false
+    tasks-runs-living-artifacts-edit:
+        operation: tasks_runs_living_artifacts_edit
+        enabled: false
+    tasks-runs-living-artifacts-list:
+        operation: tasks_runs_living_artifacts_list
+        enabled: false
+    tasks-runs-living-artifacts-open:
+        operation: tasks_runs_living_artifacts_open
+        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true

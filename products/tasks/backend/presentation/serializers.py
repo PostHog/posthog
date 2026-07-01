@@ -35,6 +35,7 @@ from products.tasks.backend.facade.run_config import (
     RuntimeAdapter,
     get_reasoning_effort_error,
 )
+from products.tasks.backend.models import TaskArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,9 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifact.ArtifactType.choices]
+TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifact.Adapter.choices]
+TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES = TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES
 
 
 def get_task_run_artifact_max_size_bytes(
@@ -656,6 +660,188 @@ class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
 
 class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable living artifact id. Use this id when editing the artifact.")
+    task_id = serializers.CharField(help_text="Task id this living artifact belongs to.")
+    run_id = serializers.CharField(help_text="Task run id that created or currently owns this artifact.")
+    team_id = serializers.IntegerField(help_text="Project id that owns this artifact.")
+    name = serializers.CharField(help_text="Human-readable artifact name.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        help_text="Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES,
+        help_text="Adapter that currently stores or edits the artifact.",
+    )
+    status = serializers.ChoiceField(
+        choices=[choice for choice, _label in TaskArtifact.Status.choices],
+        help_text="Current registry status for the artifact.",
+    )
+    location = serializers.JSONField(help_text="Adapter-specific location, such as S3 key or Slack canvas id.")
+    metadata = serializers.JSONField(help_text="Adapter-specific metadata for external storage and source tracking.")
+    current_version = serializers.IntegerField(help_text="Current version number for the artifact.")
+    versions = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="Chronological version records for this artifact.",
+    )
+    created_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when created.")
+    updated_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when last updated.")
+
+
+class TaskRunLivingArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunLivingArtifactResponseSerializer(many=True, help_text="Living artifacts for this task run.")
+
+
+class TaskRunLivingArtifactOpenResponseSerializer(TaskRunLivingArtifactResponseSerializer):
+    content = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Current artifact content when the adapter can read it directly.",
+    )
+
+
+class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Human-readable artifact name, used as the title.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        default=TaskArtifact.ArtifactType.DOCUMENT,
+        help_text="Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES,
+        required=False,
+        help_text="Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500000,
+        help_text="Markdown or text content for the initial artifact version.",
+    )
+    content_base64 = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.",
+    )
+    source_artifact_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact id to use as the initial content source.",
+    )
+    source_storage_path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact storage_path to use as the initial content source.",
+    )
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to persist with the living artifact.",
+    )
+
+    def validate(self, attrs):
+        has_content = bool(attrs.get("content"))
+        has_content_base64 = bool(attrs.get("content_base64"))
+        has_source = bool(attrs.get("source_artifact_id") or attrs.get("source_storage_path"))
+        if sum([has_content, has_content_base64, has_source]) != 1:
+            raise serializers.ValidationError(
+                {
+                    "content": "Provide exactly one of content, content_base64, source_artifact_id, or source_storage_path."
+                }
+            )
+        if has_content_base64:
+            try:
+                attrs["content_bytes"] = base64.b64decode(attrs["content_base64"], validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
+            attrs.pop("content_base64", None)
+
+            max_size_bytes = get_task_run_artifact_max_size_bytes(
+                attrs.get("name"),
+                attrs.get("content_type"),
+                attrs.get("artifact_type"),
+            )
+            if len(attrs["content_bytes"]) > max_size_bytes:
+                raise serializers.ValidationError(
+                    {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+                )
+        return attrs
+
+
+class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=False,
+        help_text="Optional new human-readable artifact name.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500000,
+        help_text="Markdown or text content for the next version.",
+    )
+    content_base64 = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Base64-encoded binary content for the next version, used by adapters such as slack_file.",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="MIME type for content_base64 or source-backed edits.",
+    )
+    source_artifact_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact id to use as the next version content source.",
+    )
+    source_storage_path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact storage_path to use as the next version content source.",
+    )
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to merge into the artifact registry record.",
+    )
+
+    def validate(self, attrs):
+        has_content = "content" in attrs and attrs.get("content") is not None
+        has_content_base64 = bool(attrs.get("content_base64"))
+        has_source = bool(attrs.get("source_artifact_id") or attrs.get("source_storage_path"))
+        if sum([has_content, has_content_base64, has_source]) != 1:
+            raise serializers.ValidationError(
+                {
+                    "content": "Provide exactly one of content, content_base64, source_artifact_id, or source_storage_path."
+                }
+            )
+        if has_content_base64:
+            try:
+                attrs["content_bytes"] = base64.b64decode(attrs["content_base64"], validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
+            attrs.pop("content_base64", None)
+
+            max_size_bytes = get_task_run_artifact_max_size_bytes(attrs.get("name"), attrs.get("content_type"))
+            if len(attrs["content_bytes"]) > max_size_bytes:
+                raise serializers.ValidationError(
+                    {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+                )
+        return attrs
 
 
 class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):

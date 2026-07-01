@@ -14,10 +14,11 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "id",
         "slack_workspace_id",
         "slack_user_id",
+        "autonomy_tier",
         "default_integration",
         "updated_at",
     )
-    list_filter = ("slack_workspace_id", "created_at")
+    list_filter = ("slack_workspace_id", "autonomy_tier", "created_at")
     search_fields = (
         "slack_workspace_id",
         "slack_user_id",
