@@ -1,6 +1,7 @@
 import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
+import '../Nodes/NotebookNodeDataV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -104,6 +105,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Python: NotebookNodeType.Python,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
+    DataV2: NotebookNodeType.DataV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -145,6 +147,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
+    { tagName: 'DataV2', category: 'SQL', label: 'Data (v2)' },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
