@@ -295,7 +295,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert POWERPLATFORM_BRANCH in function.hog
         self.assertIn("Updated: 1", out.getvalue())
         # The migrated source must be valid Hog - guards against a typo in the replacement's to_string.
-        compile_hog_for_check(function.hog, function.type)
+        compile_hog_for_check(function.hog, "destination")
 
     def test_microsoft_teams_migration_leaves_functions_without_the_stale_block_untouched(self):
         function = self._create_teams_function(COMMENTED_OUT_STALE)

@@ -1,4 +1,5 @@
 import time
+from typing import TypedDict
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
@@ -10,6 +11,16 @@ from posthog.cdp.validation import compile_hog
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+
+class _Replacement(TypedDict):
+    from_string: str
+    to_string: str
+
+
+class _ReplaceOption(TypedDict):
+    template_id: str
+    replacements: list[_Replacement]
 
 
 class Command(BaseCommand):
@@ -31,7 +42,7 @@ class Command(BaseCommand):
         replace_key = options.get("replace_key", None)
         start_time = time.time()
 
-        replaceOptions = {
+        replaceOptions: dict[str, _ReplaceOption] = {
             "linked-api-version-update": {
                 "template_id": "template-linkedin-ads",
                 "replacements": [
