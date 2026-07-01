@@ -577,21 +577,27 @@ class TaskManagementWorkflow(PostHogWorkflow):
             # orchestrator restart would forget about the rejected follow-up.
             await self._persist_pending_followups()
 
+    @staticmethod
+    def _followup_from_signal_args(signal_args: list[Any]) -> PendingExternalFollowup:
+        """Rebuild a queued follow-up from a SEND_FOLLOWUP_SIGNAL args list.
+
+        signal_args = [ack_id, message, artifact_ids, source, (meta?)] — meta is
+        only present on tagged (CI) follow-ups. Kept in one place so the re-queue
+        sites don't drift if the arg layout changes.
+        """
+        _ack_id, message, artifact_ids, source, *rest = signal_args
+        meta = rest[0] if rest else None
+        return PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, meta=meta)
+
     def _handle_shutdown_rejection(self, slot: PendingAckSlot) -> bool:
         """Re-queue rejected follow-up work. Returns True if anything was re-queued."""
         if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-            # signal_args = [ack_id, message, artifact_ids, source, (meta?)] —
-            # meta is only present on tagged (CI) follow-ups.
-            _ack_id, message, artifact_ids, source, *rest = slot.signal_args
-            meta = rest[0] if rest else None
-            self._pending_external_followups.insert(
-                0,
-                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, meta=meta),
-            )
+            followup = self._followup_from_signal_args(slot.signal_args)
+            self._pending_external_followups.insert(0, followup)
             workflow.logger.warning(
                 "task_management_followup_requeued_after_shutdown",
                 run_id=self._run_id,
-                source=source,
+                source=followup.source,
             )
             return True
         workflow.logger.info(
@@ -632,12 +638,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         requeued = 0
         for slot in list(self._pending_ack_slots.values()):
             if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-                # signal_args = [ack_id, message, artifact_ids, source, (meta?)].
-                _ack_id, message, artifact_ids, source, *rest = slot.signal_args
-                meta = rest[0] if rest else None
-                self._pending_external_followups.append(
-                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, meta=meta)
-                )
+                self._pending_external_followups.append(self._followup_from_signal_args(slot.signal_args))
                 requeued += 1
         if requeued:
             workflow.logger.warning(
