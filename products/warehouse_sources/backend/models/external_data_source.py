@@ -10,7 +10,11 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceType,
+    external_data_source_type_choices,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +58,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)

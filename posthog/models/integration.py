@@ -210,6 +210,13 @@ class IntegrationManager(models.Manager["Integration"]):
         )
 
 
+def integration_kind_choices() -> list[tuple[str, str]]:
+    # Passed as a callable so Django serializes this reference into migrations instead of the
+    # expanded member list — adding an IntegrationKind no longer emits a no-op `AlterField`.
+    # Resolved at runtime for DRF/admin/validation, so behavior is unchanged.
+    return Integration.IntegrationKind.choices
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
@@ -257,7 +264,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=integration_kind_choices), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend

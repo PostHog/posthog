@@ -694,6 +694,13 @@ class ExternalDataSourceType(models.TextChoices):
     PLUNK = "Plunk", "Plunk"
 
 
+def external_data_source_type_choices() -> list[tuple[str, str]]:
+    # Passed as a callable so Django serializes this reference into migrations instead of the
+    # expanded member list — adding a source type no longer emits a no-op `AlterField`. Resolved
+    # at runtime for DRF/admin/validation, so behavior is unchanged.
+    return ExternalDataSourceType.choices
+
+
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
 # direct-query-capable if it appears here AND has an adapter registered in posthog/hogql/direct_sql.
 # Adding an engine = one entry here + one adapter module + one registry call.
