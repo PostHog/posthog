@@ -107,6 +107,8 @@ impl TokioRuntimeMonitor {
         let elapsed_secs = elapsed.as_secs_f64();
         let mut total_busy_delta = Duration::ZERO;
 
+        // busy-duration and park-count are tokio's only stable per-worker metrics; the rest are
+        // gathered under `tokio_unstable` in `report_unstable_metrics`.
         for i in 0..num_workers {
             let label = state.worker_labels[i].clone();
 
@@ -262,5 +264,49 @@ mod tests {
             (0.0..=1.0).contains(&ratio),
             "busy ratio should be in [0, 1], got {ratio}"
         );
+    }
+
+    // Covers the unstable delta path (poll/steal/overflow), which runs in production because
+    // `tokio_unstable` is enabled workspace-wide: a wrong `saturating_sub` order or a missed
+    // `prev_*` update would emit silently wrong deltas that the stable-path test cannot catch.
+    #[cfg(tokio_unstable)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn poll_and_busy_deltas_advance_after_work() {
+        let handle = tokio::runtime::Handle::current();
+        let metrics = handle.metrics();
+        let num_workers = metrics.num_workers();
+        let monitor = TokioRuntimeMonitor::new(&handle, Duration::from_secs(15));
+
+        let mut stable_state = WorkerState::new(num_workers, &metrics);
+        let mut unstable_state = UnstableWorkerState::new(num_workers, &metrics);
+        let polls_before: Vec<u64> = unstable_state.prev_polls.clone();
+        let busy_before: Vec<Duration> = stable_state.prev_busy.clone();
+
+        let mut handles = Vec::new();
+        for _ in 0..50 {
+            handles.push(tokio::spawn(async {
+                tokio::task::yield_now().await;
+            }));
+        }
+        for h in handles {
+            h.await.ok();
+        }
+
+        monitor.report_stable_metrics(&mut stable_state, Duration::from_secs(15));
+        monitor.report_unstable_metrics(&mut unstable_state, &stable_state.worker_labels);
+
+        let polls_advanced = unstable_state
+            .prev_polls
+            .iter()
+            .zip(polls_before.iter())
+            .any(|(after, before)| after > before);
+        assert!(polls_advanced, "poll counts should advance after work");
+
+        let busy_advanced = stable_state
+            .prev_busy
+            .iter()
+            .zip(busy_before.iter())
+            .any(|(after, before)| after > before);
+        assert!(busy_advanced, "busy durations should advance after work");
     }
 }

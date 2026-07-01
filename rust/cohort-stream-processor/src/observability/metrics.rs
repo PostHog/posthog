@@ -483,13 +483,42 @@ mod tests {
 
     #[test]
     fn store_and_tokio_observability_metric_names_are_stable() {
-        // These names are a dashboard contract; a rename must be deliberate, not accidental.
+        // These names are a dashboard contract; a rename must be deliberate, not accidental. Every
+        // new store/tokio constant is pinned so a rename cannot silently break a panel.
         assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
         assert_eq!(STORE_READS_TOTAL, "store_reads_total");
         assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
         assert_eq!(
             STORE_BLOCK_CACHE_MISSES_TOTAL,
-            "store_block_cache_misses_total",
+            "store_block_cache_misses_total"
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_HITS_TOTAL,
+            "store_block_cache_data_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_MISSES_TOTAL,
+            "store_block_cache_data_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_HITS_TOTAL,
+            "store_block_cache_index_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL,
+            "store_block_cache_index_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_HITS_TOTAL,
+            "store_block_cache_filter_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_MISSES_TOTAL,
+            "store_block_cache_filter_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOOM_FILTER_USEFUL_TOTAL,
+            "store_bloom_filter_useful_total",
         );
         assert_eq!(
             STORE_BLOCK_CACHE_USAGE_BYTES,
@@ -499,6 +528,30 @@ mod tests {
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
         assert_eq!(TOKIO_RUNTIME_BUSY_RATIO, "tokio_runtime_busy_ratio");
+        assert_eq!(TOKIO_RUNTIME_ALIVE_TASKS, "tokio_runtime_alive_tasks");
+        assert_eq!(
+            TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH,
+            "tokio_runtime_global_queue_depth",
+        );
+        assert_eq!(TOKIO_RUNTIME_NUM_WORKERS, "tokio_runtime_num_workers");
+        assert_eq!(
+            TOKIO_WORKER_BUSY_DURATION_DELTA,
+            "tokio_worker_busy_duration_delta_secs",
+        );
+        assert_eq!(TOKIO_WORKER_PARK_DELTA, "tokio_worker_park_delta");
+        assert_eq!(TOKIO_WORKER_POLL_DELTA, "tokio_worker_poll_delta");
+        assert_eq!(TOKIO_WORKER_STEAL_DELTA, "tokio_worker_steal_delta");
+        assert_eq!(TOKIO_WORKER_OVERFLOW_DELTA, "tokio_worker_overflow_delta");
+        assert_eq!(
+            TOKIO_WORKER_LOCAL_QUEUE_DEPTH,
+            "tokio_worker_local_queue_depth",
+        );
+        assert_eq!(
+            TOKIO_WORKER_MEAN_POLL_TIME_US,
+            "tokio_worker_mean_poll_time_us",
+        );
+        assert_eq!(TOKIO_BLOCKING_THREADS, "tokio_blocking_threads");
+        assert_eq!(TOKIO_IDLE_BLOCKING_THREADS, "tokio_idle_blocking_threads");
         assert_eq!(TOKIO_BLOCKING_QUEUE_DEPTH, "tokio_blocking_queue_depth");
     }
 

@@ -1234,6 +1234,19 @@ mod tests {
     }
 
     #[test]
+    fn read_sample_ratio_floors_zero_at_one() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            read_sample_ratio: 0,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        // `0` would panic `next % ratio` in `should_sample_read`; `open()` clamps it to 1.
+        assert!(store.get(Cf::Stage1, b"missing").unwrap().is_none());
+    }
+
+    #[test]
     fn cohort_store_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<CohortStore>();
