@@ -123,11 +123,6 @@ export interface NotebookApi {
      */
     text_content?: string | null
     /**
-     * Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.
-     * @nullable
-     */
-    readonly markdown: string | null
-    /**
      * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
@@ -179,11 +174,6 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     text_content?: string | null
-    /**
-     * Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.
-     * @nullable
-     */
-    readonly markdown?: string | null
     /**
      * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
@@ -280,6 +270,14 @@ export interface NotebookCollabSaveApi {
      * @nullable
      */
     cursor_head?: number | null
+}
+
+export interface NotebookMarkdownApi {
+    /**
+     * Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.
+     * @nullable
+     */
+    readonly markdown: string | null
 }
 
 export type NotebooksListParams = {

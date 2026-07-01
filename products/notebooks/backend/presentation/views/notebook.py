@@ -77,12 +77,6 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
 }
 
-_NOTEBOOK_MARKDOWN_SCHEMA = {
-    "type": "string",
-    "nullable": True,
-    "description": "Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
-}
-
 _PARENT_RESOURCE_SCHEMA = {
     "type": "object",
     "nullable": True,
@@ -123,9 +117,6 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
-    markdown = serializers.SerializerMethodField(
-        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks."
-    )
     parent_resource = serializers.SerializerMethodField(
         help_text=(
             "Parent resource this notebook is attached to, or `null`. Returns "
@@ -142,7 +133,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "title",
             "content",
             "text_content",
-            "markdown",
             "version",
             "deleted",
             "created_at",
@@ -156,7 +146,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
         read_only_fields = [
             "id",
             "short_id",
-            "markdown",
             "created_at",
             "created_by",
             "last_modified_at",
@@ -172,10 +161,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
-
-    @extend_schema_field(_NOTEBOOK_MARKDOWN_SCHEMA)
-    def get_markdown(self, obj: Notebook) -> str | None:
-        return markdown_collab.get_markdown_notebook_markdown(obj.content)
 
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:
@@ -287,6 +272,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
@@ -527,6 +521,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(responses=NotebookMarkdownSerializer)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):

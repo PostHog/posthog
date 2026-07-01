@@ -95,9 +95,11 @@ describe('NotebookEditSchema', () => {
 
 interface MockState {
     notebookContent: typeof sampleDoc | typeof sampleMarkdownDoc | Record<string, unknown> | null
+    markdownResponse?: string | null
     version: number
     saveCalls: Array<{ path?: string; body: any }>
     getCalls: number
+    markdownGetCalls?: number
     /**
      * Queued POST responses. Each entry is either a successful body (returned
      * as-is) or an error to throw (e.g. PostHogApiError for 409/410).
@@ -105,9 +107,24 @@ interface MockState {
     saveResponses: Array<{ ok: true; body: unknown } | { ok: false; error: Error }>
 }
 
+function getMockMarkdown(content: MockState['notebookContent']): string | null {
+    const node = content?.content
+    if (!Array.isArray(node) || node.length !== 1) {
+        return null
+    }
+    const attrs = node[0]?.attrs
+    return typeof attrs?.markdown === 'string' ? attrs.markdown : null
+}
+
 function createMockContext(state: MockState): Context {
     const requestMock = vi.fn(async (opts: { method: string; path?: string; body?: any }) => {
         if (opts.method === 'GET') {
+            if (opts.path?.endsWith('/markdown/')) {
+                state.markdownGetCalls = (state.markdownGetCalls ?? 0) + 1
+                return {
+                    markdown: state.markdownResponse ?? getMockMarkdown(state.notebookContent),
+                }
+            }
             state.getCalls++
             return {
                 short_id: 'aBcD1234',
@@ -144,7 +161,6 @@ describe('editHandler', () => {
         const updatedNotebook = {
             short_id: 'aBcD1234',
             content: sampleMarkdownDoc,
-            markdown: nextMarkdown,
             version: 8,
             title: 'Original',
         }
@@ -164,6 +180,7 @@ describe('editHandler', () => {
         })
 
         expect(result).toEqual(updatedNotebook)
+        expect(state.markdownGetCalls).toBe(1)
         expect(state.saveCalls).toHaveLength(1)
         expect(state.saveCalls[0]!.path).toContain('/collab/markdown_save/')
         expect(state.saveCalls[0]!.body.version).toBe(7)
@@ -189,6 +206,38 @@ describe('editHandler', () => {
                 new_markdown: 'First paragraph EDITED.',
             })
         ).rejects.toThrow(/not a markdown notebook/)
+        expect(state.markdownGetCalls).toBe(1)
+        expect(state.saveCalls).toHaveLength(0)
+    })
+
+    it('throws not-found markdown error without including the current markdown body', async () => {
+        const state: MockState = {
+            notebookContent: sampleMarkdownDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [],
+        }
+        const context = createMockContext(state)
+
+        let error: unknown
+        try {
+            await editHandler(context, {
+                short_id: 'aBcD1234',
+                old_markdown: 'Missing markdown span',
+                new_markdown: 'Replacement',
+            })
+        } catch (err) {
+            error = err
+        }
+
+        expect(error).toBeInstanceOf(Error)
+        const message = (error as Error).message
+        expect(message).toContain('old_markdown was not found')
+        expect(message).toContain('Current markdown length:')
+        expect(message).toContain('old_markdown preview: Missing markdown span')
+        expect(message).not.toContain(sampleMarkdown)
+        expect(message).not.toContain('Original paragraph.')
         expect(state.saveCalls).toHaveLength(0)
     })
 
@@ -306,13 +355,26 @@ describe('editHandler', () => {
             saveResponses: [],
         }
         const context = createMockContext(state)
-        await expect(
-            editHandler(context, {
+        let error: unknown
+        try {
+            await editHandler(context, {
                 short_id: 'aBcD1234',
                 old_value: { type: 'text', text: 'This text does not exist anywhere' },
                 new_value: { type: 'text', text: 'replacement' },
             })
-        ).rejects.toThrow(/old_value was not found/)
+        } catch (err) {
+            error = err
+        }
+
+        expect(error).toBeInstanceOf(Error)
+        const message = (error as Error).message
+        expect(message).toContain('old_value was not found')
+        expect(message).toContain('Current notebook JSON length:')
+        expect(message).toContain('Top-level node count: 4')
+        expect(message).toContain('old_value preview:')
+        expect(message).not.toContain('Sample Notebook')
+        expect(message).not.toContain('Second paragraph.')
+        expect(message).not.toContain('sess-123')
         expect(state.saveCalls).toHaveLength(0)
     })
 

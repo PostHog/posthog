@@ -28,6 +28,7 @@ import { buildSchemaForDoc, packDocAttrs, type ProseMirrorNodeJSON, unpackDocAtt
 import type { Context, ToolBase } from '@/tools/types'
 
 const MARKDOWN_NOTEBOOK_NODE_TYPE = 'ph-markdown-notebook'
+const ERROR_PREVIEW_LENGTH = 160
 
 const Subtree = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
 
@@ -46,7 +47,7 @@ const MarkdownEditSchema = BaseEditSchema.extend({
         .string()
         .min(1)
         .describe(
-            'Markdown text to find inside a markdown notebook. Get the current markdown from `notebooks-retrieve.markdown`; pass the full markdown body to replace the whole notebook, or a unique markdown span to make a local edit.'
+            'Markdown text to find inside a markdown notebook. Get the current markdown from `notebooks-markdown-retrieve`; pass the full markdown body to replace the whole notebook, or a unique markdown span to make a local edit.'
         ),
     new_markdown: z
         .string()
@@ -107,12 +108,6 @@ function getMarkdownNotebookNode(content: unknown): Record<string, unknown> | nu
     return node
 }
 
-function getMarkdownNotebookMarkdown(content: unknown): string | null {
-    const node = getMarkdownNotebookNode(content)
-    const attrs = isRecord(node?.attrs) ? node.attrs : null
-    return typeof attrs?.markdown === 'string' ? attrs.markdown : null
-}
-
 function buildMarkdownNotebookContent(content: unknown, markdown: string): ProseMirrorNodeJSON {
     const clonedContent = structuredClone(content) as ProseMirrorNodeJSON
     const node = getMarkdownNotebookNode(clonedContent)
@@ -121,6 +116,29 @@ function buildMarkdownNotebookContent(content: unknown, markdown: string): Prose
     }
     node.attrs = { ...node.attrs, markdown }
     return clonedContent
+}
+
+function truncateForError(value: string): string {
+    const normalized = value.replace(/\s+/g, ' ').trim()
+    if (normalized.length <= ERROR_PREVIEW_LENGTH) {
+        return normalized
+    }
+    return `${normalized.slice(0, ERROR_PREVIEW_LENGTH)}...`
+}
+
+function safeJsonStringify(value: unknown): string {
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return '[unserializable JSON value]'
+    }
+}
+
+function topLevelNodeCount(content: unknown): number | null {
+    if (!isRecord(content) || !Array.isArray(content.content)) {
+        return null
+    }
+    return content.content.length
 }
 
 function countStringMatches(value: string, target: string): number {
@@ -142,8 +160,10 @@ function replaceMarkdown(currentMarkdown: string, params: MarkdownParams): strin
     if (matches === 0) {
         throw new Error(
             'old_markdown was not found in the notebook markdown. The match is exact, including whitespace. ' +
-                'Call `notebooks-retrieve` to refresh the current `markdown` field.\n\nCurrent markdown:\n' +
-                currentMarkdown
+                `Current markdown length: ${currentMarkdown.length} characters. ` +
+                `old_markdown length: ${params.old_markdown.length} characters. ` +
+                `old_markdown preview: ${truncateForError(params.old_markdown)}. ` +
+                'Call `notebooks-markdown-retrieve` to refresh the current markdown.'
         )
     }
 
@@ -166,13 +186,21 @@ function replaceMarkdown(currentMarkdown: string, params: MarkdownParams): strin
     )
 }
 
+async function fetchNotebookMarkdown(context: Context, notebookPath: string): Promise<string | null> {
+    const result = await context.api.request<{ markdown: string | null }>({
+        method: 'GET',
+        path: `${notebookPath}markdown/`,
+    })
+    return result.markdown
+}
+
 async function editMarkdownNotebook(
     context: Context,
     notebookPath: string,
     notebook: Schemas.Notebook,
     params: MarkdownParams
 ): Promise<Schemas.Notebook> {
-    const currentMarkdown = getMarkdownNotebookMarkdown(notebook.content)
+    const currentMarkdown = await fetchNotebookMarkdown(context, notebookPath)
     if (currentMarkdown === null) {
         throw new Error(
             `Notebook ${params.short_id} is not a markdown notebook. ` +
@@ -317,14 +345,19 @@ async function editJsonNotebook(
     // Find target subtree(s) and apply the replacement.
     const matches = countMatches(notebook.content, params.old_value)
     if (matches === 0) {
+        const currentContentJson = safeJsonStringify(notebook.content)
+        const oldValueJson = safeJsonStringify(params.old_value)
+        const nodeCount = topLevelNodeCount(notebook.content)
         throw new Error(
             'old_value was not found in the notebook content. ' +
                 'Matching compares every key, value, and array index — extra or missing fields will ' +
                 'prevent a match. Common causes: an explicit `attrs: null` vs. omitted attrs; content ' +
                 'has changed since you last read it (call `notebooks-retrieve` to refresh); or you ' +
-                'passed only part of the value where the full one is stored.\n\nCurrent notebook ' +
-                'content:\n' +
-                JSON.stringify(notebook.content, null, 2)
+                'passed only part of the value where the full one is stored. ' +
+                `Current notebook JSON length: ${currentContentJson.length} characters. ` +
+                `Top-level node count: ${nodeCount ?? 'unknown'}. ` +
+                `old_value JSON length: ${oldValueJson.length} characters. ` +
+                `old_value preview: ${truncateForError(oldValueJson)}.`
         )
     }
 

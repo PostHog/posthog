@@ -73,12 +73,11 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("without_content", None, None, None),
+            ("without_content", None, None),
             (
                 "with_content",
                 {"some": "kind", "of": "tip", "tap": "content"},
                 "some kind of tip tap content",
-                None,
             ),
             (
                 "with_markdown_content",
@@ -92,13 +91,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                     ],
                 },
                 "# Test\n\nBody",
-                "# Test\n\nBody",
             ),
         ]
     )
-    def test_create_a_notebook(
-        self, _, content: dict | None, text_content: str | None, expected_markdown: str | None
-    ) -> None:
+    def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": content, "text_content": text_content},
@@ -110,7 +106,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "short_id": response_json["short_id"],
             "content": content,
             "text_content": text_content,
-            "markdown": expected_markdown,
             "title": None,
             "version": 0,
             "created_at": response_json["created_at"],
@@ -127,6 +122,33 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 self.created_activity(item_id=response_json["short_id"], short_id=response_json["short_id"]),
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("legacy_rich_text", {"some": "kind", "of": "tip", "tap": "content"}, None),
+            (
+                "markdown_notebook",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+            ),
+        ]
+    )
+    def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str | None) -> None:
+        create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"markdown": expected_markdown}
 
     def test_gets_individual_notebook_by_shortid(self) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})
