@@ -721,7 +721,8 @@ class ClockifySourceConfig(config.Config):
 
 @config.config
 class ClockodoSourceConfig(config.Config):
-    pass
+    api_user: str
+    api_key: str
 
 
 @config.config
