@@ -156,12 +156,13 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/
   composer/         #   the Composer compound
+  feedback/         #   RunFeedbackFooter (RunSurface.Feedback slot) + thumbs / progressive good-okay-bad prompt
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
+logics/             # runStreamLogic, runInteractionLogic; feedbackPromptLogic/messageRatingsLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
 types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes, taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
-utils/              # thinkingMessages
+utils/              # thinkingMessages, feedback (captureFeedback + rating types)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)
 scenes/             # standalone scenes registered via ../manifest.tsx
   TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)

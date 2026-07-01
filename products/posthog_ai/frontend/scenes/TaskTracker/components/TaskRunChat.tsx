@@ -57,6 +57,7 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
         <RunSurface.Root taskId={logicProps.taskId} runId={logicProps.runId} interaction="live">
             <div className="@container/thread flex flex-col h-full -mx-4">
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
+                <RunSurface.Feedback />
                 <RunSurface.Composer>
                     <RunSurface.Resources />
                     <Composer.Root
