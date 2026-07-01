@@ -635,7 +635,10 @@ function ColumnsAndRowFiltersSection({
                         </div>
                     ) : (
                         <>
-                            <span className="text-sm text-secondary">{columnsSummary}</span>
+                            <span className="text-sm text-secondary">
+                                {columnsSummary}
+                                {draftMasked.length > 0 && ` · ${draftMasked.length} masked`}
+                            </span>
                             <fieldset disabled={!!editorDisabledReason}>
                                 <ColumnSelectionPicker
                                     hideActions

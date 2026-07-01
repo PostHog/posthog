@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconInfo, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -347,12 +347,19 @@ export default function SchemaForm(): JSX.Element {
                 const summary = !synced
                     ? `All ${schema.available_columns.length}`
                     : `${syncedCount} of ${schema.available_columns.length}`
+                const maskedCount = schema.masked_columns?.length ?? 0
                 return (
                     <div className="justify-end flex">
                         <LemonButton
                             className="my-1"
                             size="small"
                             type="secondary"
+                            icon={maskedCount > 0 ? <IconLock /> : undefined}
+                            tooltip={
+                                maskedCount > 0
+                                    ? `${maskedCount} column${maskedCount === 1 ? '' : 's'} masked`
+                                    : undefined
+                            }
                             onClick={() => setColumnSelectionSchema(schema)}
                             disabledReason={schema.permission_error ?? undefined}
                         >
