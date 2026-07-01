@@ -98,7 +98,10 @@ export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
     constructor(redis: RedisV2, ttlSeconds: number) {
-        this.rateLimiter = new KeyedRateLimiterService({ name: 'logs-sampling-rate', ttlSeconds }, redis)
+        this.rateLimiter = new KeyedRateLimiterService(
+            { name: 'logs-sampling-rate', ttlSeconds, scriptVersion: 'v3' },
+            redis
+        )
     }
 
     @instrumented({

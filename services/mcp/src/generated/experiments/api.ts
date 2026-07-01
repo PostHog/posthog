@@ -582,6 +582,12 @@ export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),

@@ -481,6 +481,7 @@
           ExternalDataSourceType.PLANETSCALE: PlanetScaleSourceConfig,
           ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
           ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+          ExternalDataSourceType.PLUNK: PlunkSourceConfig,
           ExternalDataSourceType.POCKET: PocketSourceConfig,
           ExternalDataSourceType.POLAR: PolarSourceConfig,
           ExternalDataSourceType.POLYGON: PolygonSourceConfig,

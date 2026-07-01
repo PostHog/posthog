@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { Progress } from '@posthog/quill'
+import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,13 +13,28 @@ import { BillingProductV2Type } from '~/types'
 
 import { InboxUsageStatus, inboxUsageLogic } from '../../logics/inboxUsageLogic'
 
-const PROGRESS_VARIANT: Record<InboxUsageStatus, 'info' | 'warning' | 'destructive'> = {
-    normal: 'info',
-    warning: 'warning',
-    limit: 'destructive',
+// Usage-bar fill colour by status. Main-app semantic Tailwind classes (not quill `--*` tokens —
+// those only resolve inside `[data-quill]` subtrees).
+const FILL_CLASS: Record<InboxUsageStatus, string> = {
+    normal: 'bg-brand-blue',
+    warning: 'bg-warning',
+    limit: 'bg-danger',
 }
 
 const CARD_CLASS = 'flex flex-col gap-2 rounded border border-primary bg-surface-primary px-2.5 py-2'
+
+/** A single status-coloured fill over a neutral track. Width is runtime-derived, hence inline. */
+function UsageBar({ percentage, status }: { percentage: number; status: InboxUsageStatus }): JSX.Element {
+    return (
+        <div className="relative h-1 w-full overflow-hidden rounded-md bg-fill-tertiary">
+            <div
+                className={`absolute inset-y-0 left-0 ${FILL_CLASS[status]}`}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: `${percentage}%` }}
+            />
+        </div>
+    )
+}
 
 function UsageCardSkeleton(): JSX.Element {
     return (
@@ -117,10 +131,11 @@ function EditLimitModal(): JSX.Element {
 }
 
 /**
- * Compact PR-usage meter for the inbox agents rail: a progress bar, `X / Y PRs created` on the
- * left, `Resets <date>` on the right. On a paid plan the limit is editable (and the edit affordance
- * escalates to "Increase limit" at the cap); on the free plan it shows an in-place upgrade instead.
- * Renders nothing until billing has loaded and the inbox product is present.
+ * Compact PR-usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
+ * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
+ * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
+ * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
+ * inbox product is present.
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const {
@@ -130,9 +145,11 @@ export function InboxUsageWidget(): JSX.Element | null {
         canAccessBilling,
         usedPrsDisplay,
         limitPrs,
-        percentage,
+        freePrs,
         status,
         resetDate,
+        spentUsd,
+        percentage,
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
 
@@ -163,7 +180,18 @@ export function InboxUsageWidget(): JSX.Element | null {
                         </button>
                     ) : null}
                 </div>
-                <Progress value={percentage} variant={PROGRESS_VARIANT[status]} />
+                <div className="flex items-center gap-2">
+                    <Tooltip title={freePrs > 0 ? `The first ${freePrs} PRs each month are free` : undefined}>
+                        <div className="flex-1">
+                            <UsageBar percentage={percentage} status={status} />
+                        </div>
+                    </Tooltip>
+                    {spentUsd != null && (
+                        <span className="text-xs font-medium text-default tabular-nums">
+                            {currencyFormatter(spentUsd)}
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="text-secondary tabular-nums">
                         <span className="font-medium text-default">{usedPrsDisplay}</span>
