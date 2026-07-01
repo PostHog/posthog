@@ -1806,7 +1806,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "custom-property-definitions-list": {
-        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.",
+        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and query it via HogQL against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales to all accounts.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List custom property definitions",
@@ -6320,7 +6320,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",

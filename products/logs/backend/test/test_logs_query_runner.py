@@ -473,6 +473,25 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 101)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            ("utc_aware", "2025-12-16T00:00:00+00:00"),
+            ("naive", "2025-12-16T00:00:00"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_live_tail_checkpoint_iso_string(self, _name, checkpoint):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "orderBy": "latest",
+            "liveLogsCheckpoint": checkpoint,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)
+
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_filters(self):
         query_params = {
