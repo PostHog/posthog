@@ -70,7 +70,8 @@ LLM Review
   - Reads other reviewers' signals as context (not a gate): top-level review
     states (annotated current-head vs older-commit), inline comments (tagged
     resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —
-    filtered to trusted org members and bot reviewers, never the PR author
+    filtered to org members and an allowlist of reviewer bots (installed
+    apps like inkeep react for non-review reasons), never the PR author
   - An 👀 reaction signals an in-flight review — the LLM refuses rather than
     approving over someone who is mid-review
   - For non-trivial changes, expects at least one independent reviewer (an

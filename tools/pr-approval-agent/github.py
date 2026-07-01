@@ -60,6 +60,18 @@ _TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}
 # treated as bots. GitHub Apps already report type "Bot" and aren't listed here.
 _BOT_MACHINE_USERS = {"posthog-bot"}
 
+# Bots whose reactions are deliberate review verdicts (👍 = reviewed clean,
+# 👀 = review in flight). Other installed apps react for unrelated reasons
+# (e.g. inkeep's 👎 is docs feedback), so bot reactions are allowlisted rather
+# than trusted wholesale. GraphQL returns bot logins with the "[bot]" suffix.
+_TRUSTED_REACTOR_BOTS = {
+    "chatgpt-codex-connector[bot]",
+    "copilot-pull-request-reviewer[bot]",
+    "greptile-apps[bot]",
+    "hex-security-app[bot]",
+    "veria-ai[bot]",
+}
+
 
 def is_bot_author(user: dict) -> bool:
     """True when the PR author is a bot or machine account.
@@ -148,11 +160,11 @@ def _is_org_member(org: str, login: str) -> bool:
 def _trusted_reactor_predicate(repo: str, author: str) -> Callable[[str], bool]:
     """Build a memoized `login -> bool` gate for whose reactions to trust.
 
-    Reactions on a public PR can come from anyone, so only trust recognized bot
-    reviewers and org members, and never the PR author (a self-reaction is not an
-    independent signal). Unknown or erroring logins fail closed. Without this,
-    any GitHub user could block auto-approval with an 👀 or fake an independent
-    review with a 👍.
+    Reactions on a public PR can come from anyone, so only trust allowlisted
+    reviewer bots and org members, and never the PR author (a self-reaction is
+    not an independent signal). Unknown or erroring logins fail closed. Without
+    this, any GitHub user could block auto-approval with an 👀 or fake an
+    independent review with a 👍.
     """
     org = repo.split("/", 1)[0]
     cache: dict[str, bool] = {}
@@ -162,7 +174,10 @@ def _trusted_reactor_predicate(repo: str, author: str) -> Callable[[str], bool]:
             return False
         if login not in cache:
             low = login.lower()
-            cache[login] = "[bot]" in low or low in _BOT_MACHINE_USERS or _is_org_member(org, login)
+            if low.endswith("[bot]"):
+                cache[login] = low in _TRUSTED_REACTOR_BOTS
+            else:
+                cache[login] = _is_org_member(org, login)
         return cache[login]
 
     return is_trusted
@@ -200,7 +215,7 @@ _REVIEW_THREADS_QUERY = """
 query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $pr) {
-      reactions(first: 20) {
+      reactions(first: 100) {
         nodes {
           content
           user { login }
@@ -221,7 +236,7 @@ query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
               body
               databaseId
               replyTo { databaseId }
-              reactions(first: 20) {
+              reactions(first: 100) {
                 nodes {
                   content
                   user { login }
