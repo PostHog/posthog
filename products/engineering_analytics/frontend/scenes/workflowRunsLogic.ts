@@ -102,6 +102,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -274,6 +275,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         },
         [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
             actions.loadRuns()
+            actions.loadRunActivity()
             actions.loadRunnerCosts()
         },
     })),

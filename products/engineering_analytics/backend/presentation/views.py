@@ -566,6 +566,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
             _DATE_FROM,
             _DATE_TO,
+            _BRANCH,
             _SOURCE_ID,
         ],
         responses={
@@ -574,9 +575,10 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for "
-            "the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. Leaner "
-            "and higher-capped than workflow_runs so the chart spans the full window even on busy workflows; "
-            "`truncated` is true when the cap is hit, so the chart covers only the most recent runs."
+            "the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. "
+            "Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped "
+            "than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when "
+            "the cap is hit, so the chart covers only the most recent runs."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -592,6 +594,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 workflow_name=workflow_name,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

@@ -960,6 +960,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         )
         assert (all_jobs, main_jobs) == (3, 2)
 
+        # The activity chart honors the same branch scope as the runs list, so it can't plot other
+        # branches' runs under an applied branch filter.
+        all_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow)
+        assert {p.run_id for p in all_activity.points} == {8501, 8502, 8503}
+        main_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {p.run_id for p in main_activity.points} == {8501, 8502}
+
     def test_pr_runs_span_all_commits(self) -> None:
         # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.
         self._create_table(

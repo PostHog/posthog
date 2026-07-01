@@ -146,6 +146,7 @@ def get_workflow_run_activity(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
@@ -155,6 +156,7 @@ def get_workflow_run_activity(
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,
+        branch=branch,
     )
 
 
