@@ -40,6 +40,21 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
+    "posthog_tasks_task_run_dispatch_callback_total",
+    "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
+    "scheduled minus fired is the count of lost callbacks that strand a run in QUEUED.",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "prewarmed",
+        "phase",
+    ],
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
@@ -181,6 +196,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
+    TASK_RUN_DISPATCH_CALLBACK_TOTAL.labels(**_task_run_labels(task_run), phase=phase).inc()
 
 
 def observe_task_run_workflow_start(
