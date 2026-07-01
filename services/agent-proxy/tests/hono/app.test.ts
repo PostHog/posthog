@@ -1,9 +1,3 @@
-// Tests for app-level error handling (app.onError in app.ts).
-//
-// Unexpected errors escaping a route handler (Redis failures, bugs) must
-// produce a structured error log with request context and a JSON 500 — not
-// Hono's default bare console.error with no run or request correlation.
-
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 

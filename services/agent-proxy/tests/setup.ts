@@ -13,8 +13,6 @@ const mockDec = vi.fn()
 const mockSet = vi.fn()
 const mockObserve = vi.fn()
 
-// Each metric type needs its own labels fn: a shared vi.fn() would let the
-// last mockReturnValue win for all three shapes.
 // Counters
 const mockCounter = { labels: vi.fn().mockReturnValue({ inc: mockInc }), inc: mockInc }
 // Gauges

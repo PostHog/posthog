@@ -9,8 +9,7 @@
 //   401  missing / invalid JWT
 //   403  JWT claims don't match URL params
 //   405  wrong HTTP method
-//   408  client disconnected mid-body: {error, last_accepted_seq} (the
-//        response is undeliverable; the status exists for logs and metrics)
+//   408  client disconnected mid-body: {error, last_accepted_seq}
 //   409  SequenceGap / AlreadyCompleted / CompletionSequenceMismatch: {error, last_accepted_seq}
 //   413  payload too large: {error, last_accepted_seq}
 
@@ -120,10 +119,6 @@ export async function handleIngest(
         result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
     } catch (err: unknown) {
         if (err instanceof ClientDisconnected) {
-            // Sandbox teardown or connection reset mid-body is a normal client
-            // event, not a server error (mirrors event_ingest.py). Events
-            // accepted before the drop are already in Redis; the client
-            // resumes from last_accepted_seq with seq-based dedup.
             logger.info('ingest:client_disconnect', {
                 run: claims.runId,
                 accepted: err.accepted,
@@ -249,8 +244,6 @@ async function ingestEventLines(
             )
         }
     } catch (err: unknown) {
-        // The disconnect is raised by the body reader, which can't see ingest
-        // progress; attach it here so the handler can log and respond with it.
         if (err instanceof ClientDisconnected) {
             err.accepted = result.accepted
             err.duplicate = result.duplicate
@@ -410,9 +403,6 @@ async function* iterRequestLines(request: Request, run: string, timing: IngestBo
     }
 }
 
-// Node surfaces a client hanging up mid-body as an IncomingMessage abort:
-// Error('aborted') with code ECONNRESET (node:_http_server abortIncoming).
-// AbortError and premature-close cover the web-stream and pipeline variants.
 function isClientAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) {
         return false

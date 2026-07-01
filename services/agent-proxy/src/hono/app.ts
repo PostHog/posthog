@@ -49,9 +49,6 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
     const lifecycle: Lifecycle = { shuttingDown: false }
     const streamCapacity = new StreamCapacity(config.maxConcurrentStreams, config.maxStreamsPerRun)
 
-    // Hono's default onError writes a bare console.error stack with no request
-    // context. Log structured instead, and mirror the error onto the wide
-    // http.request line. The request logger is absent on probe paths.
     app.onError((err, c) => {
         const requestLogger: RequestLogger | undefined = c.get('requestLogger')
         requestLogger?.extend({ error: err.message })

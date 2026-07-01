@@ -883,15 +883,6 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(400)
     })
 
-    // -----------------------------------------------------------------------
-    // Client disconnect mid-body (sandbox teardown, connection reset)
-    //
-    // Node surfaces this as Error('aborted') code=ECONNRESET from the request
-    // body reader. It must be classified as a client event — not rethrown as
-    // an unhandled error that becomes an opaque 500 — and events accepted
-    // before the drop must stay in Redis for the client's seq-based resume.
-    // -----------------------------------------------------------------------
-
     it.each([
         {
             variant: 'ECONNRESET code',

@@ -110,8 +110,6 @@ export class RequestLogger {
         this.data['requestId'] = this.requestId
     }
 
-    // Exposed so out-of-band log lines (e.g. app.onError) can correlate with
-    // the wide http.request line for the same request.
     get id(): string {
         return this.requestId
     }
