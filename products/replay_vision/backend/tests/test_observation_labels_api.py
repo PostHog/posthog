@@ -86,6 +86,16 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertIn(str(self.observation.id), ids)
         self.assertNotIn(str(unlabeled.id), ids)
 
+    def test_order_by_label_groups_labeled_with_unlabeled_last(self) -> None:
+        correct_obs = self._create_observation(self.scanner, "sess-correct")
+        self._create_observation(self.scanner, "sess-unlabeled")
+        self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
+        self.client.post(self._label_url(correct_obs), {"is_correct": True}, format="json")
+
+        results = self.client.get(f"{self.observations_url(self.scanner.id)}?order_by=label").json()["results"]
+        # Ascending: incorrect (false) then correct (true), with the unlabeled row last regardless.
+        self.assertEqual([r["session_id"] for r in results], ["sess-1", "sess-correct", "sess-unlabeled"])
+
     def test_label_is_shared_not_scoped_to_a_user(self) -> None:
         # A label another user set is visible to everyone — there are no personal versions.
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")

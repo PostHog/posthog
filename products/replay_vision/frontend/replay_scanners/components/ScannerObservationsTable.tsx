@@ -164,23 +164,31 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         {
             title: 'Feedback',
             key: 'feedback',
+            sorter: true,
             render: (_, obs) => {
                 const label = obs.label
+                const to = urls.replayVisionObservation(obs.id)
                 if (!label) {
-                    return <span className="text-muted">—</span>
+                    return (
+                        <Link to={to} className="block text-muted">
+                            —
+                        </Link>
+                    )
                 }
-                if (label.is_correct) {
-                    return <LemonTag type="success">Correct</LemonTag>
-                }
+                const tooltip = label.is_correct ? 'Marked correct' : label.feedback || 'Marked incorrect'
                 return (
-                    <div className="flex items-center gap-1 max-w-[20rem]">
-                        <LemonTag type="danger">Incorrect</LemonTag>
-                        {label.feedback ? (
-                            <Tooltip title={label.feedback}>
-                                <span className="text-xs text-muted truncate">{label.feedback}</span>
-                            </Tooltip>
-                        ) : null}
-                    </div>
+                    <Link to={to} className="block max-w-[20rem]">
+                        <Tooltip title={tooltip}>
+                            <span className="flex items-center gap-1">
+                                <LemonTag type={label.is_correct ? 'success' : 'danger'}>
+                                    {label.is_correct ? 'Correct' : 'Incorrect'}
+                                </LemonTag>
+                                {!label.is_correct && label.feedback ? (
+                                    <span className="text-xs text-muted truncate">{label.feedback}</span>
+                                ) : null}
+                            </span>
+                        </Tooltip>
+                    </Link>
                 )
             },
         },

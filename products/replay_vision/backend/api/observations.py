@@ -330,7 +330,7 @@ OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status"
 
 # JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
-_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
+_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
 
 # Derived from the scanner output schema so the filter can never drift from what monitors emit.
@@ -351,6 +351,10 @@ class _ObservationOrderByFilter(OrderByFilter):
         if key == "recording_subject_email":
             # Nullable column — keep unidentified subjects out of the way regardless of direction.
             return self._order_nulls_last(qs, "recording_subject_email", descending)
+        if key == "label":
+            # Sort by the shared label; unlabeled observations sort last regardless of direction so
+            # labeled sessions cluster together (asc: incorrect then correct; desc: correct then incorrect).
+            return self._order_nulls_last(qs, "label__is_correct", descending)
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
             score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
