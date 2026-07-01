@@ -181,6 +181,12 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         assert res["Content-Type"] == "text/html; charset=utf-8"
         assert res.content == b"<html><body>Hello Bob</body></html>"
+        # Sandbox at the response layer so direct navigation to this URL still can't
+        # run scripts as the viewer — the iframe's `sandbox=""` alone doesn't protect
+        # someone who opens the asset URL in a new tab. Regressing this reintroduces
+        # stored-XSS in captured email HTML.
+        assert "sandbox" in res["Content-Security-Policy"]
+        assert res["X-Content-Type-Options"] == "nosniff"
 
     def test_content_returns_latest_version_html(self):
         self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)

@@ -1661,7 +1661,17 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         )
         if html is None:
             raise exceptions.NotFound("Asset content is no longer available.")
-        return HttpResponse(html, content_type="text/html; charset=utf-8")
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        # Enforce sandboxing at the response layer so direct navigation to the asset URL
+        # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
+        # scripts or make same-origin requests as the viewer. `sandbox` (no allow-list)
+        # is the most restrictive CSP mode; the other directives are defense-in-depth.
+        response["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Referrer-Policy"] = "no-referrer"
+        return response
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",
