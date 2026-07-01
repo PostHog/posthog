@@ -230,16 +230,16 @@ class TestQueryAiEvents:
         )
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
-    def test_events_fallback_extra_conditions_anded_into_where(self, _mock_flag, mock_execute):
+    def test_events_fallback_extra_conditions_anded_into_where(self, mock_execute):
         mock_execute.return_value = self._make_result([])
 
         team = Mock(id=1, organization_id="org")
-        execute_with_ai_events_fallback(
+        query_ai_events(
             query=self._make_query(),
             placeholders={},
             team=team,
             query_type="TestQuery",
+            fall_back_to_events=True,
             events_fallback_extra_conditions=[self._timestamp_condition()],
         )
 
@@ -253,18 +253,18 @@ class TestQueryAiEvents:
         )
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
-    def test_events_fallback_extra_conditions_not_applied_to_ai_events(self, _mock_flag, mock_execute):
+    def test_events_fallback_extra_conditions_not_applied_to_ai_events(self, mock_execute):
         # ai_events returns data → no fallback → the extra (events-only) conditions never touch
         # the ai_events query. This is the crux: the timestamp bound must not clip ai_events.
         mock_execute.return_value = self._make_result([["trace-1"]])
 
         team = Mock(id=1, organization_id="org")
-        execute_with_ai_events_fallback(
+        query_ai_events(
             query=self._make_query(),
             placeholders={},
             team=team,
             query_type="TestQuery",
+            fall_back_to_events=True,
             events_fallback_extra_conditions=[self._timestamp_condition()],
         )
 
@@ -275,8 +275,7 @@ class TestQueryAiEvents:
         assert ai_query.where == ast.Constant(value=True)
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
-    def test_events_fallback_extra_conditions_reject_select_set_query(self, _mock_flag, mock_execute):
+    def test_events_fallback_extra_conditions_reject_select_set_query(self, mock_execute):
         mock_execute.return_value = self._make_result([])
 
         team = Mock(id=1, organization_id="org")
@@ -285,10 +284,11 @@ class TestQueryAiEvents:
             subsequent_select_queries=[],
         )
         with pytest.raises(NotImplementedError):
-            execute_with_ai_events_fallback(
+            query_ai_events(
                 query=set_query,
                 placeholders={},
                 team=team,
                 query_type="TestQuery",
+                fall_back_to_events=True,
                 events_fallback_extra_conditions=[self._timestamp_condition()],
             )

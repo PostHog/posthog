@@ -410,7 +410,7 @@ class TestSessionMessagesEventsFallbackIndex(ClickhouseTestMixin, BaseTest):
         )
 
         # Build the exact query the runner hands to the events fallback path: the rewritten select
-        # plus the events-only timestamp conditions ANDed in (see execute_with_ai_events_fallback).
+        # plus the events-only timestamp conditions ANDed in (see query_ai_events).
         # An explicit window covering the seed data keeps partition pruning from discarding it.
         runner = SessionMessagesQueryRunner(
             team=self.team,
