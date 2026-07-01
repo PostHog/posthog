@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, cast
 
 from django.db import transaction
@@ -139,7 +140,7 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
         if is_markdown_notebook_content(locked_notebook.content):
             return False
 
-        before_update = Notebook.objects.get(pk=locked_notebook.pk)
+        before_update = Notebook.objects.select_related("created_by", "last_modified_by").get(pk=locked_notebook.pk)
         annotated_content = annotate_python_nodes(content)
         locked_notebook.content = annotated_content
         locked_notebook.text_content = text_content
@@ -170,10 +171,10 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
         notebook=locked_notebook,
         organization_id=cast(UUIDT, locked_notebook.team.organization_id),
         team_id=locked_notebook.team_id,
-        user=user,
+        user=before_update.last_modified_by or before_update.created_by or user,
         was_impersonated=False,
         changes=changes,
-        created_at=before_update.last_modified_at,
+        created_at=before_update.last_modified_at + timedelta(seconds=1),
     )
     return True
 
