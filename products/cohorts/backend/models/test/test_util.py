@@ -9,6 +9,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
@@ -21,9 +22,11 @@ from posthog.exceptions import (
 )
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1029,6 +1032,10 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("hogql_unresolved_field", "QueryErrorUnresolvedField", CohortErrorCode.INVALID_FIELD),
+            ("hogql_resolution_field", "ResolutionErrorUnresolvedField", CohortErrorCode.INVALID_FIELD),
+            ("hogql_query_error", "QueryError", CohortErrorCode.VALIDATION_ERROR),
+            ("hogql_resolution_error", "ResolutionError", CohortErrorCode.VALIDATION_ERROR),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
         ]
     )
@@ -1054,6 +1061,16 @@ class TestParseErrorCode(BaseTest):
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
             return ClickHouseEstimatedQueryExecutionTimeTooLong()
+
+        hogql_exceptions: dict[str, Exception] = {
+            "QueryErrorUnresolvedField": QueryError("Unable to resolve field: account"),
+            "ResolutionErrorUnresolvedField": ResolutionError("Unable to resolve field: account"),
+            "QueryError": QueryError('Table "foo" does not exist'),
+            "ResolutionError": ResolutionError("Ambiguous query"),
+        }
+
+        if exception_type in hogql_exceptions:
+            return hogql_exceptions[exception_type]
 
         if exception_type == "PydanticValidationError":
             try:
@@ -1090,6 +1107,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
             (CohortErrorCode.QUERY_SIZE, "query that was too large"),
             (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
+            (CohortErrorCode.INVALID_FIELD, "no longer exists"),
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
@@ -1108,3 +1126,36 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message("some_unknown_code")
         assert message is not None
         self.assertIn("an error occurred", message.lower())
+
+
+class TestRecalculateCohortpeopleForTeamErrorHandling(BaseTest):
+    @parameterized.expand(
+        [
+            # A stale-field HogQL failure is a user misconfiguration: record it and swallow it so it
+            # doesn't re-raise into error tracking as an unexpected exception.
+            ("unresolved_field", QueryError("Unable to resolve field: account"), CohortErrorCode.INVALID_FIELD, False),
+            ("resolution_error", ResolutionError("something went wrong"), CohortErrorCode.VALIDATION_ERROR, False),
+            # A genuinely unexpected exception must still surface.
+            ("unexpected_error", ValueError("boom"), CohortErrorCode.UNKNOWN, True),
+        ]
+    )
+    @patch("products.cohorts.backend.models.util._recalculate_cohortpeople_for_team_hogql")
+    def test_error_handling(
+        self, _name: str, exc: Exception, expected_code: str, expects_raise: bool, mock_hogql: MagicMock
+    ):
+        mock_hogql.side_effect = exc
+        cohort = _create_cohort(
+            team=self.team,
+            name="test",
+            groups=[{"properties": [{"key": "email", "value": "x", "type": "person"}]}],
+        )
+
+        if expects_raise:
+            with self.assertRaises(type(exc)):
+                _recalculate_cohortpeople_for_team(cohort, 1, self.team)
+        else:
+            self.assertEqual(_recalculate_cohortpeople_for_team(cohort, 1, self.team), 0)
+
+        history = CohortCalculationHistory.objects.filter(cohort=cohort, team=self.team).latest("started_at")
+        self.assertEqual(history.error_code, expected_code)
+        self.assertEqual(history.error, str(exc))

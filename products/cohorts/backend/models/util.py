@@ -18,6 +18,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -78,6 +79,7 @@ class CohortErrorCode(StrEnum):
     MEMORY_LIMIT = "memory_limit"
     QUERY_SIZE = "query_size"
     VALIDATION_ERROR = "validation_error"
+    INVALID_FIELD = "invalid_field"
     INVALID_REGEX = "invalid_regex"
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
@@ -95,6 +97,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
     CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
+    CohortErrorCode.INVALID_FIELD: "This cohort's matching criteria reference a property or field that no longer exists. Please review your matching criteria and remove or update the invalid filter.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
@@ -134,6 +137,12 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
         case ClickHouseQuerySizeExceeded():
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
+            return CohortErrorCode.VALIDATION_ERROR
+        case QueryError() | ResolutionError() if "resolve field" in str(e).lower():
+            # A matching-criteria filter points at a field that no longer resolves in the HogQL
+            # schema (e.g. a removed data-warehouse person-property join).
+            return CohortErrorCode.INVALID_FIELD
+        case QueryError() | ResolutionError():
             return CohortErrorCode.VALIDATION_ERROR
 
     code_name = getattr(e, "code_name", "").lower()
@@ -734,10 +743,25 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         return result
 
     except Exception as e:
+        error_code = parse_error_code(e)
         history.finished_at = timezone.now()
         history.error = str(e)
-        history.error_code = parse_error_code(e)
+        history.error_code = error_code
         history.save(update_fields=["finished_at", "error", "error_code"])
+
+        # A cohort whose matching criteria reference an invalid/unresolvable field is a user
+        # misconfiguration, not a system fault, and a retry can't fix it. The failure is already
+        # recorded on CohortCalculationHistory above (surfacing a friendly message), so don't
+        # re-raise it as an unexpected exception and pollute error tracking.
+        if isinstance(e, (QueryError, ResolutionError)):
+            logger.warning(
+                "cohort_calculation_invalid_criteria",
+                cohort_id=cohort.pk,
+                team_id=team.id,
+                error_code=error_code,
+                error=str(e),
+            )
+            return 0
         raise
 
 
