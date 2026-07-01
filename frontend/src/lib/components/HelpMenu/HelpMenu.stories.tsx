@@ -26,7 +26,7 @@ const meta: Meta<typeof HelpMenu> = {
         useOnMountEffect(() => setHelpMenuOpen(true))
 
         return (
-            <div className="flex h-[1400px]">
+            <div className="flex h-[1400px] w-[600px]">
                 <HelpMenu />
             </div>
         )
