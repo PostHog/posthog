@@ -1276,13 +1276,16 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL
+    # Print to SQL. Materialization is a system, team-scoped process with no request user — access to
+    # the source warehouse tables is enforced when the user reads the dashboard. Bypass warehouse access
+    # control so building the printer's database doesn't fail closed in this userless context.
     context = HogQLContext(
         team_id=team.id,
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
         modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(
         query,
