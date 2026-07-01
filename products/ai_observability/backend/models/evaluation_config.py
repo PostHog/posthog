@@ -1,4 +1,7 @@
 from django.db import models
+from django.utils import timezone
+
+from products.ai_observability.backend.constants import trial_eval_deprecation_date
 
 
 class EvaluationConfig(models.Model):
@@ -40,3 +43,11 @@ class EvaluationConfig(models.Model):
     @property
     def trial_limit_reached(self) -> bool:
         return self.trial_evals_used >= self.trial_eval_limit
+
+    @property
+    def is_trial_grandfathered(self) -> bool:
+        """Only teams already mid-trial keep PostHog-funded inference, and only until the cutoff.
+        Teams that never started (used == 0) or exhausted (used >= limit) the trial are terminal
+        and must bring their own provider key — as are all teams once the deprecation date passes.
+        """
+        return 0 < self.trial_evals_used < self.trial_eval_limit and timezone.now() < trial_eval_deprecation_date()

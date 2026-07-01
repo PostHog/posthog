@@ -40,7 +40,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'requiresProviderKey']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -262,10 +262,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
         canEnableEvaluation: [
-            (s) => [s.isTrialLimitReached],
-            (isTrialLimitReached: boolean) => {
+            (s) => [s.requiresProviderKey],
+            (requiresProviderKey: boolean) => {
                 return (evaluation: EvaluationConfig): boolean => {
-                    if (!isTrialLimitReached) {
+                    if (!requiresProviderKey) {
                         return true
                     }
                     if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {

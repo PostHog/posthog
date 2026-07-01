@@ -1,10 +1,39 @@
 import { useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
+
+export function TrialDeprecationBanner({
+    showSettingsLink = false,
+    noun = 'evaluations',
+}: {
+    showSettingsLink?: boolean
+    noun?: string
+}): JSX.Element | null {
+    const { evaluationConfig } = useValues(llmProviderKeysLogic)
+
+    if (!evaluationConfig || !evaluationConfig.trial_grandfathered || evaluationConfig.active_provider_key) {
+        return null
+    }
+
+    const endDate = dayjs(evaluationConfig.trial_deprecation_date).format('MMMM D, YYYY')
+
+    return (
+        <LemonBanner type="warning">
+            Trial {noun} are being phased out and will be removed on {endDate}.{' '}
+            {showSettingsLink ? (
+                <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>Add a provider key</Link>
+            ) : (
+                'Add a provider key'
+            )}{' '}
+            to keep running {noun} without interruption.
+        </LemonBanner>
+    )
+}
 
 export function TrialUsageMeter({
     showSettingsLink = false,
@@ -15,12 +44,17 @@ export function TrialUsageMeter({
 }): JSX.Element | null {
     const { evaluationConfig } = useValues(llmProviderKeysLogic)
 
-    if (!evaluationConfig || evaluationConfig.active_provider_key) {
+    // Only teams still grandfathered into the deprecating trial (and not yet on their own key) see the
+    // meter. Everyone else — never started, exhausted, or past the cutoff — must bring their own key.
+    if (!evaluationConfig || !evaluationConfig.trial_grandfathered || evaluationConfig.active_provider_key) {
         return null
     }
 
     return (
-        <TrialUsageMeterDisplay evaluationConfig={evaluationConfig} showSettingsLink={showSettingsLink} noun={noun} />
+        <div className="space-y-3">
+            <TrialDeprecationBanner showSettingsLink={showSettingsLink} noun={noun} />
+            <TrialUsageMeterDisplay evaluationConfig={evaluationConfig} showSettingsLink={showSettingsLink} noun={noun} />
+        </div>
     )
 }
 

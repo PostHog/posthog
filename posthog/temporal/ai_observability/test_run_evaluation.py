@@ -1048,8 +1048,13 @@ class TestRunEvaluationWorkflow:
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data, settings):
         team = setup_data["team"]
+        # The model-allowlist check now sits behind the grandfathering gate: only a mid-trial team still
+        # in the deprecation window reaches it. Pin the cutoff forward and make the team grandfathered so
+        # this exercises model_not_allowed rather than the terminal provider_key_required branch.
+        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50)
 
         evaluation = {
             "id": str(setup_data["evaluation"].id),
@@ -1082,6 +1087,46 @@ class TestRunEvaluationWorkflow:
         assert result["skipped"] is True
         assert result["skip_reason"] == "model_not_allowed"
         assert result["status_reason"] == "model_not_allowed"
+        assert result["verdict"] is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
+        # Team that never started the trial (used == 0, so not grandfathered) with no BYOK key: the
+        # PostHog-funded fallback is gone, so a keyless judge run returns a provider_key_required terminal
+        # result — never the removed trial_limit_reached path and never a real LLM call.
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-5-mini",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
+        ):
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_client_class.assert_not_called()
+        mock_user_errors.assert_called_once_with("provider_key_required", provider=None)
+        mock_errors.assert_not_called()
+        assert result["terminal_user_error"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "provider_key_required"
+        assert result["status_reason"] == "provider_key_required"
         assert result["verdict"] is None
 
     @pytest.mark.parametrize(

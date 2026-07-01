@@ -141,7 +141,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     connect(() => ({
         values: [
             llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading', 'isTrialLimitReached'],
+            ['providerKeys', 'providerKeysLoading', 'requiresProviderKey'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading'],
         ],
@@ -797,9 +797,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         canEnable: [
-            (s) => [s.evaluation, s.isTrialLimitReached],
-            (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
-                if (!evaluation || !isTrialLimitReached) {
+            (s) => [s.evaluation, s.requiresProviderKey],
+            (evaluation: EvaluationConfig | null, requiresProviderKey: boolean): boolean => {
+                if (!evaluation || !requiresProviderKey) {
                     return true
                 }
                 if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
@@ -816,7 +816,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (canEnable) {
                     return null
                 }
-                return 'Trial evaluation limit reached. Add a provider API key to re-enable this evaluation.'
+                return 'Add a provider API key to enable this evaluation.'
             },
         ],
 

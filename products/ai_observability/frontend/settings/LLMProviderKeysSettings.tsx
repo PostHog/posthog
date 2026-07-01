@@ -36,7 +36,7 @@ import {
     llmProviderKeysLogic,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
-import { TrialUsageMeterDisplay } from './TrialUsageMeter'
+import { TrialUsageMeter } from './TrialUsageMeter'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -752,7 +752,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
         providerKeysLoading,
-        evaluationConfig,
         evaluationConfigLoading,
         editingKey,
         validatingKeyId,
@@ -882,9 +881,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                             </LemonButton>
                         </div>
 
-                        {evaluationConfig && !evaluationConfig.active_provider_key && (
-                            <TrialUsageMeterDisplay evaluationConfig={evaluationConfig} />
-                        )}
+                        <TrialUsageMeter showSettingsLink={false} />
 
                         {providerKeys.length === 0 ? (
                             <div className="border rounded-lg p-8 flex flex-col items-center">

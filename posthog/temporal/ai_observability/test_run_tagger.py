@@ -181,8 +181,9 @@ class TestRunTaggerWorkflow:
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
                 mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                # Grandfathered: keyless resolution takes the PostHog-funded trial path. is_trial_grandfathered
+                # is a real @property, but a MagicMock auto-returns a truthy child, so pin it explicitly.
+                mock_config.is_trial_grandfathered = True
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -223,8 +224,7 @@ class TestRunTaggerWorkflow:
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
                 mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                mock_config.is_trial_grandfathered = True
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -266,8 +266,7 @@ class TestRunTaggerWorkflow:
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
                 mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                mock_config.is_trial_grandfathered = True
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -277,7 +276,10 @@ class TestRunTaggerWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_trial_limit_reached(self, setup_data):
+    async def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
+        # A team that is no longer grandfathered (exhausted / past cutoff / never started) has no
+        # PostHog-funded fallback: keyless resolution raises provider_key_required, not the removed
+        # trial_limit_reached. The workflow routes this error_type to disable without a trial-usage email.
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -293,12 +295,15 @@ class TestRunTaggerWorkflow:
         with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
             mock_config = MagicMock()
             mock_config.active_provider_key = None
-            mock_config.trial_evals_used = 100
-            mock_config.trial_eval_limit = 100
+            # Real @property returns False here, but a bare MagicMock would return a truthy child and
+            # silently pass the funded gate — pin it to exercise the terminal path.
+            mock_config.is_trial_grandfathered = False
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-            with pytest.raises(ApplicationError, match="Trial evaluation limit"):
+            with pytest.raises(ApplicationError) as exc_info:
                 await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert exc_info.value.details[0]["error_type"] == "provider_key_required"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

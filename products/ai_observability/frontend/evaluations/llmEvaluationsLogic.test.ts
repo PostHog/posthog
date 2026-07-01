@@ -107,6 +107,8 @@ describe('llmEvaluationsLogic', () => {
                     trial_eval_limit: 100,
                     trial_evals_used: 0,
                     trial_evals_remaining: 100,
+                    trial_grandfathered: false,
+                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -141,10 +143,13 @@ describe('llmEvaluationsLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT], {
                 [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
             })
+            // Terminal team: exhausted trial, no active key, not grandfathered → requiresProviderKey.
             keysLogic.actions.loadEvaluationConfigSuccess({
                 trial_eval_limit: 100,
                 trial_evals_used: 100,
                 trial_evals_remaining: 0,
+                trial_grandfathered: false,
+                trial_deprecation_date: '2026-07-15T00:00:00Z',
                 active_provider_key: null,
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',

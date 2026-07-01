@@ -2,7 +2,11 @@ import { HogBytecode } from '../cdp/types'
 import { PropertyFilter } from '../types'
 
 export type EvaluationStatus = 'active' | 'paused' | 'error'
-export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+export type EvaluationStatusReason =
+    | 'provider_key_required'
+    | 'trial_limit_reached'
+    | 'model_not_allowed'
+    | 'provider_key_deleted'
 export type EvaluationTarget = 'generation' | 'trace'
 
 export interface Evaluation {

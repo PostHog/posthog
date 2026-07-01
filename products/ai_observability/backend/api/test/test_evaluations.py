@@ -1076,13 +1076,18 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         return eval_obj
 
     def test_rejects_re_enable_when_model_still_not_allowed(self):
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
+        # The model-allowlist gate only applies while the team is grandfathered into the trial (a terminal
+        # team would fail earlier for lacking a key). Make the team grandfathered so this exercises the
+        # "model not on trial plan" message specifically. Pin the cutoff forward for determinism.
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {"enabled": True},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not available on the trial plan", str(response.data))
 
@@ -1129,6 +1134,42 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIn("working provider API key", str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
+
+    def test_rejects_re_enable_when_provider_key_required_and_no_key(self):
+        # A provider_key_required-disabled eval on a terminal team (no config → not grandfathered) cannot be
+        # re-enabled until a usable key is attached — otherwise the next run just re-disables it.
+        eval_obj = self._create_errored_eval(status_reason="provider_key_required")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
+
+    def test_allows_re_enable_when_provider_key_required_and_byok_key_attached(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="provider_key_required", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)
 
     @parameterized.expand(
         [

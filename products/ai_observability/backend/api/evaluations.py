@@ -414,6 +414,17 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
                 )
 
+        # Provider key required: a terminal team (no key, no longer grandfathered into the deprecating
+        # trial) had this eval auto-disabled. Re-enabling requires the eval's own usable key, a usable
+        # team active key, or the team still being grandfathered — mirroring the runtime funded gate.
+        if status_reason == "provider_key_required" and not has_usable_byok:
+            team = self.context["get_team"]()
+            config = EvaluationConfig.objects.filter(team=team).first()
+            active_key = config.active_provider_key if config else None
+            has_usable_active_key = active_key is not None and active_key.state == LLMProviderKey.State.OK
+            if not has_usable_active_key and not (config and config.is_trial_grandfathered):
+                raise serializers.ValidationError({"enabled": "Add a provider API key to re-enable this evaluation."})
+
         # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
         # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
         if status_reason == "model_not_allowed" and not has_usable_byok:
