@@ -45,7 +45,7 @@ export function RunComposer({
                     <Composer.Placeholder>{placeholder}</Composer.Placeholder>
                     <Composer.Textarea
                         data-attr="sandbox-composer-input"
-                        submitShortcut="cmd-enter"
+                        submitShortcut="enter"
                         autoFocus={autoFocus}
                     />
                 </Composer.Field>

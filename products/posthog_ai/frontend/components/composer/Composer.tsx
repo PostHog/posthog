@@ -277,7 +277,7 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
-    /** `'enter'` submits on Enter (PostHog AI), `'cmd-enter'` on Cmd/Ctrl+Enter (tasks composer). */
+    /** `'enter'` (default) submits on Enter, Shift+Enter for a newline; `'cmd-enter'` submits on Cmd/Ctrl+Enter. */
     submitShortcut?: 'enter' | 'cmd-enter'
     'data-attr'?: string
 }

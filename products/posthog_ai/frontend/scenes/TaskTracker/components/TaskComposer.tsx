@@ -59,7 +59,7 @@ export function TaskComposer(): JSX.Element {
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                                     <Composer.Textarea
-                                        submitShortcut="cmd-enter"
+                                        submitShortcut="enter"
                                         autoFocus
                                         data-attr="task-composer-input"
                                     />

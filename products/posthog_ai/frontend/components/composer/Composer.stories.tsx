@@ -79,7 +79,7 @@ export const Disabled: Story = {
 
 /** Follow-up variant: tighter frame radius/border and a nudged send button (`isThreadVisible`). */
 export const FollowUp: Story = {
-    args: { initialValue: 'One more thing…', isThreadVisible: true, submitShortcut: 'cmd-enter' },
+    args: { initialValue: 'One more thing…', isThreadVisible: true, submitShortcut: 'enter' },
 }
 
 /** Page-level sticky chrome: bordered, blurred, bottom-pinned container around the frame. */
@@ -122,7 +122,7 @@ export const WithFooter: Story = {
 
 /** Editable "Up next" queue rendered in the Banner slot above the frame (the tasks follow-up surface). */
 export const WithUpNextQueue: Story = {
-    args: { isThreadVisible: true, submitShortcut: 'cmd-enter' },
+    args: { isThreadVisible: true, submitShortcut: 'enter' },
     render: ({ initialValue, placeholder, submitShortcut, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         const [queue, setQueue] = useState([
