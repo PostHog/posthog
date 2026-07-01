@@ -158,10 +158,6 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
     if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
         return false
     }
-    // ComboChart has no trend-line support yet (same limitation as the bar path).
-    if (yData.some((series) => series.settings?.display?.trendLine)) {
-        return false
-    }
     // ComboChart supports only stacked/grouped bars, not percent (stackBars100).
     if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
         return false
@@ -490,6 +486,7 @@ export function buildComboChartConfig({
                 : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
+        trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
