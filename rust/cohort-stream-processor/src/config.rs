@@ -280,8 +280,9 @@ pub struct Config {
     #[envconfig(from = "COHORT_COMPACT_ON_DELETION_ENABLED", default = "true")]
     pub cohort_compact_on_deletion_enabled: bool,
 
-    /// Compact SSTs older than this many seconds. `0` disables it.
-    #[envconfig(from = "COHORT_PERIODIC_COMPACTION_SECONDS", default = "86400")]
+    /// Compact SSTs older than this many seconds; opt-in, `0` (the default) disables it so a
+    /// persisted store isn't mass-rewritten on reopen.
+    #[envconfig(from = "COHORT_PERIODIC_COMPACTION_SECONDS", default = "0")]
     pub cohort_periodic_compaction_seconds: u64,
 
     /// Cap on RocksDB background compaction/flush jobs. Non-positive leaves RocksDB's default.
@@ -755,7 +756,7 @@ mod tests {
             cohort_block_cache_bytes: 134_217_728,
             cohort_tuned_block_options_enabled: true,
             cohort_compact_on_deletion_enabled: true,
-            cohort_periodic_compaction_seconds: 86_400,
+            cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
@@ -1491,7 +1492,7 @@ mod tests {
         assert_eq!(defaults.cohort_block_cache_bytes, 134_217_728);
         assert!(defaults.cohort_tuned_block_options_enabled);
         assert!(defaults.cohort_compact_on_deletion_enabled);
-        assert_eq!(defaults.cohort_periodic_compaction_seconds, 86_400);
+        assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
         assert_eq!(defaults.cohort_max_background_jobs, 0);
         assert_eq!(defaults.partition_channel_buffer, 128);
 
@@ -1499,7 +1500,7 @@ mod tests {
             ("COHORT_BLOCK_CACHE_BYTES", "3221225472"),
             ("COHORT_TUNED_BLOCK_OPTIONS_ENABLED", "false"),
             ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
-            ("COHORT_PERIODIC_COMPACTION_SECONDS", "0"),
+            ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
             ("COHORT_MAX_BACKGROUND_JOBS", "2"),
             ("PARTITION_CHANNEL_BUFFER", "256"),
         ]
@@ -1510,7 +1511,7 @@ mod tests {
         assert_eq!(config.cohort_block_cache_bytes, 3_221_225_472);
         assert!(!config.cohort_tuned_block_options_enabled);
         assert!(!config.cohort_compact_on_deletion_enabled);
-        assert_eq!(config.cohort_periodic_compaction_seconds, 0);
+        assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
         assert_eq!(config.cohort_max_background_jobs, 2);
         assert_eq!(config.partition_channel_buffer, 256);
     }
@@ -1521,14 +1522,14 @@ mod tests {
         config.cohort_block_cache_bytes = 3_221_225_472;
         config.cohort_tuned_block_options_enabled = false;
         config.cohort_compact_on_deletion_enabled = false;
-        config.cohort_periodic_compaction_seconds = 0;
+        config.cohort_periodic_compaction_seconds = 3600;
         config.cohort_max_background_jobs = 2;
 
         let store = config.store_config();
         assert_eq!(store.block_cache_bytes, 3_221_225_472);
         assert!(!store.tuned_block_options);
         assert!(!store.compact_on_deletion);
-        assert_eq!(store.periodic_compaction_seconds, 0);
+        assert_eq!(store.periodic_compaction_seconds, 3600);
         assert_eq!(store.max_background_jobs, 2);
     }
 

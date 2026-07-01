@@ -25,6 +25,10 @@ pub const CF_MERGE_TOMBSTONES: &str = "cf_merge_tombstones";
 
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
+/// Per-CF memtable count, pinned so the memtable-memory multiplier (CF × write_buffer_bytes × this)
+/// can't silently double if the write-buffer size is raised.
+const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
+
 /// Column family enum.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Cf {
@@ -111,7 +115,7 @@ fn cf_options(cf: Cf, config: &StoreConfig, cache: &Cache) -> Options {
     opts.set_block_based_table_factory(&block_opts);
     opts.set_compression_type(DBCompressionType::Lz4);
     opts.set_write_buffer_size(config.write_buffer_bytes);
-    opts.set_max_write_buffer_number(config.max_write_buffer_number);
+    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
 
     // CF options don't inherit from the DB options, so compaction controls must be set per-CF.
     if config.compact_on_deletion {

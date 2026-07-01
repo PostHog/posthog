@@ -36,13 +36,11 @@ const OP_CHECKPOINT: &str = "checkpoint";
 
 const DEFAULT_BLOCK_CACHE_BYTES: usize = 128 * 1024 * 1024;
 const DEFAULT_WRITE_BUFFER_BYTES: usize = 64 * 1024 * 1024;
-const DEFAULT_MAX_WRITE_BUFFER_NUMBER: i32 = 2;
 const DEFAULT_MAX_OPEN_FILES: i32 = 1024;
 
 const DEFAULT_COMPACT_ON_DELETION_WINDOW: usize = 1000;
 const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
 const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
-const DEFAULT_PERIODIC_COMPACTION_SECONDS: u64 = 86_400;
 
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
@@ -51,8 +49,6 @@ pub struct StoreConfig {
     /// Shared across all CFs; also holds index/filter blocks when `tuned_block_options` is set.
     pub block_cache_bytes: usize,
     pub write_buffer_bytes: usize,
-    /// Per-CF memtable count; caps memtable memory at CF × `write_buffer_bytes` × this.
-    pub max_write_buffer_number: i32,
     pub max_open_files: i32,
     pub create_if_missing: bool,
     /// Destroy any existing database at `path` before opening.
@@ -79,7 +75,6 @@ impl Default for StoreConfig {
             path: PathBuf::from("cohort-store"),
             block_cache_bytes: DEFAULT_BLOCK_CACHE_BYTES,
             write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
-            max_write_buffer_number: DEFAULT_MAX_WRITE_BUFFER_NUMBER,
             max_open_files: DEFAULT_MAX_OPEN_FILES,
             create_if_missing: true,
             wipe_on_start: false,
@@ -88,7 +83,7 @@ impl Default for StoreConfig {
             compact_on_deletion_window: DEFAULT_COMPACT_ON_DELETION_WINDOW,
             compact_on_deletion_num_dels_trigger: DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER,
             compact_on_deletion_ratio: DEFAULT_COMPACT_ON_DELETION_RATIO,
-            periodic_compaction_seconds: DEFAULT_PERIODIC_COMPACTION_SECONDS,
+            periodic_compaction_seconds: 0,
             max_background_jobs: 0,
         }
     }
@@ -1092,7 +1087,7 @@ mod tests {
     }
 
     #[test]
-    fn tuned_options_keep_tombstone_visibility_correct_across_flush() {
+    fn tuned_options_keep_tombstone_visibility_correct_across_compaction() {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {
             path: dir.path().join("db"),
@@ -1122,6 +1117,12 @@ mod tests {
             .unwrap();
         store.flush().unwrap();
 
+        // Force a physical compaction so the tombstones actually rewrite the SSTs, exercising the
+        // compaction path instead of only the read-time merge iterator.
+        store
+            .db
+            .compact_range_cf(store.cf(Cf::Stage1).unwrap(), None::<&[u8]>, None::<&[u8]>);
+
         let mut survivors = Vec::new();
         let mut cursor: Option<Vec<u8>> = None;
         loop {
@@ -1135,7 +1136,7 @@ mod tests {
         assert_eq!(
             survivors,
             vec![1, 3, 5, 7, 9],
-            "the flushed tombstones hide the even persons; survivors stay ordered and bounded",
+            "compaction drops the deleted evens and keeps the odds ordered and bounded",
         );
     }
 
@@ -1145,14 +1146,14 @@ mod tests {
         assert!(config.create_if_missing);
         assert!(config.block_cache_bytes > 0);
         assert!(config.write_buffer_bytes > 0);
-        assert!(config.max_write_buffer_number > 0);
         assert!(config.max_open_files > 0);
         assert!(config.tuned_block_options);
         assert!(config.compact_on_deletion);
         assert!(config.compact_on_deletion_window > 0);
         assert!(config.compact_on_deletion_num_dels_trigger > 0);
         assert!(config.compact_on_deletion_ratio > 0.0 && config.compact_on_deletion_ratio <= 1.0);
-        assert!(config.periodic_compaction_seconds > 0);
+        // Periodic compaction and the background-jobs cap are opt-in; `0` leaves RocksDB's own behavior.
+        assert_eq!(config.periodic_compaction_seconds, 0);
         assert_eq!(config.max_background_jobs, 0);
     }
 
