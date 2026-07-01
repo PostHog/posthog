@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.chameleon import ChameleonResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.settings import ENDPOINTS
@@ -31,6 +33,7 @@ class TestChameleonSourceConfig:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
         field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
         assert field.name == "account_secret"
         assert field.required is True
         assert field.type.value == "password"
@@ -42,6 +45,7 @@ class TestChameleonSourceConfig:
     def test_stays_unreleased_alpha(self) -> None:
         config = self.source.get_source_config
         assert config.unreleasedSource is True
+        assert config.releaseStatus is not None
         assert config.releaseStatus.value == "alpha"
 
 

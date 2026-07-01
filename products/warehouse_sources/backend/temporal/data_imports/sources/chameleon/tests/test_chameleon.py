@@ -38,6 +38,28 @@ def _response_with_status(status_code: int) -> requests.Response:
     return response
 
 
+def _collect(
+    manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], endpoint: str = "responses"
+) -> list[dict]:
+    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+        result = pages[url]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(chameleon, "_fetch_page", fake_fetch)
+
+    rows: list[dict] = []
+    for batch in get_rows(
+        account_secret="secret",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+    ):
+        rows.extend(batch)
+    return rows
+
+
 class TestBuildUrl:
     def test_no_params_returns_base(self) -> None:
         assert (
@@ -67,26 +89,6 @@ class TestValidateCredentials:
 
 
 class TestStandardEndpointPagination:
-    @staticmethod
-    def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pages: dict[str, Any]) -> list[dict]:
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            result = pages[url]
-            if isinstance(result, Exception):
-                raise result
-            return result
-
-        monkeypatch.setattr(chameleon, "_fetch_page", fake_fetch)
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            account_secret="secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
     def test_follows_before_cursor_until_exhausted(self, monkeypatch: Any) -> None:
         base = "https://api.chameleon.io/v3/edit/segments?limit=500"
         page2 = "https://api.chameleon.io/v3/edit/segments?limit=500&before=S2"
@@ -95,13 +97,13 @@ class TestStandardEndpointPagination:
             page2: {"segments": [{"id": "S3"}], "cursor": {"limit": 500, "before": "S3"}},
             "https://api.chameleon.io/v3/edit/segments?limit=500&before=S3": {"segments": [], "cursor": {}},
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, "segments", pages)
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "segments")
         assert [r["id"] for r in rows] == ["S1", "S2", "S3"]
 
     def test_stops_when_cursor_missing(self, monkeypatch: Any) -> None:
         base = "https://api.chameleon.io/v3/edit/tours?limit=500"
         pages = {base: {"tours": [{"id": "T1"}], "cursor": {}}}
-        rows = self._collect(_FakeResumableManager(), monkeypatch, "tours", pages)
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "tours")
         assert [r["id"] for r in rows] == ["T1"]
 
     def test_saves_resume_state_after_each_page_with_more_to_come(self, monkeypatch: Any) -> None:
@@ -112,7 +114,7 @@ class TestStandardEndpointPagination:
             page2: {"segments": [{"id": "S3"}], "cursor": {}},
         }
         manager = _FakeResumableManager()
-        self._collect(manager, monkeypatch, "segments", pages)
+        _collect(manager, monkeypatch, pages, "segments")
         # Only the first page has a `next_before`, so exactly one checkpoint is saved, pointing at it.
         assert manager.saved == [ChameleonResumeConfig(before="S2")]
 
@@ -121,31 +123,11 @@ class TestStandardEndpointPagination:
         resume_url = "https://api.chameleon.io/v3/edit/segments?limit=500&before=S2"
         pages = {resume_url: {"segments": [{"id": "S3"}], "cursor": {}}}
         manager = _FakeResumableManager(ChameleonResumeConfig(before="S2"))
-        rows = self._collect(manager, monkeypatch, "segments", pages)
+        rows = _collect(manager, monkeypatch, pages, "segments")
         assert [r["id"] for r in rows] == ["S3"]
 
 
 class TestResponsesFanOut:
-    @staticmethod
-    def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any]) -> list[dict]:
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            result = pages[url]
-            if isinstance(result, Exception):
-                raise result
-            return result
-
-        monkeypatch.setattr(chameleon, "_fetch_page", fake_fetch)
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            account_secret="secret",
-            endpoint="responses",
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
     def test_fans_out_over_surveys_and_stamps_survey_id(self, monkeypatch: Any) -> None:
         pages = {
             "https://api.chameleon.io/v3/edit/surveys?limit=500": {
@@ -161,7 +143,7 @@ class TestResponsesFanOut:
                 "cursor": {},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [
             {"id": "R1", "survey_id": "SV1"},
             {"id": "R2", "survey_id": "SV1"},
@@ -180,7 +162,7 @@ class TestResponsesFanOut:
                 "cursor": {},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert [r["id"] for r in rows] == ["R1", "R2"]
 
     def test_survey_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
@@ -200,7 +182,7 @@ class TestResponsesFanOut:
                 "cursor": {},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert [r["id"] for r in rows] == ["R1", "R2"]
 
     def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
@@ -210,7 +192,7 @@ class TestResponsesFanOut:
             "https://api.chameleon.io/v3/analyze/responses?id=SV1&limit=500": server_error,
         }
         with pytest.raises(requests.HTTPError):
-            self._collect(_FakeResumableManager(), monkeypatch, pages)
+            _collect(_FakeResumableManager(), monkeypatch, pages)
 
     def test_resume_from_deleted_survey_restarts_from_first(self, monkeypatch: Any) -> None:
         pages = {
@@ -221,7 +203,7 @@ class TestResponsesFanOut:
             },
         }
         manager = _FakeResumableManager(ChameleonResumeConfig(before=None, survey_id="DELETED"))
-        rows = self._collect(manager, monkeypatch, pages)
+        rows = _collect(manager, monkeypatch, pages)
         assert [r["id"] for r in rows] == ["R1"]
 
 

@@ -64,7 +64,7 @@ def _fetch_page(
     if not response.ok:
         # 404 is expected and handled during the responses fan-out (a survey deleted mid-sync).
         log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Chameleon API error: status={response.status_code}, body={response.text}, url={url}")
+        log(f"Chameleon API error: status={response.status_code}, body={response.text[:200]!r}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -72,7 +72,9 @@ def _fetch_page(
 
 def validate_credentials(account_secret: str) -> bool:
     try:
-        response = make_tracked_session().get(CHAMELEON_ROOT_URL, headers=_get_headers(account_secret), timeout=10)
+        response = make_tracked_session(redact_values=(account_secret,)).get(
+            CHAMELEON_ROOT_URL, headers=_get_headers(account_secret), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -195,8 +197,9 @@ def get_rows(
     config = CHAMELEON_ENDPOINTS[endpoint]
     headers = _get_headers(account_secret)
     # One session reused across every page (and, for fan-out, every survey) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. The account secret rides in a custom
+    # `X-Account-Secret` header the name-based scrubbers don't recognise, so redact it explicitly.
+    session = make_tracked_session(redact_values=(account_secret,))
 
     if config.fan_out_over_surveys:
         yield from _get_response_rows(session, headers, logger, resumable_source_manager)
