@@ -119,9 +119,9 @@ tools:
             idempotent: true
         title: Get notebook markdown
         description: >
-            Get the markdown source for a markdown notebook by short_id. Returns `{markdown: null}` for legacy
-            rich-text notebooks. Use this before `notebook-edit` markdown mode instead of relying on raw markdown in
-            the normal notebook retrieve response.
+            Get the markdown source for a markdown notebook by short_id. Returns `{markdown: null}` for legacy rich-text
+            notebooks. Use this before `notebook-edit` markdown mode instead of relying on raw markdown in the normal
+            notebook retrieve response.
     notebooks-partial-update:
         operation: notebooks_partial_update
         enabled: true
