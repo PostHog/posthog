@@ -31,6 +31,7 @@ from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
 
 from products.conversations.backend.api.serializers import (
+    WIDGET_TICKETS_DEFAULT_LIMIT,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
@@ -413,11 +414,11 @@ class WidgetTicketsView(APIView):
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        # Only cache the default first page (limit=100, offset=0) used by widget
-        # polling. Custom limit/offset must bypass the cache — its key doesn't
-        # include limit/offset, so serving it for other page sizes returns the
-        # wrong slice (e.g. ?limit=2 getting the full cached page back).
-        use_cache = offset == 0 and limit == 100
+        # Only cache the default first page (WIDGET_TICKETS_DEFAULT_LIMIT, offset=0)
+        # used by widget polling. Custom limit/offset must bypass the cache — its
+        # key doesn't include limit/offset, so serving it for other page sizes
+        # returns the wrong slice (e.g. ?limit=2 getting the full cached page back).
+        use_cache = offset == 0 and limit == WIDGET_TICKETS_DEFAULT_LIMIT
         if use_cache:
             cached = get_cached_tickets(team.id, cache_key_id, status_filter)
             if cached is not None:
