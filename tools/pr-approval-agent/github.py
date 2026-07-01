@@ -7,6 +7,7 @@ Also handles team membership checks for the ownership gate.
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -130,19 +131,56 @@ def _reaction_emoji(content: str) -> str:
     return _REACTION_EMOJI.get(content.lower(), content)
 
 
-def _normalize_reactions(node: dict) -> list[dict]:
-    """Normalize a GraphQL Reactable node's reactions to [{user, emoji}].
+def _is_org_member(org: str, login: str) -> bool:
+    """Best-effort org-membership check; False on any error (fail closed)."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"orgs/{org}/members/{login}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def _trusted_reactor_predicate(repo: str, author: str) -> Callable[[str], bool]:
+    """Build a memoized `login -> bool` gate for whose reactions to trust.
+
+    Reactions on a public PR can come from anyone, so only trust recognized bot
+    reviewers and org members, and never the PR author (a self-reaction is not an
+    independent signal). Unknown or erroring logins fail closed. Without this,
+    any GitHub user could block auto-approval with an 👀 or fake an independent
+    review with a 👍.
+    """
+    org = repo.split("/", 1)[0]
+    cache: dict[str, bool] = {}
+
+    def is_trusted(login: str) -> bool:
+        if not login or login == "ghost" or login == author:
+            return False
+        if login not in cache:
+            low = login.lower()
+            cache[login] = "[bot]" in low or low in _BOT_MACHINE_USERS or _is_org_member(org, login)
+        return cache[login]
+
+    return is_trusted
+
+
+def _normalize_reactions(node: dict, is_trusted: Callable[[str], bool]) -> list[dict]:
+    """Normalize a GraphQL Reactable node's trusted reactions to [{user, emoji}].
 
     Works for any object that carries a `reactions` connection — the PR itself
-    or an individual review comment.
+    or an individual review comment. Reactions from untrusted actors (see
+    `_trusted_reactor_predicate`) are dropped so they can't influence the verdict.
     """
-    return [
-        {
-            "user": (rn.get("user") or {}).get("login", "ghost"),
-            "emoji": _reaction_emoji(rn.get("content", "")),
-        }
-        for rn in (node.get("reactions") or {}).get("nodes") or []
-    ]
+    reactions = []
+    for rn in (node.get("reactions") or {}).get("nodes") or []:
+        login = (rn.get("user") or {}).get("login", "ghost")
+        if is_trusted(login):
+            reactions.append({"user": login, "emoji": _reaction_emoji(rn.get("content", ""))})
+    return reactions
 
 
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
@@ -218,25 +256,26 @@ def _gh_graphql(query: str, variables: dict | None = None) -> dict:
     return data
 
 
-def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict], list[dict]]:
-    """Fetch review-thread comments and PR-body reactions in one GraphQL call.
+def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tuple[list[dict], list[dict]]:
+    """Fetch review-thread comments and reactions on the PR in one GraphQL call.
 
     Inline comments (each with their own reactions) and the reactions left on
-    the PR body come back from the same query, so no extra REST round trip is
-    needed. Returns (comments, pr_reactions); raises if any comment page is
-    truncated.
+    the PR itself come back from the same query, so no extra REST round trip is
+    needed. Reactions are filtered to trusted, non-author actors. Returns
+    (comments, pr_reactions); raises if any comment page is truncated.
     """
     owner, name = repo.split("/", 1)
     variables: dict = {"owner": owner, "name": name, "pr": pr_number, "threadCursor": None}
+    is_trusted = _trusted_reactor_predicate(repo, author)
 
     comments: list[dict] = []
     pr_reactions: list[dict] = []
     while True:
         data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
         pull_request = data["data"]["repository"]["pullRequest"]
-        # PR-body reactions repeat on the pullRequest node on every page; re-reading
-        # the (≤20) nodes each pass is trivial and avoids a page-tracking flag.
-        pr_reactions = _normalize_reactions(pull_request)
+        # Reactions on the PR repeat on the pullRequest node on every page;
+        # re-reading the (≤20) nodes each pass is trivial and avoids a flag.
+        pr_reactions = _normalize_reactions(pull_request, is_trusted)
         review_threads = pull_request["reviewThreads"]
         threads = review_threads["nodes"]
 
@@ -262,7 +301,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict],
                         "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
                         "is_resolved": thread["isResolved"],
                         "is_outdated": thread["isOutdated"],
-                        "reactions": _normalize_reactions(c),
+                        "reactions": _normalize_reactions(c, is_trusted),
                     }
                 )
 
@@ -342,7 +381,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     ensure_commits(pr_number, head_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
 
-    review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number)
+    review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number, pr["user"]["login"])
 
     return PRData(
         number=pr_number,

@@ -2,7 +2,8 @@
 
 import pytest
 
-from github import _normalize_reviews_for_prompt, _reaction_emoji, is_bot_author
+import github
+from github import _normalize_reviews_for_prompt, _reaction_emoji, _trusted_reactor_predicate, is_bot_author
 
 
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
@@ -89,6 +90,26 @@ def test_normalize_reviews_filters_by_trust_source(
 )
 def test_reaction_emoji_normalizes_rest_and_graphql(content: str, expected: str) -> None:
     assert _reaction_emoji(content) == expected
+
+
+@pytest.mark.parametrize(
+    "login,expected",
+    [
+        pytest.param("prauthor", False, id="author-self-reaction"),
+        pytest.param("ghost", False, id="deleted-user"),
+        pytest.param("", False, id="empty-login"),
+        pytest.param("greptile-apps[bot]", True, id="bot-login"),
+        pytest.param("posthog-bot", True, id="machine-user"),
+        pytest.param("teammate", True, id="org-member"),
+        pytest.param("outsider", False, id="external-non-member"),
+    ],
+)
+def test_trusted_reactor_predicate_gates_untrusted_and_author(
+    monkeypatch: pytest.MonkeyPatch, login: str, expected: bool
+) -> None:
+    monkeypatch.setattr(github, "_is_org_member", lambda org, member: member == "teammate")
+    is_trusted = _trusted_reactor_predicate("PostHog/posthog", author="prauthor")
+    assert is_trusted(login) is expected
 
 
 @pytest.mark.parametrize(
