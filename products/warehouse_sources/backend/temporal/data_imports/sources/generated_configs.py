@@ -447,7 +447,8 @@ class BloggerSourceConfig(config.Config):
 
 @config.config
 class BluetallySourceConfig(config.Config):
-    pass
+    api_key: str
+    tenant_id: str | None = None
 
 
 @config.config
@@ -941,7 +942,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DingConnectSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1095,7 +1096,9 @@ class EverhourSourceConfig(config.Config):
 
 @config.config
 class ExchangeRatesApiSourceConfig(config.Config):
-    pass
+    access_key: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
