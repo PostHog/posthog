@@ -177,7 +177,7 @@ class TestCursorPagination:
             "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
             return_value=session,
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="404"):
                 list(get_rows("key", "secret", "users", mock.MagicMock(), manager))
 
     def test_single_page_without_records(self) -> None:
@@ -281,6 +281,28 @@ class TestWindowedCalls:
         assert batches == []
         # The window still advances and progress is persisted, so the sync isn't aborted.
         assert len(manager.saved_states) == 1
+
+    def test_404_without_no_calls_body_raises(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession([_FakeResponse(status_code=404, text="not found")])
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            with pytest.raises(Exception, match="404"):
+                list(
+                    get_rows(
+                        "key",
+                        "secret",
+                        "calls",
+                        mock.MagicMock(),
+                        manager,
+                        should_use_incremental_field=True,
+                        db_incremental_field_last_value=last_value,
+                    )
+                )
 
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)
