@@ -328,7 +328,9 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert changes_by_field["version"]["after"] == 8
         assert "last_modified_at" not in changes_by_field
         assert "last_modified_by" not in changes_by_field
-        assert log.created_at == original_modified_at
+        assert log.user_id == original_modifier.id
+        assert log.user_id != self.user.id
+        assert log.created_at == original_modified_at + timedelta(seconds=1)
         mock_publish.assert_called_once_with(self.team.id, notebook.short_id, 8, diff=None)
 
     def test_apply_scopes_mention_label_lookup_to_notebook_organization(self) -> None:
