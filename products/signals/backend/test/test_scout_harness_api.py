@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -527,6 +529,39 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"
+
+    def test_summary_tallies_emitted_findings_across_scouts(self) -> None:
+        # The cheap callout tally that replaced the client walking the whole paginated runs window:
+        # sums each emitted run's emitted_count, counts distinct scouts, and ignores both quiet runs
+        # and other teams. Drop any of those and the callout count drifts.
+        _make_run(self.team, skill_name="signals-scout-errors", emitted_count=2, emitted_finding_ids=["a", "b"])
+        _make_run(self.team, skill_name="signals-scout-llm", emitted_count=1, emitted_finding_ids=["c"])
+        _make_run(self.team, skill_name="signals-scout-errors")  # quiet — emitted_count defaults to 0
+        other = Team.objects.create(organization=self.organization, name="Other")
+        _make_run(other, emitted_count=5, emitted_finding_ids=["x", "y", "z", "w", "v"])
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert body["scout_count"] == 2
+        assert body["latest_at"] is not None
+
+    def test_summary_excludes_runs_outside_the_window(self) -> None:
+        # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
+        # else the callout would advertise stale findings the findings page won't show.
+        _make_run(self.team, emitted_count=1, emitted_finding_ids=["recent"])
+        stale = _make_run(self.team, emitted_count=4, emitted_finding_ids=["a", "b", "c", "d"])
+        SignalScoutRun.objects.filter(id=stale.id).update(created_at=timezone.now() - timedelta(hours=80))
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 1
+        assert body["scout_count"] == 1
+
+
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1042,6 +1077,31 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_destroy_removes_config(self) -> None:
+        # The orphan-cleanup path: a config whose skill is gone can't be made to disappear via
+        # partial_update (only inert), so destroy must actually remove the row.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    def test_destroy_unknown_id_returns_404(self) -> None:
+        response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_destroy_other_teams_config_returns_404_and_preserves_row(self) -> None:
+        # Tenant isolation: deleting must be scoped by team — another team's config is neither
+        # removed nor acknowledged.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"

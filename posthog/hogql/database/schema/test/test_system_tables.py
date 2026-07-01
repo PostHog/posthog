@@ -166,6 +166,10 @@ def _create_account(team: Team, label: str) -> Account:
     return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
 
 
+def _create_custom_property_definition(team: Team, label: str) -> "CustomPropertyDefinition":
+    return CustomPropertyDefinition.objects.unscoped().create(team=team, name=f"def_{label}", display_type="text")
+
+
 def _create_action(team: Team, label: str) -> Action:
     return Action.objects.create(team=team, name=f"action_{label}")
 
@@ -636,6 +640,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
+    ("custom_property_definitions", _create_custom_property_definition),
     ("dashboards", _create_dashboard),
     ("dashboard_tiles", _create_dashboard_tile),
     ("data_modeling_jobs", _create_data_modeling_job),

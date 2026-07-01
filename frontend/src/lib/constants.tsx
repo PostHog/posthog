@@ -328,7 +328,6 @@ export const FEATURE_FLAGS = {
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
-    INSIGHT_ADD_TO_DASHBOARD_AAB: 'insight-add-to-dashboard-aab', // owner: @pauldambra #team-product-analytics multivariate=control,control_2,test
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
@@ -415,6 +414,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_FUNNELS_COMPARE: 'product-analytics-funnels-compare', // owner: @thmsobrmlr #team-product-analytics, gates "Compare to previous" toggle on funnel insights
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
+    PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS: 'product-analytics-insights-tooltips', // owner: #team-product-analytics, gates the unified quill DefaultTooltip for trends/retention/stickiness insight charts
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUILL_LEGEND: 'product-analytics-quill-legend', // owner: #team-product-analytics, gates the in-chart quill legend replacing the legacy side InsightLegend
     PRODUCT_ANALYTICS_QUILL_SQL_CHARTS: 'product-analytics-quill-sql-charts', // owner: #team-data-tools, gates rendering DataVisualization line/area charts via @posthog/quill-charts
