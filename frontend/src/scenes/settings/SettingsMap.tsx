@@ -170,6 +170,13 @@ import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
 
+// Error tracking configuration settings whose data endpoints are gated by the `error_tracking`
+// RBAC scope. Hidden from users without viewer access so their loaders don't 403.
+const ERROR_TRACKING_VIEWER_ACCESS = {
+    resourceType: AccessControlResourceType.ErrorTracking,
+    minimumAccessLevel: AccessControlLevel.Viewer,
+} as const
+
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
     {
@@ -487,17 +494,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Suppression rules',
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
             },
             {
                 id: 'error-tracking-rate-limits',
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
             },
@@ -506,6 +516,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
             },
             {
@@ -513,6 +524,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Custom grouping rules',
                 description: 'Define rules for how errors are grouped together into issues.',
                 component: <GroupingRules />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
             },
             {
@@ -521,6 +533,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Upload source maps to get readable stack traces from minified code.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
                 component: <SymbolSets />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 keywords: ['source map', 'sourcemap', 'debug', 'minified', 'stack trace'],
             },
             {
@@ -529,6 +542,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Track releases to see which version introduced errors and monitor deployment health.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/releases',
                 component: <Releases />,
+                accessControl: ERROR_TRACKING_VIEWER_ACCESS,
                 keywords: ['version', 'deploy', 'release', 'regression'],
             },
         ],

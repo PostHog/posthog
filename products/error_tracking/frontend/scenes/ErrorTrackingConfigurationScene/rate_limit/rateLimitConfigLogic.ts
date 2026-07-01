@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -84,7 +84,6 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     actions({
         setChartMode: (mode: RateLimitChartMode) => ({ mode }),
         refreshChart: true,
-        setNoAccess: true,
     }),
 
     reducers({
@@ -92,15 +91,6 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             false,
             {
                 loadConfigSuccess: () => true,
-            },
-        ],
-        // A user lacking error tracking viewer access gets a 403 from the settings endpoint.
-        // That's an expected permission check, so we surface a clean no-access state rather
-        // than letting the denial bubble up as a captured exception.
-        noAccess: [
-            false,
-            {
-                setNoAccess: () => true,
             },
         ],
         chartMode: [
@@ -118,20 +108,12 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         ],
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         config: [
             null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
-                    try {
-                        return await api.errorTracking.getSettings()
-                    } catch (e) {
-                        if (e instanceof ApiError && e.status === 403) {
-                            actions.setNoAccess()
-                            return null
-                        }
-                        throw e
-                    }
+                    return await api.errorTracking.getSettings()
                 },
             },
         ],
@@ -237,9 +219,6 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
 
     listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
-            if (values.noAccess) {
-                return
-            }
             const bucket = getBucketOption(
                 config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
             ).minutes

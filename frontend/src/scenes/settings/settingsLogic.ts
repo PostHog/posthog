@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -14,6 +15,7 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { matchesSettingAccessControl } from './accessGating'
 import { matchesFlagDefinition } from './flagGating'
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
@@ -427,6 +429,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (x.hideWhenNoSection && !effectiveSectionId) {
+                        return false
+                    }
+                    if (!matchesSettingAccessControl(x.accessControl, getAppContext()?.resource_access_control)) {
                         return false
                     }
                     if (x.allowForTeam) {
