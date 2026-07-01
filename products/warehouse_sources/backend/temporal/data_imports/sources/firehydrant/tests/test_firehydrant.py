@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     FireHydrantResumeConfig,
     _build_url,
     _extract_items,
+    _redact_key,
     base_url_for_region,
     firehydrant_source,
     get_rows,
@@ -93,6 +94,22 @@ class TestExtractItems:
         assert _extract_items(payload) == expected
 
 
+class TestRedactKey:
+    @parameterized.expand(
+        [
+            ("top_level", {"id": "1", "url": "secret"}, "url", {"id": "1"}),
+            ("nested", {"id": "1", "spec": {"url": "secret", "k": "v"}}, "spec.url", {"id": "1", "spec": {"k": "v"}}),
+            ("missing_key_is_noop", {"id": "1"}, "url", {"id": "1"}),
+            ("non_dict_node_is_noop", {"id": "1", "spec": "flat"}, "spec.url", {"id": "1", "spec": "flat"}),
+        ]
+    )
+    def test_redact_key(self, _name: str, row: dict, dotted_key: str, expected: dict) -> None:
+        original = dict(row)
+        assert _redact_key(row, dotted_key) == expected
+        # Redaction must not mutate the upstream row in place.
+        assert row == original
+
+
 class TestGetRows:
     def test_follows_page_pagination(self, monkeypatch: Any) -> None:
         pages = {
@@ -149,6 +166,18 @@ class TestGetRows:
         }
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents", region="eu")
         assert rows == [{"id": "eu1"}]
+
+    def test_webhooks_url_is_stripped_before_yield(self, monkeypatch: Any) -> None:
+        # A webhook `url` embeds a bearer token for Slack/Teams/custom receivers — it must never land
+        # in the warehouse. Other webhook fields stay.
+        pages = {
+            "https://api.firehydrant.io/v1/webhooks?page=1&per_page=100": {
+                "data": [{"id": "w1", "url": "https://hooks.slack.com/services/T/B/secret", "state": "active"}],
+                "pagination": {"next": None},
+            },
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "webhooks")
+        assert rows == [{"id": "w1", "state": "active"}]
 
     def test_resume_from_saved_state(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(FireHydrantResumeConfig(next_page=2))
