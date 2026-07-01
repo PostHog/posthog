@@ -3511,6 +3511,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_bulk_delete_soft_deletes_insights(self) -> None:
+        first_id, _ = self.dashboard_api.create_insight({"name": "first"})
+        second_id, _ = self.dashboard_api.create_insight({"name": "second"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/bulk_delete",
+            {"ids": [first_id, second_id]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertCountEqual(data["deleted"], [first_id, second_id])
+        self.assertEqual(data["errors"], [])
+
+        # Soft-deleted: hidden from the API but still present in the DB
+        self.dashboard_api.get_insight(insight_id=first_id, expected_status=status.HTTP_404_NOT_FOUND)
+        self.dashboard_api.get_insight(insight_id=second_id, expected_status=status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Insight.objects_including_soft_deleted.get(id=first_id).deleted)
+
+        activity = self.dashboard_api.get_insight_activity(first_id)["results"]
+        self.assertEqual([a["activity"] for a in activity], ["deleted", "created"])
+        self.assertEqual(
+            activity[0]["detail"]["changes"][0],
+            {"action": "changed", "after": True, "before": False, "field": "deleted", "type": "Insight"},
+        )
+
+    def test_bulk_delete_reports_missing_and_cross_project_ids(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "mine"})
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_insight = Insight.objects.create(team=other_team, short_id="other1", name="theirs")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/bulk_delete",
+            {"ids": [insight_id, 987654, other_insight.id]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(data["deleted"], [insight_id])
+        self.assertCountEqual(
+            data["errors"],
+            [{"id": 987654, "reason": "Not found"}, {"id": other_insight.id, "reason": "Not found"}],
+        )
+
+        # The other team's insight must be left untouched
+        self.assertFalse(Insight.objects_including_soft_deleted.get(id=other_insight.id).deleted)
+
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow
         #  Just verify it doesn't throw an error

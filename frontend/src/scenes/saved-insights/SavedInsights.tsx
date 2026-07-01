@@ -84,6 +84,7 @@ import {
     SavedInsightsTabs,
 } from '~/types'
 
+import { BulkDeleteInsightsButton } from './BulkDeleteInsightsButton'
 import { ReloadInsight } from './ReloadInsight'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -1113,14 +1114,23 @@ export function SavedInsights(): JSX.Element {
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
                             renderActions: (ctx) => (
-                                <BulkUpdateTagsButton
-                                    resource="insights"
-                                    selectedIds={ctx.selectedKeys}
-                                    onSuccess={() => {
-                                        ctx.clearSelection()
-                                        loadInsights()
-                                    }}
-                                />
+                                <>
+                                    <BulkUpdateTagsButton
+                                        resource="insights"
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            loadInsights()
+                                        }}
+                                    />
+                                    <BulkDeleteInsightsButton
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            loadInsights()
+                                        }}
+                                    />
+                                </>
                             ),
                         }}
                     />

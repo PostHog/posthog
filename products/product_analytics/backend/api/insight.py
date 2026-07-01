@@ -107,7 +107,11 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import (
+    UserAccessControlError,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -1266,6 +1270,37 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+INSIGHT_BULK_DELETE_MAX_IDS = 500
+
+
+class InsightBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        max_length=INSIGHT_BULK_DELETE_MAX_IDS,
+        help_text=(
+            f"IDs of the insights to soft-delete. At most {INSIGHT_BULK_DELETE_MAX_IDS} ids per request. "
+            "Deletion is recoverable — insights can be restored by patching `deleted` back to `false`."
+        ),
+    )
+
+
+class InsightBulkDeleteErrorSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of an insight that was not deleted.")
+    reason = serializers.CharField(help_text="Why the insight was skipped, e.g. 'Not found' or 'Permission denied'.")
+
+
+class InsightBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="IDs of the insights that were successfully soft-deleted.",
+    )
+    errors = InsightBulkDeleteErrorSerializer(
+        many=True,
+        help_text="Insights that were skipped, each with the reason it could not be deleted.",
+    )
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -2181,6 +2216,79 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         return Response(status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=InsightBulkDeleteRequestSerializer,
+        responses={200: InsightBulkDeleteResponseSerializer},
+        description=(
+            "Soft-delete multiple insights at once by id. Each deleted insight is marked as `deleted` "
+            "(recoverable — patch `deleted` back to `false` to restore), its dashboard tiles are removed, "
+            "and any linked alerts are deleted. Insights the user cannot edit, or that don't exist in the "
+            "project, are returned under `errors` and left untouched."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def bulk_delete(self, request: request.Request, **kwargs: Any) -> Response:
+        serializer = InsightBulkDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ids: list[int] = serializer.validated_data["ids"]
+
+        assert self.team.project_id is not None
+        insights = list(
+            Insight.objects.filter(
+                team__project_id=self.team.project_id,
+                id__in=ids,
+                deleted=False,
+            )
+        )
+
+        errors: list[dict[str, Any]] = []
+        found_ids = {insight.id for insight in insights}
+        for insight_id in ids:
+            if insight_id not in found_ids:
+                errors.append({"id": insight_id, "reason": "Not found"})
+
+        # Only delete insights the user can edit; the rest are reported as skipped.
+        self.user_access_control.preload_object_access_controls(cast(list, insights))
+        editable_insights = []
+        for insight in insights:
+            access_level = self.user_access_control.get_user_access_level(insight)
+            if access_level and access_level_satisfied_for_resource(self.scope_object, access_level, "editor"):
+                editable_insights.append(insight)
+            else:
+                errors.append({"id": insight.id, "reason": "Permission denied"})
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        editable_ids = [insight.id for insight in editable_insights]
+
+        if editable_ids:
+            with transaction.atomic():
+                Insight.objects.filter(id__in=editable_ids).update(
+                    deleted=True, last_modified_at=now(), last_modified_by=user
+                )
+                DashboardTile.objects_including_soft_deleted.filter(insight_id__in=editable_ids).update(deleted=True)
+                for insight in editable_insights:
+                    for alert in insight.alertconfiguration_set.all():
+                        alert.delete()
+
+            for insight in editable_insights:
+                log_and_report_insight_activity(
+                    activity="deleted",
+                    insight=insight,
+                    insight_id=insight.id,
+                    insight_short_id=insight.short_id,
+                    organization_id=user.current_organization_id,
+                    team_id=self.team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    request=request,
+                    changes=[Change(type="Insight", action="changed", field="deleted", before=False, after=True)],
+                )
+
+            self.user_permissions.reset_insights_dashboard_cached_results()
+
+        return Response({"deleted": editable_ids, "errors": errors})
 
     @extend_schema(
         operation_id="insights_all_activity_retrieve",
