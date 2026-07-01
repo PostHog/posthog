@@ -43,7 +43,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
+from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -57,6 +57,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     parse_created_by_ids,
@@ -764,6 +765,15 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
+        enforce_warehouse_metric_access(
+            [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -1080,6 +1090,20 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
+        """Query definitions of the attached saved metrics, so their tables get the same warehouse
+        access check as inline metrics."""
+        if not saved_metrics_ids:
+            return []
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return []
+        return [
+            sm.query
+            for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
+            if sm.query
+        ]
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -2030,6 +2054,16 @@ class ExperimentService:
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
 
+        enforce_warehouse_metric_access(
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
+            team=self.team,
+            user=self.user,
+        )
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -2624,28 +2658,14 @@ class ExperimentService:
             if query:
                 saved_queries_by_experiment[experiment_id].append(query)
 
-        per_experiment: list[tuple[int, set[str], set[int]]] = []
-        all_action_ids: set[int] = set()
-        for pk, metrics, metrics_secondary in inline_metrics:
-            combined: list[dict[str, Any]] = [
-                *(metrics or []),
-                *(metrics_secondary or []),
-                *saved_queries_by_experiment.get(pk, []),
-            ]
-            events, action_ids = collect_metric_events_and_action_ids(combined)
-            per_experiment.append((pk, events, action_ids))
-            all_action_ids |= action_ids
-
-        action_events = resolve_action_events(all_action_ids, self.team)
-
-        matching_ids: list[int] = []
-        for pk, events, action_ids in per_experiment:
-            resolved = set(events)
-            for action_id in action_ids:
-                resolved |= action_events.get(action_id, set())
-            if event in resolved:
-                matching_ids.append(pk)
-        return matching_ids
+        metric_groups: list[tuple[int, list[dict[str, Any]]]] = [
+            (
+                pk,
+                [*(metrics or []), *(metrics_secondary or []), *saved_queries_by_experiment.get(pk, [])],
+            )
+            for pk, metrics, metrics_secondary in inline_metrics
+        ]
+        return filter_metric_group_ids_by_event(metric_groups, event, self.team)
 
     def filter_experiments_queryset(
         self,

@@ -289,10 +289,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("does not have access to the requested project", response.json().get("detail", ""))
 
-    def test_psak_does_not_authenticate_legacy_team_token_surfaces(self):
-        # remote_config is the remaining Django surface for the legacy per-team
-        # Team.secret_api_token (local_evaluation now lives in the Rust flags service).
-        # A PSAK is also phs_-prefixed but must not be accepted there.
+    def test_psak_without_feature_flag_read_scope_returns_403_on_remote_config(self):
+        # remote_config accepts PSAK but requires feature_flag:read — endpoint-scoped keys must not pass.
         token, _ = _make_psak(self.team, label="remote-config-key")
 
         response = self.client.get(
@@ -300,7 +298,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             **self._auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("feature_flag:read", response.json().get("detail", ""))
 
     def test_session_auth_still_works_on_endpoint_viewset(self):
         # Regression: wiring PSAK into authentication_classes must not break session auth.

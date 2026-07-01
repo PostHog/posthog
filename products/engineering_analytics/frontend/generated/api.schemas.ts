@@ -18,6 +18,59 @@ export interface CICardSummaryApi {
     failing_ci: number
 }
 
+export interface RepoRefApi {
+    /** Code host provider, e.g. 'github'. */
+    provider: string
+    /** Repository owner or organization. */
+    owner: string
+    /** Repository name. */
+    name: string
+}
+
+export interface CIFailureLogLineApi {
+    /**
+     * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
+     * @nullable
+     */
+    original_line: number | null
+    /** The log line text, or the omission-marker text. */
+    text: string
+}
+
+export interface CIJobFailureLogApi {
+    /** The thinned failure-log lines in original order, with omission markers. */
+    lines: CIFailureLogLineApi[]
+    /** GitHub Actions job id of the failed job. */
+    job_id: number
+    /** Workflow run id the job belongs to. */
+    run_id: number
+    /** Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs. */
+    conclusion: string
+    /** Git branch the run was triggered on, or '' when unknown. */
+    branch: string
+    /** Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown. */
+    original_total_lines: number
+    /** Number of lines returned for this job (after the per-job cap). */
+    line_count: number
+    /** True when the job had more failure lines than the per-job cap. */
+    truncated: boolean
+}
+
+export interface CIFailureLogsApi {
+    /** Repository the pull request belongs to. */
+    repo: RepoRefApi
+    /** Failed CI jobs with their thinned failure logs, grouped by job. */
+    jobs: CIJobFailureLogApi[]
+    /** Pull request number the failure logs are for. */
+    pr_number: number
+    /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
+    runs_attributed: number
+    /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+    logs_available: boolean
+    /** True when the overall line cap across all jobs was hit. */
+    truncated: boolean
+}
+
 export interface WorkflowCostApi {
     /** GitHub Actions workflow name this cost is for. */
     workflow_name: string
@@ -81,15 +134,6 @@ export interface AuthorApi {
     avatar_url: string
     /** True if the author is a bot (handle ends in [bot] or is a known bot). */
     is_bot: boolean
-}
-
-export interface RepoRefApi {
-    /** Code host provider, e.g. 'github'. */
-    provider: string
-    /** Repository owner or organization. */
-    owner: string
-    /** Repository name. */
-    name: string
 }
 
 /**
@@ -595,6 +639,21 @@ export interface WorkflowRunnerCostApi {
 }
 
 export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsCiFailureLogsParams = {
+    /**
+     * Pull request number whose CI failure logs to fetch.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

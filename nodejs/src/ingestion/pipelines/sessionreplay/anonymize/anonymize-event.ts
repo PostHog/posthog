@@ -15,6 +15,8 @@ import { scrubConsolePlugin, scrubGenericField, scrubNetworkPlugin } from './val
 const NETWORK_PLUGIN = 'rrweb/network@1'
 const CONSOLE_PLUGIN = 'rrweb/console@1'
 
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
 /**
  * Anonymizes every event in a parsed message in place, then awaits its blur jobs.
  * Fails closed: returns `failed: true` if any event errors, so the caller can drop
@@ -42,6 +44,8 @@ export async function anonymizeParsedMessage(
     }
 
     await runBlurJobs(blurJobs)
+    // Macrotask break so a batch of messages doesn't scrub fully synchronously and starve the loop.
+    await yieldToEventLoop()
     return { failed: false }
 }
 

@@ -87,6 +87,24 @@ pub async fn main() -> Result<(), Error> {
 
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
+    // Periodically report the number of active jobs in the queue so the autoscaler
+    // can scale replicas to match pending + in-flight work. Every replica reports the
+    // same global count; the KEDA trigger collapses them with `max()`.
+    {
+        let context = context.clone();
+        tokio::spawn(async move {
+            let start = tokio::time::Instant::now() + Duration::from_secs(60);
+            let mut interval = tokio::time::interval_at(start, Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                match JobModel::count_active_jobs(&context.db).await {
+                    Ok(count) => metrics::active_jobs(count as f64),
+                    Err(e) => warn!("Failed to count active jobs for autoscaling metric: {e:#}"),
+                }
+            }
+        });
+    }
+
     let mut manager = Manager::builder("batch-import-worker").build();
 
     let job_handle = manager.register(

@@ -18,6 +18,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -307,3 +308,37 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
+        # The reconciler re-dispatches lost runs from the row alone, so the dispatch params
+        # must be committed onto the run — not left only in the in-memory on_commit closure.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Created via facade",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
+        assert created.latest_run is not None
+        run = TaskRun.objects.get(id=created.latest_run.id)
+        self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
+        self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
+        self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
+        # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
+        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
