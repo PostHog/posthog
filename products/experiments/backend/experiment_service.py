@@ -43,7 +43,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
+from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -2624,28 +2624,14 @@ class ExperimentService:
             if query:
                 saved_queries_by_experiment[experiment_id].append(query)
 
-        per_experiment: list[tuple[int, set[str], set[int]]] = []
-        all_action_ids: set[int] = set()
-        for pk, metrics, metrics_secondary in inline_metrics:
-            combined: list[dict[str, Any]] = [
-                *(metrics or []),
-                *(metrics_secondary or []),
-                *saved_queries_by_experiment.get(pk, []),
-            ]
-            events, action_ids = collect_metric_events_and_action_ids(combined)
-            per_experiment.append((pk, events, action_ids))
-            all_action_ids |= action_ids
-
-        action_events = resolve_action_events(all_action_ids, self.team)
-
-        matching_ids: list[int] = []
-        for pk, events, action_ids in per_experiment:
-            resolved = set(events)
-            for action_id in action_ids:
-                resolved |= action_events.get(action_id, set())
-            if event in resolved:
-                matching_ids.append(pk)
-        return matching_ids
+        metric_groups: list[tuple[int, list[dict[str, Any]]]] = [
+            (
+                pk,
+                [*(metrics or []), *(metrics_secondary or []), *saved_queries_by_experiment.get(pk, [])],
+            )
+            for pk, metrics, metrics_secondary in inline_metrics
+        ]
+        return filter_metric_group_ids_by_event(metric_groups, event, self.team)
 
     def filter_experiments_queryset(
         self,
