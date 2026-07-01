@@ -13,6 +13,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
+import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
@@ -22,6 +23,7 @@ import {
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
+import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,
@@ -48,6 +50,8 @@ export interface TimeSeriesComboChartConfig {
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
+    /** Trend line overlays rendered as SVG lines on top of the chart. */
+    trendLines?: TrendLineConfig[]
 }
 
 export interface TimeSeriesComboChartProps<Meta = unknown> {
@@ -90,6 +94,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showAxisLines,
         tooltip: tooltipConfig,
         legend,
+        trendLines,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -110,6 +115,19 @@ export function TimeSeriesComboChart<Meta = unknown>({
     // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
     // object stays referentially stable and doesn't re-trigger scale recomputation each render.
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
+    const trendSeries = useMemo(() => {
+        if (!trendLines?.length) {
+            return []
+        }
+        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
+        return trendLines.flatMap((tl) => {
+            const source = byKey.get(tl.seriesKey)
+            return source
+                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
+                : []
+        })
+    }, [trendLines, visibleSeries])
 
     const comboChartConfig: ComboChartConfig = {
         yScaleType: yAxis?.scale,
@@ -143,6 +161,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
                 {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
                 {children}
             </ComboChart>

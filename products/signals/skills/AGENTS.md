@@ -213,6 +213,18 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
   individual account's engagement trajectory. Acquisition is the web-analytics
   scout's territory.
+- `signals-scout-mcp-tool-calls/` — tool-quality watcher for PostHog MCP usage. Reads
+  `$mcp_tool_call` telemetry for tools that need improvement: high, broad-reach failure
+  rates, per-session retry/hammering that betrays a confusing schema, slow or
+  context-bloating responses, and undiagnosable failures (an instrumentation gap). Its
+  discriminator is rate/struggle weighted by volume and reach, concentrated in a
+  consistent shape — not raw counts. Coverage-aware: it first probes which enrichment
+  fields the project captures (they split by regime — PostHog's own hono server vs
+  external SDK servers) and picks lenses to match, resting detection only on always-present
+  fields (error flag, duration, tool name, session). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
+  editing the live report when the problem persists; bundles `references/queries.md`, a
+  HogQL cookbook validated against real telemetry.
 
 ### How the coordinator decides what runs
 

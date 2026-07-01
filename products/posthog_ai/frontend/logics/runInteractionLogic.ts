@@ -22,6 +22,13 @@ import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 export interface RunInteractionLogicProps {
     taskId: string
     runId: string
+    /**
+     * Optional override for the bound `runStreamLogic` key. The logic still keys its own per-run state by
+     * `runId` (queue, model/effort overrides), but connects to the stream under `streamKey ?? runId` so it
+     * can adopt an optimistic-create instance seeded under a client `streamKey` — sharing the exact stream
+     * `RunSurface` binds, never diverging from it. API calls still use the real `runId`.
+     */
+    streamKey?: string
     /** The run's stored model / reasoning effort, injected by the consumer. They seed the picker's display and
      * the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -67,11 +74,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
-            runStreamLogic({ streamKey: props.runId }),
+            runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking'],
         ],
         actions: [
-            runStreamLogic({ streamKey: props.runId }),
+            runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['pushHumanMessage', 'respondToPermission', 'cancelRun', 'markTurnComplete'],
         ],
     })),

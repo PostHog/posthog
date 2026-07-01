@@ -1,0 +1,518 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "breakdownBy": {
+            "description": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",
+            "enum": [
+                "Page",
+                "InitialPage",
+                "ExitPage",
+                "ExitClick",
+                "PreviousPage",
+                "ScreenName",
+                "InitialChannelType",
+                "InitialReferringDomain",
+                "InitialReferringURL",
+                "InitialUTMSource",
+                "InitialUTMCampaign",
+                "InitialUTMMedium",
+                "InitialUTMTerm",
+                "InitialUTMContent",
+                "InitialUTMSourceMediumCampaign",
+                "Browser",
+                "OS",
+                "Viewport",
+                "DeviceType",
+                "Country",
+                "Region",
+                "City",
+                "Timezone",
+                "Language",
+                "FrustrationMetrics"
+            ],
+            "type": "string"
+        },
+        "compareFilter": {
+            "description": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+            "properties": {
+                "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
+                    "type": "boolean"
+                },
+                "compare_to": {
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "conversionGoal": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "actionId": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": -9007199254740991,
+                                    "type": "integer"
+                                }
+                            },
+                            "required": ["actionId"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "customEventName": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["customEventName"],
+                            "type": "object"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
+        },
+        "dateRange": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "ISO8601 date string.",
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "ISO8601 date string."
+                        }
+                    },
+                    "required": ["date_from"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from"],
+                    "type": "object"
+                }
+            ],
+            "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
+        },
+        "doPathCleaning": {
+            "default": false,
+            "description": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+            "type": "boolean"
+        },
+        "filterTestAccounts": {
+            "default": false,
+            "description": "Exclude internal and test users by applying the team's test-account filter.",
+            "type": "boolean"
+        },
+        "includeAvgTimeOnPage": {
+            "default": false,
+            "description": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+            "type": "boolean"
+        },
+        "includeBounceRate": {
+            "default": false,
+            "description": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+            "type": "boolean"
+        },
+        "includeHost": {
+            "default": false,
+            "description": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+            "type": "boolean"
+        },
+        "kind": {
+            "const": "WebStatsTableQuery",
+            "default": "WebStatsTableQuery",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "description": "Pagination offset.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "properties": {
+            "default": [],
+            "description": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+            "items": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "default": "exact",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "event",
+                                "default": "event",
+                                "description": "Event properties",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "person",
+                                "default": "person",
+                                "description": "Person properties",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "operator"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "session",
+                                "default": "session",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "operator"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "cohort_name": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "const": "id",
+                                "default": "id",
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "default": "in",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "cohort",
+                                "default": "cohort",
+                                "type": "string"
+                            },
+                            "value": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["value"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "type": "array"
+        }
+    },
+    "required": ["breakdownBy"],
+    "type": "object"
+}
