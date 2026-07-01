@@ -649,7 +649,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             if (persistedColumns && isDataTableNode(query)) {
                 const source = query.source as ActorsQuery
                 if (!objectsEqual(source.select, persistedColumns)) {
-                    actions.setQuery({ ...query, source: { ...source, select: persistedColumns } })
+                    const restoredQuery: DataTableNode = { ...query, source: { ...source, select: persistedColumns } }
+                    actions.setQuery(restoredQuery)
                 }
             }
         },
