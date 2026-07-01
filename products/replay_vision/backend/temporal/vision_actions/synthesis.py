@@ -7,7 +7,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 import structlog
 from google.genai import types
@@ -89,11 +89,11 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         logger.info("vision_action.synthesis.over_credit_budget", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_OVER_BUDGET)
 
-    lines = _fetch_observation_lines(team, action, run)
-    if not lines:
+    batch = _fetch_observations(team, action, run)
+    if not batch.lines:
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    markdown = _run_synthesis(team, action, lines)
+    markdown = _run_synthesis(team, action, batch.lines)
     if not markdown.strip():
         # The model returned nothing. Skip without persisting — an empty `synthesized_markdown` would
         # read as "not done" to the idempotency guard above and re-bill the LLM on every retry.
@@ -105,10 +105,11 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
 
     run.synthesized_markdown = markdown
     run.output = {"slack": slack_text}
-    run.observation_count = len(lines)
-    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "updated_at"])
+    run.observation_count = len(batch.lines)
+    run.observation_ids = batch.observation_ids
+    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "observation_ids", "updated_at"])
 
-    return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
+    return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(batch.lines))
 
 
 def _window_start(team: Team, action: VisionAction, run: VisionActionRun) -> datetime:
@@ -143,7 +144,14 @@ def _window_end(run: VisionActionRun) -> datetime:
     return run.scheduled_at or datetime.now(UTC)
 
 
-def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionActionRun) -> list[str]:
+class _ObservationBatch(NamedTuple):
+    # Formatted summary lines fed to the LLM, and the ids of the observations they came from, in the
+    # same order — so the run persists exactly which observations its summary included.
+    lines: list[str]
+    observation_ids: list[str]
+
+
+def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
     """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
 
     Models the summarizer fetch in `max_tools._fetch_and_format`.
@@ -151,7 +159,7 @@ def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionAction
     selection: dict[str, Any] = action.selection or {}
     scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
     if not scanner_ids:
-        return []
+        return _ObservationBatch(lines=[], observation_ids=[])
 
     observations_qs = ReplayObservation.objects.filter(
         team_id=team.id,
@@ -161,10 +169,11 @@ def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionAction
         created_at__lt=_window_end(run),
     )
 
-    rows = observations_qs.order_by("-created_at").values_list("scanner_result", "created_at")[:MAX_OBSERVATIONS]
+    rows = observations_qs.order_by("-created_at").values_list("id", "scanner_result", "created_at")[:MAX_OBSERVATIONS]
 
     lines: list[str] = []
-    for scanner_result, created_at in rows:
+    observation_ids: list[str] = []
+    for observation_id, scanner_result, created_at in rows:
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
@@ -174,8 +183,10 @@ def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionAction
         title = output.get("title") if isinstance(output.get("title"), str) else None
         clean = _EVENT_ID_CITATION_RE.sub("", summary).strip()
         lines.append(f"- ({created_at:%Y-%m-%d}) {f'{title}: ' if title else ''}{clean}")
+        # Recorded in lockstep with `lines`: only observations whose summary was actually included.
+        observation_ids.append(str(observation_id))
 
-    return lines
+    return _ObservationBatch(lines=lines, observation_ids=observation_ids)
 
 
 def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
