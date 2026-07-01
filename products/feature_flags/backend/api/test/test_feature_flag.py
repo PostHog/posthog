@@ -4431,7 +4431,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action, mock_personhog_client):
-        mock_personhog_client.return_value.get_group_type_mappings_by_project_ids.return_value = MagicMock(results=[])
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_id.return_value = MagicMock(mappings=[])
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
