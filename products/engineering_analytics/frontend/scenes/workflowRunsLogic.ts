@@ -51,10 +51,11 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     props({} as WorkflowRunsLogicProps),
     key((props) => `${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`),
 
-    // The shared CI-analytics window scopes both the runs list and the runner-cost breakdown — one window,
-    // never all-time, and the same one the Workflows tab and author page use.
+    // The shared CI-analytics window and branch scope both the runs list and the runner-cost breakdown —
+    // one window and branch, the same the Workflows tab uses, so drilling in from a branch-scoped tab keeps
+    // that scope instead of silently widening back to all branches (which reads as "more runs").
     connect(() => ({
-        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
     })),
 
     actions({
@@ -77,6 +78,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -91,6 +93,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -220,8 +223,12 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 actions.loadJobs({ runId, runAttempt })
             }
         },
-        // The shared window scopes both lists — reload them together when it changes.
+        // The shared window and branch scope both lists — reload them together when either changes.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
+            actions.loadRuns()
+            actions.loadRunnerCosts()
+        },
+        [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
             actions.loadRuns()
             actions.loadRunnerCosts()
         },

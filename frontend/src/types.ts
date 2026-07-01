@@ -582,6 +582,8 @@ export interface OrganizationDomainType {
     id_jag_issuer_url?: string | null
     id_jag_jwks_url?: string | null
     id_jag_allowed_clients?: string[]
+    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -1106,6 +1108,8 @@ export enum PropertyFilterType {
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    PersonMetadata = 'person_metadata',
     Element = 'element',
     /** Event property with "$feature/" prepended */
     Feature = 'feature',
@@ -1159,6 +1163,11 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
 /** Sync with nodejs/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
+    operator: PropertyOperator
+}
+
+export interface PersonMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.PersonMetadata
     operator: PropertyOperator
 }
 
@@ -1262,6 +1271,7 @@ export interface EmptyPropertyFilter {
 export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | ElementPropertyFilter
     | EventMetadataPropertyFilter
     | SessionPropertyFilter
@@ -1284,6 +1294,7 @@ export type AnyPropertyFilter =
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | CohortPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
@@ -4654,6 +4665,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Person = 'person',
+    PersonMetadata = 'person_metadata',
     Group = 'group',
     Session = 'session',
     LogEntry = 'log_entry',
@@ -5649,6 +5661,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_enablement'
     | 'product_tour'
     | 'project'
     | 'property_definition'

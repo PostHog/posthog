@@ -148,16 +148,6 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 return null
             },
         ],
-        percentage: [
-            (s) => [s.usedPrs, s.limitPrs, s.freePrs],
-            (usedPrs, limitPrs, freePrs): number => {
-                const denominator = limitPrs ?? (freePrs || null)
-                if (!denominator) {
-                    return 0
-                }
-                return Math.min(100, Math.round((usedPrs / denominator) * 100))
-            },
-        ],
         status: [
             (s) => [s.usedPrs, s.limitPrs],
             (usedPrs, limitPrs): InboxUsageStatus => {
@@ -177,6 +167,24 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         usedPrsDisplay: [
             (s) => [s.usedPrs, s.limitPrs],
             (usedPrs, limitPrs): number => (limitPrs != null ? Math.min(usedPrs, limitPrs) : usedPrs),
+        ],
+        // USD spent so far this period: PRs beyond the free allowance, at the per-PR price.
+        // Null when we can't price a PR (so the widget hides the figure rather than show "$0").
+        spentUsd: [
+            (s) => [s.usedPrs, s.freePrs, s.pricePerPrUsd],
+            (usedPrs, freePrs, pricePerPrUsd): number | null =>
+                pricePerPrUsd == null ? null : Math.max(0, usedPrs - freePrs) * pricePerPrUsd,
+        ],
+        // Bar fill as a % of the denominator (the limit, or the free allowance when uncapped).
+        percentage: [
+            (s) => [s.usedPrs, s.limitPrs, s.freePrs],
+            (usedPrs, limitPrs, freePrs): number => {
+                const denominator = limitPrs ?? (freePrs || null)
+                if (!denominator) {
+                    return 0
+                }
+                return Math.min(100, Math.round((usedPrs / denominator) * 100))
+            },
         ],
         resetDate: [(s) => [s.billing], (billing): Dayjs | null => billing?.billing_period?.current_period_end ?? null],
         // USD spend cap implied by the limit currently typed into the modal. Drives the live budget.

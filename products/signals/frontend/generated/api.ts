@@ -46,6 +46,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
+    SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -476,6 +477,44 @@ export const signalsScoutConfigUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalScoutConfigApi),
+    })
+}
+
+export const getSignalsScoutConfigDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * @summary Delete a scout config
+ */
+export const signalsScoutConfigDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsScoutConfigDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/run/`
+}
+
+/**
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * @summary Run a scout now
+ */
+export const signalsScoutConfigRun = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutManualRunApi> => {
+    return apiMutator<SignalScoutManualRunApi>(getSignalsScoutConfigRunUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

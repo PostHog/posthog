@@ -2190,6 +2190,47 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
         self.assertEqual(sum(int(count) for count in buckets.values()), 1)
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.feature_flags.backend.api.feature_flag.RemoteConfigThrottle.rate", new="2/minute")
+    def test_remote_config_throttles_project_secret_api_key_requests(self, *_args):
+        # PSAK requests carry no personal API key, so a plain PersonalApiKeyRateThrottle would let
+        # them through unthrottled. RemoteConfigThrottle's PSAK-aware base must throttle them per key.
+        self._create_remote_config_flag()
+        token, _ = _make_feature_flag_psak(self.team, label="throttle")
+        self.client.logout()
+        cache.clear()
+
+        url = f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config"
+        headers = {"authorization": f"Bearer {token}"}
+        for _ in range(2):
+            self.assertEqual(self.client.get(url, headers=headers).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(url, headers=headers).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.feature_flags.backend.api.feature_flag.RemoteConfigProjectSecretApiKeyTeamThrottle.rate",
+        new="2/minute",
+    )
+    def test_remote_config_team_throttle_caps_across_multiple_psaks(self, *_args):
+        # The per-team throttle exists to stop a project from multiplying its budget by minting keys.
+        # The per-key throttle stays at its default, so the only way the third request trips is the
+        # shared per-team bucket — two distinct keys, one team.
+        self._create_remote_config_flag()
+        token_a, _ = _make_feature_flag_psak(self.team, label="teamcapa")
+        token_b, _ = _make_feature_flag_psak(self.team, label="teamcapb")
+        self.client.logout()
+        cache.clear()
+
+        url = f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config"
+        for _ in range(2):
+            self.assertEqual(
+                self.client.get(url, headers={"authorization": f"Bearer {token_a}"}).status_code, status.HTTP_200_OK
+            )
+        self.assertEqual(
+            self.client.get(url, headers={"authorization": f"Bearer {token_b}"}).status_code,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     def test_remote_config_returns_response_even_if_shadow_raises(self):
         # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)

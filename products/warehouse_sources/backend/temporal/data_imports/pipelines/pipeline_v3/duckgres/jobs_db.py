@@ -152,6 +152,7 @@ class DuckgresBatchQueue:
         retry_backoff_base_seconds: int = 0,
         team_ids: list[int] | None = None,
         blocked_schema_ids: list[str] | None = None,
+        eligible_schema_ids: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -168,6 +169,14 @@ class DuckgresBatchQueue:
         ``blocked_schema_ids`` excludes LIVE batches for schemas whose history is
         not yet primed into duckgres (backfill pending/in-flight) — the schema's
         own backfill-run batches (metadata.duckgres_backfill) pass through.
+
+        ``eligible_schema_ids`` restricts the claim to schemas whose source is on
+        warehouse-pipelines-v3 (None = no filter, for tests/dev). This keeps the
+        sink in lockstep with the v3 routing flag: the shared queue can hold
+        batches for non-v3 source types (an earlier flag window, or the
+        flag-independent CDC writer), and without this gate the team-scoped claim
+        would apply them — including replace-head batches that bypass the unprimed
+        block. Computed by ``sink_eligible_schema_ids``.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -191,6 +200,7 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
@@ -279,6 +289,7 @@ class DuckgresBatchQueue:
                     "backoff": retry_backoff_base_seconds,
                     "team_ids": team_ids,
                     "blocked_schema_ids": blocked_schema_ids,
+                    "eligible_schema_ids": eligible_schema_ids,
                 },
             )
             rows = await cur.fetchall()
@@ -369,6 +380,7 @@ class DuckgresBatchQueue:
         *,
         team_ids: list[int] | None = None,
         blocked_schema_ids: list[str] | None = None,
+        eligible_schema_ids: list[str] | None = None,
     ) -> tuple[int, float | None, int, float | None]:
         """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age).
 
@@ -395,6 +407,7 @@ class DuckgresBatchQueue:
                         AND a.batch_index = b.batch_index
                     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
                         AND ds.job_state = 'succeeded'
                         AND b.is_final_batch = false
                         AND a.id IS NULL
@@ -407,7 +420,11 @@ class DuckgresBatchQueue:
                     EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE is_blocked))
                 FROM backlog
                 """,
-                {"team_ids": team_ids, "blocked_schema_ids": blocked_schema_ids},
+                {
+                    "team_ids": team_ids,
+                    "blocked_schema_ids": blocked_schema_ids,
+                    "eligible_schema_ids": eligible_schema_ids,
+                },
             )
             row = await cur.fetchone()
 

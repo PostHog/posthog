@@ -19,12 +19,11 @@ use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUN
 /// observable in prod logs without a line per event.
 static SEEN_UNKNOWN_FNS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
 
-/// HogVM stack ceiling for cohort evaluation. `with_defaults` caps the stack at 128, far below real
-/// cohort bytecode: a `person.properties.X IN (...)` leaf compiles to a tuple build that pushes every
-/// list element before `In` pops them, so peak depth ≈ list size. Production catalogs already hold
-/// IN-lists of several thousand elements (largest observed ~8.6k), which overflow 128 and silently
-/// match nobody. A correctness floor, not a tuning knob — it must exceed real list sizes regardless
-/// of environment.
+/// HogVM stack ceiling for cohort evaluation. A `person.properties.X IN (...)` leaf compiles to a
+/// tuple build that pushes every list element before `In` pops them, so peak depth ≈ list size.
+/// Production catalogs already hold IN-lists of several thousand elements (largest observed ~8.6k).
+/// A correctness floor, not a tuning knob — it must exceed real list sizes regardless of environment
+/// (and independent of the VM's own default ceiling).
 const COHORT_HOGVM_MAX_STACK_DEPTH: usize = 32_768;
 /// Step ceiling. Cohort filter bytecode is loop-free, so step count ≈ program length and raising this
 /// cannot cause a runaway; kept above the stack ceiling so a max-size tuple build can't trip it.
@@ -428,17 +427,17 @@ mod tests {
     }
 
     #[test]
-    fn large_tuple_overflows_at_default_depth_but_evaluates_in_cohort_context() {
-        // N comfortably above the 128 default, small enough to be instant.
+    fn large_tuple_overflows_at_shallow_depth_but_evaluates_in_cohort_context() {
+        // N comfortably above a 128-deep stack, small enough to be instant.
         let prog = tuple_build_program(200);
 
-        // Control: the production default depth (128) must StackOverflow on the tuple build, pinning
-        // the exact failure the raised ceiling fixes.
+        // Control: an explicit 128-deep stack (the old `with_defaults` value, before the ceiling was
+        // raised) must StackOverflow on the tuple build, pinning the failure the cohort context avoids.
         let program = Program::new(prog.clone()).expect("valid program");
-        let control = ExecutionContext::with_defaults(program);
+        let control = ExecutionContext::with_defaults(program).with_max_stack_depth(128);
         assert!(
             matches!(sync_execute(&control, false), Err(failure) if matches!(failure.error, VmError::StackOverflow)),
-            "expected StackOverflow at the default depth of 128",
+            "expected StackOverflow at a stack depth of 128",
         );
 
         // Fix, free-function site (parity path): no overflow. A tuple result coerces to false, so we

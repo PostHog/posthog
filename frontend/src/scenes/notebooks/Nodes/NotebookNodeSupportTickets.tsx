@@ -2,7 +2,9 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { ConversationsDisabledBanner } from 'products/conversations/frontend/components/ConversationsDisabledBanner'
 import {
     SupportTicketsTable,
     SupportTicketsTableFilters,
@@ -21,6 +23,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSupportTicketsA
     const logicProps = { key: nodeId, distinctIds }
     const mountedLogic = supportTicketsSceneLogic(logicProps)
     useAttachedLogic(mountedLogic, notebookLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     useOnMountEffect(() => {
         const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.SupportTickets)
@@ -31,6 +34,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSupportTicketsA
 
     if (!expanded) {
         return null
+    }
+
+    // When support is off, never query the disabled product — show the "set up support"
+    // prompt instead. (The panel is hidden entirely for teams that use Zendesk but not
+    // support; that visibility decision lives in customerProfileLogic's content filter.)
+    if (!currentTeam?.conversations_enabled) {
+        return <ConversationsDisabledBanner />
     }
 
     return (
