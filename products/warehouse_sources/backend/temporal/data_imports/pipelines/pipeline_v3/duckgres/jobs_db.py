@@ -133,6 +133,18 @@ class DuckgresBatchQueue:
         replaces the old session advisory lock so an abandoned group simply
         expires instead of wedging until the holder's server session dies.
 
+        Mixed-version rollout (advisory-lock pods alongside lease pods) is a
+        single cutover, mirroring the delta queue's own migration: the group
+        claim is pacing, not the correctness guarantee. Concurrent processors
+        are arbitrated per batch by the duckgres-side apply marker, which
+        shares the data write's transaction and rolls the loser back
+        (``DuckgresBatchAlreadyAppliedError`` — a handled no-op), and each
+        side's eligibility query skips batches the other has marked executing
+        or applied. Deliberately NOT probing the old advisory lock here: a
+        zombie session holding it would wedge the group indefinitely — the
+        exact failure mode leases remove. Worst case in the mixed window is
+        transient duplicate work, never a double-write.
+
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on the age
         of the latest Duckgres status row, mirroring the Delta queue's backoff.
 
