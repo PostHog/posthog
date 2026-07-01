@@ -17897,6 +17897,9 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
@@ -17924,8 +17927,16 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
       /**
@@ -17956,6 +17967,11 @@ export namespace Schemas {
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface Edge {
@@ -33234,6 +33250,11 @@ export namespace Schemas {
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
       /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
          */
@@ -36575,6 +36596,9 @@ export namespace Schemas {
      */
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
@@ -36602,6 +36626,11 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEdge {

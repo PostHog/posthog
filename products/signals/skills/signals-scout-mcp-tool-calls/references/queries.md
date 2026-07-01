@@ -72,7 +72,7 @@ Read the result:
 - `pct_failures_with_message` high (and classified ~0) → **external-SDK regime**: use query 3b to sample messages.
 - Both ~0 on a project with real failures → **observability gap**: you can still detect _which_ tools fail
   (query 1) and how agents struggle (query 2), but not _why_ from the taxonomy. That gap is itself
-  emittable (see the scout's Decide section).
+  report-worthy (see the scout's Decide section).
 - `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (On PostHog's own data this is ~100%.)
 - `distinct_clients` > 1 → the per-client split (query 6) can localize a client-specific break.
 
@@ -270,7 +270,7 @@ In the hono regime you can additionally split by `properties.$mcp_mode` (`'cli'`
 `'tools'` = multi-tool): a tool that fails only in `cli` mode points at the `exec`-wrapper
 schema rather than the tool itself.
 
-## 7. Observability-gap detection (an emittable finding)
+## 7. Observability-gap detection (a report-worthy finding)
 
 Tools that fail materially but carry no diagnosable detail — the improvement is to add error
 instrumentation (or a clearer returned-error message) so failures become debuggable. The

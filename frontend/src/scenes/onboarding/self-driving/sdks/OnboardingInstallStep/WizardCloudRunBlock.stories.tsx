@@ -15,6 +15,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { IntegrationType } from '~/types'
 
 import { onboardingLogic } from '../../../legacy/onboardingLogic'
+import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 
 /**
@@ -155,6 +156,9 @@ function cloudRunStory({
             })
 
             useDelayedOnMountEffect(() => {
+                // activeCloudRun is persisted (survives a refresh mid-run) — clear any handle left
+                // over from an earlier story in the same browser session before driving this one.
+                activeCloudRunLogic.actions.clearActiveCloudRun()
                 router.actions.push(urls.onboarding())
                 drive?.()
             })
@@ -259,6 +263,7 @@ function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: 
     })
 
     useDelayedOnMountEffect(() => {
+        activeCloudRunLogic.actions.clearActiveCloudRun()
         router.actions.push(urls.onboarding())
         if (repository) {
             wizardCloudRunLogic.actions.setSelectedRepository(repository)

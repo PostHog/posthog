@@ -221,9 +221,10 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   consistent shape — not raw counts. Coverage-aware: it first probes which enrichment
   fields the project captures (they split by regime — PostHog's own hono server vs
   external SDK servers) and picks lenses to match, resting detection only on always-present
-  fields (error flag, duration, tool name, session). Emits one `emit_signal` finding per
-  tool for the pipeline to diagnose and fix; bundles `references/queries.md`, a HogQL
-  cookbook validated against real telemetry.
+  fields (error flag, duration, tool name, session). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
+  editing the live report when the problem persists; bundles `references/queries.md`, a
+  HogQL cookbook validated against real telemetry.
 
 ### How the coordinator decides what runs
 
