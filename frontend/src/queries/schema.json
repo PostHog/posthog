@@ -19565,9 +19565,9 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "description": "Property filters to refine exposure. Pass an empty array if no filters needed.",
                     "items": {
-                        "$ref": "#/definitions/EventPropertyFilter"
+                        "$ref": "#/definitions/ExperimentApiPropertyFilter"
                     },
                     "type": "array"
                 }
@@ -19691,6 +19691,35 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/ElementPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
+                }
+            ],
+            "description": "Curated subset of AnyPropertyFilter matching the exposure UI's taxonomy (`commonActionFilterProps`). Not the full union, which would bloat the generated OpenAPI/MCP schema with subtypes irrelevant to exposure."
         },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,

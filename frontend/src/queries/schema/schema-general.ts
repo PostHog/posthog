@@ -4241,13 +4241,9 @@ export interface ExperimentRunningTimeCalculation {
     exposure_estimate_config?: ExperimentExposureEstimateConfig | null
 }
 
-/** Property filters supported on experiment exposure configs. Mirrors the taxonomy the
- *  exposure-criteria UI offers (event, person, cohort, element, session, HogQL, and
- *  data-warehouse properties) — a curated subset of AnyPropertyFilter. The full
- *  AnyPropertyFilter union is intentionally avoided here: inlining every subtype explodes
- *  the generated OpenAPI/MCP write schema, and most members (logs, spans, revenue, …) are
- *  meaningless for exposure. Keep this in sync with `commonActionFilterProps` in the
- *  experiment metric selectors, which drives the exposure UI's property filter. */
+/** Curated subset of AnyPropertyFilter matching the exposure UI's taxonomy
+ *  (`commonActionFilterProps`). Not the full union, which would bloat the generated
+ *  OpenAPI/MCP schema with subtypes irrelevant to exposure. */
 export type ExperimentApiPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -4268,8 +4264,7 @@ export interface ExperimentApiExposureConfig {
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: integer
-    /** Property filters to refine exposure — event, person, cohort, element, session, HogQL,
-     *  and data-warehouse filters are supported. Pass an empty array if no filters needed. */
+    /** Property filters to refine exposure. Pass an empty array if no filters needed. */
     properties: ExperimentApiPropertyFilter[]
 }
 
