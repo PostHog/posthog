@@ -1,6 +1,5 @@
 import time
 from decimal import Decimal
-from typing import cast
 from uuid import UUID
 
 from django.conf import settings
@@ -92,8 +91,9 @@ class ErrorTrackingIssue(UUIDTModel):
             return True
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        team_id = self.team_id
         own_fingerprints = set(
-            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=self.id).values_list(
                 "fingerprint", flat=True
             )
         )
@@ -107,21 +107,19 @@ class ErrorTrackingIssue(UUIDTModel):
                 if fp not in own_fingerprints:
                     continue
                 new_issue = ErrorTrackingIssue.objects.create(
-                    team=self.team,
+                    team_id=team_id,
                     name=entry.get("name") or "Untitled issue",
                     description=entry.get("description"),
                 )
                 new_issues.append(new_issue)
                 overrides.extend(
-                    update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
-                    )
+                    update_error_tracking_issue_fingerprints(team_id=team_id, issue_id=new_issue.id, fingerprints=[fp])
                 )
             # Spike events are no longer meaningful after splitting since the issue composition changed
-            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
+            ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id=self.id).delete()
             issue_ids_to_sync = [self.id] + [issue.id for issue in new_issues]
             _sync_error_tracking_issue_changes_on_commit(
-                team_id=self.team_id, issue_ids=issue_ids_to_sync, overrides=overrides
+                team_id=team_id, issue_ids=issue_ids_to_sync, overrides=overrides
             )
         return new_issues
 
@@ -199,7 +197,7 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
 def _normalize_source_issue_ids(*, issue_ids: list[str | UUID], target_issue_id: UUID) -> list[UUID]:
     source_issue_ids: set[UUID] = set()
     for issue_id in issue_ids:
-        normalized_issue_id = cast(UUID, UUID(str(issue_id)))
+        normalized_issue_id = UUID(str(issue_id))
         if normalized_issue_id != target_issue_id:
             source_issue_ids.add(normalized_issue_id)
     return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
