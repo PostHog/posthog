@@ -131,7 +131,7 @@ def get_rows(
         # Gong's `/v2/calls` answers a date window with no processed calls using a 404
         # ("No calls found corresponding to the provided filters") rather than an empty 200.
         # Treat it as an empty page so the sync skips the window instead of failing.
-        if response.status_code == 404 and "no calls" in response.text.lower():
+        if config.uses_date_window and response.status_code == 404 and "no calls" in response.text.lower():
             return {}
 
         if not response.ok:
