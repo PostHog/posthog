@@ -113,6 +113,12 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        it('still wraps the link when the opt-out marker is on a child, not the anchor tag', () => {
+            const html = '<body><a href="https://example.com"><span data-ph-no-track>x</span></a></body>'
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('target=')
+        })
+
         const invocationWithDistinctId = {
             functionId: 'fn-1',
             id: 'inv-1',

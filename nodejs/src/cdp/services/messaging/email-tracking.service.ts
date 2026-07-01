@@ -116,7 +116,10 @@ export const addTrackingToEmail = (
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
-        if (LINK_TRACKING_OPT_OUT_REGEX.test(m)) {
+        // Match only the opening <a> tag so a marker in the link's inner HTML (a child
+        // element's attribute or literal link text) can't silently disable tracking.
+        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
             return m
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
