@@ -9,8 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
-    PaginatedMessageAssetListApi,
     PaginatedPersonRecordListApi,
     PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
@@ -291,8 +291,8 @@ export const personsEmailsList = async (
     id: number,
     params?: PersonsEmailsListParams,
     options?: RequestInit
-): Promise<PaginatedMessageAssetListApi> => {
-    return apiMutator<PaginatedMessageAssetListApi>(getPersonsEmailsListUrl(projectId, id, params), {
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

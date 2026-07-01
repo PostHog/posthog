@@ -1,6 +1,9 @@
-import api, { ApiRequest } from 'lib/api'
+import { ApiRequest } from 'lib/api'
 
 import { TeamType } from '~/types'
+
+import { personsEmailsList } from 'products/persons/frontend/generated/api'
+import { MessageAssetApi } from 'products/persons/frontend/generated/api.schemas'
 
 import { HogFlow } from './hogflows/types'
 
@@ -57,16 +60,11 @@ export async function getPersonMessageAssets(
     personId: string,
     params: PersonMessageAssetsParams = {}
 ): Promise<MessageAsset[]> {
-    const qs = new URLSearchParams(
-        Object.entries(params).reduce<Record<string, string>>((acc, [k, v]) => {
-            if (v !== undefined && v !== null) {
-                acc[k] = String(v)
-            }
-            return acc
-        }, {})
-    ).toString()
-    const suffix = qs ? `?${qs}` : ''
-    return await api.get(`api/projects/${teamId}/persons/${encodeURIComponent(personId)}/emails/${suffix}`)
+    // The persons viewset accepts both numeric PKs and person UUIDs at runtime; drf-spectacular
+    // only sees the numeric case, so the generated helper types `id: number`. Cast at the call
+    // boundary rather than at every consumer.
+    const rows: MessageAssetApi[] = await personsEmailsList(String(teamId), personId as unknown as number, params)
+    return rows as MessageAsset[]
 }
 
 // Same-origin URL — used as an `<iframe src>` so the browser carries session auth.

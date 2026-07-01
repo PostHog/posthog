@@ -1465,7 +1465,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parameters=[PersonMessageAssetsRequestSerializer],
         responses=MessageAssetSerializer(many=True),
     )
-    @action(methods=["GET"], detail=True, required_scopes=["person:read"])
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         person = self.get_object()
         if not workflow_email_assets_ui_enabled(self.team, request.user):
