@@ -23,7 +23,6 @@ import { startEvaluationScheduler } from './ai-observability/evaluation-schedule
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
-import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
@@ -103,7 +102,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerEmailLegacyPg ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
-            capabilities.cdpBatchHogFlow ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
@@ -208,9 +206,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpApi) {
             serviceLoaders.push(async () => {
-                // Only wire a batch-resolver producer when the cyclotron-node DB
-                // is configured; otherwise leave it null (flag-off path uses
-                // Kafka and doesn't need a producer).
+                // Batch triggers require the cyclotron-node DB; when it isn't
+                // configured (typically local dev), the null producer causes
+                // the batch-invocation endpoint to throw on request rather
+                // than at boot.
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
@@ -347,14 +346,6 @@ export class PluginServer implements NodeServer {
             return Promise.resolve(serverCommands.service)
         })
 
-        if (capabilities.cdpBatchHogFlow) {
-            serviceLoaders.push(async () => {
-                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!, postgresV2Queue)
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
         if (capabilities.cdpPrecalculatedFilters) {
             serviceLoaders.push(async () => {
                 const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
@@ -366,14 +357,6 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCohortMembership) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpCohortMembershipConsumer(this.config, cdpDeps!)
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
-        if (capabilities.cdpBatchHogFlow) {
-            serviceLoaders.push(async () => {
-                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!, postgresV2Queue)
                 await consumer.start()
                 return consumer.service
             })

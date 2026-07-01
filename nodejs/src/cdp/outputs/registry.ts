@@ -2,7 +2,6 @@ import { APP_METRICS_OUTPUT, HOG_INVOCATION_RESULTS_OUTPUT, LOG_ENTRIES_OUTPUT }
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
 import {
-    BATCH_HOGFLOW_REQUESTS_OUTPUT,
     PRECALCULATED_PERSON_PROPERTIES_OUTPUT,
     PREFILTERED_EVENTS_OUTPUT,
     WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
@@ -18,7 +17,6 @@ import {
  *   `clickhouse_app_metrics2` schema).
  * - `PREFILTERED_EVENTS_OUTPUT` + `PRECALCULATED_PERSON_PROPERTIES_OUTPUT` —
  *   precalculated-filters consumer writes to ClickHouse.
- * - `BATCH_HOGFLOW_REQUESTS_OUTPUT` — batch hogflow invocation queue.
  * - `WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT` — warehouse source webhook payloads.
  */
 export function createCdpOutputsRegistry() {
@@ -42,10 +40,6 @@ export function createCdpOutputsRegistry() {
         .register(PRECALCULATED_PERSON_PROPERTIES_OUTPUT, {
             topicKey: 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC',
             producerKey: 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER',
-        })
-        .register(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
-            topicKey: 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC',
-            producerKey: 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER',
         })
         .register(WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, {
             topicKey: 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC',

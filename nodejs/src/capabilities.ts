@@ -24,7 +24,6 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
-    cdpBatchHogFlow: true,
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
@@ -174,10 +173,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.ingestion_error_tracking:
             return {
                 errorTrackingIngestion: true,
-            }
-        case PluginServerMode.cdp_batch_hogflow_requests:
-            return {
-                cdpBatchHogFlow: true,
             }
         case PluginServerMode.cdp_cyclotron_worker_batch_resolve:
             return {
