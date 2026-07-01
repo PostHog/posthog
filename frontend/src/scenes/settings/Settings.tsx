@@ -42,6 +42,15 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
+/**
+ * Lets a setting's component take over the whole settings pane — hiding the scene title and the
+ * section heading/description — so it can render as its own full page (e.g. a member detail page).
+ * Call `setChromeHidden(true)` on mount and `setChromeHidden(false)` on unmount.
+ */
+export const SettingsChromeContext = React.createContext<{ setChromeHidden: (hidden: boolean) => void }>({
+    setChromeHidden: () => {},
+})
+
 export interface SettingOption {
     key: string
     content?: JSX.Element
@@ -330,71 +339,75 @@ export function Settings({
         </Combobox>
     )
 
+    const [chromeHidden, setChromeHidden] = React.useState(false)
+
     return (
-        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
-            {hideSections ? null : isCompact ? (
-                <>
-                    <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
-                        <IconList className="stroke-2 size-4 mr-1" />{' '}
-                        <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
-                    </Button>
-                    <Drawer
-                        swipeDirection="left"
-                        open={isCompactNavigationOpen}
-                        onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
-                    >
-                        <DrawerContent data-quill>
-                            <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
-                            {/* Pin the height to the visual viewport (minus the drawer's 1rem
+        <SettingsChromeContext.Provider value={{ setChromeHidden }}>
+            <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
+                {hideSections ? null : isCompact ? (
+                    <>
+                        <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
+                            <IconList className="stroke-2 size-4 mr-1" />{' '}
+                            <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
+                        </Button>
+                        <Drawer
+                            swipeDirection="left"
+                            open={isCompactNavigationOpen}
+                            onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
+                        >
+                            <DrawerContent data-quill>
+                                <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
+                                {/* Pin the height to the visual viewport (minus the drawer's 1rem
                                 padding) so the search stays put, the list scrolls within, and
                                 the panel shrinks above the on-screen keyboard. */}
-                            <div
-                                className="flex flex-col min-h-0"
-                                style={{
-                                    height:
-                                        visualViewportHeight != null
-                                            ? `${visualViewportHeight - 16}px`
-                                            : 'calc(100dvh - 1rem)',
-                                }}
-                            >
-                                {navContent}
-                            </div>
-                        </DrawerContent>
-                    </Drawer>
-                    <LemonDivider />
-                </>
-            ) : (
+                                <div
+                                    className="flex flex-col min-h-0"
+                                    style={{
+                                        height:
+                                            visualViewportHeight != null
+                                                ? `${visualViewportHeight - 16}px`
+                                                : 'calc(100dvh - 1rem)',
+                                    }}
+                                >
+                                    {navContent}
+                                </div>
+                            </DrawerContent>
+                        </Drawer>
+                        <LemonDivider />
+                    </>
+                ) : (
+                    <div
+                        data-quill
+                        className={clsx(
+                            'border rounded w-[var(--settings-nav-width)] flex flex-col',
+                            isFullScene
+                                ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
+                                : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                        )}
+                    >
+                        {navContent}
+                    </div>
+                )}
+
                 <div
-                    data-quill
                     className={clsx(
-                        'border rounded w-[var(--settings-nav-width)] flex flex-col',
-                        isFullScene
-                            ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
-                            : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                        'flex-1 w-full min-w-0 self-start pb-32',
+                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
                     )}
                 >
-                    {navContent}
+                    <AuthenticationAreaComponent>
+                        <div className="space-y-2">
+                            {!chromeHidden && headerSlot}
+                            <SettingsRenderer {...props} handleLocally={handleLocally} hideChrome={chromeHidden} />
+                        </div>
+                    </AuthenticationAreaComponent>
                 </div>
-            )}
-
-            <div
-                className={clsx(
-                    'flex-1 w-full min-w-0 self-start pb-32',
-                    isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
-                )}
-            >
-                <AuthenticationAreaComponent>
-                    <div className="space-y-2">
-                        {headerSlot}
-                        <SettingsRenderer {...props} handleLocally={handleLocally} />
-                    </div>
-                </AuthenticationAreaComponent>
             </div>
-        </div>
+        </SettingsChromeContext.Provider>
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean; hideChrome?: boolean }): JSX.Element {
     const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
@@ -407,7 +420,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
             {settings.length ? (
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
-                        {!settingsInSidebar && x.title && (
+                        {!settingsInSidebar && !props.hideChrome && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
@@ -424,7 +437,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
                             </h2>
                         )}
-                        {x.description && (
+                        {!props.hideChrome && x.description && (
                             <p className="max-w-160 text-sm text-secondary mb-4">
                                 {x.description}
                                 {x.docsUrl && (

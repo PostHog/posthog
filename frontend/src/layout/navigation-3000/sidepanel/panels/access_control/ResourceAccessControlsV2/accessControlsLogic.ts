@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
@@ -124,6 +124,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
+        openMemberDetail: (membershipId: string) => ({ membershipId }),
+        closeMemberDetail: true,
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -183,6 +185,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     { state }: { state: GroupedAccessControlRuleModalLogicProps }
                 ) => state,
                 closeRuleModal: () => null,
+            },
+        ],
+        selectedMemberId: [
+            null as string | null,
+            {
+                openMemberDetail: (_, { membershipId }) => membershipId,
+                closeMemberDetail: () => null,
+                setActiveTab: () => null,
             },
         ],
     }),
@@ -270,6 +280,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             },
         ],
 
+        selectedMember: [
+            (s) => [s.membersData, s.selectedMemberId],
+            (membersData, selectedMemberId): AccessControlMemberEntry | null =>
+                selectedMemberId && membersData
+                    ? (membersData.results.find((m) => m.organization_membership_id === selectedMemberId) ?? null)
+                    : null,
+        ],
+
         filteredMembers: [
             (s) => [s.membersData, s.searchText, s.filters],
             (membersData, searchText, filters): AccessControlMemberEntry[] => {
@@ -322,6 +340,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         openRuleModal: ({ state }) => {
             captureAccessControlEvent('access_control_rule_modal_opened', {
                 scope_type: state.scopeType,
+                ui_version: 'v2',
+            })
+        },
+
+        openMemberDetail: () => {
+            captureAccessControlEvent('access_control_member_detail_opened', {
                 ui_version: 'v2',
             })
         },
@@ -473,7 +497,24 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         actions.loadDefaults()
     }),
 
-    urlToAction(({ actions }) => ({
+    actionToUrl(() => {
+        const buildUrl = (
+            changes: Record<string, string | undefined>
+        ): [string, Record<string, any>, Record<string, any>] => {
+            const { currentLocation } = router.values
+            return [
+                currentLocation.pathname,
+                { ...currentLocation.searchParams, ...changes },
+                currentLocation.hashParams,
+            ]
+        }
+        return {
+            openMemberDetail: ({ membershipId }) => buildUrl({ access_tab: 'members', access_member: membershipId }),
+            closeMemberDetail: () => buildUrl({ access_tab: 'members', access_member: undefined }),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => ({
         '/settings/:section': (_, searchParams) => {
             const tab = searchParams.access_tab
             if (tab === 'roles' || tab === 'members' || tab === 'defaults') {
@@ -481,6 +522,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
             if (tab === 'roles' && searchParams.access_role_id) {
                 actions.setFilters({ roleIds: [searchParams.access_role_id] })
+            }
+            if (searchParams.access_member) {
+                // Deep link / back-button restore of a member's detail page
+                actions.setActiveTab('members')
+                if (!values.membersData && !values.membersDataLoading) {
+                    actions.loadMembers()
+                }
+                actions.openMemberDetail(searchParams.access_member)
             }
         },
     })),

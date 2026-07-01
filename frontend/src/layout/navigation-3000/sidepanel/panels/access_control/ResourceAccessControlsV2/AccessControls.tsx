@@ -11,6 +11,8 @@ import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
+import { getEntryId } from './helpers'
+import { MemberAccessControlDetail } from './MemberAccessControlDetail'
 import type { AccessControlsTab, ScopeType } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
@@ -30,11 +32,17 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredMembers,
         canEdit,
         loading,
+        selectedMemberId,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openRuleModal, openMemberDetail } = useActions(logic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
+
+    // A member is being inspected — take over the whole section with their detail page
+    if (activeTab === 'members' && selectedMemberId) {
+        return <MemberAccessControlDetail projectId={projectId} />
+    }
 
     return (
         <>
@@ -75,7 +83,11 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
-                                onEdit={(entry) => openRuleModal({ scopeType, entry, projectId })}
+                                onEdit={(entry) =>
+                                    scopeType === 'member'
+                                        ? openMemberDetail(getEntryId(entry))
+                                        : openRuleModal({ scopeType, entry, projectId })
+                                }
                             />
                         </div>
                     )}
