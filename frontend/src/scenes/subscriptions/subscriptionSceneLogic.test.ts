@@ -129,10 +129,12 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
-    it('triggers a test delivery and tracks the in-flight loading state', async () => {
-        // Guards the detail-page header "Test delivery" button: it must POST to the
-        // test-delivery endpoint and flip deliveringSubscriptionId so the button can
-        // show loading / disable itself and block a double-submit.
+    // The header "Test delivery" button blocks double-submits via deliveringSubscriptionId,
+    // so the id must reset once the request settles — on both the success and failure paths.
+    it.each([
+        { name: 'success', status: 202, terminalAction: 'deliverSubscriptionSuccess' },
+        { name: 'failure', status: 500, terminalAction: 'deliverSubscriptionFailure' },
+    ])('test delivery ($name) flips deliveringSubscriptionId then resets it', async ({ status, terminalAction }) => {
         let testDeliveryCalls = 0
         useMocks({
             get: {
@@ -145,7 +147,7 @@ describe('subscriptionSceneLogic', () => {
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/test-delivery/`]: () => {
                     testDeliveryCalls += 1
-                    return [202, {}]
+                    return [status, {}]
                 },
             },
         })
@@ -161,7 +163,7 @@ describe('subscriptionSceneLogic', () => {
             .toDispatchActions(['deliverSubscription'])
             .toMatchValues({ deliveringSubscriptionId: 1 })
 
-        await expectLogic(logic).toDispatchActions(['deliverSubscriptionSuccess']).toMatchValues({
+        await expectLogic(logic).toDispatchActions([terminalAction]).toMatchValues({
             deliveringSubscriptionId: null,
         })
         expect(testDeliveryCalls).toEqual(1)
