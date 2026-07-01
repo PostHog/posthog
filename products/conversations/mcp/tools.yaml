@@ -158,3 +158,9 @@ tools:
     conversations-views-retrieve:
         operation: conversations_views_retrieve
         enabled: false
+    conversations-zendesk-imports-create:
+        operation: conversations_zendesk_imports_create
+        enabled: false
+    conversations-zendesk-imports-status-retrieve:
+        operation: conversations_zendesk_imports_status_retrieve
+        enabled: false
