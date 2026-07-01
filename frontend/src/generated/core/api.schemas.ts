@@ -1034,16 +1034,29 @@ export const AttributionModeEnumApi = {
 } as const
 
 export interface TeamMarketingAnalyticsConfigApi {
+    /** Maps each data-source id to a dict of schema-field -> mapped-column overrides. */
     sources_map?: unknown
+    /** List of conversion goals, one per query series. Each entry is a ConversionGoalFilter object matching the node given by its `kind`: an EventsNode (`kind: "EventsNode"`), an ActionsNode (`kind: "ActionsNode"`, with an integer `id`), or a DataWarehouseNode (`kind: "DataWarehouseNode"`, with `id`, `id_field`, `distinct_id_field`, `table_name`, and `timestamp_field`). Every entry requires a unique `conversion_goal_name` (used as a SQL column alias) plus a `schema_map` object. See the ConversionGoalFilter1/2/3 schema for the full field list. */
     conversion_goals?: unknown
     /**
+     * Attribution window in days (1-90).
      * @minimum 1
      * @maximum 90
      */
     attribution_window_days?: number
+    /** Attribution mode: first_touch, last_touch, linear, time_decay, or position_based.
+     *
+     * * `first_touch` - First Touch
+     * * `last_touch` - Last Touch
+     * * `linear` - Linear
+     * * `time_decay` - Time Decay
+     * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Maps each data-source id to a dict of clean campaign name -> list of raw UTM campaign values. */
     campaign_name_mappings?: unknown
+    /** Maps each integration type to a list of custom UTM source values (unique across integrations). */
     custom_source_mappings?: unknown
+    /** Maps each integration type to a field-matching config, e.g. {"match_field": "campaign_name"}. */
     campaign_field_preferences?: unknown
 }
 

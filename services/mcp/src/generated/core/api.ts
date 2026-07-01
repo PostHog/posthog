@@ -402,22 +402,49 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .optional(),
         marketing_analytics_config: zod
             .object({
-                sources_map: zod.unknown().optional(),
-                conversion_goals: zod.unknown().optional(),
+                sources_map: zod
+                    .unknown()
+                    .optional()
+                    .describe('Maps each data-source id to a dict of schema-field -> mapped-column overrides.'),
+                conversion_goals: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'List of conversion goals, one per query series. Each entry is a ConversionGoalFilter object matching the node given by its `kind`: an EventsNode (`kind: "EventsNode"`), an ActionsNode (`kind: "ActionsNode"`, with an integer `id`), or a DataWarehouseNode (`kind: "DataWarehouseNode"`, with `id`, `id_field`, `distinct_id_field`, `table_name`, and `timestamp_field`). Every entry requires a unique `conversion_goal_name` (used as a SQL column alias) plus a `schema_map` object. See the ConversionGoalFilter1/2/3 schema for the full field list.'
+                    ),
                 attribution_window_days: zod
                     .number()
                     .min(1)
                     .max(organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax)
-                    .optional(),
+                    .optional()
+                    .describe('Attribution window in days (1-90).'),
                 attribution_mode: zod
                     .enum(['first_touch', 'last_touch', 'linear', 'time_decay', 'position_based'])
-                    .optional()
                     .describe(
                         '* `first_touch` - First Touch\n* `last_touch` - Last Touch\n* `linear` - Linear\n* `time_decay` - Time Decay\n* `position_based` - Position Based'
+                    )
+                    .optional()
+                    .describe(
+                        'Attribution mode: first_touch, last_touch, linear, time_decay, or position_based.\n\n* `first_touch` - First Touch\n* `last_touch` - Last Touch\n* `linear` - Linear\n* `time_decay` - Time Decay\n* `position_based` - Position Based'
                     ),
-                campaign_name_mappings: zod.unknown().optional(),
-                custom_source_mappings: zod.unknown().optional(),
-                campaign_field_preferences: zod.unknown().optional(),
+                campaign_name_mappings: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Maps each data-source id to a dict of clean campaign name -> list of raw UTM campaign values.'
+                    ),
+                custom_source_mappings: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Maps each integration type to a list of custom UTM source values (unique across integrations).'
+                    ),
+                campaign_field_preferences: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Maps each integration type to a field-matching config, e.g. {"match_field": "campaign_name"}.'
+                    ),
             })
             .optional(),
         customer_analytics_config: zod
