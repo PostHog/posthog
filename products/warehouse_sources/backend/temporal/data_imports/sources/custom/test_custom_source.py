@@ -62,7 +62,8 @@ SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.source
 def _token_response(status_code: int = 200, payload: dict[str, Any] | None = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
-    response.json.return_value = payload if payload is not None else {}
+    # The token exchange reads a capped `response.raw.read(...)` then json.loads — seed the raw body.
+    response.raw.read.return_value = json.dumps(payload if payload is not None else {}).encode()
     return response
 
 
