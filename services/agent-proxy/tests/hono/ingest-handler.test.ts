@@ -884,6 +884,47 @@ describe('ingest-handler', () => {
     })
 
     // -----------------------------------------------------------------------
+    // Client disconnect mid-body (sandbox teardown, connection reset)
+    //
+    // Node surfaces this as Error('aborted') code=ECONNRESET from the request
+    // body reader. It must be classified as a client event — not rethrown as
+    // an unhandled error that becomes an opaque 500 — and events accepted
+    // before the drop must stay in Redis for the client's seq-based resume.
+    // -----------------------------------------------------------------------
+
+    it('treats a mid-body connection reset as a client disconnect, not a server error', async () => {
+        const infoSpy = vi.spyOn(logger, 'info')
+        const config = makeConfig()
+        const enc = new TextEncoder()
+        const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+        let sentFirstChunk = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (!sentFirstChunk) {
+                    sentFirstChunk = true
+                    controller.enqueue(line)
+                    return
+                }
+                const abortError = new Error('aborted') as NodeJS.ErrnoException
+                abortError.code = 'ECONNRESET'
+                controller.error(abortError)
+            },
+        })
+
+        const res = await handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(408)
+        const responseBody = (await decodeJson(res)) as { last_accepted_seq: number }
+        expect(responseBody.last_accepted_seq).toBe(1)
+
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+
+        const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
+        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1 })
+    })
+
+    // -----------------------------------------------------------------------
     // Empty body
     // -----------------------------------------------------------------------
 

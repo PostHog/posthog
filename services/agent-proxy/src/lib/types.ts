@@ -62,6 +62,16 @@ export class EventIngestPayloadTooLarge extends Error {
     }
 }
 
+// Raised when the client drops the connection mid-request-body. Matches the
+// Python ClientDisconnected in event_ingest.py: a normal client event, not a
+// server error.
+export class ClientDisconnected extends Error {
+    constructor() {
+        super('Client disconnected during event ingest')
+        this.name = 'ClientDisconnected'
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Redis stream types
 // ---------------------------------------------------------------------------

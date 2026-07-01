@@ -9,6 +9,8 @@
 //   401  missing / invalid JWT
 //   403  JWT claims don't match URL params
 //   405  wrong HTTP method
+//   408  client disconnected mid-body: {error, last_accepted_seq} (the
+//        response is undeliverable; the status exists for logs and metrics)
 //   409  SequenceGap / AlreadyCompleted / CompletionSequenceMismatch: {error, last_accepted_seq}
 //   413  payload too large: {error, last_accepted_seq}
 
@@ -28,6 +30,7 @@ import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
 import {
+    ClientDisconnected,
     EventIngestBadRequest,
     EventIngestPayloadTooLarge,
     TaskRunStreamSequenceGap,
@@ -112,10 +115,26 @@ export async function handleIngest(
         bytes: 0,
     }
 
-    let result: EventIngestResult
+    // Caller-owned so the disconnect branch below can report partial progress.
+    const result: EventIngestResult = { accepted: 0, duplicate: 0, last_accepted_seq: 0 }
     try {
-        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
+        await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming, result)
     } catch (err: unknown) {
+        if (err instanceof ClientDisconnected) {
+            // Sandbox teardown or connection reset mid-body — a normal client
+            // event, not a server error (mirrors event_ingest.py). Events
+            // accepted before the drop are already in Redis; the client
+            // resumes from last_accepted_seq with seq-based dedup.
+            logger.info('ingest:client_disconnect', {
+                run: claims.runId,
+                accepted: result.accepted,
+                duplicate: result.duplicate,
+                lastSeq: result.last_accepted_seq,
+                chunks: bodyTiming.chunks,
+                bodyBytes: bodyTiming.bytes,
+            })
+            return c.json({ error: 'Client disconnected', last_accepted_seq: result.last_accepted_seq }, 408)
+        }
         if (err instanceof EventIngestBadRequest) {
             return c.json({ error: err.message }, 400)
         }
@@ -174,13 +193,10 @@ async function ingestEventLines(
     originalToken: string,
     config: Config,
     rawRequest: Request,
-    bodyTiming: IngestBodyTiming
-): Promise<EventIngestResult> {
-    const result: EventIngestResult = {
-        accepted: 0,
-        duplicate: 0,
-        last_accepted_seq: await redisStream.getLastSequence(),
-    }
+    bodyTiming: IngestBodyTiming,
+    result: EventIngestResult
+): Promise<void> {
+    result.last_accepted_seq = await redisStream.getLastSequence()
 
     let eventCount = 0
     let completionLineFinalSeq: number | null = null
@@ -242,8 +258,6 @@ async function ingestEventLines(
     if (completionLineFinalSeq !== null) {
         await redisStream.markCompleteAfterSequence(completionLineFinalSeq)
     }
-
-    return result
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +321,9 @@ async function* iterRequestLines(request: Request, run: string, timing: IngestBo
 
     try {
         while (true) {
-            const { done, value } = await reader.read()
+            const { done, value } = await reader.read().catch((err: unknown) => {
+                throw isClientAbortError(err) ? new ClientDisconnected() : err
+            })
 
             if (value !== undefined && value.length > 0) {
                 const chunkAt = Date.now()
@@ -381,6 +397,20 @@ async function* iterRequestLines(request: Request, run: string, timing: IngestBo
     } finally {
         reader.releaseLock()
     }
+}
+
+// Node surfaces a client hanging up mid-body as an IncomingMessage abort:
+// Error('aborted') with code ECONNRESET (node:_http_server abortIncoming).
+// AbortError and premature-close cover the web-stream and pipeline variants.
+function isClientAbortError(err: unknown): boolean {
+    if (!(err instanceof Error)) {
+        return false
+    }
+    if (err.name === 'AbortError') {
+        return true
+    }
+    const code = (err as NodeJS.ErrnoException).code
+    return code === 'ECONNRESET' || code === 'ERR_STREAM_PREMATURE_CLOSE' || err.message === 'aborted'
 }
 
 // Decode bytes as UTF-8, mapping decode errors to EventIngestBadRequest.
