@@ -74,7 +74,15 @@ def list_indices(host: str, auth: ElasticsearchAuth) -> list[str]:
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    body = response.json()
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError:
+        # A 2xx body that isn't JSON usually means the URL points at something other than
+        # the Elasticsearch HTTP API (e.g. a browser/Kibana URL or a reverse proxy).
+        raise ValueError(
+            "Elasticsearch returned a non-JSON response. Check that the cluster URL points "
+            "at the Elasticsearch HTTP API, not a browser or Kibana URL."
+        ) from None
     indices = [row.get("index", "") for row in body if isinstance(row, dict)]
     return sorted(index for index in indices if index and not index.startswith("."))
 
