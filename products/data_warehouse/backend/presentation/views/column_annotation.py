@@ -8,8 +8,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, WarehouseColumnAnnotation
 
 
 class WarehouseColumnAnnotationSerializer(serializers.ModelSerializer):

@@ -15,6 +15,7 @@ from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    CIFailureLogs,
     GitHubSource,
     PRCostSummary,
     PRLifecycle,
@@ -24,9 +25,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
-from products.engineering_analytics.backend.logic.quarantine import build_quarantine as build_quarantine
+from products.engineering_analytics.backend.logic.quarantine import (
+    build_quarantine as build_quarantine,
+    request_quarantine as request_quarantine,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
+from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
@@ -58,6 +63,8 @@ _MAX_WINDOW_DAYS = 366
 # handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
 def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
@@ -66,6 +73,13 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
+def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return query_ci_failure_logs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
 def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
@@ -92,6 +106,7 @@ def build_workflow_run_list(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -105,6 +120,7 @@ def build_workflow_run_list(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 
@@ -115,6 +131,7 @@ def build_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -128,6 +145,7 @@ def build_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 

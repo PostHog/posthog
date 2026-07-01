@@ -63,6 +63,8 @@ import {
     type ExportContext,
 } from '~/types'
 
+import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
+
 import {
     copyTableToCsv,
     copyTableToExcel,
@@ -987,7 +989,7 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
         return null
     }
     return (
-        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
+        <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
             <div className="font-semibold mb-1">
                 Some warehouse sources used by this query are out of date — results may not reflect current data
             </div>
@@ -1019,19 +1021,21 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
-            <InsightErrorState
-                query={sourceQuery}
-                excludeDetail
-                title={
-                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                        {error}
-                    </pre>
-                }
-                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                fixWithAIComponent={
-                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                }
-            />
+            <div className="flex min-h-full flex-col justify-center">
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                            {error}
+                        </pre>
+                    }
+                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
+                    fixWithAIComponent={
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    }
+                />
+            </div>
         </div>
     )
 }
@@ -1109,29 +1113,36 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <MCPUseCaseCard
-                        surfaceKey="sql.execute"
-                        expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    <WarehouseWizardHint
                         className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
                     />
                 </div>
             )
         }
 
         return (
-            <div className="absolute inset-0 flex flex-col hide-scrollbar border-t overflow-auto">
+            <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <SyncWarningsBanner warnings={response?.warnings} />
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    editMode
-                    embedded={isEmbeddedMode}
-                    showSettingsPanel={showVisualizationSettings}
-                />
+                <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
+                    <InternalDataTableVisualization
+                        uniqueKey={vizKey}
+                        query={sourceQuery}
+                        setQuery={setSourceQuery}
+                        context={{}}
+                        cachedResults={undefined}
+                        exportContext={exportContext}
+                        editMode
+                        embedded={isEmbeddedMode}
+                        showSettingsPanel={showVisualizationSettings}
+                    />
+                </div>
             </div>
         )
     }
@@ -1163,10 +1174,15 @@ const Content = ({
                     {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
                     statements with <code>;</code> to run them independently.
                 </span>
-                <MCPUseCaseCard
-                    surfaceKey="sql.execute"
-                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                <WarehouseWizardHint
                     className="max-w-140"
+                    fallback={
+                        <MCPUseCaseCard
+                            surfaceKey="sql.execute"
+                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                            className="max-w-140"
+                        />
+                    }
                 />
             </div>
         )
@@ -1174,16 +1190,18 @@ const Content = ({
 
     if (activeTab === OutputTab.Results) {
         return (
-            <TabScroller data-attr="sql-editor-output-pane-results">
+            <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <SyncWarningsBanner warnings={response?.warnings} />
-                <DataGrid
-                    className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
-                    columns={columns}
-                    rows={sortedRows}
-                    sortColumns={sortColumns}
-                    onSortColumnsChange={setSortColumns}
-                />
-            </TabScroller>
+                <TabScroller data-attr="sql-editor-output-pane-results">
+                    <DataGrid
+                        className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
+                        columns={columns}
+                        rows={sortedRows}
+                        sortColumns={sortColumns}
+                        onSortColumnsChange={setSortColumns}
+                    />
+                </TabScroller>
+            </div>
         )
     }
     return null

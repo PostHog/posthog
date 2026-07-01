@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _SSH_HANDSHAKE_EOF_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -405,6 +406,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
+            # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
+            # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
+            # without translation it surfaces as an empty-message crash that matches no rule and
+            # retries forever. `postgres_source` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
+            # gateway-configuration class as "Could not establish session to SSH gateway" above.
+            _SSH_HANDSHAKE_EOF_ERROR: (
+                "Could not connect to your SSH tunnel — the gateway accepted the connection but "
+                "closed it during the SSH handshake. Check that the SSH host and port point to an "
+                "SSH server (not the database port), that the bastion is running and reachable, and "
+                "that PostHog's IP addresses are allowed through its firewall, then re-enable the sync."
+            ),
             # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
             # key can't be parsed, or password auth is missing a username/password. The auth config
             # is fixed, so retrying just replays the same invalid credentials. The streaming path
@@ -429,6 +442,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # A physical standby / read replica started with `hot_standby = off` refuses every
+            # connection while in recovery, raising SQLSTATE 57P03 "FATAL: the database system is not
+            # accepting connections / DETAIL: Hot standby mode is disabled". It will never serve read
+            # queries until hot_standby is enabled (a config change + restart) or the replica is
+            # promoted to primary, so a whole-activity retry re-hits the same wall every time. Match
+            # the stable DETAIL, NOT the broad "the database system is not accepting connections" — that
+            # message also fires transiently while a server is starting up, shutting down, or failing
+            # over and must stay retryable (see the "the database system is starting up" mapping above).
+            "Hot standby mode is disabled": (
+                "PostHog connected to a PostgreSQL standby (read replica) that isn't accepting "
+                'connections because hot standby is turned off ("Hot standby mode is disabled"). '
+                "Enable hot_standby on the replica and restart it, or point this source at the primary "
+                "database, then re-enable the sync."
+            ),
             # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
             # so it stays retryable. This abort is only raised once those retries are exhausted — by then
             # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
@@ -440,6 +467,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
                 "connection at the primary database, then re-enable the sync."
             ),
+            # Activity-layer twin of the `QueryTimeoutException` key above, for the read-replica path:
+            # when a recovery conflict forces the offset-chunking fallback and a chunk then hits the
+            # 10-minute statement_timeout, `get_rows` raises `QueryTimeoutException` with this message.
+            # The class-name key only matches once Temporal wraps the failure; the activity-level check
+            # sees the raw `str(e)`, which is the bare message with no class name. Without a message key
+            # the timeout goes unrecognised there and the activity burns its full retry budget re-reading
+            # from the start into the same conflicting, overloaded replica before the workflow gives up.
+            # Match the stable leading phrase of our own crafted message.
+            "Reading from your read replica timed out": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # The source server itself ran out of memory (PostgreSQL SQLSTATE 53200, psycopg's
@@ -518,7 +554,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return
 
         # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
-        from products.data_warehouse.backend.logic.data_load.service import delete_cdc_extraction_schedule
+        from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
         # Schedule key = source id. NotFound is a no-op.
         try:

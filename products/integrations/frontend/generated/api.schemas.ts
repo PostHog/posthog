@@ -351,6 +351,32 @@ export interface GoogleSearchConsoleSitesResponseApi {
     sites: GoogleSearchConsoleSiteApi[]
 }
 
+export interface JiraProjectApi {
+    /** Jira project ID. */
+    id: string
+    /** Jira project key to pass as error tracking config.project_key. */
+    key: string
+    /** Jira project display name. */
+    name: string
+}
+
+export interface JiraProjectsResponseApi {
+    /** Jira projects available to this integration. */
+    projects: JiraProjectApi[]
+}
+
+export interface LinearTeamApi {
+    /** Linear team ID to pass as error tracking config.team_id. */
+    id: string
+    /** Linear team display name. */
+    name: string
+}
+
+export interface LinearTeamsResponseApi {
+    /** Linear teams available to this integration. */
+    teams: LinearTeamApi[]
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Sibling team in the same organization whose GitHub installation should be reused.

@@ -120,7 +120,7 @@
             "intents": ["endpoints"]
         },
         {
-            "path": "CI analytics",
+            "path": "Engineering analytics",
             "category": "Unreleased",
             "iconType": null,
             "type": "engineering_analytics",

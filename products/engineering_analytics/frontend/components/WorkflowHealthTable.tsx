@@ -3,7 +3,8 @@
 // (`WorkflowHealthRow`) and sparkline series are the same in both; only the bucket axis and the
 // optional row expansion differ — passed in by the caller.
 
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconTrending } from '@posthog/icons'
@@ -27,6 +28,7 @@ import {
 } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
+import { CI_GRID } from './runTables'
 
 // Reserved bar slots for push-bucketed sparklines (PR view): a small floor keeps a single push from
 // stretching fat, while staying low enough that 2–3 pushes read as clearly separate, visible bars on
@@ -91,22 +93,24 @@ function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion:
 }
 
 function TrendArrow({ direction }: { direction: WorkflowTrendDirection }): JSX.Element {
+    // The column reads "Health", so the arrow tracks health, not failures: rising failures = health
+    // declining = red arrow down; falling failures = health improving = green arrow up.
     if (direction === 'up') {
         return (
-            <Tooltip title="Failures rising">
-                <IconTrending className="text-danger shrink-0" />
+            <Tooltip title="Health declining — failures rising">
+                <IconTrendingDown className="text-danger shrink-0" />
             </Tooltip>
         )
     }
     if (direction === 'down') {
         return (
-            <Tooltip title="Failures falling">
-                <IconTrendingDown className="text-success shrink-0" />
+            <Tooltip title="Health improving — failures falling">
+                <IconTrending className="text-success shrink-0" />
             </Tooltip>
         )
     }
     return (
-        <Tooltip title="No change in failures">
+        <Tooltip title="Health steady — no change in failures">
             <IconTrendingFlat className="text-muted shrink-0" />
         </Tooltip>
     )
@@ -137,6 +141,15 @@ export function WorkflowHealthTable({
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    // Carry the active CI-analytics window and branch scope into the drill-down so opening a workflow from a
+    // non-default window/branch keeps it instead of snapping back to defaults (the tab links preserve them
+    // the same way). Without the branch (`q`), the detail page would widen to all branches and show more runs.
+    const windowParams: Record<string, string> = {
+        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+        ...(searchParams.q ? { q: searchParams.q } : {}),
+    }
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -149,7 +162,7 @@ export function WorkflowHealthTable({
                         to={
                             combineUrl(
                                 urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
-                                sourceId ? { source: sourceId } : {}
+                                { ...windowParams, ...(sourceId ? { source: sourceId } : {}) }
                             ).url
                         }
                         className="font-medium"
@@ -163,6 +176,7 @@ export function WorkflowHealthTable({
         {
             title: 'Status',
             key: 'status',
+            width: CI_GRID.status,
             // Failing first when sorted: failing (2) > unknown (1) > passing (0).
             sorter: (a, b) => statusRank(a.latestRunFailed) - statusRank(b.latestRunFailed),
             render: (_, row) => <StatusTag failed={row.latestRunFailed} conclusion={row.latestRunConclusion} />,
@@ -170,6 +184,7 @@ export function WorkflowHealthTable({
         {
             title: 'Runs',
             key: 'runCount',
+            width: CI_GRID.runs,
             align: 'right',
             sorter: (a, b) => a.runCount - b.runCount,
             render: (_, row) => <span className="text-xs tabular-nums">{humanFriendlyNumber(row.runCount)}</span>,
@@ -177,6 +192,7 @@ export function WorkflowHealthTable({
         {
             title: 'Success rate',
             key: 'successRate',
+            width: CI_GRID.successRate,
             align: 'right',
             sorter: (a, b) => (a.successRate ?? -1) - (b.successRate ?? -1),
             render: (_, row) => (
@@ -189,7 +205,10 @@ export function WorkflowHealthTable({
             ? [
                   {
                       title: 'Cost',
+                      tooltip:
+                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time. Excludes still-running jobs, so it can rise as they settle.",
                       key: 'cost',
+                      width: CI_GRID.cost,
                       align: 'right',
                       sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
                       render: (_, row) => (
@@ -202,7 +221,7 @@ export function WorkflowHealthTable({
             title: 'Health',
             key: 'trend',
             // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
-            width: 272,
+            width: CI_GRID.health,
             render: function RenderTrend(_, row) {
                 if (row.buckets.length === 0) {
                     return <span className="text-xs text-secondary">—</span>
@@ -226,7 +245,9 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p50',
+            tooltip: 'Median run duration (wall-clock) over completed runs in the window.',
             key: 'p50Seconds',
+            width: CI_GRID.p50,
             align: 'right',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
             render: (_, row) => (
@@ -235,7 +256,9 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p95',
+            tooltip: '95th-percentile run duration (wall-clock) over completed runs in the window.',
             key: 'p95Seconds',
+            width: CI_GRID.p95,
             align: 'right',
             sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
             render: (_, row) => (
@@ -245,6 +268,7 @@ export function WorkflowHealthTable({
         {
             title: 'Last failure',
             key: 'lastFailureAt',
+            width: CI_GRID.lastFailure,
             align: 'right',
             render: (_, row) =>
                 row.lastFailureAt ? (
@@ -259,6 +283,15 @@ export function WorkflowHealthTable({
 
     return (
         <LemonTable
+            // Fixed layout honors the CI_GRID widths exactly (auto layout lets empty spacer cells collapse),
+            // so the run/job tables nested inside line their columns up to the pixel. Cascades to them too.
+            // Fixed layout collapses the expand-toggle <col> (LemonTable sizes it width:1%, an auto-layout
+            // shrink-to-content trick), clipping the chevron — re-widen just that col to the width auto-layout
+            // would give it: the toggle cell is the row's first child, so 1rem + 0.5rem padding around a
+            // 1.5rem icon button = 3rem (w-12). A narrower col leaves the chevron clipped by the padding.
+            // Match on '1%' alone (not 'width: 1%'): a Tailwind arbitrary variant can't contain the space,
+            // and within this table the toggle is the only col with a % width, so there's no false match.
+            className="[&_table]:table-fixed [&_col[style*='1%']]:!w-12"
             data-attr={dataAttr}
             size="small"
             columns={columns}

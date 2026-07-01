@@ -52,6 +52,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.logic.services.agent_command import send_user_message
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+    from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -120,6 +121,7 @@ def forward_pending_user_message(run_id: str) -> None:
 
         if not result.success and result.retryable:
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
+            observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
                 "forward_pending_message_retryable_failure",
                 run_id=run_id,
@@ -143,6 +145,7 @@ def forward_pending_user_message(run_id: str) -> None:
         if result.success:
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
+            observe_followup_delivery_failed(task_run, retryable=False)
             logger.warning(
                 "forward_pending_message_non_retryable_failure",
                 run_id=run_id,
@@ -219,8 +222,13 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
         return content.strip()
 
     if isinstance(content, list):
+        # Only text after the last tool_use is the final answer; text before it is interim narration.
+        last_tool_use = -1
+        for i, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") == "tool_use":
+                last_tool_use = i
         text_parts: list[str] = []
-        for part in content:
+        for part in content[last_tool_use + 1 :]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text" and isinstance(part.get("text"), str):

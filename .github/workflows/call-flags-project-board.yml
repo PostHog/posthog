@@ -18,4 +18,8 @@ jobs:
             pr_number: ${{ github.event.pull_request.number }}
             pr_node_id: ${{ github.event.pull_request.node_id }}
             is_draft: ${{ github.event.pull_request.draft }}
+        # The called workflow lives in PostHog/.github and only declares `inputs:` (no `secrets:`) under
+        # workflow_call, so scoped secret passing isn't possible until that reusable workflow adds a
+        # secrets: block too.
+        # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
         secrets: inherit

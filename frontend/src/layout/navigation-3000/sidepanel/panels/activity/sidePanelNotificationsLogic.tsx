@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
+import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
 import {
     notificationsList,
@@ -36,9 +36,9 @@ import {
     NotificationEventSourceTypeEnumApi,
     NotificationsListParams,
 } from 'products/notifications/frontend/generated/api.schemas'
+import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
-import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
@@ -90,19 +90,13 @@ export function buildNotificationSourcePath(notification: InAppNotification): st
     return notification.source_url || null
 }
 
-export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMetadata | null): string {
-    if (!metadata) {
-        return '!Summarize my web analytics for the last 7 days and tell me what changed and why.'
+// When the recap experience is enabled, send digest clicks to the recap page instead of the raw
+// dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
+export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
+    if (!notification.source_url) {
+        return notification
     }
-    const metricsLine = metadata.metrics
-        .map((metric) => {
-            const change = metric.change
-                ? ` (${metric.change.direction === 'Up' ? 'up' : 'down'} ${metric.change.percent}%)`
-                : ''
-            return `${metric.label} ${metric.value}${change}`
-        })
-        .join(', ')
-    return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
+    return { ...notification, source_url: notification.source_url.replace(/\/web(?=$|[?#])/, '/web/recap') }
 }
 
 export interface ChangelogFlagPayload {
@@ -127,7 +121,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -148,8 +142,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
-        viewWebAnalyticsFromDigest: (notification: InAppNotification) => ({ notification }),
-        askMaxAboutDigest: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -459,6 +451,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                     token,
                                     abortController.signal,
                                     (notification) => {
+                                        // Transient "edited elsewhere" events ride this stream but are
+                                        // not inbox notifications — forward them to interested editors and
+                                        // skip the unread-count / toast / list handling below.
+                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                            return
+                                        }
                                         if (!values.isInitialLoadComplete) {
                                             return
                                         }
@@ -578,25 +577,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     },
                 })
             },
-            viewWebAnalyticsFromDigest: ({ notification }) => {
-                posthog.capture('web_analytics_digest_notification_clicked', {
-                    cta: 'view_web_analytics',
-                    notification_id: notification.id,
-                    team_id: notification.team_id,
-                })
-                actions.navigateToNotification(notification)
-            },
-            askMaxAboutDigest: ({ notification }) => {
-                posthog.capture('web_analytics_digest_notification_clicked', {
-                    cta: 'ask_max',
-                    notification_id: notification.id,
-                    team_id: notification.team_id,
-                })
-                if (!notification.read) {
-                    actions.markAsRead(notification.id)
-                }
-                actions.openSidePanel(SidePanelTab.Max, buildWebAnalyticsDigestMaxPrompt(notification.metadata))
-            },
             markAsRead: async ({ id }) => {
                 try {
                     await notificationsMarkReadCreate((values.currentProjectId ?? '').toString(), id)
@@ -611,6 +591,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 if (!notification) {
                     return
                 }
+                // Keep the unread count (gates the badge + "Mark all as read") in sync with the toggle
+                actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount + (notification.read ? -1 : 1)))
                 const projectId = (values.currentProjectId ?? '').toString()
                 try {
                     if (notification.read) {
@@ -760,6 +742,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+        // Unread among the rows actually loaded into the panel. The panel's "Mark all as read"
+        // button and Unread tab key off this — not `inAppUnreadCount`, a separately-fetched server
+        // total that's hand-patched at several call sites — so they can never drift from the
+        // visible rows. `inAppUnreadCount` stays the source for the global bell badge.
+        loadedUnreadCount: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): number => inAppNotifications.filter((n) => !n.read).length,
+        ],
         projectNameForNotification: [
             (s) => [s.currentTeamId, s.currentOrganization],
             (currentTeamId, currentOrganization) => {
@@ -772,10 +762,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         sourcePathForNotification: [
-            () => [],
-            () =>
-                (notification: InAppNotification): string | null =>
-                    buildNotificationSourcePath(notification),
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                (notification: InAppNotification): string | null => {
+                    // When the recap flag is on, the digest links to the recap page instead of the raw dashboard
+                    const recapEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
+                    const target =
+                        recapEnabled && notification.notification_type === 'web_analytics_digest'
+                            ? withRecapSourceUrl(notification)
+                            : notification
+                    return buildNotificationSourcePath(target)
+                },
         ],
         groups: [
             (s) => [s.inAppNotifications, s.loadedGroupKeys],

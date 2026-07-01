@@ -6,7 +6,8 @@ parameters and return canonical contract types.
 
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
-``head_branch`` filter for workflow health. ``date_from`` / ``date_to`` accept
+``head_branch`` filter for workflow health, a workflow's runs list, and its runner
+costs. ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
@@ -23,11 +24,14 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    CIFailureLogs,
     GitHubSource,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
@@ -55,7 +59,7 @@ def get_pr_lifecycle(
     *,
     team: Team,
     pr_number: int,
-    repo: str | None = None,
+    repo: str,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
@@ -100,6 +104,19 @@ def list_pr_runs(
     )
 
 
+def get_ci_failure_logs(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIFailureLogs:
+    return logic.build_ci_failure_logs(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
 def list_workflow_runs(
     *,
     team: Team,
@@ -107,6 +124,7 @@ def list_workflow_runs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
@@ -116,6 +134,7 @@ def list_workflow_runs(
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,
+        branch=branch,
     )
 
 
@@ -126,6 +145,7 @@ def get_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
@@ -135,6 +155,7 @@ def get_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,
+        branch=branch,
     )
 
 
@@ -202,3 +223,12 @@ def get_quarantine(
     # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
     # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
+
+
+def request_quarantine(
+    *,
+    team: Team,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
+    return logic.request_quarantine(team=team, request=request, user_access_control=user_access_control)

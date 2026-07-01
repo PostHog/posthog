@@ -19,7 +19,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
+from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -88,6 +88,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
+            featured=True,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",

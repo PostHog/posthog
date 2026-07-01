@@ -8,14 +8,19 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryResponse
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+VIEW_LINK_PATH = "products.data_warehouse.backend.presentation.views.view_link"
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -237,6 +242,54 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(response.status_code, 204, response.content)
 
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
+
+    def test_list_empty_does_not_build_database(self):
+        # An empty list must not eagerly build the full HogQL database, which is a heavy
+        # chain of serial Postgres queries that previously ran on every single request.
+        with patch(f"{VIEW_LINK_PATH}.Database.create_for", wraps=Database.create_for) as mock_create_for:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"], [])
+        mock_create_for.assert_not_called()
+
+    def test_delete_does_not_build_database(self):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        with patch(f"{VIEW_LINK_PATH}.Database.create_for", wraps=Database.create_for) as mock_create_for:
+            response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/")
+
+        self.assertEqual(response.status_code, 204, response.content)
+        mock_create_for.assert_not_called()
+
+    def test_list_builds_database_at_most_once(self):
+        for field_name, joining_table in (("a_field", "persons"), ("b_field", "groups"), ("c_field", "cohorts")):
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="events",
+                source_table_key="distinct_id",
+                joining_table_name=joining_table,
+                joining_table_key="id",
+                field_name=field_name,
+                configuration=None,
+            )
+
+        # A populated list resolves each row's table names against the database, but it must
+        # build the database once for the whole response — not once per serialized row.
+        with patch(f"{VIEW_LINK_PATH}.Database.create_for", wraps=Database.create_for) as mock_create_for:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(mock_create_for.call_count, 1)
 
     def test_list(self):
         join1 = DataWarehouseJoin.objects.create(

@@ -25,8 +25,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
@@ -45,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices"
 PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_products"

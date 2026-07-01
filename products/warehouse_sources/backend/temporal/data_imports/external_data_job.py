@@ -27,9 +27,11 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.logic.data_load.service import a_unpause_external_data_schedule
-from products.data_warehouse.backend.logic.data_load.source_templates import create_warehouse_templates_for_source
-from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.facade.api import (
+    a_unpause_external_data_schedule,
+    create_warehouse_templates_for_source,
+    update_external_job_status,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -54,6 +56,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
+    ComputeTableStatisticsInputs,
+    ComputeTableStatisticsWorkflow,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
@@ -65,6 +71,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    RepartitionActivityInputs,
+    maybe_repartition_table_activity,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -362,7 +372,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
-                enrichment_enabled = False
+                enrichment_needed = False
+                statistics_needed = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -370,7 +381,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
-                enrichment_enabled = create_job_result.enrichment_enabled
+                enrichment_needed = create_job_result.enrichment_needed
+                statistics_needed = create_job_result.statistics_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -388,6 +400,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
+
+            # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
+            # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
+            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
+            if job_id is not None:
+                try:
+                    await workflow.execute_activity(
+                        maybe_repartition_table_activity,
+                        RepartitionActivityInputs(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
+                            job_id=str(job_id),
+                            source_id=str(inputs.external_data_source_id),
+                        ),
+                        start_to_close_timeout=dt.timedelta(hours=6),
+                        heartbeat_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Repartition activity failed; continuing with sync on existing layout",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -491,24 +526,58 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     execution_timeout=dt.timedelta(hours=2),
                 )
 
-            # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
-            # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
-            # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
-            # idempotent. Fire-and-forget child on the data-warehouse queue; ABANDON means it never
-            # blocks or fails the import.
-            if enrichment_enabled:
-                await workflow.start_child_workflow(
-                    EnrichTableSemanticsWorkflow.run,
-                    EnrichTableSemanticsInputs(
-                        team_id=inputs.team_id,
-                        schema_id=inputs.external_data_schema_id,
-                    ),
-                    id=f"enrich-warehouse-table-semantics-{job_id}",
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=30),
-                )
+            # Generate semantic descriptions for the synced table. Gated up front on actual need
+            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
+            # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
+            # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
+            # sync gets WorkflowAlreadyStartedError, which we swallow. Fire-and-forget child on the
+            # dedicated metadata queue; ABANDON means it never blocks or fails the import.
+            if enrichment_needed:
+                try:
+                    await workflow.start_child_workflow(
+                        EnrichTableSemanticsWorkflow.run,
+                        EnrichTableSemanticsInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                        ),
+                        id=f"enrich-warehouse-table-semantics-{inputs.external_data_schema_id}",
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(minutes=30),
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.info(
+                        "Semantic enrichment already running for schema, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+
+            # Profile the synced table's columns (null %, min/max, row count) from the Delta log. Gated up
+            # front on staleness (feature flag AND stats older than the recompute interval — no data leaves
+            # our infra). Keyed per schema so only one runs per schema at a time: a concurrent sync that
+            # tries to start a second one gets WorkflowAlreadyStartedError, which we swallow (the running
+            # one already covers this schema). The activity itself re-checks recency. Fire-and-forget
+            # metadata queue; ABANDON so it never blocks or fails the import.
+            if statistics_needed:
+                try:
+                    await workflow.start_child_workflow(
+                        ComputeTableStatisticsWorkflow.run,
+                        ComputeTableStatisticsInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                        ),
+                        id=f"compute-warehouse-table-statistics-{inputs.external_data_schema_id}",
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(minutes=30),
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.info(
+                        "Column statistics already running for schema, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             # Create source templates
             await workflow.execute_activity(
