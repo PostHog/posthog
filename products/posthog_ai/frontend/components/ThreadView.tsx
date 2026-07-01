@@ -9,6 +9,7 @@ import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
+import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
 import { ThreadRow } from './ThreadRow'
 import { VirtualizedThread } from './VirtualizedThread'
@@ -62,6 +63,7 @@ export function ThreadView({
         turnComplete,
         currentRunStatus,
         contextUsage,
+        runConnectionState,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
@@ -79,12 +81,18 @@ export function ThreadView({
                     <ThreadHeader branch={branch} baseBranch={baseBranch} repo={repo} />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [branch, baseBranch, repo]
+        [branch, baseBranch, repo, rowClassName]
     )
 
+    // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
+    // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
+    const showConnectionStatus = !!runConnectionState
     // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
     // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
-    const showThinking = (streamPhase === 'thinking' || streamPhase === 'provisioning') && !hasActiveProgressItem
+    const showThinking =
+        (streamPhase === 'thinking' || streamPhase === 'provisioning') &&
+        !hasActiveProgressItem &&
+        !showConnectionStatus
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -93,7 +101,7 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter ? (
+            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
@@ -101,10 +109,19 @@ export function ThreadView({
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
+                        showConnectionStatus={showConnectionStatus}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [showThinking, thinkingPhase, pullRequestUrl, branch, showContextUsageFooter]
+        [
+            showThinking,
+            thinkingPhase,
+            pullRequestUrl,
+            branch,
+            showContextUsageFooter,
+            showConnectionStatus,
+            rowClassName,
+        ]
     )
 
     const renderItem = useCallback(
@@ -164,18 +181,23 @@ const ThreadFooter = memo(function ThreadFooter({
     pullRequestUrl,
     prBranch,
     showContextUsage,
+    showConnectionStatus,
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
     pullRequestUrl?: string
     prBranch?: string
     showContextUsage?: boolean
+    showConnectionStatus?: boolean
 }): JSX.Element {
-    const { currentProgress } = useValues(runStreamLogic)
+    // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
+    // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
+    const { currentProgress, runConnectionState } = useValues(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
+            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
             {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}

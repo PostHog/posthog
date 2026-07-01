@@ -123,12 +123,17 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
-    const { bootstrappedRunId, awaitingOptimisticAttach } = useValues(runStreamLogic)
+    const { bootstrappedRunId, awaitingOptimisticAttach, currentProjectId } = useValues(runStreamLogic)
 
     useEffect(() => {
         // Pending: no run to bootstrap yet — leave the seeded optimistic thread (first message +
         // provisioning indicator) untouched until the consumer supplies the real id.
         if (!rawRunId) {
+            return
+        }
+        // Wait for the project to resolve before bootstrapping — firing without it races to an
+        // unretryable "No current project" error; the effect re-runs once `currentProjectId` lands.
+        if (currentProjectId === null) {
             return
         }
         // Already bootstrapped this run on this instance — idempotent across re-renders and across a
@@ -148,7 +153,16 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
         bootstrapRun({ taskId, runId: rawRunId })
-    }, [taskId, rawRunId, interaction, bootstrappedRunId, awaitingOptimisticAttach, bootstrapRun, reset])
+    }, [
+        taskId,
+        rawRunId,
+        interaction,
+        bootstrappedRunId,
+        awaitingOptimisticAttach,
+        currentProjectId,
+        bootstrapRun,
+        reset,
+    ])
 
     return null
 }
