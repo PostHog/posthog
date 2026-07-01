@@ -416,6 +416,13 @@ export const DEFAULT_APPROVAL_POLICY = {
 export const ToolApprovalLevelSchema = z.enum(['allow', 'approve', 'deny'])
 export type ToolApprovalLevel = z.infer<typeof ToolApprovalLevelSchema>
 
+/**
+ * Intrinsic authorization class a native tool declares: the `deny`-excluded subset
+ * of {@link ToolApprovalLevel}. `allow` = read-only/own-footprint, `approve`
+ * reaches outside. `deny` is a resolution outcome, not an intrinsic class.
+ */
+export type NativeApprovalClass = Exclude<ToolApprovalLevel, 'deny'>
+
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('native'),
@@ -982,6 +989,10 @@ export const AgentSpecSchema = z.object({
         .default([]),
     mcps: z
         .array(McpRefSchema)
+        // Bounded so a spec write can't fan out an unbounded connection-ownership
+        // `IN (...)` query / parse loop (validate runs on every spec write). 50
+        // mirrors the skill-refs cap; far above any real agent's server count.
+        .max(50)
         .describe(
             'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
         )
@@ -1329,6 +1340,10 @@ export const EMPTY_USAGE_TOTAL: SessionUsageTotal = {
     cost_total: 0,
 }
 
+/** The session lifecycle states. Terminal: `closed`, `cancelled`, `failed`.
+ *  See `session-state-reaper.ts` for the totality oracle over this set. */
+export type SessionState = 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+
 export interface AgentSession {
     id: string
     application_id: string
@@ -1366,7 +1381,7 @@ export interface AgentSession {
      *               confused with a runtime error.
      *   failed    — error state. Terminal regardless of `allow_restart`.
      */
-    state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+    state: SessionState
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions

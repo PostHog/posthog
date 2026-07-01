@@ -464,6 +464,28 @@ describe('driver runSession', () => {
             expect(rows[0].state).toBe('queued')
         })
 
+        it('gates a mutating native tool even when its spec entry omits requires_approval (intrinsic floor)', async () => {
+            // `@posthog/http-request` is intrinsically mutating (approval class
+            // `approve`), so the runtime floors the gate by intrinsic class even
+            // though the spec ref leaves `requires_approval` false. (Read-only
+            // `@posthog/query` in the same shape is NOT gated — see "dispatches a
+            // native tool then completes" above.)
+            const approvals = new PgApprovalStore(pool)
+            const session = makeSession({ principal: principalAlice })
+            const out = await run(makeRev({ tools: [{ kind: 'native', id: '@posthog/http-request' }] }), session, {
+                script: [
+                    toolUse([call('@posthog/http-request', { url: 'https://example.test/', method: 'GET' })]),
+                    stop('queued'),
+                ],
+                approvals,
+            })
+            expect(out.state).toBe('completed')
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].tool_name).toBe('@posthog/http-request')
+            expect(rows[0].state).toBe('queued')
+        })
+
         it('does NOT queue when the matching tools[] entry is allow-level (inclusion only)', async () => {
             // `agent-applications-list` is in tools[] with `level: 'allow'` —
             // exposed but not gated. The dispatcher's MCP lookup returns a

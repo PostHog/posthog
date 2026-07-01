@@ -48,6 +48,7 @@ export function resolveSkillFile(skillPath: string, file: string): string {
 
 export const loadSkill = defineNativeTool({
     id: '@posthog/load-skill',
+    approval: 'allow',
     description:
         'Fetch the body of a skill from this agent\'s bundle. Use the `id` from the "Available skills" index in the system prompt. Pass `file` to fetch a companion file inside the skill folder (e.g. `references/api.md`, `scripts/run.py`) when the skill body points at one. Returns the content; treat a skill body as additional instructions for the current task.',
     args: Type.Object({

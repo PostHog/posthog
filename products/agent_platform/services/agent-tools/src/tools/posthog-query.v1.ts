@@ -15,6 +15,7 @@ interface HogQLQueryResponse {
 
 export const posthogQueryV1 = defineNativeTool({
     id: '@posthog/query',
+    approval: 'allow',
     description:
         'Run a HogQL query against a PostHog project as the connected user (requires `posthog` auth). Returns rows and column names. Pass the `project_id` of the project to query.',
     args: Type.Object({

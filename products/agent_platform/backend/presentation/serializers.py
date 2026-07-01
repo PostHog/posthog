@@ -22,6 +22,8 @@ from rest_framework import serializers
 
 from posthog.models import User
 
+from products.mcp_store.backend.facade.api import unauthorized_installation_ids
+
 from ..models import AgentApplication, AgentRevision
 
 # Opaque random slug: leading letter (DNS-label-safe) + lowercase alphanumerics.
@@ -98,6 +100,35 @@ def _validate_mcp_tool_names_unique(spec: Any) -> None:
             if name in seen:
                 raise serializers.ValidationError(f"spec.mcps.{i}.tools: mcps[].tools[] entries must have unique names")
             seen.add(name)
+
+
+def _validate_mcp_connection_ownership(spec: Any, context: dict[str, Any], author_id: int | None) -> None:
+    # Early authoring feedback, NOT the security boundary — the runtime
+    # `PgMcpConnectionStore.resolve` is authoritative (scopes lookups to the revision
+    # author). Lenient when author/team can't be resolved, since the runtime still enforces.
+    if not isinstance(spec, dict):
+        return
+    mcps = spec.get("mcps")
+    if not isinstance(mcps, list):
+        return
+    referenced: list[tuple[int, str]] = []
+    for i, mcp in enumerate(mcps):
+        if isinstance(mcp, dict):
+            conn = mcp.get("connection")
+            if isinstance(conn, str) and conn:
+                referenced.append((i, conn))
+    if not referenced:
+        return
+    get_team = context.get("get_team")
+    team = get_team() if callable(get_team) else None
+    if team is None or author_id is None:
+        return
+    rejected = set(unauthorized_installation_ids(team.id, author_id, [conn for _, conn in referenced]))
+    for i, conn in referenced:
+        if conn in rejected:
+            raise serializers.ValidationError(
+                f"spec.mcps.{i}.connection: installation not found or not owned by the agent author"
+            )
 
 
 class AgentApplicationSerializer(serializers.ModelSerializer):
@@ -353,6 +384,14 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         # here — keeping one in lockstep with zod was the drift this removed. We
         # still enforce the cross-field invariant the serializer owns.
         _validate_mcp_tool_names_unique(value)
+        # The owning author is the existing revision's creator on edit; on create
+        # it is the request user (which `perform_create` stamps as `created_by`).
+        author_id: int | None = getattr(self.instance, "created_by_id", None)
+        if author_id is None:
+            request_user = getattr(self.context.get("request"), "user", None)
+            if request_user is not None and getattr(request_user, "is_authenticated", False):
+                author_id = request_user.id
+        _validate_mcp_connection_ownership(value, self.context, author_id)
         return value
 
     class Meta:

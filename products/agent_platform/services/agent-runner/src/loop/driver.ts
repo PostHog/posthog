@@ -85,11 +85,13 @@ import {
     SLACK_BOT_TOKEN_KEY,
     SlackStatusReporter,
     slackTextFromContent,
+    resolveToolRefApprovalLevel,
     TabularStore,
     ToolContext,
     toolSpanId,
     WebSearchProvider,
 } from '@posthog/agent-shared'
+import { nativeToolApprovalClass } from '@posthog/agent-tools'
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
@@ -644,7 +646,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // Client tools have no approval field today so they skip
                 // either path. (PR 7 — runtime-mcps.md "Resolved design".)
                 const ref = rev.spec.tools.find((t) => t.id === id)
-                const nativeRef = ref && ref.kind !== 'client' && ref.requires_approval ? ref : null
+                // The effective approval level FLOORS the spec's `requires_approval`:
+                // a mutating native tool (intrinsic class `approve`, e.g.
+                // `@posthog/memory-write`) is gated even when the author left
+                // `requires_approval` false. Authors may tighten (set
+                // `requires_approval`), never loosen below intrinsic.
+                const nativeRef =
+                    ref &&
+                    ref.kind !== 'client' &&
+                    resolveToolRefApprovalLevel(ref, { nativeApprovalClass: nativeToolApprovalClass }) === 'approve'
+                        ? ref
+                        : null
                 // Only fall through to MCP lookup when there's NO `spec.tools`
                 // entry at all. A `client` tool whose id collides with an
                 // MCP-exposed `<prefix>__<remote>` name is an author bug —

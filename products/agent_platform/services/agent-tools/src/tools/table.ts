@@ -68,6 +68,7 @@ const WHERE = Type.Record(Type.String(), Type.Unknown(), {
 
 export const tableMembershipV1 = defineNativeTool({
     id: '@posthog/table-membership',
+    approval: 'allow',
     description:
         'Partition `values` into those already present in `key_column` of the table and those not yet seen. The deterministic seen-set check: pass a batch of ids, get back only the `new` ones to process. Cheap regardless of table size; the table contents never enter your context.',
     args: Type.Object({
@@ -93,6 +94,7 @@ export const tableMembershipV1 = defineNativeTool({
 
 export const tableAppendV1 = defineNativeTool({
     id: '@posthog/table-append',
+    approval: 'allow',
     description:
         'Append rows (JSON objects) to a table, creating it if needed. With `dedupe_on`, rows whose value in that column already exists are skipped (returns counts). Use for seen-sets and append-only logs.',
     args: Type.Object({
@@ -120,6 +122,7 @@ export const tableAppendV1 = defineNativeTool({
 
 export const tableQueryV1 = defineNativeTool({
     id: '@posthog/table-query',
+    approval: 'allow',
     description:
         'Read rows from a table, filtered by `where`, optionally projected to `columns`, ordered, and limited. Returns the matching rows.',
     args: Type.Object({
@@ -154,6 +157,7 @@ export const tableQueryV1 = defineNativeTool({
 
 export const tableCountV1 = defineNativeTool({
     id: '@posthog/table-count',
+    approval: 'allow',
     description: 'Count rows in a table matching `where` (or all rows if omitted).',
     args: Type.Object({ table: TABLE, where: Type.Optional(WHERE) }),
     returns: RESULT,
@@ -173,6 +177,7 @@ export const tableCountV1 = defineNativeTool({
 
 export const tableDeleteV1 = defineNativeTool({
     id: '@posthog/table-delete',
+    approval: 'allow',
     description: 'Delete rows from a table matching `where` (required). Returns how many were removed.',
     args: Type.Object({ table: TABLE, where: WHERE }),
     returns: RESULT,
@@ -192,6 +197,7 @@ export const tableDeleteV1 = defineNativeTool({
 
 export const tableTruncateV1 = defineNativeTool({
     id: '@posthog/table-truncate',
+    approval: 'allow',
     description: 'Remove an entire table (all rows). Use to reset state.',
     args: Type.Object({ table: TABLE }),
     returns: RESULT,
