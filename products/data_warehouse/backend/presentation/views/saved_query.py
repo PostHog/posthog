@@ -259,7 +259,8 @@ class DataWarehouseSavedQuerySerializer(
         help_text=(
             "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
-            "cadence available."
+            "cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored "
+            "on the view's DAG node, so this field may read back as null after a successful write."
         ),
     )
     latest_history_id = serializers.SerializerMethodField(read_only=True)
@@ -459,6 +460,7 @@ class DataWarehouseSavedQuerySerializer(
 
         sync_frequency = validated_data.pop("sync_frequency", None)
 
+        dag_managed_frequency = False
         if sync_frequency and posthoganalytics.feature_enabled(
             "data-modeling-backend-v2",
             str(instance.team.uuid),
@@ -467,7 +469,14 @@ class DataWarehouseSavedQuerySerializer(
                 "project": str(instance.team.id),
             },
         ):
-            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+            from products.data_modeling.backend.facade.api import tiered_schedules_enabled
+
+            # On tiered v2 the frequency writes through to the DAG node's freshness target;
+            # on single-schedule v2 the DAG's one schedule owns cadence and per-query
+            # frequency edits are rejected.
+            if not tiered_schedules_enabled(instance.team):
+                raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+            dag_managed_frequency = True
 
         soft_update = validated_data.pop("soft_update", False)
 
@@ -488,7 +497,13 @@ class DataWarehouseSavedQuerySerializer(
                 if str(edited_history_id) != str(latest_activity_id):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
-            if sync_frequency == "never":
+            if dag_managed_frequency:
+                # Tiered v2: the node target is the only store of frequency intent. The
+                # interval column stays NULL so a stale v1 schedule can never be revived
+                # from it.
+                locked_instance.sync_frequency_interval = None
+                validated_data["sync_frequency_interval"] = None
+            elif sync_frequency == "never":
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
@@ -497,6 +512,21 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance.sync_frequency_interval = sync_frequency_interval
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+
+            if dag_managed_frequency:
+                from products.data_modeling.backend.facade.api import (
+                    UnsatisfiableFrequencyError,
+                    UnsupportedFrequencyTargetError,
+                    apply_saved_query_frequency_target,
+                )
+
+                target = None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
+                try:
+                    # Validates inside the transaction (a rejected frequency rolls the whole
+                    # update back) and queues the schedule reconcile for after commit.
+                    apply_saved_query_frequency_target(view, target)
+                except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                    raise serializers.ValidationError(str(e))
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
@@ -566,21 +596,24 @@ class DataWarehouseSavedQuerySerializer(
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            # update the temporal schedule if it exists
-            temporal_schedule_exists = saved_query_workflow_exists(view)
-            if temporal_schedule_exists:
-                try:
-                    if sync_frequency == "never":
-                        pause_saved_query_schedule(view)
-                    elif sync_frequency:
-                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
-                except Exception as e:
-                    capture_exception(e)
-                    logger.exception(
-                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
-                        view.name,
-                        sync_frequency,
-                    )
+            # Update the v1 temporal schedule if it exists. Skipped on the DAG-managed path even
+            # when a stale v1 schedule lingers from a half-finished migration — syncing it here
+            # would revive it alongside the DAG's schedules.
+            if not dag_managed_frequency:
+                temporal_schedule_exists = saved_query_workflow_exists(view)
+                if temporal_schedule_exists:
+                    try:
+                        if sync_frequency == "never":
+                            pause_saved_query_schedule(view)
+                        elif sync_frequency:
+                            sync_saved_query_workflow(view, create=not temporal_schedule_exists)
+                    except Exception as e:
+                        capture_exception(e)
+                        logger.exception(
+                            "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                            view.name,
+                            sync_frequency,
+                        )
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:

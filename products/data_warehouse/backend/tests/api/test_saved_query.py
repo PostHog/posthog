@@ -649,6 +649,114 @@ class TestSavedQuery(APIBaseTest):
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
+    def _create_saved_query_for_frequency_tests(self) -> dict:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _v2_flag_only(self, key, *args, **kwargs):
+        return key == "data-modeling-backend-v2"
+
+    @parameterized.expand(
+        [
+            ("24hour", timedelta(hours=24)),
+            ("never", None),
+        ]
+    )
+    def test_update_sync_frequency_on_tiered_v2_writes_target_through(
+        self, sync_frequency: str, expected_target: timedelta | None
+    ):
+        from products.data_modeling.backend.logic.node_frequency import get_frequency_target, set_frequency_target
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_frequency_target(node, timedelta(hours=12))
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"
+            ) as v1_exists,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": sync_frequency},
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        # the node target is the only store of frequency intent; the interval stays NULL
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+        node.refresh_from_db()
+        self.assertEqual(get_frequency_target(node), expected_target)
+        reconcile.assert_called_once()
+        # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
+        v1_exists.assert_not_called()
+
+    def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
+        from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(
+                f"{reconcile_module}.apply_saved_query_frequency_target",
+                side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "15min"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        # validation happens inside the transaction: the interval write rolls back with it
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
+    def test_update_sync_frequency_on_untiered_v2_stays_blocked(self):
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("managed by the DAG", response.json()["detail"])
+
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
