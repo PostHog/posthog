@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -12,8 +13,10 @@ from django.dispatch import receiver
 
 from celery.signals import task_postrun, task_prerun
 
+from posthog.cache_utils import cache_for
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -108,18 +111,43 @@ def get_default_access_level() -> PropertyAccessLevel:
     return PropertyAccessLevel.READ_WRITE
 
 
-def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:
-    if team is None and team_id is not None:
-        team = Team.objects.select_related("organization").filter(id=team_id).first()
+def _organization_has_property_access_control(organization: Organization | None) -> bool:
+    if organization is None:
+        return False
+    return organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL)
 
+
+@cache_for(timedelta(minutes=5), background_refresh=True)
+def _is_property_access_control_enabled_for_team_id(team_id: int) -> bool:
+    """Whether the team's organization has the PROPERTY_ACCESS_CONTROL entitlement, cached in-process.
+
+    This runs during HogQL query preparation for *every* query (the printer loads restrictions via
+    `get_restricted_properties_for_team`), so issuing a fresh Postgres round-trip here coupled query
+    health to DB-pool health: a transient pgbouncer `query_wait_timeout` on this lookup failed the
+    whole ClickHouse query. Caching the per-team result means steady-state query prep makes no
+    synchronous DB call, and `background_refresh` means a pool blip on refresh degrades to a slightly
+    stale value rather than a failed query. Mirrors the geoip-dictionary probe (`_geoip_dict_exists`)
+    on the same printer hot path. In-process, per-worker, so entitlement changes take up to the TTL to
+    propagate — acceptable for a rarely-changing org plan flag.
+
+    A cold-cache lookup that coincides with a DB outage still raises: we deliberately do not swallow it
+    into "feature disabled", which would fail *open* and expose restricted properties. Caching shrinks
+    that window from every query to at most once per team per worker per TTL.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None:
         return False
+    return _organization_has_property_access_control(team.organization)
 
-    organization = team.organization
-    if organization is None:
-        return False  # type: ignore
 
-    return organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:
+    if team is not None:
+        return _organization_has_property_access_control(team.organization)
+
+    if team_id is not None:
+        return _is_property_access_control_enabled_for_team_id(team_id)
+
+    return False
 
 
 def get_property_access_level(

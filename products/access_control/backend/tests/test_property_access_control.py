@@ -7,6 +7,7 @@ from posthog.models import PropertyDefinition
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
+    _is_property_access_control_enabled_for_team_id,
     _restriction_cache_var,
     get_default_access_level,
     get_property_access_level,
@@ -530,3 +531,23 @@ class TestQueryTimeFeatureGate(BaseTest):
         assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
             ("gated_event_prop", PropertyDefinition.Type.EVENT)
         }
+
+
+class TestFeatureAvailabilityCaching(BaseTest):
+    """The team_id feature check runs on the HogQL printer hot path for every query, so it must be
+    cached to avoid a fresh Postgres round-trip per query (a transient pool timeout there took down
+    live queries). `cache_for` disables caching under TEST, so exercise the cached path explicitly."""
+
+    def setUp(self):
+        super().setUp()
+        _enable_property_access_control(self.organization)
+        self.addCleanup(_is_property_access_control_enabled_for_team_id.clear_cache)
+        _is_property_access_control_enabled_for_team_id.clear_cache()
+
+    def test_result_is_cached_per_team(self):
+        assert _is_property_access_control_enabled_for_team_id(self.team.pk, use_cache=True) is True
+
+        # Once primed, repeated calls must not touch Postgres again — this is the whole point of the fix.
+        with self.assertNumQueries(0):
+            for _ in range(3):
+                assert _is_property_access_control_enabled_for_team_id(self.team.pk, use_cache=True) is True
