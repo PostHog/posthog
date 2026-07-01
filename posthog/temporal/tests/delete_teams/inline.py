@@ -44,12 +44,22 @@ WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizat
 _STUBBED_ACTIVITY_NAMES = {"queue_recording_deletions_activity"}
 
 
+def _temporal_activity_name(fn: object) -> str | None:
+    """Resolve the name Temporal registers ``fn`` under, matching the Worker's own resolution.
+
+    Filtering on this (rather than ``fn.__name__``) keeps the stub swap correct even if a future
+    SDK version stops preserving ``__name__`` through ``@activity.defn``.
+    """
+    defn = activity._Definition.from_callable(fn)
+    return defn.name if defn else None
+
+
 def _inline_activities() -> list:
     @activity.defn(name="queue_recording_deletions_activity")
     async def queue_recording_deletions_activity(inputs: TeamDataActivityInputs) -> None:
         pass
 
-    real = [fn for fn in REAL_ACTIVITIES if fn.__name__ not in _STUBBED_ACTIVITY_NAMES]
+    real = [fn for fn in REAL_ACTIVITIES if _temporal_activity_name(fn) not in _STUBBED_ACTIVITY_NAMES]
     return [*real, queue_recording_deletions_activity]
 
 
