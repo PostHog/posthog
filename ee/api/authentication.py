@@ -153,7 +153,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         mutable_post = strategy.request.POST.copy()
         mutable_post["RelayState"] = str(organization_domain.id)
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
-        strategy.request.POST = mutable_post  # type: ignore[assignment]
+        strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
