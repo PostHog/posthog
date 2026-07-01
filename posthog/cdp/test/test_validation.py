@@ -216,6 +216,27 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             },
         }
 
+    @parameterized.expand(
+        [
+            ("min_bound", 1000, True),
+            ("max_bound", 30000, True),
+            ("mid_range", 8000, True),
+            ("below_min", 999, False),
+            ("above_max", 30001, False),
+            ("non_numeric", "soon", False),
+            ("boolean_rejected", True, False),
+        ]
+    )
+    def test_validate_fetch_timeout_ms_bounds(self, _name, value, should_pass):
+        schema = [{"key": "fetch_timeout_ms", "type": "fetch_timeout_ms", "required": False}]
+        inputs = {"fetch_timeout_ms": {"value": value}}
+
+        if should_pass:
+            assert validate_inputs(schema, inputs)["fetch_timeout_ms"]["value"] == value
+        else:
+            with self.assertRaises(ValidationError):
+                validate_inputs(schema, inputs)
+
     def test_validate_inputs_creates_bytecode_for_html(self):
         # NOTE: CSS block curly brackets must be escaped beforehand
         html_with_css = '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>'

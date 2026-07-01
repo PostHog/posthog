@@ -20,7 +20,7 @@ import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError, resolveFetchTimeoutMs } from './hog-executor.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -2196,6 +2196,37 @@ describe('Hog Executor', () => {
             [undefined, false],
         ])('returns %s for %j', (error, expected) => {
             expect(isConnectionLevelError(error)).toBe(expected)
+        })
+    })
+
+    describe('resolveFetchTimeoutMs', () => {
+        const withTimeoutInput = (value: unknown): HogFunctionType =>
+            createHogFunction({
+                inputs_schema: [{ key: 'to', type: 'fetch_timeout_ms' }],
+                inputs: { to: { value } as any },
+            })
+
+        it('returns undefined when no fetch_timeout_ms input is present', () => {
+            expect(resolveFetchTimeoutMs(createHogFunction({}))).toBeUndefined()
+        })
+
+        it.each([
+            ['in-range number passes through', 5000, 5000],
+            ['string is coerced', '5000', 5000],
+            ['below min is clamped up', 10, 1000],
+            ['above max is clamped down', 999999, 30000],
+            ['fractional is rounded', 4999.6, 5000],
+        ])('%s', (_name, value, expected) => {
+            expect(resolveFetchTimeoutMs(withTimeoutInput(value))).toBe(expected)
+        })
+
+        it.each([
+            ['unset', undefined],
+            ['non-numeric string', 'soon'],
+            ['NaN', NaN],
+            ['null', null],
+        ])('returns undefined for %s so the global default applies', (_name, value) => {
+            expect(resolveFetchTimeoutMs(withTimeoutInput(value))).toBeUndefined()
         })
     })
 

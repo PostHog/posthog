@@ -10,7 +10,13 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
+import {
+    CdpFetchConfig,
+    cdpTrackedFetch,
+    getNextRetryTime,
+    isFetchResponseRetriable,
+    resolveFetchTimeoutMs,
+} from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -212,6 +218,7 @@ export class SegmentDestinationExecutorService {
                         method,
                         headers,
                         body,
+                        timeoutMs: resolveFetchTimeoutMs(invocation.hogFunction),
                     }
 
                     result.metrics!.push({

@@ -6908,6 +6908,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'fetch_timeout_ms'
         | 'customer_analytics_account_properties'
     key: string
     label: string

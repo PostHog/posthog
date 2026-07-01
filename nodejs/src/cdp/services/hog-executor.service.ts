@@ -168,6 +168,28 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 
+// Bounds for a per-destination fetch timeout override (input type `fetch_timeout_ms`).
+// The upper bound stops a single destination from pinning an undici connection far longer
+// than the shared pool can afford; keep these in sync with posthog/cdp/validation.py.
+export const MIN_FETCH_TIMEOUT_MS = 1000
+export const MAX_FETCH_TIMEOUT_MS = 30000
+
+// Resolve a destination's optional per-request fetch timeout. Found by input *type* (not a
+// magic key), mirroring `non_failure_status_codes`. Returns undefined when unset or unusable,
+// letting `_fetch` fall back to the global EXTERNAL_REQUEST_TIMEOUT_MS.
+export function resolveFetchTimeoutMs(hogFunction: HogFunctionType): number | undefined {
+    const schemaEntry = hogFunction.inputs_schema?.find((s) => s.type === 'fetch_timeout_ms')
+    if (!schemaEntry) {
+        return undefined
+    }
+    const raw = hogFunction.inputs?.[schemaEntry.key]?.value
+    const value = typeof raw === 'string' ? Number(raw) : raw
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return undefined
+    }
+    return Math.min(Math.max(Math.round(value), MIN_FETCH_TIMEOUT_MS), MAX_FETCH_TIMEOUT_MS)
+}
+
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -833,7 +855,11 @@ export class HogExecutorService {
             })
         }
 
-        const fetchParams: FetchOptions = { method, headers: signedHeaders }
+        const fetchParams: FetchOptions = {
+            method,
+            headers: signedHeaders,
+            timeoutMs: resolveFetchTimeoutMs(invocation.hogFunction),
+        }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
