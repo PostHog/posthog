@@ -102,7 +102,9 @@ class SupabaseSource(PostgresSource):
         bare_host = _strip_host_scheme(config.host or "")
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
         if project_host:
-            ref = project_host.group("ref")
+            # Project refs are lowercase, and the pooler username (postgres.<ref>) is
+            # case-sensitive — canonicalize so the suggested values are copy-pasteable.
+            ref = project_host.group("ref").lower()
             return False, (
                 f"'{bare_host}' looks like your Supabase project URL, not a database "
                 "host. For standard syncs use the Session pooler host (aws-0-<region>.pooler.supabase.com) with "

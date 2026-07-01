@@ -83,6 +83,9 @@ def test_project_url_host_is_rejected_before_connecting(host):
     assert error is not None
     assert "project url" in error.lower()
     assert "pooler.supabase.com" in error
+    # The suggested pooler username is case-sensitive, so the ref must be lowercased even when
+    # the user typed the host in caps (see the uppercase parametrized case).
+    assert "postgres.abcdefgh" in error
 
 
 @pytest.mark.parametrize(
