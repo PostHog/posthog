@@ -130,6 +130,21 @@ def _reaction_emoji(content: str) -> str:
     return _REACTION_EMOJI.get(content.lower(), content)
 
 
+def _normalize_reactions(node: dict) -> list[dict]:
+    """Normalize a GraphQL Reactable node's reactions to [{user, emoji}].
+
+    Works for any object that carries a `reactions` connection — the PR itself
+    or an individual review comment.
+    """
+    return [
+        {
+            "user": (rn.get("user") or {}).get("login", "ghost"),
+            "emoji": _reaction_emoji(rn.get("content", "")),
+        }
+        for rn in (node.get("reactions") or {}).get("nodes") or []
+    ]
+
+
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
@@ -216,21 +231,12 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict],
 
     comments: list[dict] = []
     pr_reactions: list[dict] = []
-    first_page = True
     while True:
         data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
         pull_request = data["data"]["repository"]["pullRequest"]
-        if first_page:
-            # PR-body reactions live on the pullRequest node and repeat on every
-            # page — read them once.
-            for rn in (pull_request.get("reactions") or {}).get("nodes") or []:
-                pr_reactions.append(
-                    {
-                        "user": (rn.get("user") or {}).get("login", "ghost"),
-                        "emoji": _reaction_emoji(rn.get("content", "")),
-                    }
-                )
-            first_page = False
+        # PR-body reactions repeat on the pullRequest node on every page; re-reading
+        # the (≤20) nodes each pass is trivial and avoids a page-tracking flag.
+        pr_reactions = _normalize_reactions(pull_request)
         review_threads = pull_request["reviewThreads"]
         threads = review_threads["nodes"]
 
@@ -247,7 +253,6 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict],
                 if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
                     continue
                 reply_to = c.get("replyTo")
-                reaction_nodes = (c.get("reactions") or {}).get("nodes") or []
                 comments.append(
                     {
                         "user": (c.get("author") or {}).get("login", "ghost"),
@@ -257,13 +262,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict],
                         "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
                         "is_resolved": thread["isResolved"],
                         "is_outdated": thread["isOutdated"],
-                        "reactions": [
-                            {
-                                "user": (rn.get("user") or {}).get("login", "ghost"),
-                                "emoji": _reaction_emoji(rn.get("content", "")),
-                            }
-                            for rn in reaction_nodes
-                        ],
+                        "reactions": _normalize_reactions(c),
                     }
                 )
 

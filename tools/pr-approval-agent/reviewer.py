@@ -44,6 +44,11 @@ def _sanitize_untrusted(text: str, max_len: int = 200) -> str:
     return _CONTROL_CHARS_RE.sub("", text)[:max_len]
 
 
+def _reaction_token(reaction: dict) -> str:
+    """Render one reaction as `👍 @user`, with the user login sanitized."""
+    return f"{reaction['emoji']} @{_sanitize_untrusted(reaction['user'], max_len=50)}"
+
+
 VERDICT_SCHEMA = {
     "type": "json_schema",
     "schema": {
@@ -386,9 +391,7 @@ class Reviewer:
                 lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
 
-        pr_reactions = "\n".join(
-            f"  - {r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}" for r in pr.pr_reactions
-        )
+        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
 
         ownership = self._format_ownership(cl)
 
@@ -451,8 +454,7 @@ class Reviewer:
         """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""
         if not reactions:
             return ""
-        parts = [f"{r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}" for r in reactions]
-        return "  {" + ", ".join(parts) + "}"
+        return "  {" + ", ".join(_reaction_token(r) for r in reactions) + "}"
 
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})
