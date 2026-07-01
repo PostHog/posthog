@@ -54,8 +54,6 @@ class _UnionTypeCoercer(TraversingVisitor):
             for sub in query.subsequent_select_queries:
                 self._coerce_query_columns(sub.select_query, targets)
             return
-        if not isinstance(query, ast.SelectQuery):
-            return
         # Only touch plainly positional projections; anything unusual (asterisks, hidden helper aliases,
         # spreads) is left exactly as-is rather than risk misaligning columns with targets.
         if len(query.select) != len(targets):
