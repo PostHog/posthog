@@ -127,8 +127,10 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   not-found event, discovered by name), and per-path web vitals p75 regressions. Its
   discriminator is segment-vs-aggregate divergence — one channel/path/referrer
   stepping away from its own baseline while totals hold is signal; the whole site
-  moving together is baseline. Whole-site metric anomalies on watched dashboards are
-  the anomaly-detection scout's territory.
+  moving together is baseline. On the **report channel** (`emit_report` /
+  `edit_report`): files each dated, segment-named divergence as a 1:1 inbox report,
+  editing the live report while the divergence persists. Whole-site metric anomalies
+  on watched dashboards are the anomaly-detection scout's territory.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift
@@ -285,17 +287,18 @@ per-scout reference. The generalist keeps one bundled reference:
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The rest of the fleet is being ported onto the **report channel** one scout per PR, biggest
-reach first (see the `scouts-emit-reports` spec). A ported scout is report-only — its frontmatter
-`allowed_tools` lists `emit_report` / `edit_report` — and it carries only its _domain-specific_
-report framing **inline in its body** (what's report-shaped for its surface, its
-`reviewer:<domain>` / `report:<domain>` scratchpad keys, a tailored title example); the channel
-contract comes from the prompt, so a ported scout bundles **no** `report.md`. The exception is
-`signals-scout-anomaly-detection`, which keeps a slimmed `references/report-contract.md` for its
-genuinely scout-specific **notebook write-up + embedded-chart recipe** (it defers the generic
-contract to the prompt). A scout not yet ported still emits weak `emit_signal` findings for the
-pipeline to cluster; those specialists carry their own emit/dedupe contract where they need it,
-and its canonical write-up now lives in `authoring-scouts/references/emit-contract.md`.
+The whole canonical fleet is now on the **report channel** (ported one scout per PR, biggest
+reach first — see the `scouts-emit-reports` spec). A report-channel scout is report-only — its
+frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it carries only its
+_domain-specific_ report framing **inline in its body** (what's report-shaped for its surface,
+its `reviewer:<domain>` / `report:<domain>` scratchpad keys, a tailored title example); the
+channel contract comes from the prompt, so a ported scout bundles **no** `report.md`. The
+exception is `signals-scout-anomaly-detection`, which keeps a slimmed
+`references/report-contract.md` for its genuinely scout-specific **notebook write-up +
+embedded-chart recipe** (it defers the generic contract to the prompt). The signal channel
+still exists for custom (hand-authored) scouts — one that doesn't opt in via `allowed_tools`
+emits weak `emit_signal` findings for the pipeline to cluster; that emit/dedupe contract's
+canonical write-up lives in `authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

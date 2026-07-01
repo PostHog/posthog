@@ -34,12 +34,13 @@ performing** — entirely through read-only MCP tools. It is the observability c
 the `authoring-scouts` skill (which teaches writing and tuning) and to the
 `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 
-**Scouts come in two output channels — know which one you're looking at.** Most scouts
-**emit weak findings** (`emit_signal`) that the pipeline groups into reports; their output shows
-up as `emitted_count` / `emitted_finding_ids` on a run. A few scouts (those listing
-`emit_report` / `edit_report` in `allowed_tools` — the canonical generalist `signals-scout-general`
-is the first) **author or edit inbox reports 1:1 directly**, skipping the pipeline; their output
-shows up as `emitted_report_ids` / `edited_report_ids` instead, and **their `emitted_count` stays
+**Scouts come in two output channels — know which one you're looking at.** A signal-channel
+scout (one with no `allowed_tools` opt-in — today that means a custom scout, since the whole
+canonical fleet has been ported) **emits weak findings** (`emit_signal`) that the pipeline groups
+into reports; its output shows up as `emitted_count` / `emitted_finding_ids` on a run. A scout
+listing `emit_report` / `edit_report` in `allowed_tools` — every canonical scout — **authors or
+edits inbox reports 1:1 directly**, skipping the pipeline; its output
+shows up as `emitted_report_ids` / `edited_report_ids` instead, and **its `emitted_count` stays
 0 even on a productive run**. Don't read `emitted_count: 0` as "did nothing" without checking the
 report columns and the run summary first.
 
