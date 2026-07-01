@@ -10,6 +10,7 @@ import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
@@ -99,6 +100,15 @@ type DashboardWidgetItemBodyProps = {
     dashboardId?: number | null
 }
 
+// While a widget's code-split chunk loads on first render, keep the tile body from flashing empty.
+function WidgetLazyChunkFallback(): JSX.Element {
+    return (
+        <div className="flex min-h-0 min-w-0 flex-1 w-full items-center justify-center">
+            <Spinner className="text-2xl" />
+        </div>
+    )
+}
+
 function DashboardWidgetItemBody({
     widget,
     definition,
@@ -121,7 +131,7 @@ function DashboardWidgetItemBody({
             widgetId={widget.id}
             dashboardId={dashboardId}
         >
-            <Suspense fallback={null}>
+            <Suspense fallback={<WidgetLazyChunkFallback />}>
                 <WidgetComponent {...componentProps} />
             </Suspense>
         </WidgetRuntimeAvailabilityGuard>

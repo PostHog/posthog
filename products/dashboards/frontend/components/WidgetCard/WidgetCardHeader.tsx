@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { type ComponentType, Suspense } from 'react'
+import React, { type ComponentType, type LazyExoticComponent, Suspense } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -33,8 +33,11 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
-    /** Optional per-widget-type top heading row; falls back to the type + date range when absent. */
-    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent.
+     * Accepts a lazy component so the registry can code-split it (rendered inside a Suspense below). */
+    TopHeading?:
+        | ComponentType<DashboardWidgetTopHeadingProps>
+        | LazyExoticComponent<ComponentType<DashboardWidgetTopHeadingProps>>
     description?: string
     showDescription?: boolean
     loading?: boolean
