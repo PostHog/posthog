@@ -356,6 +356,7 @@ export interface PaginatedTaskDetailDTOListApi {
 }
 
 /**
+ * * `onboarding` - Onboarding
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -367,10 +368,12 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
+ * * `hogdesk` - HogDesk
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
 export const OriginProductEnumApi = {
+    Onboarding: 'onboarding',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -382,6 +385,7 @@ export const OriginProductEnumApi = {
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
 } as const
 
 /**
@@ -441,6 +445,7 @@ export interface TaskWriteApi {
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
      *
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -451,7 +456,8 @@ export interface TaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -496,9 +502,12 @@ export interface TaskWriteApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
     /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
      *
      * * `low` - low
@@ -506,7 +515,7 @@ export interface TaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -528,6 +537,7 @@ export interface PatchedTaskWriteApi {
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
      *
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -538,7 +548,8 @@ export interface PatchedTaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -583,9 +594,12 @@ export interface PatchedTaskWriteApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
     /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
      *
      * * `low` - low
@@ -593,7 +607,7 @@ export interface PatchedTaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -867,6 +881,7 @@ export type TaskRunCreateRequestSchemaApi =
  * * `artifact` - artifact
  * * `tree_snapshot` - tree_snapshot
  * * `user_attachment` - user_attachment
+ * * `skill_bundle` - skill_bundle
  */
 export type TaskRunArtifactTypeEnumApi = (typeof TaskRunArtifactTypeEnumApi)[keyof typeof TaskRunArtifactTypeEnumApi]
 
@@ -878,7 +893,61 @@ export const TaskRunArtifactTypeEnumApi = {
     Artifact: 'artifact',
     TreeSnapshot: 'tree_snapshot',
     UserAttachment: 'user_attachment',
+    SkillBundle: 'skill_bundle',
 } as const
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+export interface TaskRunArtifactMetadataApi {
+    /**
+     * Name of the local skill included in a skill_bundle artifact.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source for the uploaded skill bundle, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the uploaded skill bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the local skill bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /**
+     * Version of the local skill bundle metadata schema.
+     * @minimum 1
+     */
+    schema_version: number
+}
 
 export interface TaskStagedArtifactFinalizeUploadApi {
     /** Stable identifier returned by the staged prepare upload endpoint */
@@ -896,7 +965,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -913,6 +983,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskStagedArtifactsFinalizeUploadRequestApi {
@@ -933,6 +1005,8 @@ export interface TaskRunArtifactResponseApi {
     size?: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key for the artifact */
     storage_path: string
     /** Timestamp when the artifact was uploaded */
@@ -958,7 +1032,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -976,6 +1051,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskStagedArtifactsPrepareUploadRequestApi {
@@ -1008,6 +1085,8 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key reserved for the staged artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -1309,7 +1388,8 @@ export interface TaskRunArtifactUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1328,6 +1408,8 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsUploadRequestApi {
@@ -1364,7 +1446,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1381,6 +1464,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -1407,7 +1492,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1425,6 +1511,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsPrepareUploadRequestApi {
@@ -1445,6 +1533,8 @@ export interface TaskRunArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key reserved for the artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -1551,8 +1641,16 @@ export interface ConnectionTokenResponseApi {
 }
 
 export interface TaskRunRelayMessageRequestApi {
-    /** @maxLength 10000 */
+    /**
+     * Joined message body. Used when text_parts is absent.
+     * @maxLength 10000
+     */
     text: string
+    /**
+     * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+     * @items.maxLength 10000
+     */
+    text_parts?: string[]
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -1923,9 +2021,12 @@ export interface WarmTaskRequestApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.
+     * @nullable
+     */
+    model?: string | null
     /** Reasoning effort to warm the sandbox on for models that expose an effort control.
      *
      * * `low` - low
@@ -1933,7 +2034,7 @@ export interface WarmTaskRequestApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**

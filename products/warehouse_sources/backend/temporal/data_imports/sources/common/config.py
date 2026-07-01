@@ -245,6 +245,14 @@ def to_config(
 
             for config_type in config_types:
                 if not is_config(config_type):
+                    if config_type is type(None):
+                        # The `None` arm of an `Optional[Config]` union must not claim the
+                        # value meant for the config arm. When the config arm fails to parse
+                        # a present mapping, falling through to here would assign the raw
+                        # dict, leaving a typed field holding an untyped dict and crashing
+                        # downstream (e.g. `config.ssh_tunnel.enabled`). Skip so the field
+                        # falls back to its default instead.
+                        continue
                     try:
                         value = d[field_key]
                     except KeyError:

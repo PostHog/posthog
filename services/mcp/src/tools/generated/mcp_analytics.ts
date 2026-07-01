@@ -7,8 +7,10 @@ import {
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
+    McpAnalyticsSessionsListQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
@@ -69,6 +71,32 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const McpAnalyticsSessionsListSchema = McpAnalyticsSessionsListQueryParams
+
+const mcpAnalyticsSessionsList = (): ToolBase<
+    typeof McpAnalyticsSessionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPSessionList>
+> => ({
+    name: 'mcp-analytics-sessions-list',
+    schema: McpAnalyticsSessionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPSessionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
     },
 })
 
@@ -229,6 +257,17 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
@@ -265,7 +304,15 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('recording').default('recording'),
@@ -383,6 +430,7 @@ const WorkflowVariablePropertyFilter = z.object({
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     SessionPropertyFilter,
@@ -408,17 +456,114 @@ const MCPHarnessBreakdownQuery = z.object({
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
     properties: z.array(AnyPropertyFilter).optional(),
+    toolName: z
+        .string()
+        .describe('When set, scope to a single effective tool\'s new-SDK calls (the per-tool "By harness" table).')
+        .optional(),
+})
+
+const MCPToolStatsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolDailyStatsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolFailuresQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
+    toolName: z.string().describe('The raw $mcp_tool_name to scope $exception events to.'),
+})
+
+const MCPToolTopUsersQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolNeighborsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolNeighborsQuery').default('MCPToolNeighborsQuery'),
+    neighborDirection: z
+        .enum(['before', 'after'])
+        .describe('Whether to count tools called immediately before or after the target tool.'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolSampleIntentsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolSampleIntentsQuery').default('MCPToolSampleIntentsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolDescriptionsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolDescriptionsQuery').default('MCPToolDescriptionsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
+    'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({
         name: 'query-mcp-harness-breakdown',
         schema: MCPHarnessBreakdownQuery,
         kind: 'MCPHarnessBreakdownQuery',
+    }),
+    'query-mcp-tool-stats': createQueryWrapper({
+        name: 'query-mcp-tool-stats',
+        schema: MCPToolStatsQuery,
+        kind: 'MCPToolStatsQuery',
+    }),
+    'query-mcp-tool-daily-stats': createQueryWrapper({
+        name: 'query-mcp-tool-daily-stats',
+        schema: MCPToolDailyStatsQuery,
+        kind: 'MCPToolDailyStatsQuery',
+    }),
+    'query-mcp-tool-failures': createQueryWrapper({
+        name: 'query-mcp-tool-failures',
+        schema: MCPToolFailuresQuery,
+        kind: 'MCPToolFailuresQuery',
+    }),
+    'query-mcp-tool-top-users': createQueryWrapper({
+        name: 'query-mcp-tool-top-users',
+        schema: MCPToolTopUsersQuery,
+        kind: 'MCPToolTopUsersQuery',
+    }),
+    'query-mcp-tool-neighbors': createQueryWrapper({
+        name: 'query-mcp-tool-neighbors',
+        schema: MCPToolNeighborsQuery,
+        kind: 'MCPToolNeighborsQuery',
+    }),
+    'query-mcp-tool-sample-intents': createQueryWrapper({
+        name: 'query-mcp-tool-sample-intents',
+        schema: MCPToolSampleIntentsQuery,
+        kind: 'MCPToolSampleIntentsQuery',
+    }),
+    'query-mcp-tool-descriptions': createQueryWrapper({
+        name: 'query-mcp-tool-descriptions',
+        schema: MCPToolDescriptionsQuery,
+        kind: 'MCPToolDescriptionsQuery',
     }),
 }

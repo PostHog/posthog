@@ -51,9 +51,10 @@ from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Filter, OrganizationMembership, Person, SharingConfiguration, Team, User
+from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2919,7 +2920,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(lines), 3, response.content)
 
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
-        Person.objects.create(team=self.team, properties=properties)
+        create_person(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": properties}]},
@@ -4316,6 +4317,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"], dict)
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
+
+    def test_tile_filters_override_replaces_dashboard_filters_in_returned_query(self) -> None:
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-30d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        # Tile has its own date-range filter (no person properties). The compute path treats
+        # this as a complete replacement for all dashboard filters.
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={"date_from": "-7d"},
+        )
+
+        # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
+        dashboard_filters = {
+            "properties": [{"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": str(dashboard.pk),
+                "filters_override": json.dumps(dashboard_filters),
+            },
+        ).json()
+
+        source = response["query"]["source"]
+        # The tile's filter (date_from = -7d, no person properties) must win over the
+        # dashboard filter. If the dashboard person properties appeared here the persons
+        # modal would use a different filter set than the chart — the bug this test guards.
+        assert source["dateRange"]["date_from"] == "-7d"
+        # properties must be absent or empty — the dashboard's person filter must not appear.
+        assert not source.get("properties"), (
+            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
+        )
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(

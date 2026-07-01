@@ -14,7 +14,7 @@ from posthog.schema import RecordingOrder, RecordingOrderDirection
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -23,6 +23,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.slo.types import SloOperation, SloOutcome
+from posthog.test.persons import create_person
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
@@ -1044,7 +1045,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
-        person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
+        person = create_person(team=self.team, properties={"email": "widget-test@example.com"})
         recording = SessionRecording(
             session_id="019e6a07-04fe-792c-b828-49375b8d42e8",
             team=self.team,

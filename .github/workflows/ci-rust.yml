@@ -11,8 +11,6 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
 
@@ -122,6 +120,7 @@ jobs:
                       "assignment-coordination": 11,
                       "batch-import-worker": 124,
                       "capture": 169,
+                      "capture-load-gen": 25,
                       "capture-logs": 108,
                       "common-alloc": 13,
                       "common-compression": 6,
@@ -290,6 +289,9 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         defaults:
             run:
@@ -411,6 +413,14 @@ jobs:
                           extra_args="-- --test-threads=4"
                       fi
                       cargo test -p "$pkg" $extra_args
+                      # Error-tracking rate-limiter e2e tests are #[ignore]'d (they need a real Redis
+                      # via testcontainers/Docker, absent in some environments). This job has Docker,
+                      # so run them here, single-threaded to avoid concurrent-container flakes. The
+                      # `rate_limiting` filter matches nothing on branches without these tests, so it
+                      # stays safe for unrebased PRs.
+                      if [ "$pkg" = "cymbal" ]; then
+                          cargo test -p cymbal rate_limiting -- --ignored --test-threads=1
+                      fi
                       echo "::endgroup::"
                   done
 

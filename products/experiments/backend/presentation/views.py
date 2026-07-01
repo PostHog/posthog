@@ -28,7 +28,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
@@ -40,6 +39,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 

@@ -61,9 +61,51 @@ tools:
     error-tracking-assignment-rules-update:
         operation: error_tracking_assignment_rules_update
         enabled: false
+    error-tracking-bypass-rules-create:
+        operation: error_tracking_bypass_rules_create
+        enabled: false
+    error-tracking-bypass-rules-destroy:
+        operation: error_tracking_bypass_rules_destroy
+        enabled: false
+    error-tracking-bypass-rules-list:
+        operation: error_tracking_bypass_rules_list
+        enabled: false
+    error-tracking-bypass-rules-partial-update:
+        operation: error_tracking_bypass_rules_partial_update
+        enabled: false
+    error-tracking-bypass-rules-reorder-partial-update:
+        operation: error_tracking_bypass_rules_reorder_partial_update
+        enabled: false
+    error-tracking-bypass-rules-retrieve:
+        operation: error_tracking_bypass_rules_retrieve
+        enabled: false
+    error-tracking-bypass-rules-update:
+        operation: error_tracking_bypass_rules_update
+        enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking external reference
+        description: >
+            Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking
+            issue as an external reference. This tool does not link an existing external issue by URL or key. Provide
+            the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object
+            with provider-specific fields. Examples: Jira config {"project_key":"ENG","title":"Checkout
+            TypeError","description":"Stack trace and reproduction details"}; Linear config
+            {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace and reproduction details"};
+            GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace and reproduction
+            details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and reproduction details"}.
+            Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body};
+            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list
+            first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
+            integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
+            IDs.
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false

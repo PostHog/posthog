@@ -3,6 +3,8 @@ import datetime as dt
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
@@ -18,9 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
     _credentials,
+    _get_integration,
     _initial_start_date,
     _is_daily_quota_error,
     _is_quota_error,
+    _is_server_error,
     _iter_dates,
     _query_search_analytics,
     _quota_backoff_seconds,
@@ -137,6 +141,46 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
 
     assert calls == ["close_old_connections", "Integration.objects.get"]
     assert creds.refresh_token == "refresh-token"
+
+
+def test_get_integration_rides_out_pool_wait_timeout_then_succeeds(monkeypatch):
+    # A saturated connection pooler rejects the query with `query_wait_timeout`; the short
+    # backoff lets the pool drain so a later attempt on a fresh connection succeeds.
+    integration = mock.MagicMock()
+    get = mock.Mock(
+        side_effect=[
+            OperationalError("query_wait_timeout"),
+            OperationalError("query_wait_timeout"),
+            integration,
+        ]
+    )
+
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = _get_integration(integration_id=1, team_id=2)
+
+    assert result is integration
+    assert get.call_count == 3
+    assert sleeps == [2, 4]
+
+
+def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
+    get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    with pytest.raises(OperationalError):
+        _get_integration(integration_id=1, team_id=2)
+
+    # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+    assert get.call_count == 4
+    assert sleeps == [2, 4, 6]
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):
@@ -350,6 +394,23 @@ def test_is_daily_quota_error(response, expected):
     assert _is_daily_quota_error(response) is expected
 
 
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (_fake_response(500), True),
+        (_fake_response(502), True),
+        (_fake_response(503), True),
+        (_fake_response(504), True),
+        (_fake_response(429), False),
+        (_fake_response(403, _QUOTA_BODY), False),
+        (_fake_response(403, _PERMISSION_BODY), False),
+        (_fake_response(200, {"rows": []}), False),
+    ],
+)
+def test_is_server_error(response, expected):
+    assert _is_server_error(response) is expected
+
+
 def test_quota_backoff_prefers_retry_after_header():
     resp = _fake_response(403, _QUOTA_BODY, headers={"Retry-After": "30"})
     assert _quota_backoff_seconds(resp, attempt=0) == 30.0
@@ -417,6 +478,38 @@ def test_query_permission_error_is_not_retried(monkeypatch):
 
     # Fatal on the first response — no retries.
     assert session.post.call_count == 1
+
+
+def test_query_retries_server_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        _fake_response(500),
+        _fake_response(503),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 3
+
+
+def test_query_server_error_bubbles_http_error_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(500)
+
+    # A persistent 5xx exhausts the inline budget and surfaces the real HTTPError (retryable
+    # at the activity level), not the quota error.
+    with pytest.raises(requests.HTTPError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
 def test_throttle_spaces_requests_per_site(monkeypatch):

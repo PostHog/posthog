@@ -21,9 +21,11 @@ use common_types::CapturedEvent;
 use uuid::Uuid;
 
 use capture::v1::analytics::types::Event;
-use capture::v1::test_utils::{batch_payload, valid_event};
+use capture::v1::gateway_provenance::sign_for_test;
+use capture::v1::test_utils::{batch_payload, raw_obj, valid_event};
 
 const TOKEN: &str = "phc_http_integration_token";
+const GW_SECRET: &str = "test-signing-secret";
 
 /// A fresh `$pageview` event with a unique UUID and the given distinct_id.
 fn pageview(distinct_id: &str) -> Event {
@@ -140,6 +142,83 @@ async fn v1_http_batch_to_kafka() -> Result<()> {
         distinct_ids,
         vec!["http-batch-0", "http-batch-1", "http-batch-2"]
     );
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Gateway provenance: HTTP -> verified marker (and forged marker stripped) in Kafka
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_http_gateway_signed_event_is_verified_in_kafka() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_v1_topic_with_signing_secret(&topic, GW_SECRET).await;
+
+    let distinct_id = "gw-user-1";
+    let request_id = "gw-req-1";
+    let signed_at = chrono::Utc::now().to_rfc3339();
+    let signature = sign_for_test(
+        GW_SECRET.as_bytes(),
+        TOKEN,
+        distinct_id,
+        request_id,
+        &signed_at,
+    );
+
+    let mut ev = named(distinct_id, "$ai_generation");
+    // Client supplies its own request_id — the signed one must overwrite it.
+    ev.properties = raw_obj(r#"{"$ai_model":"claude","$ai_gateway_request_id":"client-fake"}"#);
+    let uuid = ev.uuid.clone();
+    let payload = batch_payload(std::slice::from_ref(&ev));
+
+    let res = server
+        .capture_v1_with_gateway_headers(TOKEN, payload, &signature, &signed_at, request_id)
+        .await;
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+    let captured: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
+    assert_eq!(captured.uuid.to_string(), uuid);
+    let data: serde_json::Value = serde_json::from_str(&captured.data)?;
+    assert_eq!(
+        data["properties"]["$ai_gateway_verified"],
+        serde_json::json!(true),
+        "a valid signature must stamp the verified marker: {data}"
+    );
+    assert_eq!(
+        data["properties"]["$ai_gateway_request_id"],
+        serde_json::json!("gw-req-1"),
+        "the signed request_id must overwrite the client value: {data}"
+    );
+
+    topic.assert_empty();
+    Ok(())
+}
+
+#[tokio::test]
+async fn v1_http_forged_gateway_marker_is_stripped_in_kafka() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_v1_topic_with_signing_secret(&topic, GW_SECRET).await;
+
+    // No gateway headers, but the client forges the trusted marker — it must not
+    // survive to Kafka even with a signing secret configured.
+    let mut ev = named("forged-user", "$ai_generation");
+    ev.properties = raw_obj(r#"{"$ai_model":"claude","$ai_gateway_verified":true}"#);
+    let payload = batch_payload(std::slice::from_ref(&ev));
+
+    let res = server.capture_v1(TOKEN, payload).await;
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+    let captured: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
+    let data: serde_json::Value = serde_json::from_str(&captured.data)?;
+    assert!(
+        data["properties"].get("$ai_gateway_verified").is_none(),
+        "a forged marker with no signature must be stripped: {data}"
+    );
+    assert_eq!(data["properties"]["$ai_model"], serde_json::json!("claude"));
 
     topic.assert_empty();
     Ok(())

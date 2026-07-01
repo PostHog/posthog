@@ -15,7 +15,7 @@ import {
     isInsightVizNode,
     isTrendsQuery,
 } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
@@ -42,7 +42,10 @@ export const areAlertsSupportedForInsight = (
         return true
     }
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
-        return true
+        // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
+        // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
@@ -52,11 +55,23 @@ export const areAlertsSupportedForInsight = (
 const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
     ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
 
-export const alertsUnsupportedReason = (options: {
-    hogqlAlertsEnabled?: boolean
-    funnelAlertsEnabled?: boolean
-}): string =>
-    `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
+export const alertsUnsupportedReason = (
+    options: {
+        hogqlAlertsEnabled?: boolean
+        funnelAlertsEnabled?: boolean
+    },
+    query?: Record<string, any> | null
+): string => {
+    // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
+    // "funnel insights are supported" while standing on a blocked funnel. Name the real reason instead.
+    if (options.funnelAlertsEnabled && query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        if (vizType === FunnelVizType.TimeToConvert || vizType === FunnelVizType.Flow) {
+            return "Alerts track a conversion rate, which time-to-convert and flow funnels don't have. Switch to the steps or trends view to add an alert."
+        }
+    }
+    return `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
+}
 
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
 export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
