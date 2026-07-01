@@ -80,7 +80,8 @@ class TestErrorTracking(BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
 
         with patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse:
-            issue_two.merge(issue_ids=[issue_one.id])
+            with self.captureOnCommitCallbacks(execute=True):
+                issue_two.merge(issue_ids=[issue_one.id])
 
         sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
 

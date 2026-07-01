@@ -1338,10 +1338,11 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         issue_one = self._create_issue(fingerprints=["fp_one"])
         issue_two = self._create_issue(fingerprints=["fp_two"])
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-            data={"ids": [str(issue_two.id)]},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+                data={"ids": [str(issue_two.id)]},
+            )
 
         rows = self._get_issue_state_rows()
         assert len(rows) == 2

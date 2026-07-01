@@ -54,17 +54,27 @@ class ErrorTrackingIssue(UUIDTModel):
         db_table = "posthog_errortrackingissue"
 
     def merge(self, issue_ids: list[str]) -> None:
-        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+        team_id = self.team_id
+        target_issue_id = self.id
+        fingerprints = resolve_fingerprints_for_issues(team_id=team_id, issue_ids=issue_ids)
 
         with transaction.atomic():
             overrides = update_error_tracking_issue_fingerprints(
-                team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
+                team_id=team_id, issue_id=target_issue_id, fingerprints=fingerprints
             )
             # Reassign spike events from merged issues before deleting them
             ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
-            sync_issues_to_clickhouse(issue_ids=[self.id], team_id=self.team_id)
+
+            # The Kafka/ClickHouse syncs are external side effects that make network round-trips.
+            # Defer them until the transaction commits so we don't keep the Postgres connection —
+            # and any row locks the caller holds (e.g. the auto-merge SELECT ... FOR UPDATE) — open
+            # across that I/O, and so we never emit issue state for a merge that ends up rolled back.
+            def sync_to_clickhouse() -> None:
+                update_error_tracking_issue_fingerprint_overrides(team_id=team_id, overrides=overrides)
+                sync_issues_to_clickhouse(issue_ids=[target_issue_id], team_id=team_id)
+
+            transaction.on_commit(sync_to_clickhouse)
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         own_fingerprints = set(
