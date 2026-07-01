@@ -707,7 +707,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                 })
                                 sanitizedPayload[field.name] = JSON.parse(loadedFile)
                             } catch {
-                                lemonToast.error('File is not valid')
+                                posthog.captureException(e)
+                                lemonToast.error(
+                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
+                                )
                                 return
                             }
                         }

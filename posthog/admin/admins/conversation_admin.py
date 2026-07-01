@@ -1,10 +1,23 @@
 from django.contrib import admin, messages
-from django.urls import reverse
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Sum
+from django.db.models.functions import Length
+from django.http import HttpResponseNotAllowed
+from django.middleware.csrf import get_token
+from django.shortcuts import redirect
+from django.template.defaultfilters import filesizeformat
+from django.urls import path, reverse
 from django.utils.html import format_html
+
+from structlog import get_logger
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.django_checkpoint.compaction import compact_thread
+
+logger = get_logger()
+
+_COMPACT_SKIP_REASON = "not idle, awaiting approval, or nothing to compact"
 
 
 @admin.register(Conversation)
@@ -18,6 +31,7 @@ class ConversationAdmin(admin.ModelAdmin):
     # isn't guaranteed registered when ConversationAdmin's system checks run (admin.E039).
     # raw_id_fields needs no registered target admin and still avoids the full-table <select>.
     raw_id_fields = ("task",)
+    readonly_fields = ("checkpoint_storage",)
     ordering = ("-updated_at",)
     actions = ["compact_checkpoints"]
 
@@ -28,6 +42,19 @@ class ConversationAdmin(admin.ModelAdmin):
         # Conversation is soft-deleted by the app; don't expose a cascading hard-delete here.
         return False
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        # Stash the request so checkpoint_storage can mint a CSRF token for its POST form.
+        self._current_request = request
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    def get_urls(self):
+        compact_url = path(
+            "<path:object_id>/compact/",
+            self.admin_site.admin_view(self.compact_view),
+            name="posthog_ai_conversation_compact",
+        )
+        return [compact_url, *super().get_urls()]
+
     @admin.display(description="Team")
     def team_link(self, conversation: Conversation):
         return format_html(
@@ -35,6 +62,55 @@ class ConversationAdmin(admin.ModelAdmin):
             reverse("admin:posthog_team_change", args=[conversation.team_id]),
             conversation.team.name,
         )
+
+    @admin.display(description="Checkpoint storage")
+    def checkpoint_storage(self, conversation: Conversation):
+        # Change-page only — do not add to list_display: the bytea Length() sum would run per row.
+        # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
+        blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
+        request = getattr(self, "_current_request", None)
+        # POST form rather than a link: compaction deletes rows, so it must not run on a GET.
+        return format_html(
+            "{} checkpoints, {} blobs ({}) &nbsp;"
+            '<form method="post" action="{}" style="display: inline">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
+            '<button type="submit" class="button" data-attr="conversation-admin-compact-now">Compact now</button>'
+            "</form>",
+            conversation.checkpoints.count(),
+            blobs["count"] or 0,
+            filesizeformat(blobs["total_bytes"] or 0),
+            reverse("admin:posthog_ai_conversation_compact", args=[conversation.pk]),
+            get_token(request) if request is not None else "",
+        )
+
+    def compact_view(self, request, object_id: str):
+        conversation = self.get_object(request, object_id)
+        if conversation is None:
+            self.message_user(request, "Conversation not found.", messages.ERROR)
+            return redirect("admin:posthog_ai_conversation_changelist")
+        if not self.has_change_permission(request, conversation):
+            raise PermissionDenied
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
+        result = compact_thread(str(conversation.id))
+        logger.info(
+            "admin_compact_conversation",
+            conversation_id=str(conversation.id),
+            compacted=result.compacted,
+            checkpoints_deleted=result.checkpoints_deleted,
+            blobs_deleted=result.blobs_deleted,
+            triggered_by=request.user.email,
+        )
+        if result.compacted:
+            self.message_user(
+                request,
+                f"Compacted — reclaimed {result.checkpoints_deleted} checkpoints and {result.blobs_deleted} blobs.",
+                messages.SUCCESS,
+            )
+        else:
+            self.message_user(request, f"Nothing compacted ({_COMPACT_SKIP_REASON}).", messages.WARNING)
+        return redirect("admin:posthog_ai_conversation_change", conversation.id)
 
     @admin.action(description="Compact checkpoints (keep latest, reclaim storage)")
     def compact_checkpoints(self, request, queryset) -> None:
@@ -51,6 +127,6 @@ class ConversationAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             f"Compacted {compacted} conversation(s) — reclaimed {checkpoints} checkpoints "
-            f"and {blobs} blobs. Skipped {skipped} (not idle, awaiting approval, or nothing to compact).",
+            f"and {blobs} blobs. Skipped {skipped} ({_COMPACT_SKIP_REASON}).",
             messages.SUCCESS if compacted else messages.WARNING,
         )

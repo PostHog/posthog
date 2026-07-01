@@ -36,6 +36,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -79,6 +80,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
+    reconcile_snowflake_schemas,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -86,6 +88,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
+    upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import (
@@ -100,6 +103,7 @@ from products.revenue_analytics.backend.facade.api import ensure_person_join, re
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -520,7 +524,33 @@ def get_mysql_source_table_location(
     )
 
 
+def get_snowflake_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    catalog = source_schema.source_catalog if source_schema and source_schema.source_catalog else default_catalog
+    if source_schema and source_schema.source_schema and source_schema.source_table_name:
+        return catalog, source_schema.source_schema, source_schema.source_table_name
+
+    normalized_default_schema = (
+        default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
+    )
+    if normalized_default_schema is None and "." in schema_name:
+        inferred_schema, inferred_table_name = schema_name.split(".", 1)
+        return catalog, inferred_schema, inferred_table_name
+
+    return catalog, normalized_default_schema or "", schema_name
+
+
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
+    "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+)
+# Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -554,7 +584,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -576,7 +606,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -739,7 +769,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -1159,6 +1189,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
+                    reconcile_snowflake_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1336,6 +1372,36 @@ class SourceCredentialSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
     expires_at = serializers.DateTimeField(
         help_text="When the stored credentials expire. Unconsumed credentials are unusable past this time."
+    )
+
+
+def _find_unresolved_secret_refs(payload: Any) -> list[str]:
+    """Return payload keys whose value is an unresolved secret reference.
+
+    The wizard CLI's `wizard_ask` returns sensitive answers as `{"secretRef": "..."}` objects that the
+    caller must resolve to real values before they reach PostHog. If one slips through, source creation
+    fails downstream with a confusing "invalid credentials"/"invalid API key" error — detect it up front
+    so the agent gets an actionable message instead.
+    """
+    if not isinstance(payload, dict):
+        return []
+    return [key for key, value in payload.items() if isinstance(value, dict) and "secretRef" in value]
+
+
+def _unresolved_secret_ref_response(payload: Any) -> Response | None:
+    offenders = _find_unresolved_secret_refs(payload)
+    if not offenders:
+        return None
+    return Response(
+        status=status.HTTP_400_BAD_REQUEST,
+        data={
+            "message": (
+                f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
+                "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+                "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
+                "the resulting credential_id instead)."
+            )
+        },
     )
 
 
@@ -1614,6 +1680,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        secret_ref_response = _unresolved_secret_ref_response(serializer.validated_data["payload"])
+        if secret_ref_response is not None:
+            return secret_ref_response
+
         return self._create_external_data_source(
             request,
             source_type=serializer.validated_data["source_type"],
@@ -1661,13 +1731,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
-        is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
+        is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
 
-        if is_direct_query and not (is_direct_postgres or is_direct_mysql):
+        if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+                data={"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
             )
 
         if is_direct_query:
@@ -1945,6 +2015,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=source_schema,
                     default_schema=default_source_schema or source_config.to_dict().get("database"),
                 )
+            elif is_direct_snowflake:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_snowflake_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                        default_catalog=source_config.to_dict().get("database"),
+                    )
+                )
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -1964,7 +2043,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if row_filters is not None:
                 if reason := unsupported_row_filter_reason(
-                    is_direct_postgres=new_source_model.is_direct_postgres, is_cdc=sync_type == "cdc"
+                    is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
                     new_source_model.delete()
                     return Response(
@@ -2107,6 +2186,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         # Direct-mysql columns are keyed by raw, case-sensitive source names.
                         normalize=False,
                     ),
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_snowflake and should_sync:
+                schema_model.table = upsert_direct_snowflake_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        snowflake_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-snowflake columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
+                    source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
                     source_table_name=cast(str, metadata_source_table_name),
                 )
@@ -2550,6 +2647,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
+                reconciled_deleted_schemas = reconcile_snowflake_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
@@ -2582,6 +2687,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Missing required parameter: source_type"},
             )
 
+        secret_ref_response = _unresolved_secret_ref_response(request.data)
+        if secret_ref_response is not None:
+            return secret_ref_response
+
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
@@ -2608,12 +2717,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": error_message},
+                data={"message": str(e)},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2684,6 +2793,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_type = serializer.validated_data["source_type"]
         payload = dict(serializer.validated_data.get("payload") or {})
 
+        secret_ref_response = _unresolved_secret_ref_response(payload)
+        if secret_ref_response is not None:
+            return secret_ref_response
+
         credential: PendingSourceCredential | None = None
         credential_id = payload.pop("credential_id", None)
         if credential_id is not None:
@@ -2724,10 +2837,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
-            if not is_expected_source_error:
-                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         if not source_schemas:
             return Response(
@@ -3584,10 +3695,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type not in (ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL):
+            if source_type not in direct_capable_source_types():
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+                    data={"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
@@ -3671,9 +3782,40 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ).data,
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated source type(s) to return config for, e.g. 'Postgres' or "
+                    "'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every "
+                    "supported source and is very large. Omit only to enumerate the available types."
+                ),
+            )
+        ],
+    )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        return Response(status=status.HTTP_200_OK, data=build_source_configs())
+        configs = build_source_configs()
+
+        requested = request.query_params.get("source_type")
+        if requested:
+            requested_types = [t.strip() for t in requested.split(",") if t.strip()]
+            unknown = [t for t in requested_types if t not in configs]
+            if unknown:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Unknown source_type(s): {', '.join(sorted(unknown))}. "
+                        "Omit source_type to list every available type."
+                    },
+                )
+            configs = {st: config for st, config in configs.items() if st in requested_types}
+
+        return Response(status=status.HTTP_200_OK, data=configs)
 
     @extend_schema(
         parameters=[
@@ -3740,7 +3882,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
+                source_type__in=direct_capable_source_types(),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")

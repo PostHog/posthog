@@ -24,8 +24,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     RunSource,
     RunState,
     RuntimeAdapter,
+    get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_supported_reasoning_efforts,
     parse_run_state,
 )
 
@@ -41,7 +43,9 @@ __all__ = [
     "RunSource",
     "RunState",
     "RuntimeAdapter",
+    "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_supported_reasoning_efforts",
     "parse_run_state",
 ]
