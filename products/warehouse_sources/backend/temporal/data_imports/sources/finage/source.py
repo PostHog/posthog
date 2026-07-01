@@ -21,9 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.finage import (
     DEFAULT_START_DATE,
+    FinageConfigError,
     finage_source,
     parse_symbols,
     validate_credentials as validate_finage_credentials,
+    validate_source_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS, FINAGE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
@@ -135,6 +137,11 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
     def validate_credentials(
         self, config: FinageSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        try:
+            validate_source_config(parse_symbols(config.symbols), config.start_date or DEFAULT_START_DATE)
+        except FinageConfigError as exc:
+            return False, str(exc)
+
         status = validate_finage_credentials(config.api_key)
 
         if status == 200:
@@ -151,10 +158,14 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
         return False, "Could not validate Finage credentials. Please check your API key and try again."
 
     def source_for_pipeline(self, config: FinageSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        symbols = parse_symbols(config.symbols)
+        start_date = config.start_date or DEFAULT_START_DATE
+        # Re-validate here so a source saved before these guards existed can't fan out a runaway sync.
+        validate_source_config(symbols, start_date)
         return finage_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            symbols=parse_symbols(config.symbols),
-            start_date=config.start_date or DEFAULT_START_DATE,
+            symbols=symbols,
+            start_date=start_date,
             logger=inputs.logger,
         )

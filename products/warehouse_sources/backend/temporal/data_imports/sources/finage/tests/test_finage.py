@@ -9,11 +9,15 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import finage
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.finage import (
     AGG_LIMIT,
+    MAX_SYMBOLS,
+    MIN_START_DATE,
+    FinageConfigError,
     FinageRetryableError,
     finage_source,
     get_rows,
     parse_symbols,
     validate_credentials,
+    validate_source_config,
 )
 
 
@@ -62,6 +66,27 @@ class TestParseSymbols:
     )
     def test_parse_symbols(self, _name: str, raw: str, expected: list[str]) -> None:
         assert parse_symbols(raw) == expected
+
+
+class TestValidateSourceConfig:
+    def test_accepts_valid_config(self) -> None:
+        # Class-share tickers with dots/hyphens are valid; a start date inside the window is fine.
+        validate_source_config(["AAPL", "BRK.B", "BF-B"], "2021-06-01")
+
+    @parameterized.expand(
+        [
+            ("no_symbols", [], "2021-01-01", "at least one"),
+            ("too_many", [f"SYM{i}" for i in range(MAX_SYMBOLS + 1)], "2021-01-01", "Too many symbols"),
+            ("bad_ticker", ["AAPL", "not a ticker"], "2021-01-01", "Invalid stock symbol"),
+            ("malformed_date", ["AAPL"], "06/01/2021", "YYYY-MM-DD"),
+            ("date_before_floor", ["AAPL"], "1990-01-01", MIN_START_DATE),
+            ("future_date", ["AAPL"], "2999-01-01", "future"),
+        ]
+    )
+    def test_rejects_invalid_config(self, _name: str, symbols: list[str], start_date: str, expected: str) -> None:
+        with pytest.raises(FinageConfigError) as exc:
+            validate_source_config(symbols, start_date)
+        assert expected in str(exc.value)
 
 
 class TestMsToDate:

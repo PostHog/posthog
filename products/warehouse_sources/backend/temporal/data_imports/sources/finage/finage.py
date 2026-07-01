@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -26,9 +27,21 @@ DEFAULT_START_DATE = "2020-01-01"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+# Each symbol costs one request per point-in-time sync and one 50k-row fetch per aggregate sync, so the
+# list is a fan-out multiplier. Cap it so a member can't save thousands of symbols and blow up every sync.
+MAX_SYMBOLS = 100
+# US tickers are short and alphanumeric; dots/hyphens cover class shares (e.g. BRK.B, BF-B).
+SYMBOL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
+# Finage's US stock history doesn't meaningfully predate this; a floor rejects typos and unbounded ranges.
+MIN_START_DATE = "2000-01-01"
+
 
 class FinageRetryableError(Exception):
     """Raised for 429 / 5xx so tenacity retries; terminal statuses (401/403/404) are not wrapped."""
+
+
+class FinageConfigError(ValueError):
+    """Raised when the user-supplied symbols / start_date fail validation."""
 
 
 def parse_symbols(symbols: str) -> list[str]:
@@ -41,6 +54,36 @@ def parse_symbols(symbols: str) -> list[str]:
             seen.add(symbol)
             parsed.append(symbol)
     return parsed
+
+
+def validate_source_config(symbols: list[str], start_date: str) -> None:
+    """Reject oversized symbol lists, malformed tickers, and out-of-range start dates before a sync runs.
+
+    Each symbol fans out into its own Finage request (and, for aggregates, up to a 50k-row fetch), so an
+    unbounded symbol list or a start date in the distant past is a resource-exhaustion vector. Raises
+    `FinageConfigError` with a user-facing message on the first problem found.
+    """
+    if not symbols:
+        raise FinageConfigError("Enter at least one stock symbol to sync.")
+    if len(symbols) > MAX_SYMBOLS:
+        raise FinageConfigError(
+            f"Too many symbols ({len(symbols)}). Enter at most {MAX_SYMBOLS} comma-separated stock symbols."
+        )
+    invalid = [s for s in symbols if not SYMBOL_PATTERN.match(s)]
+    if invalid:
+        preview = ", ".join(invalid[:5])
+        raise FinageConfigError(f"Invalid stock symbol(s): {preview}. Use US tickers like AAPL, MSFT, BRK.B.")
+
+    try:
+        parsed_start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC).date()
+    except ValueError:
+        raise FinageConfigError(f"Invalid backfill start date '{start_date}'. Use the format YYYY-MM-DD.")
+    floor = datetime.strptime(MIN_START_DATE, "%Y-%m-%d").date()
+    today = datetime.now(UTC).date()
+    if parsed_start < floor:
+        raise FinageConfigError(f"Backfill start date must be on or after {MIN_START_DATE}.")
+    if parsed_start > today:
+        raise FinageConfigError("Backfill start date can't be in the future.")
 
 
 def _ms_to_date(timestamp_ms: Any) -> str | None:

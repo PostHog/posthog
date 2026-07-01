@@ -103,6 +103,14 @@ class TestFinageSource:
         if not expected_valid:
             assert message
 
+    def test_validate_credentials_rejects_bad_config_before_probing(self):
+        # A malformed symbol list must be rejected without ever calling the Finage API.
+        with mock.patch.object(finage_source_module, "validate_finage_credentials") as probe:
+            valid, message = self.source.validate_credentials(self._config(symbols="not a ticker"), self.team_id)
+        assert valid is False
+        assert message
+        probe.assert_not_called()
+
     def test_source_for_pipeline_plumbing(self):
         config = self._config(symbols=" aapl , msft ", start_date="2021-06-01")
         inputs = mock.Mock(schema_name="aggregates")
