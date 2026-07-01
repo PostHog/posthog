@@ -1198,7 +1198,9 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
+#     a caller could otherwise force directory snapshot creation while the feature flag is off.
+# These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
@@ -1209,6 +1211,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "wizard_config",
+        "use_modal_directory_resume_snapshots",
     }
 )
 
@@ -2375,8 +2378,6 @@ def resume_task_run_in_cloud(
     ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
     (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
-    from django.conf import settings  # noqa: PLC0415
-
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
     )
@@ -2398,7 +2399,8 @@ def resume_task_run_in_cloud(
             "prior_environment": run.environment,
             "prior_state_keys": sorted((run.state or {}).keys()),
             "prior_snapshot_external_id": (run.state or {}).get("snapshot_external_id"),
-            "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            "prior_snapshot_kind": (run.state or {}).get("snapshot_kind"),
+            "prior_snapshot_mount_path": (run.state or {}).get("snapshot_mount_path"),
         },
     )
 
@@ -3300,6 +3302,10 @@ def run_task(
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         if prev_state.snapshot_external_id:
             extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
+            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
+            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
+            if snapshot_mount_path is not None:
+                extra_state["snapshot_mount_path"] = snapshot_mount_path
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
