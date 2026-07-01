@@ -24,6 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowHealthRunScope,
     WorkflowJob,
+    WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -41,6 +42,7 @@ from products.engineering_analytics.backend.logic.queries.pull_request_list impo
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
+from products.engineering_analytics.backend.logic.queries.workflow_run_activity import query_workflow_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_run_list import query_workflow_run_list
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 
@@ -108,6 +110,7 @@ def build_workflow_run_list(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -121,6 +124,32 @@ def build_workflow_run_list(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
+    )
+
+
+def build_workflow_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> WorkflowRunActivity:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    return query_workflow_run_activity(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
     )
 
 
@@ -131,6 +160,7 @@ def build_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -144,6 +174,7 @@ def build_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 

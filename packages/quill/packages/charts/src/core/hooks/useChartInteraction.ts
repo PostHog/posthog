@@ -234,6 +234,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             setHover,
             setTooltipCtx,
+            resolveBottomValue,
         ]
     )
 

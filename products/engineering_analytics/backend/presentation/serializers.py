@@ -33,6 +33,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowRunActivity,
+    WorkflowRunActivityPoint,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -204,6 +206,45 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
             },
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivityPointSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowRunActivityPoint
+        extra_kwargs = {
+            "run_id": {"help_text": "GitHub Actions run id."},
+            "conclusion": {
+                "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
+                "or null while still in progress.",
+                "allow_null": True,
+            },
+            "run_started_at": {
+                "help_text": "When the run started. Never null on this endpoint: runs without a parseable "
+                "start timestamp are excluded from the window (they can't be plotted on the chart's time axis).",
+            },
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the run completes.",
+                "allow_null": True,
+            },
+            "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
+            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivitySerializer(DataclassSerializer):
+    points = WorkflowRunActivityPointSerializer(
+        many=True, help_text="Per-run chart points, newest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = WorkflowRunActivity
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more runs matched than the cap; `points` is the newest `limit` runs, so the "
+                "chart covers only the most recent activity, not the full window.",
+            },
+            "limit": {"help_text": "Maximum number of run points returned in `points`."},
         }
 
 

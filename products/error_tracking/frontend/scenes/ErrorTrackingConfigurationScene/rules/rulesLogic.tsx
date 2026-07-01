@@ -35,6 +35,13 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
                 order_key,
                 sampling_rate: 1.0,
             }
+        case 'bypass_rules':
+            return {
+                id: 'new',
+                disabled_data: null,
+                filters: { type: FilterLogicalOperator.Or, values: [] },
+                order_key,
+            }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)
     }
