@@ -60,6 +60,7 @@ export type ThreadItemType =
     | 'compact_boundary'
     | 'task_notification'
     | 'progress'
+    | 'debug'
 
 /**
  * An ordered, append-only entry the renderer consumes. Human messages, text chunks, streamed
@@ -100,6 +101,8 @@ export interface ThreadItem {
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
     progressSteps?: ProgressStep[]
+    /** For `debug` items — the `_posthog/console` level (debug/info/warn/error). */
+    debugLevel?: string
 }
 
 /** One PostHog product the agent grounded an answer in, accumulated across the whole session. */

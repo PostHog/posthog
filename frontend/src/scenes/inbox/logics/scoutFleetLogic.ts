@@ -10,8 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
-import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
+import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
@@ -19,7 +19,6 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
-    mostRecentEmittedRuns,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -89,6 +88,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // backend blip should degrade silently rather than surface a hard error.
                         return null
                     }
+                },
+            },
+        ],
+        // Cheap fleet-wide findings tally for the "Scout findings" callout — one backend query over
+        // emitted runs, so the callout no longer waits on the full paginated runs-window walk (which
+        // could take ~10s and was the reason the callout appeared long after the modal opened).
+        fleetFindingsSummary: [
+            null as FleetFindingsSummaryApi | null,
+            {
+                loadFleetFindingsSummary: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutRunsFindingsSummary(String(teamId))
                 },
             },
         ],
@@ -186,6 +200,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 loadRunsWindowSuccess: () => true,
             },
         ],
+        // Flips true once the cheap findings summary lands, so the callout can tell "not loaded yet"
+        // from "loaded, genuinely zero" without the full runs window. Like `runsWindowLoadedOnce`,
+        // deliberately NOT set on failure: a failed load keeps the callout hidden, not falsely empty.
+        fleetFindingsSummaryLoadedOnce: [
+            false,
+            {
+                loadFleetFindingsSummarySuccess: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -227,25 +250,19 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
-        // Cheap fleet-wide findings tally off the runs window — sums each run's `emitted_count` without
-        // fetching emission bodies, to power the "Scout findings" callout. Tallied over the SAME capped
-        // set the page fetches (`mostRecentEmittedRuns`) so the callout can't over-advertise.
+        // Fleet-wide findings tally for the "Scout findings" callout, read from the cheap backend
+        // summary rather than the paginated runs window. The backend counts the same capped set the
+        // findings page renders (most recent 120 emitted runs in the window), so the callout can't
+        // over-advertise. Zeroed until the summary loads.
         emittedFindingsSummary: [
-            (s) => [s.runsWindow],
-            (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {
-                let count = 0
-                const scouts = new Set<string>()
-                let latestAt: string | null = null
-                for (const run of mostRecentEmittedRuns(runsWindow.runs)) {
-                    count += run.emitted_count ?? 0
-                    scouts.add(run.skill_name)
-                    const at = run.completed_at ?? run.created_at
-                    if (at && (!latestAt || at > latestAt)) {
-                        latestAt = at
-                    }
-                }
-                return { count, scoutCount: scouts.size, latestAt }
-            },
+            (s) => [s.fleetFindingsSummary],
+            (
+                fleetFindingsSummary: FleetFindingsSummaryApi | null
+            ): { count: number; scoutCount: number; latestAt: string | null } => ({
+                count: fleetFindingsSummary?.count ?? 0,
+                scoutCount: fleetFindingsSummary?.scout_count ?? 0,
+                latestAt: fleetFindingsSummary?.latest_at ?? null,
+            }),
         ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
@@ -297,10 +314,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startRunsPolling: () => {
             // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
             // fresh. The keyed disposable replaces any prior poll and is torn down on
-            // stopRunsPolling / unmount / tab hide.
+            // stopRunsPolling / unmount / tab hide. The cheap findings summary rides the same
+            // cadence so the "Scout findings" callout fills in on its own fast query rather than
+            // waiting on the paginated runs-window walk.
             actions.loadRunsWindow()
+            actions.loadFleetFindingsSummary()
             cache.disposables.add(() => {
-                const interval = setInterval(() => actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                const interval = setInterval(() => {
+                    actions.loadRunsWindow()
+                    actions.loadFleetFindingsSummary()
+                }, RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)
             }, 'runsPoll')
         },

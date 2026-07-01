@@ -23,11 +23,14 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    CIFailureLogs,
     GitHubSource,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
@@ -96,6 +99,19 @@ def list_pr_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_pr_runs(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def get_ci_failure_logs(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIFailureLogs:
+    return logic.build_ci_failure_logs(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
     )
 
@@ -202,3 +218,12 @@ def get_quarantine(
     # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
     # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
+
+
+def request_quarantine(
+    *,
+    team: Team,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
+    return logic.request_quarantine(team=team, request=request, user_access_control=user_access_control)

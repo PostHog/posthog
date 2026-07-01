@@ -138,7 +138,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$$heatmap": {
             "label": "Heatmap",
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": True,  # Heatmap events are not useful for LLM
         },
         "$copy_autocapture": {
@@ -3341,6 +3341,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
+    "person_metadata": {
+        # Top-level persons-table columns surfaced as filterable "person metadata", distinct from
+        # the person properties JSON. Keep in sync with PERSON_METADATA_FIELDS in posthog/hogql/property.py.
+        "created_at": {
+            "label": "First seen",
+            "description": "The time when the person was first seen.",
+            "type": "DateTime",
+        },
+    },
     "person_properties": {
         "email": {
             "label": "Email address",
