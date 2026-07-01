@@ -25,6 +25,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -88,6 +89,22 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(body["sampling_rate"], 1.0)
         self.assertEqual(body["scanner_version"], 1)
         self.assertEqual(body["created_by"]["id"], self.user.id)
+
+    def test_create_seeds_sweep_watermark_a_settle_interval_back(self) -> None:
+        # The watermark starts one settle-interval before creation so the first sweep isn't a ~settle-interval cold start.
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "watermark-seed",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner = ReplayScanner.objects.get(pk=resp.json()["id"])
+        self.assertAlmostEqual(scanner.created_at - scanner.last_swept_at, SETTLE_INTERVAL, delta=timedelta(seconds=5))
 
     @parameterized.expand(["name", "scanner_type", "scanner_config", "model"])
     def test_create_validates_required_field(self, missing_field: str) -> None:
@@ -1513,6 +1530,8 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             distinct_id="estimate-distinct-id",
             first_timestamp=first_timestamp,
             last_timestamp=first_timestamp + timedelta(minutes=5),
+            # Clear the scanner eligibility bounds the estimate applies, so these sessions count.
+            active_milliseconds=30_000,
         )
 
     @parameterized.expand(
@@ -1552,3 +1571,45 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["sampling_rate"], 0.5)
         self.assertEqual(body["estimated_observations_per_month"], 2)
+
+    def test_estimate_others_sum_is_enabled_only_and_excludes_the_edited_scanner(self) -> None:
+        self._ingest_session(days_ago=1)
+
+        def make(name: str, *, enabled: bool, estimate: int) -> ReplayScanner:
+            return ReplayScanner.objects.create(
+                team=self.team,
+                name=name,
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_FLASH,
+                enabled=enabled,
+                estimated_monthly_observations=estimate,
+            )
+
+        a = make("a", enabled=True, estimate=100)
+        make("b", enabled=True, estimate=250)
+        make("disabled", enabled=False, estimate=999)  # disabled scanners don't count
+
+        # New scanner (no scanner_id): others = both enabled scanners.
+        new_body = self.client.post(self.estimate_url, data={}, format="json").json()
+        self.assertEqual(new_body["other_enabled_scanners_monthly"], 350)
+
+        # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
+        edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
+        self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+
+    def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
+        # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.
+        other_team = Team.objects.create(organization=self.team.organization, name="sibling")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+            enabled=True,
+            estimated_monthly_observations=500,
+        )
+        resp = self.client.post(self.estimate_url, data={"scanner_id": str(other_scanner.id)}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_id")

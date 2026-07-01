@@ -1240,6 +1240,9 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showValuesOnSeries?: boolean
+    // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
+    // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
+    showPieTotal?: boolean
     showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
@@ -7187,6 +7190,7 @@ export const externalDataSources = [
     'NextdoorAds',
     'AppLovin',
     'Baserow',
+    'Plunk',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7784,6 +7788,10 @@ export enum ProductIntentContext {
     LLM_DATASET_CREATED = 'llm_dataset_created',
     LLM_EVALUATION_CREATED = 'llm_evaluation_created',
     LLM_PROMPT_CREATED = 'llm_prompt_created',
+
+    // MCP Analytics
+    MCP_ANALYTICS_VIEWED = 'mcp_analytics_viewed',
+    MCP_ANALYTICS_CONNECTED = 'mcp_analytics_connected',
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',

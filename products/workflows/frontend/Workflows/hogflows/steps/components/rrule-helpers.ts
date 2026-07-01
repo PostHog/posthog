@@ -212,10 +212,13 @@ export function computePreviewOccurrences(
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
         const isFinite = state.endType !== 'never'
 
-        if (dayjs(dtstart).isBefore(dayjs())) {
+        // Occurrences are "fake UTC" (their UTC fields encode local time in the schedule
+        // timezone), so convert each to a real moment before comparing against now —
+        // otherwise an occurrence still pending today is wrongly treated as already past.
+        const now = dayjs()
+        if (fakeUtcToReal(dtstart, timezone).isBefore(now)) {
             const all = rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit * 50))
-            const now = new Date()
-            const future = all.filter((d) => d.getTime() > now.getTime())
+            const future = all.filter((d) => fakeUtcToReal(d, timezone).isAfter(now))
             return isFinite ? future : future.slice(0, limit)
         }
         return rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit))
