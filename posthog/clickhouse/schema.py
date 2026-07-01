@@ -109,13 +109,6 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
-from posthog.heatmaps.sql import (
-    DISTRIBUTED_HEATMAPS_TABLE_SQL,
-    HEATMAPS_TABLE_MV_SQL,
-    HEATMAPS_TABLE_SQL,
-    KAFKA_HEATMAPS_TABLE_SQL,
-    WRITABLE_HEATMAPS_TABLE_SQL,
-)
 from posthog.models.ai.pg_embeddings import PG_EMBEDDINGS_TABLE_SQL
 from posthog.models.ai_events.sql import (
     AI_EVENTS_DATA_TABLE_SQL,
@@ -303,6 +296,13 @@ from products.error_tracking.backend.sql import (
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 from products.event_definitions.backend.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
+from products.web_analytics.backend.heatmaps_sql import (
+    DISTRIBUTED_HEATMAPS_TABLE_SQL,
+    HEATMAPS_TABLE_MV_SQL,
+    HEATMAPS_TABLE_SQL,
+    KAFKA_HEATMAPS_TABLE_SQL,
+    WRITABLE_HEATMAPS_TABLE_SQL,
+)
 
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.

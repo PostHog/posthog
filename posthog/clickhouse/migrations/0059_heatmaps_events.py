@@ -1,6 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.heatmaps.sql import (
+
+from products.web_analytics.backend.heatmaps_sql import (
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
     HEATMAPS_TABLE_MV_SQL,
     HEATMAPS_TABLE_SQL,

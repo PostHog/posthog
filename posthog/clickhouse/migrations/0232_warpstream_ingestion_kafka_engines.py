@@ -1,7 +1,6 @@
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.heatmaps.sql import HEATMAPS_WS_TABLE_MV_SQL, KAFKA_HEATMAPS_WS_TABLE_SQL
 from posthog.models.ai_events.sql import (
     AI_EVENTS_DATA_TABLE_SQL,
     AI_EVENTS_WS_MV_SQL,
@@ -20,6 +19,8 @@ from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_WS_MV_SQL,
     PERSONS_WS_TABLE_MV_SQL,
 )
+
+from products.web_analytics.backend.heatmaps_sql import HEATMAPS_WS_TABLE_MV_SQL, KAFKA_HEATMAPS_WS_TABLE_SQL
 
 # Migration to create WarpStream Kafka engine tables for core ingestion topics.
 #

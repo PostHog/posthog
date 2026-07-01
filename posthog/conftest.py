@@ -83,7 +83,6 @@ def reset_clickhouse_tables():
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
@@ -109,6 +108,7 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     )
+    from products.web_analytics.backend.heatmaps_sql import TRUNCATE_HEATMAPS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
