@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finage.fin
 def _response(status: int, body: dict[str, Any] | None = None) -> mock.Mock:
     response = mock.Mock(spec=requests.Response)
     response.status_code = status
+    # `_fetch_json` builds its own sanitized HTTPError from these for terminal statuses.
+    response.url = "https://api.finage.co.uk/x?apikey=secret"
+    response.reason = "Error"
     if status >= 400:
 
         def _raise() -> None:
