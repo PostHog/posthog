@@ -69,6 +69,7 @@ the row lists both.
 | bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | blogger                 | HTTP                        | requests                                                        | ✅                          |
+| bluetally               | HTTP                        | requests                                                        | ✅                          |
 | boldsign                | HTTP                        | requests                                                        | ✅                          |
 | braintree               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze                   | HTTP                        | requests                                                        | ✅                          |
@@ -332,7 +333,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- bluetally
 - box
 - braintrust
 - branch
