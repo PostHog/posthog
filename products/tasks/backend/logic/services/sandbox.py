@@ -132,6 +132,14 @@ def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
+# Stopgap until the sandbox agent-server delivers each ingest flush as its own
+# promptly closed upload: the ingress buffers the long-lived ingest request body
+# and only forwards it when the upload rolls, so cap the roll window to keep live
+# events reaching the read stream within seconds instead of the 5-min client
+# default. Harmless once the agent-server closes per batch (window never trips).
+EVENT_INGEST_STREAM_WINDOW_MS_STOPGAP = "2000"
+
+
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,
@@ -150,6 +158,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_STREAM_WINDOW_MS": (
+            EVENT_INGEST_STREAM_WINDOW_MS_STOPGAP if event_ingest_url else None
+        ),
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""

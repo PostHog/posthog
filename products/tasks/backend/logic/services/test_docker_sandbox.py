@@ -549,6 +549,9 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # The host proxy URL is rewritten so it resolves from inside the container.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=http://host.docker.internal:8003" in command
+        # Stopgap: ingest-enabled sandboxes cap the stream roll window so events
+        # reach the read stream in seconds instead of the 5-min client default.
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_STREAM_WINDOW_MS=2000" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
