@@ -37,14 +37,16 @@ def flatten_ticket_comments(pages: Iterable[list[dict[str, Any]]]) -> Iterator[l
     are dropped. Comments carry no `ticket_id` of their own, so the parent's `ticket_id`,
     `created_at`, and `timestamp` are stamped onto each row — using the parent `created_at`
     also keeps the incremental watermark in lock-step with the export's server-side
-    `start_time` cursor.
+    `start_time` cursor. `ticket_id` and `created_at` are accessed directly (not `.get()`):
+    both are guaranteed on every export event and drive parent linkage and the cursor, so a
+    missing one is corrupt data we want to fail loud on rather than silently stamp `None`.
     """
     for page in pages:
         comments = [
             {
                 **child,
-                "ticket_id": event.get("ticket_id"),
-                "created_at": event.get("created_at"),
+                "ticket_id": event["ticket_id"],
+                "created_at": event["created_at"],
                 "timestamp": event.get("timestamp"),
             }
             for event in page

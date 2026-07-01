@@ -399,3 +399,18 @@ class TestFlattenTicketComments:
     def test_pages_without_comments_are_not_yielded(self, page: list[dict[str, Any]]) -> None:
         # Empty pages must not reach the pipeline, and a missing/null child_events key must not crash.
         assert list(flatten_ticket_comments([page])) == []
+
+    @pytest.mark.parametrize("missing_field", ["ticket_id", "created_at"])
+    def test_comment_on_event_missing_critical_field_fails_loud(self, missing_field: str) -> None:
+        # ticket_id (parent linkage) and created_at (incremental cursor) must never be silently
+        # stamped as None — flattening an event missing either raises instead of emitting an orphan row.
+        event = {
+            "id": 1,
+            "ticket_id": 100,
+            "created_at": "2024-01-01T00:00:00Z",
+            "child_events": [{"id": 2, "event_type": "Comment"}],
+        }
+        del event[missing_field]
+
+        with pytest.raises(KeyError):
+            list(flatten_ticket_comments([[event]]))
