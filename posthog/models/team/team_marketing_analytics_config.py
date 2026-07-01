@@ -203,7 +203,13 @@ def validate_conversion_goals(conversion_goals: list) -> None:
     for goal in conversion_goals:
         if not isinstance(goal, dict):
             raise ValidationError(f"Conversion goal must be a dictionary, got {type(goal)}")
-        if not isinstance(goal.get("name"), str):
+        # conversion_goal_name is required on every ConversionGoalFilter variant (it's the SQL column
+        # alias); `name` is optional per the schema, so don't require it.
+        if not isinstance(goal.get("conversion_goal_name"), str):
+            raise ValidationError(
+                f"Conversion goal conversion_goal_name must be a string, got {type(goal.get('conversion_goal_name'))}"
+            )
+        if goal.get("name") is not None and not isinstance(goal.get("name"), str):
             raise ValidationError(f"Conversion goal name must be a string, got {type(goal.get('name'))}")
         if goal.get("id") and not isinstance(goal.get("id"), str) and not isinstance(goal.get("id"), int):
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
@@ -217,13 +223,12 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             if goal.get("id") and not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
         elif goal.get("kind") == NodeKind.ACTIONS_NODE:
-            # we should try to convert the id to an integer
+            # ActionsNode ids are integers; accept anything int-convertible but reject a missing / non-numeric
+            # value with a field error rather than letting int(None) raise an uncaught TypeError.
             try:
                 goal["id"] = int(goal["id"])
-            except ValueError:
-                raise ValidationError(
-                    f"Conversion goal id must be convertible to an integer, got {type(goal.get('id'))}"
-                )
+            except (KeyError, TypeError, ValueError):
+                raise ValidationError(f"Conversion goal id must be convertible to an integer, got {goal.get('id')!r}")
         elif goal.get("kind") == NodeKind.DATA_WAREHOUSE_NODE:
             # Validate all required fields for ConversionGoalFilter3 schema
             if not isinstance(goal.get("id"), str):

@@ -717,6 +717,41 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
 
+    def test_marketing_analytics_conversion_goal_without_optional_name_writes_through(self):
+        # `name` is optional on ConversionGoalFilter — a schema-valid goal that omits it used to 500.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        goal = {
+            "kind": "EventsNode",
+            "conversion_goal_name": "Signups",
+            "schema_map": {"utm_campaign_name": "utm_campaign"},
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"marketing_analytics_config": {"conversion_goals": [goal]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        self.assertEqual(len(self.team.marketing_analytics_config.conversion_goals), 1)
+        self.assertEqual(self.team.marketing_analytics_config.conversion_goals[0]["conversion_goal_name"], "Signups")
+
+    def test_marketing_analytics_malformed_conversion_goal_returns_400_not_500(self):
+        # A malformed conversion goal must surface as a 400 with field errors, not an unhandled 500.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # ActionsNode without an `id`: the int() conversion used to raise an uncaught TypeError → 500.
+        bad_goal = {"kind": "ActionsNode", "conversion_goal_name": "x", "schema_map": {}}
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"marketing_analytics_config": {"conversion_goals": [bad_goal]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
         # NOTE: we pass a `scope` filter on purpose. The unscoped snapshot path has a pre-existing bug on the

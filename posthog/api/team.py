@@ -7,6 +7,7 @@ from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -56,6 +57,7 @@ from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.team_marketing_analytics_config import validate_conversion_goals
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -461,15 +463,51 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
 
 
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    sources_map = serializers.JSONField(required=False)
-    conversion_goals = serializers.JSONField(required=False)
-    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
-    attribution_mode = serializers.ChoiceField(
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    sources_map = serializers.JSONField(
+        required=False,
+        help_text="Maps each data-source id to a dict of schema-field -> mapped-column overrides.",
     )
-    campaign_name_mappings = serializers.JSONField(required=False)
-    custom_source_mappings = serializers.JSONField(required=False)
-    campaign_field_preferences = serializers.JSONField(required=False)
+    conversion_goals = serializers.JSONField(
+        required=False,
+        help_text=(
+            "List of conversion goals, one per query series. Each entry is a ConversionGoalFilter object matching the "
+            'node given by its `kind`: an EventsNode (`kind: "EventsNode"`), an ActionsNode '
+            '(`kind: "ActionsNode"`, with an integer `id`), or a DataWarehouseNode (`kind: "DataWarehouseNode"`, '
+            "with `id`, `id_field`, `distinct_id_field`, `table_name`, and `timestamp_field`). Every entry requires a "
+            "unique `conversion_goal_name` (used as a SQL column alias) plus a `schema_map` object. See the "
+            "ConversionGoalFilter1/2/3 schema for the full field list."
+        ),
+    )
+    attribution_window_days = serializers.IntegerField(
+        required=False, min_value=1, max_value=90, help_text="Attribution window in days (1-90)."
+    )
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+        required=False,
+        help_text="Attribution mode: first_touch, last_touch, linear, time_decay, or position_based.",
+    )
+    campaign_name_mappings = serializers.JSONField(
+        required=False,
+        help_text="Maps each data-source id to a dict of clean campaign name -> list of raw UTM campaign values.",
+    )
+    custom_source_mappings = serializers.JSONField(
+        required=False,
+        help_text="Maps each integration type to a list of custom UTM source values (unique across integrations).",
+    )
+    campaign_field_preferences = serializers.JSONField(
+        required=False,
+        help_text='Maps each integration type to a field-matching config, e.g. {"match_field": "campaign_name"}.',
+    )
+
+    def validate_conversion_goals(self, value: list) -> list:
+        # The model setter raises django.core.exceptions.ValidationError, which DRF does not translate to a 400
+        # when it escapes update(). Run the same validation here (during is_valid()) and re-raise as a DRF error
+        # so a malformed shape yields a field-scoped 400 instead of an unhandled 500.
+        try:
+            validate_conversion_goals(value or [])
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
