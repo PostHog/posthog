@@ -1070,6 +1070,14 @@ class TestIsConnectionDroppedError:
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :etimedout}"),
+            # The connection-refused sibling: Supavisor's TCP connect to its upstream backend is
+            # refused while the backend is briefly down, carrying "{:error, :econnrefused}". Same
+            # transient class as :etimedout — the in-process recovery reconnect must catch it rather
+            # than letting it escape and fail the whole sync.
+            psycopg.errors.ConnectionFailure(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  Failed to connect to database: {:error, :econnrefused}"
+            ),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -1098,6 +1106,11 @@ class TestIsConnectionDroppedError:
             # non-recoverable — the InternalError_ match is scoped to the known pooler codes
             # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
+            # libpq's bare English "Connection refused" is a permanent wrong-host/port
+            # misconfiguration (non-retryable in source.py) and must NOT be confused with Supavisor's
+            # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
+            # "refused" substring would wrongly retry it.
+            psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
