@@ -148,6 +148,7 @@ function cloudRunStory({
         render: () => {
             useMountedLogic(onboardingLogic)
             useMountedLogic(wizardCloudRunLogic)
+            useMountedLogic(activeCloudRunLogic)
 
             useStorybookMocks({
                 get: {
@@ -228,6 +229,11 @@ export const PullRequestQueued: Story = cloudRunStory({
         })
         wizardCloudRunLogic.actions.setSelectedRepository('web')
         wizardCloudRunLogic.actions.startCloudRunSuccess()
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="wizard-cloud-run-queued"]')) {
+                throw new Error(`queued banner not shown; body snippet: ${document.body.innerHTML.slice(0, 500)}`)
+            }
+        })
     },
 })
 
@@ -260,6 +266,7 @@ interface PlaygroundArgs {
 function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: PlaygroundArgs): JSX.Element {
     useMountedLogic(onboardingLogic)
     useMountedLogic(wizardCloudRunLogic)
+    useMountedLogic(activeCloudRunLogic)
 
     useStorybookMocks({
         get: {
