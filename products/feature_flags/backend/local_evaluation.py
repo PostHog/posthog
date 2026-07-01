@@ -782,6 +782,9 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flag_definitions",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The Rust /flags/definitions reader has no DB fallback, so a miss must be
+    # repaired even during the grace period rather than 503 until the next sweep.
+    repair_miss_during_grace_period=True,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
@@ -790,6 +793,7 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
     cache_name="flag_definitions_no_cohorts",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    repair_miss_during_grace_period=True,
 )
 
 

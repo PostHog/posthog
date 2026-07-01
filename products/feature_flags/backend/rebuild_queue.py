@@ -13,8 +13,9 @@ Throttling keeps a permanently-failing team from being rebuilt on a loop:
 - a consecutive-failure circuit breaker stops attempts entirely for
   ``CIRCUIT_OPEN_SECONDS`` once a team fails ``CIRCUIT_OPEN_THRESHOLD`` times.
 
-A rebuild calls ``update_flag_definitions_cache``, which rebuilds both variants, so
-the ``flags_without_cohorts`` cache is healed as a side effect of a with-cohorts miss.
+Both cache variants (with and without cohorts) are rebuilt, so a with-cohorts miss
+heals the without-cohorts entry too. The drain exists for the mass-eviction backlog,
+so it loads the whole batch in one DB round (like the verifier) rather than per team.
 """
 
 import time
@@ -24,9 +25,13 @@ import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge
 
+from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache, update_flag_definitions_cache
+from products.feature_flags.backend.local_evaluation import (
+    flag_definitions_hypercache,
+    flag_definitions_without_cohorts_hypercache,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -61,7 +66,9 @@ REBUILD_QUEUE_DEPTH = Gauge(
 )
 REBUILD_OLDEST_AGE = Gauge(
     "posthog_flag_definitions_rebuild_oldest_age_seconds",
-    "Age of the oldest pending flag-definitions rebuild request",
+    # Score refreshes on every re-enqueue, so this is seconds since the oldest queued
+    # team's most recent miss, not time-stuck. Read alongside queue_depth.
+    "Seconds since the oldest queued team's most recent miss (read with queue_depth)",
 )
 REBUILD_DEAD_LETTER = Gauge(
     "posthog_flag_definitions_rebuild_dead_letter_teams",
@@ -98,8 +105,8 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
 
     stats = {"success": 0, "failure": 0, "skipped_cooldown": 0, "circuit_open": 0}
 
-    members = redis.zrange(REBUILD_REQUESTS_ZSET, 0, batch_size - 1)
-    for raw in members:
+    eligible: list[int] = []
+    for raw in redis.zrange(REBUILD_REQUESTS_ZSET, 0, batch_size - 1):
         # Remove first: a still-missing team is re-enqueued by its next miss, so we
         # never drop a genuinely-needed rebuild, but we also don't spin on one entry.
         redis.zrem(REBUILD_REQUESTS_ZSET, raw)
@@ -119,7 +126,10 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
             REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
             continue
 
-        result = "success" if _rebuild_one(redis, team_id) else "failure"
+        eligible.append(team_id)
+
+    for ok in _rebuild_batch(redis, eligible).values():
+        result = "success" if ok else "failure"
         stats[result] += 1
         REBUILD_PROCESSED.labels(result=result).inc()
 
@@ -140,19 +150,51 @@ def _emit_queue_gauges(redis: redis_lib.Redis, now: float) -> None:
         REBUILD_OLDEST_AGE.set(0)
 
 
-def _rebuild_one(redis: redis_lib.Redis, team_id: int) -> bool:
-    """Rebuild one team's cache; track the failure streak and trip the circuit."""
+def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, bool]:
+    """Rebuild every eligible team from a single batched DB load, then record each
+    outcome. Mirrors the verifier: one batch_load_fn per variant, then set_cache_value
+    per team (no per-team load_fn), which is the point of draining in one pass.
+
+    A SoftTimeLimitExceeded propagates so the task winds down cleanly (the interrupted
+    teams stay missing and are re-enqueued by their next miss). Any other load error
+    fails the whole batch — a persistent outage still trips circuits after the usual
+    consecutive-failure threshold rather than hammering the DB.
+    """
+    if not team_ids:
+        return {}
+
     try:
-        ok = update_flag_definitions_cache(team_id)
+        teams = list(Team.objects.filter(id__in=team_ids))
+        teams_by_id = {team.id: team for team in teams}
+        with_cohorts = flag_definitions_hypercache.batch_load_fn(teams)
+        without_cohorts = flag_definitions_without_cohorts_hypercache.batch_load_fn(teams)
     except SoftTimeLimitExceeded:
-        # The drain task hit its soft time limit mid-rebuild. Let it propagate so the
-        # task winds down cleanly before the hard limit, and don't count it as a team
-        # failure (it would wrongly advance the streak and could trip the circuit).
         raise
     except Exception:
-        logger.exception("flag definitions self-heal rebuild raised", team_id=team_id)
-        ok = False
+        logger.exception("flag definitions self-heal batch load failed", team_count=len(team_ids))
+        return {team_id: _record_result(redis, team_id, ok=False) for team_id in team_ids}
 
+    results: dict[int, bool] = {}
+    for team_id in team_ids:
+        team = teams_by_id.get(team_id)
+        if team is None:
+            results[team_id] = _record_result(redis, team_id, ok=False)
+            continue
+        try:
+            flag_definitions_hypercache.set_cache_value(team, with_cohorts[team_id])
+            flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts[team_id])
+            ok = True
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.exception("flag definitions self-heal rebuild failed", team_id=team_id)
+            ok = False
+        results[team_id] = _record_result(redis, team_id, ok=ok)
+    return results
+
+
+def _record_result(redis: redis_lib.Redis, team_id: int, *, ok: bool) -> bool:
+    """Track the failure streak and trip/clear the circuit for one team."""
     streak_key = FAILURE_STREAK_KEY.format(team_id=team_id)
     if ok:
         redis.delete(streak_key)

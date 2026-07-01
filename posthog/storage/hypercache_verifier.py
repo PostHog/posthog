@@ -254,10 +254,12 @@ def _verify_and_fix_batch(
             # The grace period guards against clobbering an in-flight async rebuild,
             # which only matters when an entry EXISTS (mismatch/expiry). A full
             # cache_miss has nothing to clobber and hard-fails no-DB-fallback readers
-            # (e.g. the Rust /flags/definitions endpoint → 503), so always repair it.
-            # This batch routine is shared by every hypercache (flags, team_metadata,
-            # both flag_definitions variants), so the exemption applies to all of them.
-            if issue_type != "cache_miss" and team.id in team_ids_to_skip_fix:
+            # (e.g. the Rust /flags/definitions endpoint → 503). This routine is shared
+            # by every hypercache, so the miss exemption is opt-in per config: only the
+            # flag_definitions caches set repair_miss_during_grace_period; read-through
+            # caches (flags, team_metadata) cold-load on miss and keep the skip.
+            repair_miss = issue_type == "cache_miss" and config.repair_miss_during_grace_period
+            if not repair_miss and team.id in team_ids_to_skip_fix:
                 result.skipped_for_grace_period += 1
                 if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
                     result.skipped_team_ids.append(team.id)

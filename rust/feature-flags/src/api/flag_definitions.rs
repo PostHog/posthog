@@ -35,7 +35,9 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 
 /// Redis sorted set holding team IDs whose flag-definitions cache is missing and
 /// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
-/// time in epoch millis). Must stay in sync with the Python drainer's key.
+/// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
+/// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
+/// `test_request_zset_key_matches_rust_contract`).
 const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 

@@ -205,6 +205,20 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     Arc::new(client)
 }
 
+/// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
+/// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
+pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .zrangebyscore(
+            "flag_definitions:rebuild_requests".to_string(),
+            "-inf".to_string(),
+            "+inf".to_string(),
+        )
+        .await
+        .unwrap_or_default()
+}
+
 /// Create a HyperCacheReader for tests using the provided Redis client.
 /// Uses default test configuration for S3 (which won't be used in most tests
 /// since Redis should have the data).

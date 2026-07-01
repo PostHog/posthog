@@ -324,15 +324,22 @@ class TestVerifyAndFixBatch(BaseTest):
         # When db_batch_data is None (no batch_load_fn), it falls back to update_fn
         mock_config.update_fn.assert_called_once_with(self.team)
 
-    def test_grace_period_never_skips_a_cache_miss(self):
-        """A genuine miss must be repaired even during the grace period: there is nothing
-        in-flight to clobber, and no-DB-fallback readers (Rust /flags/definitions) 503
-        until it is written. Guards against re-introducing the grace-period skip on miss."""
+    @parameterized.expand(
+        [
+            # A no-DB-fallback cache (repair_miss_during_grace_period=True) must repair a
+            # miss even in the grace period, or the reader 503s until the next sweep. A
+            # read-through cache (False) keeps the skip since it cold-loads on miss.
+            (True, True),
+            (False, False),
+        ]
+    )
+    def test_grace_period_repair_miss_is_config_gated(self, repair_miss_during_grace_period, expect_fixed):
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
-        # Team IS inside the grace period (recently updated) — but it's a full miss.
+        mock_config.repair_miss_during_grace_period = repair_miss_during_grace_period
+        # Team IS inside the grace period (recently updated), with a full miss.
         mock_config.get_team_ids_to_skip_fix_fn.return_value = {self.team.id}
 
         result = VerificationResult()
@@ -349,9 +356,14 @@ class TestVerifyAndFixBatch(BaseTest):
                 result=result,
             )
 
-        assert result.cache_miss_fixed == 1
-        assert result.skipped_for_grace_period == 0
-        mock_config.update_fn.assert_called_once_with(self.team)
+        if expect_fixed:
+            assert result.cache_miss_fixed == 1
+            assert result.skipped_for_grace_period == 0
+            mock_config.update_fn.assert_called_once_with(self.team)
+        else:
+            assert result.cache_miss_fixed == 0
+            assert result.skipped_for_grace_period == 1
+            mock_config.update_fn.assert_not_called()
 
     def test_expiry_missing_triggers_fix_for_match_status(self):
         """Test that missing expiry tracking triggers fix even when cache matches."""
