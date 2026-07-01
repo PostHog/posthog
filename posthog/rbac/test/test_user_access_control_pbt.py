@@ -376,22 +376,29 @@ membership_levels_st = st.one_of(st.just(OrganizationMembership.Level.MEMBER), s
 
 
 def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
-    # Mirrors get_user_access_level(obj, explicit=True): member/role rows on the
-    # object win over resource-level rows, which win over object rows including
-    # team defaults. Note the shadowing this implies: a self_member "none" row
-    # beats a team_default "admin" row even though it is lower.
+    # Mirrors get_user_access_level(obj, explicit=True): object-level rows win as a whole over
+    # resource-level rows, and within the object they resolve by specificity -
+    # member override > max(role overrides) > object default. A more specific row wins even when
+    # it is lower, so a self_member "none" row beats a role_a/team_default "admin" row.
     matching = [s for s in specs if s.target in MATCHING]
-    specific: list[AccessControlLevel] = [
-        s.level for s in matching if s.scope == "object" and s.target != "team_default"
+
+    object_member: list[AccessControlLevel] = [
+        s.level for s in matching if s.scope == "object" and s.target == "self_member"
     ]
-    if specific:
-        return _max_level(specific, order)
+    if object_member:
+        return _max_level(object_member, order)
+    object_roles: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object" and s.target == "role_a"]
+    if object_roles:
+        return _max_level(object_roles, order)
+    object_defaults: list[AccessControlLevel] = [
+        s.level for s in matching if s.scope == "object" and s.target == "team_default"
+    ]
+    if object_defaults:
+        return _max_level(object_defaults, order)
+
     resource_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "resource"]
     if resource_rows:
         return _max_level(resource_rows, order)
-    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
-    if object_rows:
-        return _max_level(object_rows, order)
     return None
 
 
@@ -414,25 +421,35 @@ def oracle_resource_access_level(resource: APIScopeObject, specs: list[RowSpec],
 def oracle_blocked_and_allowed_object_ids(
     object_specs_by_id: dict[str, list[RowSpec]],
 ) -> tuple[set[str], set[str]]:
-    # Mirrors _blocked_and_allowed_object_ids over the rows visible to self.user
-    # (only MATCHING targets survive _filter_options). Explicit (role/member) rows
-    # decide an object: any non-"none" explicit row allows it, otherwise it's blocked.
-    # With no explicit row, the object is blocked only when every default row is "none".
+    # Mirrors _blocked_and_allowed_object_ids over the rows visible to self.user (only MATCHING
+    # targets survive _filter_options). An object is blocked when its effective level
+    # (member -> max roles -> object default) is "none"; it is allowed when a member/role grant
+    # is non-"none". max(levels) == "none" iff every level in the winning tier is "none".
     blocked: set[str] = set()
     allowed: set[str] = set()
     for resource_id, specs in object_specs_by_id.items():
         matching = [s for s in specs if s.target in MATCHING]
-        if not matching:
-            continue
-        explicit = [s for s in matching if s.target != "team_default"]
-        if not explicit:
-            if all(s.level == NO_ACCESS_LEVEL for s in matching):
-                blocked.add(resource_id)
-            continue
-        if any(s.level != NO_ACCESS_LEVEL for s in explicit):
-            allowed.add(resource_id)
+        member = [s.level for s in matching if s.target == "self_member"]
+        roles = [s.level for s in matching if s.target == "role_a"]
+        defaults = [s.level for s in matching if s.target == "team_default"]
+
+        if member:
+            effective_none = all(level == NO_ACCESS_LEVEL for level in member)
+            specific_non_none = any(level != NO_ACCESS_LEVEL for level in member)
+        elif roles:
+            effective_none = all(level == NO_ACCESS_LEVEL for level in roles)
+            specific_non_none = any(level != NO_ACCESS_LEVEL for level in roles)
+        elif defaults:
+            effective_none = all(level == NO_ACCESS_LEVEL for level in defaults)
+            specific_non_none = False
         else:
+            effective_none = False
+            specific_non_none = False
+
+        if effective_none:
             blocked.add(resource_id)
+        if specific_non_none:
+            allowed.add(resource_id)
     return blocked, allowed
 
 

@@ -403,6 +403,40 @@ def restricted_visible_membership_ids(organization: Organization, user: User) ->
     return get_project_scoped_visible_membership_ids(organization, membership)
 
 
+def resolve_object_access_level(
+    resource: APIScopeObject,
+    access_controls: list[_AccessControl],
+) -> Optional[AccessControlLevel]:
+    """Resolve the effective access level from a pool of object-level access-control rows
+    (all scoped to a single object) using specificity precedence rather than
+    most-permissive-wins:
+
+        member override  ->  max(role overrides)  ->  object default
+
+    A more specific row wins even when it grants a *lower* level than a broader one - that is
+    what lets a member (or a role) be denied, or restricted below, an object's default level.
+    Returns None when the pool is empty.
+    """
+    if not access_controls:
+        return None
+
+    order = ordered_access_levels(resource)
+
+    def most_permissive(rows: list[_AccessControl]) -> AccessControlLevel:
+        return max(rows, key=lambda ac: order.index(ac.access_level)).access_level
+
+    member_rows = [ac for ac in access_controls if ac.organization_member_id is not None]
+    if member_rows:
+        return most_permissive(member_rows)
+
+    role_rows = [ac for ac in access_controls if ac.role_id is not None]
+    if role_rows:
+        return most_permissive(role_rows)
+
+    # Whatever remains has neither member nor role: these are the object's default rows.
+    return most_permissive(access_controls)
+
+
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
@@ -733,8 +767,9 @@ class UserAccessControl:
         self, obj: Model, resource: Optional[APIScopeObject] = None, explicit=False, specific_only=False
     ) -> Optional[AccessControlLevel]:
         """
-        Access levels are strings - the order of which is determined at run time.
-        We find all relevant access controls and then return the highest value
+        Resolve the user's access level for a single object from its access-control rows,
+        using specificity precedence (member -> max roles -> object default). A more specific
+        row wins even when it is lower, so a member/role can be denied below the object default.
 
         Args:
             obj: The model object to check access for
@@ -770,21 +805,20 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         access_controls = self._get_access_controls(filters)
 
-        # Filter to specific access controls if requested
+        # "Specific" resolution ignores object defaults - only member/role rows count.
         if specific_only:
             access_controls = [
                 ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
             ]
-            # If we're looking for specific access controls and there are none we don't want to return the default access level
-            if not access_controls:
-                return None
 
-        # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
-            return default_access_level(resource) if not explicit else None
+            # No matching object-level rows: fall back to the resource default, unless the
+            # caller only wants explicit/specific access.
+            return None if (explicit or specific_only) else default_access_level(resource)
 
-        # If there are access controls we pick the highest level the user has
-        return self._highest_access_level_from_rows(resource, access_controls)
+        # Resolve by specificity (member -> max roles -> object default) so a more specific
+        # row can restrict access below a broader one.
+        return resolve_object_access_level(resource, access_controls)
 
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
@@ -1104,44 +1138,33 @@ class UserAccessControl:
         """Canonical object-level decision over a pool of object access controls (rows with
         `resource_id` set), returning (blocked_ids, allowed_ids).
 
-        Explicit-wins: if a resource_id has any explicit (role/member) rule, the object is
-        allowed when any explicit rule grants non-"none", otherwise blocked. With no explicit
-        rule, the object is blocked only when every default rule is "none".
+        An object is blocked when its effective level (member -> max roles -> object default)
+        resolves to "none". It is allowed - visible even without resource-level access - when a
+        member/role override grants a non-"none" level. The two sets are mutually exclusive.
 
         Reads the `role_id` / `organization_member_id` columns rather than the `.role` /
         `.organization_member` FK accessors — equivalent result (id is None iff the relation is
         None) without firing a query per row.
         """
-        resource_id_access_levels: dict[str, list[str]] = {}
+        rows_by_resource_id: dict[str, list[_AccessControl]] = defaultdict(list)
         for access_control in access_controls:
-            resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
+            if access_control.resource_id is not None:
+                rows_by_resource_id[access_control.resource_id].append(access_control)
 
         blocked_resource_ids: set[str] = set()
         allowed_resource_ids: set[str] = set()
 
-        for resource_id, access_levels in resource_id_access_levels.items():
-            # Get the access controls for this specific resource_id to check role/member
-            resource_access_controls = [ac for ac in access_controls if ac.resource_id == resource_id]
+        for resource_id, rows in rows_by_resource_id.items():
+            resource = cast(APIScopeObject, rows[0].resource)
 
-            # Only consider access controls that have explicit role or member (not defaults)
-            explicit_access_controls = [
-                ac for ac in resource_access_controls if ac.role_id is not None or ac.organization_member_id is not None
-            ]
-
-            if not explicit_access_controls:
-                if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
-                    blocked_resource_ids.add(resource_id)
-                # No explicit controls for this object - don't block it
-                continue
-
-            # Check if user has any non-"none" access to this specific object
-            has_specific_access = any(ac.access_level != NO_ACCESS_LEVEL for ac in explicit_access_controls)
-
-            if has_specific_access:
-                allowed_resource_ids.add(resource_id)
-            else:
-                # All explicit access levels are "none" - block this object
+            if resolve_object_access_level(resource, rows) == NO_ACCESS_LEVEL:
                 blocked_resource_ids.add(resource_id)
+
+            # A member/role grant lets the user see the object even without resource-level access.
+            specific_rows = [ac for ac in rows if ac.role_id is not None or ac.organization_member_id is not None]
+            specific_level = resolve_object_access_level(resource, specific_rows)
+            if specific_level is not None and specific_level != NO_ACCESS_LEVEL:
+                allowed_resource_ids.add(resource_id)
 
         return blocked_resource_ids, allowed_resource_ids
 
@@ -1220,7 +1243,15 @@ class UserAccessControl:
             .values("pk")[:1]
         )
 
-        # Subquery to check whether the user has "none" for this specific FileSystem
+        # Subquery to check whether the user has "none" for this specific FileSystem.
+        #
+        # NOTE: this is a conservative approximation of the specificity precedence that
+        # resolve_object_access_level applies elsewhere (member -> max roles -> object default):
+        # it hides the item whenever *any* matching row is "none". That can over-hide a file
+        # when a member/role grant coexists with a lower-tier "none" (e.g. member=editor but a
+        # role the user is in has "none" on the same object). It never over-exposes, so it is
+        # safe; the authoritative check is check_access_level_for_object. Tightening this to full
+        # precedence in SQL is tracked as follow-up.
         is_none_subquery = (
             AccessControl.objects.filter(
                 team_id=OuterRef("team_id"),
@@ -1304,23 +1335,19 @@ class UserAccessControl:
     def _object_access_level_from_rows(
         self, resource: APIScopeObject, object_access_controls: list[_AccessControl], explicit: bool = False
     ) -> Optional[AccessControlLevel]:
-        """Row-based object access resolution: explicit (role/member) object rows win, then
-        resource-level rows, then default object rows, then the resource default. Shared by
-        `get_user_access_level` and `bulk_object_access_levels`.
+        """Row-based object access resolution by specificity: object rows (member override ->
+        max(role overrides) -> object default) win as a whole over resource-level rows, then the
+        resource default. A more specific row wins even when it is lower, so a resolved "none" is
+        an explicit deny. Shared by `get_user_access_level` and `bulk_object_access_levels`.
         """
-        explicit_rows = [
-            ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
-        ]
-        if explicit_rows:
-            return self._highest_access_level_from_rows(resource, explicit_rows)
+        object_level = resolve_object_access_level(resource, object_access_controls)
+        if object_level:
+            return object_level
 
         if self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
             if access_level_for_resource:
                 return access_level_for_resource
-
-        if object_access_controls:
-            return self._highest_access_level_from_rows(resource, object_access_controls)
 
         return None if explicit else default_access_level(resource)
 

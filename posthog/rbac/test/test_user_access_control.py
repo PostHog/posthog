@@ -227,9 +227,7 @@ class TestUserAccessControl(BaseUserAccessControlTest):
             resource_id=self.team.id, access_level="member", organization_member=self.organization_membership
         )
         # Enroll role_a as admin
-        ac_role = self._create_access_control(
-            resource_id=self.team.id, access_level="admin", role=self.role_a
-        )  # The highest AC
+        ac_role = self._create_access_control(resource_id=self.team.id, access_level="admin", role=self.role_a)
         # Enroll role_b as member
         ac_role_2 = self._create_access_control(resource_id=self.team.id, access_level="member", role=self.role_b)
         # Enroll self.user in both roles
@@ -248,8 +246,8 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert ac_user in matching_acs
         assert ac_role in matching_acs
         assert ac_role_2 in matching_acs
-        # the matching one should be the highest level
-        assert self.user_access_control.access_level_for_object(self.team) == "admin"
+        # The member override is the most specific row, so it wins over the higher role grants.
+        assert self.user_access_control.access_level_for_object(self.team) == "member"
 
     def test_org_admin_always_has_access(self):
         self._create_access_control(resource_id=self.team.id, access_level="none")
@@ -585,12 +583,13 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "viewer"
 
-    def test_resource_level_takes_priority(self):
-        # Both resource-level and object-level; resource-level should take priority
+    def test_object_default_takes_priority_over_resource(self):
+        # Both a resource-level default and an object-level default; the object-level row is more
+        # specific and wins, even though it grants a lower level than the resource default.
         self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
-        assert serializer.get_user_access_level(self.dashboard) == "editor"
+        assert serializer.get_user_access_level(self.dashboard) == "viewer"
 
     def test_falls_back_to_object_level(self):
         # Only object-level present
@@ -848,9 +847,8 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "viewer"
 
-    def test_mixed_access_controls_highest_wins(self):
-        """Test that when multiple access controls exist, highest level wins"""
-        # Create multiple access controls with different levels
+    def test_member_override_wins_over_role(self):
+        """A member override is more specific than a role grant, so it wins even when lower"""
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),
@@ -865,7 +863,33 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         )
 
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
-        assert access_level == "editor"  # Higher level wins
+        assert access_level == "viewer"  # Member override wins over the higher role grant
+
+    def test_member_deny_overrides_role_grant(self):
+        """A member "none" denies the object even when a role grants access on the same object"""
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        assert self.user_access_control.get_user_access_level(self.other_dashboard) == "none"
+        assert self.user_access_control.check_access_level_for_object(self.other_dashboard, "viewer") is False
+
+    def test_object_default_deny_overrides_resource_grant(self):
+        """An object default of "none" makes the object private despite a resource-level grant"""
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
+        self._create_access_control(resource="dashboard", resource_id=str(self.other_dashboard.id), access_level="none")
+
+        assert self.user_access_control.get_user_access_level(self.other_dashboard) == "none"
+        assert self.user_access_control.check_access_level_for_object(self.other_dashboard, "viewer") is False
 
     def test_project_level_access_for_team_objects(self):
         """Test project-level access for team objects"""
@@ -994,9 +1018,8 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
         assert access_level is None  # Global controls are ignored
 
-    def test_highest_level_wins_for_multiple_specific_controls(self):
-        """Test that highest level wins when multiple specific controls exist"""
-        # Create multiple specific access controls
+    def test_member_override_wins_over_role_for_specific_access(self):
+        """The member override is the most specific row, so it wins over a higher role grant"""
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),
@@ -1011,27 +1034,27 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         )
 
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "editor"  # Higher level wins
+        assert access_level == "viewer"  # Member override wins over the higher role grant
 
-    def test_mixed_member_and_role_controls(self):
-        """Test that both member and role controls are considered"""
-        # Create member-specific control
+    def test_roles_are_combined_by_max_when_no_member_override(self):
+        """With no member override, role grants combine by most-permissive-wins"""
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),
             access_level="viewer",
-            organization_member=self.organization_membership,
+            role=self.role_a,
         )
-        # Create role-specific control with higher level
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),
             access_level="manager",
-            role=self.role_a,
+            role=self.role_b,
         )
+        RoleMembership.objects.create(user=self.user, role=self.role_b)
+        self._clear_uac_caches()
 
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "manager"  # Role control with higher level wins
+        assert access_level == "manager"  # Highest role grant wins among roles
 
     def test_project_specific_access_control(self):
         """Test project-specific access controls"""
