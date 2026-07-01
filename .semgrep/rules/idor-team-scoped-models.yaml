@@ -90,6 +90,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertyValue
                               |DAG
@@ -105,6 +106,7 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
@@ -359,6 +361,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertyValue
                         |DAG
@@ -374,6 +377,7 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable

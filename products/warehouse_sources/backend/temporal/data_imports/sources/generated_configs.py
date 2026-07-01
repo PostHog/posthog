@@ -721,7 +721,8 @@ class ClockifySourceConfig(config.Config):
 
 @config.config
 class ClockodoSourceConfig(config.Config):
-    pass
+    api_user: str
+    api_key: str
 
 
 @config.config
@@ -1029,7 +1030,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1174,7 +1176,8 @@ class FinnworldsSourceConfig(config.Config):
 
 @config.config
 class FireHydrantSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

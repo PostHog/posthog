@@ -74,6 +74,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
+        # HogDesk — the internal support desk client. Tasks it creates from a
+        # ticket's Code chat carry this origin (previously "support_queue", which
+        # collided with the conversations support pipeline).
+        HOGDESK = "hogdesk", "HogDesk"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -898,23 +902,21 @@ class TaskRun(models.Model):
 
         state = self.state or {}
         prior_snapshot_external_id = state.get("snapshot_external_id")
+        prior_snapshot_kind = state.get("snapshot_kind")
+        prior_snapshot_mount_path = state.get("snapshot_mount_path")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
-        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
-            state.pop("snapshot_external_id", None)
         self.state = state
 
         logger.info(
             "prepare_for_cloud_handoff",
             run_id=str(self.id),
             task_id=str(self.task_id),
-            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
             prior_snapshot_external_id=prior_snapshot_external_id,
-            stripped_snapshot_external_id=(
-                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
-            ),
+            prior_snapshot_kind=prior_snapshot_kind,
+            prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
         self.save(
