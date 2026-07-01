@@ -1223,7 +1223,7 @@ class BigQueryStorageConsumer(Consumer):
                 description="Duration to send a request to BigQuery's Storage API.",
                 log_message=(
                     "Sent chunk with size %(nbytes)d. Process time:"
-                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                    " %(duration_seconds).6f seconds, speed: %(mb_per_second).2f MB/s"
                 ),
                 log_attributes={"nbytes": len(data)},
             ) as recorder:
