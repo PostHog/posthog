@@ -58,7 +58,7 @@ export function SlackIntegration({ next }: { next?: string } = {}): JSX.Element 
     const { user } = useValues(userLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
     const requiredScopesArr = useSlackRequiredScopes()

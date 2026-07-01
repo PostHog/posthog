@@ -18,7 +18,7 @@ export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
     return (
         <Integration kind="gitlab">
@@ -54,7 +54,7 @@ const OAuthIntegration = ({
     const { currentTeam } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
     const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({

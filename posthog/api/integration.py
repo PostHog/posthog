@@ -848,22 +848,19 @@ class IntegrationViewSet(
     filterset_fields = ["kind"]
 
     def dangerously_get_permissions(self):
+        base_permissions = [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
+        # Adding (connecting) an integration only requires project membership; editing or removing
+        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
+        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+            return base_permissions
         if self.action == "refresh_github_repos":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberLightManagementPermission(),
-            ]
-        # Any project member may ask an admin to connect an integration — connecting still requires admin.
-        if self.action == "request_access":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-            ]
+            return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
 
     def get_throttles(self):
