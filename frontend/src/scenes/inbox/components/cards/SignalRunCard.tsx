@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 
-import { Link } from '@posthog/lemon-ui'
+import { IconCompass, IconSignal } from '@posthog/icons'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
@@ -41,11 +42,22 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                         {displayTitle || 'Untitled run'}
                     </span>
                     <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs text-tertiary leading-none select-none">
-                        <span>{isScout ? 'Scout' : 'Signal'}</span>
-                        <span aria-hidden>·</span>
+                        <LemonTag
+                            icon={
+                                isScout ? (
+                                    <IconCompass className="text-tertiary" />
+                                ) : (
+                                    <IconSignal className="text-tertiary" />
+                                )
+                            }
+                        >
+                            {isScout ? 'Scout' : 'Signal'}
+                        </LemonTag>
                         <span>{meta.label}</span>
                         <span aria-hidden>·</span>
-                        <TZLabel time={run.created_at} className="tabular-nums" />
+                        <span>
+                            Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />
+                        </span>
                     </div>
                 </div>
             </Link>
