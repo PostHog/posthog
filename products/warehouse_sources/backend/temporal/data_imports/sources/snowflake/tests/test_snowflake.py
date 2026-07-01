@@ -348,7 +348,10 @@ class TestConnect:
             with impl.connect(_make_config()):
                 pass
             network_timeout = mock_connect.call_args.kwargs["network_timeout"]
+            # A finite, positive bound is the invariant. `0` reads as infinite to the connector, so
+            # guard that explicitly — equality alone can't catch the constant regressing to `0`.
             assert network_timeout == _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
+            assert network_timeout > 0
 
 
 class TestSourceRequiresSsl:
