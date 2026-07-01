@@ -281,6 +281,18 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         assert "Duplicate column alias 'a'" in str(ctx.exception)
 
+    def test_property_access_on_scalar_alias_suppresses_internal_error(self):
+        # Accessing a property on a scalar column alias hits Type.get_child, which raises
+        # NotImplementedError. The resolver converts it to a user-facing QueryError; that
+        # conversion must break the exception chain so the internal error doesn't leak into
+        # error tracking as the captured issue.
+        expr = self._select("SELECT 1 AS product, product.image_url")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Cannot access property 'image_url' on 'product'" in str(ctx.exception)
+        assert ctx.exception.__suppress_context__ is True
+        assert ctx.exception.__cause__ is None
+
     def test_resolve_replace_columns(self):
         expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
 
