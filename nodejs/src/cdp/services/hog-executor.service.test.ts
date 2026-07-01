@@ -2220,7 +2220,7 @@ describe('Hog Executor', () => {
             ['in-range number passes through', 5000, 5000],
             ['string is coerced', '5000', 5000],
             ['below min is clamped up', 10, 1000],
-            ['above max is clamped down', 999999, 30000],
+            ['above max is clamped down', 999999, 10000],
             ['fractional is rounded', 4999.6, 5000],
         ])('%s', (_name, value, expected) => {
             expect(resolveFetchTimeoutMs(fn, overridesFor(value))).toBe(expected)

@@ -173,10 +173,10 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 // stops an allowlisted destination from pinning an undici connection far longer than the shared
 // pool can afford.
 export const MIN_FETCH_TIMEOUT_MS = 1000
-export const MAX_FETCH_TIMEOUT_MS = 30000
+export const MAX_FETCH_TIMEOUT_MS = 10000
 
-// ponytail: process-wide cache keyed on the raw JSON so the allowlist is parsed once, not per
-// fetch. All executors in a process share one config value, so last-write-wins stays coherent.
+// Parse the allowlist once and cache on the raw JSON. All executors in a process share one config
+// value, so a single-entry cache stays coherent (last write wins).
 let fetchTimeoutOverridesCache: { raw: string; map: Record<string, unknown> } | null = null
 
 function parseFetchTimeoutOverrides(raw: string | undefined): Record<string, unknown> {
