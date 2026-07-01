@@ -37,6 +37,8 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     PreferenceSource,
+    TaskItem,
+    TasksState,
     handle_ai_preferences_block_action,
     handle_app_home_opened,
     handle_app_home_view_submission,
@@ -380,6 +382,230 @@ class TestRenderHomeView:
     def test_source_unset_when_neither_row_has_pair(self):
         assert resolve_source(None, None) == PreferenceSource.unset()
         assert resolve_source(_make_row(reasoning_effort="high"), None) == PreferenceSource.unset()
+
+
+class TestTasksCard:
+    def _kwargs(self, **overrides):
+        base = {
+            "effective": AIPreferences(),
+            "user_row": None,
+            "workspace_row": None,
+            "is_admin": False,
+        }
+        base.update(overrides)
+        return base
+
+    def _item(self, **overrides) -> TaskItem:
+        defaults = {
+            "title": "Fix flaky retention test",
+            "posthog_url": "https://app/project/1/tasks/abc",
+            "status": "in_progress",
+            "repository": "posthog/posthog",
+            "pr_url": "https://github.com/posthog/posthog/pull/123",
+            "thread_url": "https://slack.com/archives/C1/p1234567890123456",
+            "updated_at_label": "5m ago",
+        }
+        defaults.update(overrides)
+        return TaskItem(**defaults)
+
+    def _task_items(self, view: dict, expected_count: int) -> list[tuple[str, str]]:
+        """Return per-task (title_text, sub_text) tuples.
+
+        Each task renders as a section (title) immediately followed by a
+        context block carrying the error/meta rows. Sub-text is "" when the
+        task has no meta — happens only in tests that pass an empty TaskItem.
+        """
+        items: list[tuple[str, str]] = []
+        blocks = view["blocks"]
+        for index, block in enumerate(blocks):
+            if (
+                block.get("type") == "section"
+                and isinstance(block.get("text"), dict)
+                and "https://app/project/" in block["text"].get("text", "")
+            ):
+                title = block["text"]["text"]
+                neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
+                sub = ""
+                if neighbour and neighbour.get("type") == "context":
+                    sub = neighbour["elements"][0]["text"]
+                items.append((title, sub))
+        assert len(items) == expected_count, f"expected {expected_count} task items, found {len(items)}"
+        return items
+
+    def test_card_hidden_when_state_is_none(self):
+        view = render_home_view(**self._kwargs())
+        assert "Tasks" not in _all_text(view)
+
+    def test_first_use_state_invites_user_to_mention(self):
+        view = render_home_view(**self._kwargs(tasks_state=TasksState()))
+        text = _all_text(view)
+        assert "🦔 Tasks" in text
+        assert "Mention @PostHog" in text
+
+    def test_each_task_renders_as_title_section_plus_context_meta(self):
+        state = TasksState(
+            items=(self._item(), self._item(title="Refactor mention dispatcher", status="completed", pr_url=None)),
+            available_repos=("posthog/posthog",),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=2,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        items = self._task_items(view, expected_count=2)
+        # Title is the full-size mrkdwn section; meta lives under it in a
+        # context block so Slack renders it smaller/dimmer than the title.
+        title, sub = items[0]
+        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        assert "🔄 in progress" in sub
+        assert "`posthog/posthog`" in sub
+        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub
+        assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
+        assert "_Updated 5m ago_" in sub
+
+    def test_failed_task_renders_title_then_error_then_meta(self):
+        state = TasksState(
+            items=(
+                self._item(
+                    status="failed",
+                    error_message="boom: timed out waiting for runner\nstack trace omitted",
+                ),
+            ),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        title, sub = self._task_items(view, expected_count=1)[0]
+        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        # The supporting context block stacks the error message above the
+        # standard status/repo/thread/PR/updated meta. Error never replaces
+        # the surrounding state.
+        sub_rows = sub.split("\n\n")
+        assert len(sub_rows) == 2
+        # Newlines in the upstream message collapse to spaces so the row
+        # doesn't blow open vertically.
+        assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
+        assert "❌ failed" in sub_rows[1]
+        assert "`posthog/posthog`" in sub_rows[1]
+        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub_rows[1]
+        assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
+        assert "_Updated 5m ago_" in sub_rows[1]
+
+    def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
+        state = TasksState(
+            items=(self._item(repository=None, pr_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+        # No backticks → no repo segment; no PR link.
+        assert "`" not in sub
+        assert "|PR>" not in sub
+
+    def test_repo_dropdown_renders_with_single_repo_and_includes_all_option(self):
+        # Even with a single repo, the dropdown is always rendered so the
+        # user has a visible "All repos" reset and can see the full repo
+        # universe at a glance.
+        state = TasksState(
+            items=(self._item(),),
+            available_repos=("posthog/posthog",),
+            has_any_tasks=True,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        from products.slack_app.backend.services.slack_app_home import ACTION_TASKS_FILTER_REPO
+
+        repo_select = next(
+            el
+            for b in view["blocks"]
+            for el in b.get("elements", []) or []
+            if el.get("action_id") == ACTION_TASKS_FILTER_REPO
+        )
+        labels = [o["text"]["text"] for o in repo_select["options"]]
+        assert labels == ["All repos", "posthog/posthog"]
+
+    def test_repo_dropdown_hidden_when_no_repos_available(self):
+        state = TasksState(items=(self._item(repository=None),), has_any_tasks=True, total_pages=1, total_filtered=1)
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        from products.slack_app.backend.services.slack_app_home import ACTION_TASKS_FILTER_REPO
+
+        assert ACTION_TASKS_FILTER_REPO not in _action_ids(view)
+
+    def test_empty_filter_result_shows_no_match_copy(self):
+        state = TasksState(
+            items=(),
+            available_repos=("posthog/posthog",),
+            selected_status="failed",
+            has_any_tasks=True,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        assert "No tasks match" in _all_text(view)
+        # No task sections render when items is empty.
+        sections = [
+            b
+            for b in view["blocks"]
+            if b.get("type") == "section"
+            and isinstance(b.get("text"), dict)
+            and "https://app/project/" in b["text"].get("text", "")
+        ]
+        assert sections == []
+
+    def test_pagination_buttons_render_with_target_pages(self):
+        from products.slack_app.backend.services.slack_app_home import ACTION_TASKS_PAGE_NEXT, ACTION_TASKS_PAGE_PREV
+
+        state = TasksState(
+            items=(self._item(),),
+            has_any_tasks=True,
+            page=1,
+            total_pages=3,
+            total_filtered=42,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        # Prev and Next sit side-by-side under distinct action_ids so Slack
+        # doesn't reject the view for action_id collision.
+        pagination = next(
+            b
+            for b in view["blocks"]
+            if b.get("type") == "actions"
+            and {el.get("action_id") for el in b["elements"]} == {ACTION_TASKS_PAGE_PREV, ACTION_TASKS_PAGE_NEXT}
+        )
+        by_action = {el["action_id"]: el for el in pagination["elements"]}
+        assert by_action[ACTION_TASKS_PAGE_PREV]["value"] == "0"
+        assert by_action[ACTION_TASKS_PAGE_NEXT]["value"] == "2"
+        # Page indicator + result count render as a context block above.
+        text = _all_text(view)
+        assert "Page" in text and "2" in text and "of" in text and "3" in text
+        assert "42 tasks" in text
+
+    def test_pagination_hidden_when_only_one_page(self):
+        state = TasksState(items=(self._item(),), has_any_tasks=True, page=0, total_pages=1, total_filtered=1)
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        from products.slack_app.backend.services.slack_app_home import ACTION_TASKS_PAGE_NEXT, ACTION_TASKS_PAGE_PREV
+
+        action_ids = _action_ids(view)
+        assert ACTION_TASKS_PAGE_PREV not in action_ids
+        assert ACTION_TASKS_PAGE_NEXT not in action_ids
+
+    def test_refresh_button_in_controls_carries_current_page(self):
+        from products.slack_app.backend.services.slack_app_home import ACTION_TASKS_REFRESH
+
+        state = TasksState(items=(self._item(),), has_any_tasks=True, page=2, total_pages=3, total_filtered=42)
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        controls = next(
+            b
+            for b in view["blocks"]
+            if b.get("type") == "actions" and any(el.get("action_id") == ACTION_TASKS_REFRESH for el in b["elements"])
+        )
+        refresh_el = next(el for el in controls["elements"] if el["action_id"] == ACTION_TASKS_REFRESH)
+        # Refresh keeps the current page so a click reloads the same view
+        # rather than snapping back to 0.
+        assert refresh_el["value"] == "2"
 
 
 class TestRenderEditModal:

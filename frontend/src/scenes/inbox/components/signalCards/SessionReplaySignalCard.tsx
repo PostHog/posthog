@@ -1,17 +1,20 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { IconBug, IconCursorClick, IconExternal, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { dayjs } from 'lib/dayjs'
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    useRecordingButton,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/queries/schema/schema-signals'
@@ -37,6 +40,18 @@ export function isSessionProblemExtra(
     return typeof extra.session_id === 'string' && 'problem_type' in extra
 }
 
+/**
+ * Segment and event times arrive as recording-relative offsets (`MM:SS` / `HH:MM:SS`), not datetimes.
+ * Combine the offset with the session start to get an absolute timestamp the player can seek to.
+ */
+function recordingSeekTime(sessionStartTime: string | undefined, offset: string | undefined): Dayjs | undefined {
+    const offsetSeconds = reverseColonDelimitedDuration(offset)
+    if (!sessionStartTime || offsetSeconds === null) {
+        return undefined
+    }
+    return dayjs(sessionStartTime).add(offsetSeconds, 'second')
+}
+
 /** Picks a glyph for a timeline event based on its interaction type. */
 function EventGlyph({ entry }: { entry: SessionProblemEventEntry }): JSX.Element {
     const className = 'size-3.5 shrink-0 text-tertiary'
@@ -57,7 +72,15 @@ function EventGlyph({ entry }: { entry: SessionProblemEventEntry }): JSX.Element
 }
 
 /** A single row in the problem-event timeline; its time opens the recording at that moment. */
-function TimelineRow({ entry, sessionId }: { entry: SessionProblemEventEntry; sessionId: string }): JSX.Element {
+function TimelineRow({
+    entry,
+    sessionId,
+    sessionStartTime,
+}: {
+    entry: SessionProblemEventEntry
+    sessionId: string
+    sessionStartTime: string | undefined
+}): JSX.Element {
     const primaryText = entry.interaction_text?.trim() || entry.event
     return (
         <li className="flex items-start gap-2 py-0.5">
@@ -70,11 +93,11 @@ function TimelineRow({ entry, sessionId }: { entry: SessionProblemEventEntry; se
             </div>
             <ViewRecordingButton
                 sessionId={sessionId}
-                timestamp={entry.timestamp}
+                timestamp={recordingSeekTime(sessionStartTime, entry.timestamp)}
                 openPlayerIn={RecordingPlayerType.Modal}
                 size="xsmall"
                 type="tertiary"
-                label={humanFriendlyDetailedTime(entry.timestamp)}
+                label={entry.timestamp}
             />
         </li>
     )
@@ -94,8 +117,22 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id as number)
         : undefined
 
-    const replayUrl = urls.replaySingle(extra.session_id, {
-        unixTimestampMillis: dayjs(extra.start_time).valueOf(),
+    const segmentSeekTime = recordingSeekTime(extra.session_start_time, extra.start_time)
+
+    // Mirror ViewRecordingButton's `checkRecordingExists`: batch-check the recording so the play
+    // affordance disables (rather than opening an empty player) when the recording wasn't captured.
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
+    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    useEffect(() => {
+        checkRecordingInfo(extra.session_id)
+    }, [extra.session_id, checkRecordingInfo])
+    const hasRecording = getRecordingExists(extra.session_id)
+
+    const { onClick: openRecording, disabledReason } = useRecordingButton({
+        sessionId: extra.session_id,
+        timestamp: segmentSeekTime,
+        openPlayerIn: RecordingPlayerType.Modal,
+        hasRecording,
     })
 
     const events = extra.event_history ?? []
@@ -124,50 +161,42 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* 16:9 framed preview: eager thumbnail when an export exists, otherwise a play affordance. */}
-            <div className="relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2">
-                {thumbnailSrc ? (
-                    <>
-                        <img
-                            src={thumbnailSrc}
-                            alt={`Recording preview for ${extra.segment_title}`}
-                            className="absolute inset-0 size-full object-cover"
-                            onError={() => setThumbnailFailed(true)}
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                            <ViewRecordingButton
-                                sessionId={extra.session_id}
-                                timestamp={extra.start_time}
-                                openPlayerIn={RecordingPlayerType.Modal}
-                                checkRecordingExists
-                                size="small"
-                                type="primary"
-                                label="Play"
-                            />
-                        </div>
-                    </>
-                ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-tertiary">
-                        <IconPlay className="size-6" aria-hidden />
-                        <ViewRecordingButton
-                            sessionId={extra.session_id}
-                            timestamp={extra.start_time}
-                            openPlayerIn={RecordingPlayerType.Modal}
-                            checkRecordingExists
-                            size="small"
-                            type="secondary"
-                            label="Play recording"
-                        />
-                    </div>
+            {/* The 16:9 preview frame is itself the play affordance — clicking it opens the recording at the segment. */}
+            <button
+                type="button"
+                onClick={openRecording}
+                disabled={!!disabledReason}
+                title={typeof disabledReason === 'string' ? disabledReason : undefined}
+                aria-label="Play recording"
+                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
+            >
+                {thumbnailSrc && (
+                    <img
+                        src={thumbnailSrc}
+                        alt={`Recording preview for ${extra.segment_title}`}
+                        className="absolute inset-0 size-full object-cover"
+                        onError={() => setThumbnailFailed(true)}
+                    />
                 )}
-            </div>
+                <div
+                    className={clsx(
+                        'absolute inset-0 flex items-center justify-center transition-colors',
+                        thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
+                    )}
+                >
+                    <IconPlay
+                        className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
+                        aria-hidden
+                    />
+                </div>
+            </button>
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary mb-2">
                 <span className="font-mono">{extra.distinct_id.slice(0, 10)}…</span>
                 <span>·</span>
-                <span>
-                    {humanFriendlyDetailedTime(extra.start_time)} – {humanFriendlyDetailedTime(extra.end_time)}
+                <span className="font-mono">
+                    {extra.start_time} – {extra.end_time}
                 </span>
                 {(activeDuration || totalDuration) && (
                     <>
@@ -190,6 +219,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                                 key={`${entry.timestamp}-${index}`}
                                 entry={entry}
                                 sessionId={extra.session_id}
+                                sessionStartTime={extra.session_start_time}
                             />
                         ))}
                     </ul>
@@ -205,13 +235,6 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                     )}
                 </div>
             )}
-
-            <div className="flex items-center mt-2">
-                <span className="flex-1" />
-                <Link to={replayUrl} className="flex items-center gap-1 text-xs font-medium shrink-0">
-                    Open replay <IconExternal className="size-3" />
-                </Link>
-            </div>
         </SignalCardShell>
     )
 }

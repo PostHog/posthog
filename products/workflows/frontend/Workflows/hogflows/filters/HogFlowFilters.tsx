@@ -143,16 +143,21 @@ export function HogFlowPropertyFilters({
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
-            taxonomicGroupTypes={[
-                ...(isDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouseProperties] : []),
-                TaxonomicFilterGroupType.WorkflowVariables,
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.PersonProperties,
-                ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
-                TaxonomicFilterGroupType.HogQLExpression,
-                TaxonomicFilterGroupType.EventMetadata,
-            ]}
+            taxonomicGroupTypes={
+                // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,
+                // so event/feature-flag/person/group properties don't apply here.
+                isDataWarehouse
+                    ? [TaxonomicFilterGroupType.DataWarehouseProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    : [
+                          TaxonomicFilterGroupType.WorkflowVariables,
+                          TaxonomicFilterGroupType.EventProperties,
+                          TaxonomicFilterGroupType.EventFeatureFlags,
+                          TaxonomicFilterGroupType.PersonProperties,
+                          ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
+                          TaxonomicFilterGroupType.HogQLExpression,
+                          TaxonomicFilterGroupType.EventMetadata,
+                      ]
+            }
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             schemaColumns={schemaColumns}
             dataWarehouseTableName={dataWarehouseTableName}
