@@ -7,6 +7,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.settings import (
@@ -20,7 +21,7 @@ CAPSULE_CRM_BASE_URL = "https://api.capsulecrm.com/api/v2"
 CAPSULE_CRM_HOST = "api.capsulecrm.com"
 CAPSULE_CRM_PATH_PREFIX = "/api/v2/"
 
-# Capsule caps perPage at 100; always request the max to minimise round-trips.
+# Capsule caps perPage at 100; always request the max to minimize round-trips.
 PAGE_SIZE = 100
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -146,8 +147,10 @@ def get_rows(
     headers = _get_headers(access_token)
     # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
     # masks the bearer token in logged URLs and captured request samples. `allow_redirects=False`
-    # stops a redirect response from sending the bearer token to another host.
-    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
+    # stops a redirect response from sending the bearer token to another host. `retry=Retry(total=0)`
+    # disables the adapter's built-in retries — `_fetch_page` already retries 429/5xx via tenacity, so
+    # the adapter default would stack a second retry layer.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False, retry=Retry(total=0))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
@@ -180,7 +183,7 @@ def validate_credentials(access_token: str) -> bool:
     """Probe a cheap, always-available endpoint to confirm the access token is genuine."""
     url = f"{CAPSULE_CRM_BASE_URL}/users?perPage=1"
     try:
-        session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
+        session = make_tracked_session(redact_values=(access_token,), allow_redirects=False, retry=Retry(total=0))
         response = session.get(url, headers=_get_headers(access_token), timeout=10)
         return response.status_code == 200
     except Exception:
