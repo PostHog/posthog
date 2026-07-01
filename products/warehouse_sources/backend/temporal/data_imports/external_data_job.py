@@ -72,6 +72,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    RepartitionActivityInputs,
+    maybe_repartition_table_activity,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -396,6 +400,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
+
+            # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
+            # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
+            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
+            if job_id is not None:
+                try:
+                    await workflow.execute_activity(
+                        maybe_repartition_table_activity,
+                        RepartitionActivityInputs(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
+                            job_id=str(job_id),
+                            source_id=str(inputs.external_data_source_id),
+                        ),
+                        start_to_close_timeout=dt.timedelta(hours=6),
+                        heartbeat_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Repartition activity failed; continuing with sync on existing layout",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
