@@ -57,6 +57,10 @@ class GoogleSearchConsoleSource(
             "401 Client Error": "Your Google Search Console connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Search Console property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Search Console account with the required scopes.",
+            # `Integration.DoesNotExist` is raised by `_get_integration` when the source config still
+            # references an OAuth integration row that has since been deleted (account disconnected).
+            # No retry can recreate the row, so stop and ask the user to reconnect.
+            "Integration matching query does not exist": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
             # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
             # access token — the stored refresh token has been revoked, expired, or invalidated
             # (app access revoked, password change, long inactivity). It never recovers on retry,

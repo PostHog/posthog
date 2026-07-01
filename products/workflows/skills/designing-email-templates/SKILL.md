@@ -31,6 +31,16 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 
 (`{{ unsubscribe_url_one_click }}` is also available for one-click list-unsubscribe flows.)
 
+## Click tracking and opt-out
+
+Every link is automatically rewritten through a click-tracking redirect. This breaks mobile universal links / app deeplinks, which only resolve when the href stays on their own domain. To keep a link untracked, mark its anchor (use an `html` block) with `clicktracking="off"` or `data-ph-no-track`:
+
+```html
+<a href="https://app.example.com/deeplink" data-ph-no-track>Open in app</a>
+```
+
+The marker must be on the `<a>` tag itself, not a child element. Opted-out links get no click metrics.
+
 ## Creating a template
 
 Call `workflows-create-email-template` with:
