@@ -1,25 +1,17 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { SleepingHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import type { VisionActionRunListApi, VisionActionRunStatusEnumApi } from '../../generated/api.schemas'
+import type { VisionActionRunListApi } from '../../generated/api.schemas'
 import { visionActionRunsLogic } from '../visionActionRunsLogic'
+import { RunStatusTag } from '../visionActionRunStatus'
 import { visionActionSceneLogic } from '../visionActionSceneLogic'
-
-const STATUS_TAG: Record<
-    VisionActionRunStatusEnumApi,
-    { type: 'success' | 'danger' | 'warning' | 'primary'; label: string }
-> = {
-    completed: { type: 'success', label: 'Completed' },
-    failed: { type: 'danger', label: 'Failed' },
-    skipped: { type: 'warning', label: 'Skipped' },
-    running: { type: 'primary', label: 'Running' },
-}
 
 function StatCell({
     title,
@@ -102,14 +94,7 @@ export function VisionActionRuns(): JSX.Element {
         {
             title: 'Status',
             key: 'status',
-            render: (_, run) => {
-                const tag = STATUS_TAG[run.status]
-                return (
-                    <LemonTag type={tag.type} size="small">
-                        {tag.label}
-                    </LemonTag>
-                )
-            },
+            render: (_, run) => <RunStatusTag status={run.status} />,
         },
         {
             title: 'Observations',
@@ -121,16 +106,14 @@ export function VisionActionRuns(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <RunStats />
-            {!runsLoading && runs.length === 0 ? (
+            {runsLoading && runs.length === 0 ? (
+                <div className="flex justify-center p-8">
+                    <Spinner className="text-2xl" />
+                </div>
+            ) : runs.length === 0 ? (
                 <EmptyRuns />
             ) : (
-                <LemonTable
-                    columns={columns}
-                    dataSource={runs}
-                    loading={runsLoading}
-                    rowKey="id"
-                    data-attr="vision-action-runs-table"
-                />
+                <LemonTable columns={columns} dataSource={runs} rowKey="id" data-attr="vision-action-runs-table" />
             )}
         </div>
     )

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -12,23 +12,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import type { RunObservationApi, VisionActionRunStatusEnumApi } from '../generated/api.schemas'
+import type { RunObservationApi } from '../generated/api.schemas'
 import { visionActionRunSceneLogic } from './visionActionRunSceneLogic'
+import { RunStatusTag } from './visionActionRunStatus'
 
 export const scene: SceneExport = {
     component: VisionActionRunScene,
     logic: visionActionRunSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-const STATUS_TAG: Record<
-    VisionActionRunStatusEnumApi,
-    { type: 'success' | 'danger' | 'warning' | 'primary'; label: string }
-> = {
-    completed: { type: 'success', label: 'Completed' },
-    failed: { type: 'danger', label: 'Failed' },
-    skipped: { type: 'warning', label: 'Skipped' },
-    running: { type: 'primary', label: 'Running' },
 }
 
 function RecordingsIncluded({ observations }: { observations: readonly RunObservationApi[] }): JSX.Element {
@@ -94,8 +85,6 @@ function VisionActionRunScene(): JSX.Element {
         )
     }
 
-    const tag = STATUS_TAG[run.status]
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -103,9 +92,7 @@ function VisionActionRunScene(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <div className="flex items-center gap-2 text-sm text-secondary">
-                        <LemonTag type={tag.type} size="small">
-                            {tag.label}
-                        </LemonTag>
+                        <RunStatusTag status={run.status} />
                         <TZLabel
                             time={run.scheduled_at ?? run.created_at}
                             formatDate="MMM D, YYYY"
