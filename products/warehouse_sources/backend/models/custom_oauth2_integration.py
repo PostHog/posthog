@@ -127,7 +127,7 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
         token_expiry = datetime.fromisoformat(expiry)
         # Refresh proactively at the halfway point of the token's lifetime, mirroring
         # OauthIntegration.access_token_expired (`expires_in / 2`). The engine no longer refreshes
-        # mid-sync (integration-backed sources seed a static bearer with refresh_disabled), so this
+        # mid-sync (integration-backed sources seed a static bearer with manages_own_token=False), so this
         # up-front refresh is the only one — refreshing at the midpoint gives each sync ample runway
         # instead of handing over a token that's seconds from expiry. lifetime is derived from the data
         # we already store: the absolute expiry and the mint timestamp (`refreshed_at`, unix seconds).

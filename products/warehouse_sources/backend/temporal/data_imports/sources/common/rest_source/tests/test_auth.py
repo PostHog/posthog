@@ -58,11 +58,12 @@ class TestOAuth2Auth(SimpleTestCase):
         assert auth.rotated_refresh_token is None
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_refresh_disabled_never_mints_even_when_expired(self, mock_session):
+    def test_externally_managed_token_never_mints_even_when_expired(self, mock_session):
         # A single-use refresh token rotates only once, so an integration-backed source seeds a static
-        # bearer with refresh_disabled: the engine must never re-mint. Even with an already-expired seeded
-        # token, __call__ sends it as-is (the resource server 401s — a retryable failure whose retry
-        # re-mints up front through the row) instead of consuming and losing the rotation.
+        # bearer with manages_own_token=False: the engine must never re-mint. Even with no known expiry
+        # (so _is_token_expired() reads True), __call__ sends the seeded token as-is (the resource server
+        # 401s — a retryable failure whose retry re-mints up front through the row) instead of consuming
+        # and losing the rotation.
         auth = OAuth2Auth(
             token_url="https://auth.example.com/token",
             client_id="cid",
@@ -70,8 +71,7 @@ class TestOAuth2Auth(SimpleTestCase):
             grant_type="refresh_token",
             refresh_token="orig-RT",
             access_token="seeded-AT",
-            access_token_expiry="2020-01-01T00:00:00+00:00",
-            refresh_disabled=True,
+            manages_own_token=False,
         )
         assert _apply_auth(auth) == "Bearer seeded-AT"
         mock_session.return_value.post.assert_not_called()
@@ -141,42 +141,6 @@ class TestOAuth2Auth(SimpleTestCase):
         # Immediately after minting it's still fresh (not re-minted) despite TTL < buffer.
         assert _apply_auth(auth) == "Bearer short"
         assert mock_session.return_value.post.call_count == 1
-
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_seeded_token_with_future_expiry_is_reused_without_minting(self, mock_session):
-        # A model-backed source seeds a still-valid access token + its expiry; the engine must reuse it
-        # rather than mint on the first request — a re-mint would burn another single-use refresh token.
-        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
-        auth = OAuth2Auth(
-            token_url="https://auth.example.com/token",
-            client_id="cid",
-            client_secret="cs",
-            grant_type="refresh_token",
-            refresh_token="rt",
-            access_token="seeded-token",
-            access_token_expiry=future,
-        )
-        assert _apply_auth(auth) == "Bearer seeded-token"
-        mock_session.return_value.post.assert_not_called()
-
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_seeded_token_with_past_expiry_remints(self, mock_session):
-        # An expired seed still re-mints — the seed is an optimization, not a way to pin a dead token.
-        mock_session.return_value.post.return_value = _token_response(
-            payload={"access_token": "fresh", "expires_in": 3600}
-        )
-        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        auth = OAuth2Auth(
-            token_url="https://auth.example.com/token",
-            client_id="cid",
-            client_secret="cs",
-            grant_type="refresh_token",
-            refresh_token="rt",
-            access_token="stale",
-            access_token_expiry=past,
-        )
-        assert _apply_auth(auth) == "Bearer fresh"
-        mock_session.return_value.post.assert_called_once()
 
     def test_secret_values_includes_minted_token(self):
         auth = OAuth2Auth(client_secret="csecret", refresh_token="refresh-x")

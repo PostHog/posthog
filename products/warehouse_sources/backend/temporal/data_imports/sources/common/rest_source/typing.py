@@ -130,16 +130,15 @@ class OAuth2AuthConfig(AuthTypeConfig, total=False):
     scopes: Optional[str]
     refresh_token: str
     access_token: str
-    access_token_expiry: Optional[str]  # seeded from the integration row, which may store no expiry
     access_token_name: Optional[str]
     expires_in_name: Optional[str]
     expiry_date_format: Optional[str]
     extra_token_request_params: Optional[dict[str, str]]
     token_request_headers: Optional[dict[str, str]]
     client_auth_method: Optional[OAuth2ClientAuthMethod]
-    refresh_disabled: Optional[
+    manages_own_token: Optional[
         bool
-    ]  # set by integration injection: token is minted+persisted up front, so the engine must never mint
+    ]  # False from integration injection: token is minted+persisted up front, so the engine must never mint
 
 
 AuthConfig = (

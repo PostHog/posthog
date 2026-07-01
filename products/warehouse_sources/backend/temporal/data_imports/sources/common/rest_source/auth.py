@@ -157,7 +157,6 @@ class OAuth2Auth(BearerTokenAuth):
         scopes: Optional[str] = None,
         refresh_token: Optional[str] = None,
         access_token: Optional[str] = None,
-        access_token_expiry: Optional[str] = None,
         # --- Extensibility knobs (all optional, all non-secret) for the provider long tail. ---
         access_token_name: str = "access_token",
         expires_in_name: str = "expires_in",
@@ -165,7 +164,7 @@ class OAuth2Auth(BearerTokenAuth):
         extra_token_request_params: Optional[dict[str, str]] = None,
         token_request_headers: Optional[dict[str, str]] = None,
         client_auth_method: OAuth2ClientAuthMethod = "body",
-        refresh_disabled: bool = False,
+        manages_own_token: bool = True,
     ) -> None:
         super().__init__(token=access_token)
         self.token_url = token_url
@@ -180,29 +179,29 @@ class OAuth2Auth(BearerTokenAuth):
         self.extra_token_request_params = extra_token_request_params
         self.token_request_headers = token_request_headers
         self.client_auth_method = client_auth_method
-        # An integration-backed source mints + persists its token up front (under a row lock) and hands
-        # this auth a ready bearer token with refresh_disabled=True: the engine must never mint, because a
-        # mid-sync re-mint would consume a single-use refresh token whose rotation this in-memory auth
-        # can't persist, permanently orphaning the integration. See __call__.
-        self.refresh_disabled = refresh_disabled
+        # False for an integration-backed source: it mints + persists its token up front (under a row
+        # lock) and hands this auth a ready bearer, so the engine must never mint. A mid-sync re-mint
+        # would consume a single-use refresh token whose rotation this in-memory auth can't persist,
+        # permanently orphaning the integration. See __call__.
+        self.manages_own_token = manages_own_token
         # A rotating provider returns a fresh single-use refresh token alongside each access token;
         # captured here (never overwriting self.refresh_token, which must keep minting this run) so a
         # caller holding a DB row can persist it for the next sync. None until a rotation is seen.
         self.rotated_refresh_token: Optional[str] = None
-        # None => mint on the first request. A seeded access_token (plus its expiry) is reused instead of
-        # re-minted on the first request; with refresh_disabled it is never re-minted at all.
-        self.token_expiry: Optional[datetime] = _parse_seed_expiry(access_token_expiry) if access_token else None
+        # None => mint on the first request. A pre-supplied access_token (rare; never set for custom
+        # sources today) has no known expiry, so it too re-mints first.
+        self.token_expiry: Optional[datetime] = None
         # When the current token was minted — used to cap the refresh buffer at half the
         # token's lifetime so a very short-lived token isn't treated as expired the instant
         # it's minted (which would re-mint on every request).
         self._minted_at: Optional[datetime] = None
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
-        # refresh_disabled: the token was minted + persisted up front (the integration path), so never
-        # mint here. Send the seeded token; if it has expired the resource server returns a 401 — a
-        # retryable failure whose retry re-mints up front through the row, so a single-use refresh token
-        # is never consumed inside the engine and can't be lost.
-        if not self.refresh_disabled and (self.token is None or self._is_token_expired()):
+        # An externally managed token (manages_own_token=False, the integration path) was minted +
+        # persisted up front, so never mint here. Send the token; if it has expired the resource server
+        # returns a 401 — a retryable failure whose retry re-mints up front through the row, so a
+        # single-use refresh token is never consumed inside the engine and can't be lost.
+        if self.manages_own_token and (self.token is None or self._is_token_expired()):
             self._obtain_token()
         # The minted token must stay on the `Authorization` header. At sync time the tracked
         # session fixes its value-based redaction set at construction — before this lazy mint —
@@ -352,21 +351,6 @@ def _read_capped_token_payload(response: Response) -> Optional[dict[str, Any]]:
     except ValueError:
         return None
     return payload if isinstance(payload, dict) else None
-
-
-def _parse_seed_expiry(raw: Optional[str]) -> Optional[datetime]:
-    """Parse a seeded access-token expiry (ISO-8601) into an aware UTC datetime, or None.
-
-    A naive timestamp is read as UTC; an unparseable value yields None so a seeded token without a
-    usable expiry simply re-mints on first use rather than crashing the auth.
-    """
-    if not raw:
-        return None
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except (ValueError, TypeError):
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _extract_token_error(payload: Optional[dict[str, Any]]) -> tuple[Optional[str], str]:

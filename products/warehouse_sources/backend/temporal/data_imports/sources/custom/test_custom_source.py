@@ -535,8 +535,8 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
     def test_injects_static_bearer_and_writes_back_rotation(self, mock_session):
         # The Calendly path end-to-end at the wiring seam: minting up front persists the rotated
         # single-use refresh token, and the manifest is seeded with a static bearer (the minted access
-        # token, refresh disabled) — never the refresh_token/client_secret — so the engine structurally
-        # can't re-mint and burn an unpersisted rotation.
+        # token, manages_own_token=False) — never the refresh_token/client_secret — so the engine
+        # structurally can't re-mint and burn an unpersisted rotation.
         mock_session.return_value.post.return_value = _token_response(
             payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
         )
@@ -547,7 +547,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
 
         auth = manifest["client"]["auth"]
         assert auth["access_token"] == "minted-AT"
-        assert auth["refresh_disabled"] is True
+        assert auth["manages_own_token"] is False
         # No minting material reaches the engine.
         assert "refresh_token" not in auth
         assert "client_secret" not in auth
@@ -568,18 +568,17 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         mock_session.return_value.post.assert_not_called()
         auth = manifest["client"]["auth"]
         assert auth["access_token"] == "cached-AT"
-        assert auth["refresh_disabled"] is True
-        # No expiry or refresh material is seeded — the engine treats it as a static bearer, never mints.
-        assert "access_token_expiry" not in auth
+        assert auth["manages_own_token"] is False
+        # No refresh material is seeded — the engine treats it as a static bearer and never mints.
         assert "refresh_token" not in auth
 
     @freeze_time("2025-01-01T00:00:00Z")
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_post_injection_manifest_builds_static_bearer_that_never_mints(self, mock_session):
         # End-to-end seam: feed the injected client.auth through the engine's own auth construction
-        # (`create_auth` -> `auth_class(**exclude_keys(...))`) and drive a request. refresh_disabled must
-        # survive the unpacking and short-circuit minting — no access_token_expiry is seeded, so without
-        # the flag the engine would treat the token as expired and mint (burning an unpersisted rotation).
+        # (`create_auth` -> `auth_class(**exclude_keys(...))`) and drive a request. manages_own_token=False
+        # must survive the unpacking and short-circuit minting — the token carries no expiry, so without
+        # the flag the engine would treat it as expired and mint (burning an unpersisted rotation).
         # A key/kwarg rename would also crash construction here. No token-endpoint POST may happen.
         future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         integration = self._make_integration(access_token="cached-AT", token_expiry=future)
@@ -589,7 +588,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
 
         auth = create_auth(manifest["client"]["auth"])
         assert isinstance(auth, OAuth2Auth)
-        assert auth.refresh_disabled is True
+        assert auth.manages_own_token is False
         request = MagicMock()
         request.headers = {}
         auth(request)

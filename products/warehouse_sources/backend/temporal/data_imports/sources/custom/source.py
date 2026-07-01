@@ -1526,10 +1526,10 @@ def _inject_oauth2_integration_secrets(
     mints + persists up front (under a row lock), so this is the seam where a rotating provider's new
     single-use refresh token gets written back before the next sync would reuse the consumed one.
 
-    Only the minted access token is seeded — never the refresh_token/client_secret — and ``refresh_disabled``
-    tells the REST engine to send it without ever minting. A mid-sync re-mint would consume a single-use
-    refresh token whose rotation the engine can't persist; instead an expired token surfaces as a retryable
-    401 and the retry re-mints up front through the row.
+    Only the minted access token is seeded — never the refresh_token/client_secret — and
+    ``manages_own_token=False`` tells the REST engine to send it without ever minting. A mid-sync re-mint
+    would consume a single-use refresh token whose rotation the engine can't persist; instead an expired
+    token surfaces as a retryable 401 and the retry re-mints up front through the row.
 
     ``source_id`` / ``forbid_bound`` bind the integration to the source using it; see
     ``_authorize_integration_for_source``.
@@ -1546,12 +1546,12 @@ def _inject_oauth2_integration_secrets(
     )
     integration.get_access_token()
     auth["access_token"] = integration.sensitive_config.get("access_token")
-    auth["refresh_disabled"] = True
+    auth["manages_own_token"] = False
     # Strip any minting material so the engine structurally cannot re-mint mid-sync (belt-and-suspenders
-    # to refresh_disabled): the row is the only place a single-use refresh token may be rotated + persisted.
+    # to manages_own_token=False): the row is the only place a single-use refresh token may be rotated +
+    # persisted.
     auth.pop("client_secret", None)
     auth.pop("refresh_token", None)
-    auth.pop("access_token_expiry", None)
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:
