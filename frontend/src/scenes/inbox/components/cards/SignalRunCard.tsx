@@ -1,67 +1,65 @@
 import clsx from 'clsx'
 
-import { LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
-import { RunStatusOrb, resolveRunVariant, VARIANT_META } from './runStatusVariant'
+import { resolveRunVariant, VARIANT_META } from './runStatusVariant'
+import { inboxCardRowClassName } from './useReportArchive'
 
 export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
-    const variant = resolveRunVariant(run.status)
-    const meta = VARIANT_META[variant]
-    // Kind chip makes scout-vs-signal unambiguous at a glance.
+    const meta = VARIANT_META[resolveRunVariant(run.status)]
     const isScout = run.kind === 'scout'
-    const kindBadgeType: LemonTagType = isScout ? 'completion' : 'option'
-    // Scout titles are skill code names — strip the common prefix and show verbatim in monospace
-    // (they're identifiers, not prose). Signal titles are the originating report's title.
+    // Scout titles are skill code names, shown verbatim in monospace (identifiers, not prose); signal
+    // titles are the originating report's title.
     const displayTitle = isScout ? stripScoutPrefix(run.title) : run.title
 
     return (
-        <div className="group flex w-full items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 transition-colors duration-150 hover:border-primary hover:bg-surface-secondary">
-            {/* The run's task (the agent transcript) is the primary click target; the report link
-                below is a separate link, so it can't be nested inside this one. */}
+        <div className={clsx('relative', inboxCardRowClassName(false))}>
+            {/* The task (agent transcript) is the primary click target; the report link sits in its own
+                column so it isn't nested inside this link. */}
             <Link
                 to={urls.taskDetail(run.task_id)}
-                className="flex items-center gap-3 min-w-0 flex-1 text-left text-inherit no-underline"
+                className="flex min-w-0 flex-1 items-start gap-2.5 text-left text-inherit no-underline"
             >
-                <RunStatusOrb meta={meta} />
-
+                {/* One small color-coded dot carries the status — no separate orb or status tag. */}
+                <span
+                    className={clsx('mt-1.5 block size-2 shrink-0 rounded-full', meta.dotClass)}
+                    role="img"
+                    aria-label={meta.ariaLabel}
+                />
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 min-w-0">
-                        <LemonTag size="small" type={kindBadgeType} className="shrink-0 select-none">
-                            {isScout ? 'Scout' : 'Signal'}
-                        </LemonTag>
-                        <span
-                            className={clsx(
-                                'truncate min-w-0 text-sm leading-snug',
-                                isScout ? 'font-mono text-[13px]' : 'font-semibold tracking-tight'
-                            )}
-                        >
-                            {displayTitle || 'Untitled run'}
-                        </span>
-                    </div>
-                    <span className="text-xs text-tertiary leading-none select-none">
-                        <TZLabel time={run.created_at} />
+                    <span
+                        className={clsx(
+                            'min-w-0 truncate text-sm leading-snug',
+                            isScout ? 'font-mono text-[13px]' : 'font-semibold'
+                        )}
+                    >
+                        {displayTitle || 'Untitled run'}
                     </span>
+                    <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs text-tertiary leading-none select-none">
+                        <span>{isScout ? 'Scout' : 'Signal'}</span>
+                        <span aria-hidden>·</span>
+                        <span>{meta.label}</span>
+                        <span aria-hidden>·</span>
+                        <TZLabel time={run.created_at} className="tabular-nums" />
+                    </div>
                 </div>
             </Link>
 
-            <div className="flex flex-col items-end justify-center gap-1.5 self-stretch shrink-0 border-l border-primary pl-3">
-                <LemonTag size="small" type={meta.badgeType} className="select-none">
-                    {meta.label}
-                </LemonTag>
-                {run.report_id && (
+            {run.report_id && (
+                <div className="flex items-center shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     <Link
                         to={urls.inboxReport('reports', run.report_id)}
-                        className="text-[11px] font-medium text-accent no-underline"
+                        className="text-xs font-medium text-accent no-underline"
                     >
                         View report
                     </Link>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     )
 }
