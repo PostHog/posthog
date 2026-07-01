@@ -62,7 +62,7 @@ export interface LemonDatePickerProps {
     allowSingleAndRange?: boolean
 }
 
-interface RawLemonDatePickerProps extends LemonDatePickerProps {
+export interface RawLemonDatePickerProps extends LemonDatePickerProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
