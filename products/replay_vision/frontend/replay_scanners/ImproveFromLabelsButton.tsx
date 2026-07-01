@@ -10,8 +10,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { visionScannersObservationsList } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
 import { describeObservationOutcome } from '../observations/ImproveScannerPromptButton'
+import { readReasoning } from '../utils/observation'
 import type { improveFromLabelsLogicType } from './ImproveFromLabelsButtonType'
 
 export interface LabeledExample {
@@ -25,19 +25,11 @@ export interface LabeledExample {
 const MAX_LABELED_SESSIONS = 20
 const MAX_REASONING_CHARS = 280
 
-function readReasoning(observation: ReplayObservationApi): string | null {
-    const reasoning = (observation.scanner_result?.model_output as { reasoning?: unknown } | undefined)?.reasoning
-    return typeof reasoning === 'string' && reasoning ? reasoning : null
-}
-
 function truncateReasoning(reasoning: string): string {
     return reasoning.length > MAX_REASONING_CHARS ? `${reasoning.slice(0, MAX_REASONING_CHARS)}…` : reasoning
 }
 
-/**
- * Builds the message handed to PostHog AI to improve a scanner prompt from labeled sessions:
- * the current prompt plus the sessions the user marked right (keep passing) and wrong (fix, with feedback).
- */
+/** Builds the PostHog AI message: the current prompt plus the right (keep passing) and wrong (fix, with feedback) sessions. */
 export function buildImproveFromLabelsMessage({
     scannerName,
     scannerType,
@@ -127,8 +119,7 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
                     labeled: true,
                     limit: MAX_LABELED_SESSIONS,
                 })
-                // Drop anything without a label rather than guessing its correctness — the filter should
-                // already guarantee one, but a missing label must not silently become a "correct" example.
+                // `labeled: true` guarantees a label, but guard so a missing one can't become a "correct" example.
                 const examples: LabeledExample[] = (response.results ?? []).flatMap((observation) => {
                     const label = observation.label
                     if (!label) {

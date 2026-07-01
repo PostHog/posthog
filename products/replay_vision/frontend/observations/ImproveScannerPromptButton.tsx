@@ -26,10 +26,7 @@ export function describeObservationOutcome(observation: ReplayObservationApi): s
     return null
 }
 
-/**
- * Builds the message handed to PostHog AI when the user asks it to improve a scanner prompt.
- * Everything the assistant needs is inlined: the current prompt, the outcome, and the reasoning.
- */
+/** Builds the PostHog AI message to improve a scanner prompt: the current prompt, the outcome, and the reasoning. */
 export function buildImproveScannerPromptMessage({
     scannerName,
     scannerType,
@@ -68,10 +65,7 @@ export function buildImproveScannerPromptMessage({
     return lines.join('\n')
 }
 
-/**
- * One-click "Ask PostHog AI to improve this prompt" button shown on a scanner observation result.
- * Opens PostHog AI in the side panel pre-loaded with the prompt, the outcome, and the reasoning.
- */
+/** "Ask PostHog AI to improve this prompt" button on an observation; opens the side panel pre-loaded with the prompt + outcome. */
 export function ImproveScannerPromptButton({
     scannerName,
     scannerType,
