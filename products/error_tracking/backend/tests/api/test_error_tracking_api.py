@@ -1352,10 +1352,11 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         issue_one = self._create_issue(fingerprints=["fp_one"])
         issue_two = self._create_issue(fingerprints=["fp_two"])
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-            data={"ids": [str(issue_two.id)]},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+                data={"ids": [str(issue_two.id)]},
+            )
 
         rows = self._get_issue_state_rows()
         assert len(rows) == 2
@@ -1365,11 +1366,12 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
     def test_split_syncs(self):
         issue = self._create_issue(fingerprints=["fp_keep", "fp_split"])
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
-            data={"fingerprints": [{"fingerprint": "fp_split", "name": "Split issue"}]},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
+                data={"fingerprints": [{"fingerprint": "fp_split", "name": "Split issue"}]},
+                format="json",
+            )
         new_issue_id = response.json()["new_issue_ids"][0]
 
         rows = self._get_issue_state_rows()
