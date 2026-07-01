@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { HedgehogXRay } from '@posthog/brand/hoggies'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -13,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { VisionActionApi } from '../../generated/api.schemas'
+import type { DeliveryTargetApi, VisionActionApi } from '../../generated/api.schemas'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
 import { VisionActionForm } from './VisionActionForm'
@@ -45,9 +47,20 @@ function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
     )
 }
 
-function deliverySummary(action: VisionActionApi): string {
-    const targets = action.delivery_config ?? []
-    return targets.length ? targets.map((t) => t.channel).join(', ') : '—'
+// delivery_config stores only the bare Slack channel ID (it feeds Slack delivery, see api/delivery.py),
+// so resolve the friendly name at render time via slackIntegrationLogic — the same lookup SlackChannelPicker
+// uses. Falls back to "Slack" while the lookup is in flight or if the channel can't be resolved.
+function DeliveryTargetLabel({ target }: { target: DeliveryTargetApi }): JSX.Element {
+    const logic = slackIntegrationLogic({ id: target.integration_id })
+    const { slackChannels } = useValues(logic)
+    const { loadSlackChannelById } = useActions(logic)
+
+    useEffect(() => {
+        loadSlackChannelById(target.channel)
+    }, [target.channel]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const channel = slackChannels.find((c) => c.id === target.channel)
+    return <span>{channel ? `#${channel.name}` : 'Slack'}</span>
 }
 
 export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
@@ -109,7 +122,19 @@ function VisionActionsTable(): JSX.Element {
         {
             title: 'Delivery',
             key: 'delivery',
-            render: (_, action) => <span className="text-sm">{deliverySummary(action)}</span>,
+            render: (_, action) => {
+                const targets = action.delivery_config ?? []
+                if (!targets.length) {
+                    return <span className="text-muted">—</span>
+                }
+                return (
+                    <div className="flex flex-col gap-0.5 text-sm">
+                        {targets.map((t, i) => (
+                            <DeliveryTargetLabel key={i} target={t} />
+                        ))}
+                    </div>
+                )
+            },
         },
         {
             title: 'Status',
