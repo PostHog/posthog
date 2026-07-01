@@ -114,6 +114,20 @@ class TestVisionActionSynthesis(BaseTest):
         # The header rides into the Slack payload too (bold header → *bold*).
         self.assertIn("*Summary for summarizer*", run.output["slack"])
 
+    def test_summary_header_sanitizes_scanner_name(self) -> None:
+        # A scanner name is free text; markdown/mrkdwn control chars must be stripped so they can't
+        # garble the bold header (the "**" bold regex breaks on an interior "*").
+        self.scanner.name = "Check*out_flow"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
         # skipped by _fetch_observations, so its id must not land in the persisted list.

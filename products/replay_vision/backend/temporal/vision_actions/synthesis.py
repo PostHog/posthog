@@ -202,7 +202,10 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
 def _summary_header(action: VisionAction, window_start: datetime | None, count: int) -> str:
     """A trusted one-line preface stating which scanner this summary is for, how many recordings it
     covers, and the window's start — the "summary for scans since <prev run>" context the reader needs."""
-    scanner_name = action.scanner.name if action.scanner_id else "your scanner"
+    # Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
+    # (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line.
+    raw_name = action.scanner.name if action.scanner_id else ""
+    scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
     noun = "recording" if count == 1 else "recordings"
     since = ""
     if window_start is not None:
