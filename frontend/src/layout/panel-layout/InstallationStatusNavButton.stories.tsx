@@ -3,8 +3,10 @@ import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import { activeCloudRunLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
-import type { CloudRunHandle } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
+import {
+    activeCloudRunLogic,
+    type CloudRunHandle,
+} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InstallationStatusNavButton } from './InstallationStatusNavButton'
@@ -19,8 +21,6 @@ const meta: Meta<typeof InstallationStatusNavButton> = {
         layout: 'padded',
         viewMode: 'story',
         featureFlags: [{ 'onboarding-wizard-sidebar': 'test' }],
-        // The active-session detector polls `sessions/latest/` after randomized jitter.
-        // Without a handler the test-runner's `networkidle` wait never settles.
         msw: {
             mocks: {
                 get: {
@@ -62,11 +62,9 @@ function makeCloudRunHandle(overrides?: Partial<CloudRunHandle>): CloudRunHandle
     }
 }
 
-/**
- * Sets up the team as fully onboarded (no onboarding needed). Use as a baseline for stories that
- * rely on a run being the only reason for showing.
- */
-function setupTeamOnboarded(): void {
+/** Hook: sets the team as fully onboarded. */
+function useTeamOnboarded(): void {
+    useMountedLogic(teamLogic)
     useEffect(() => {
         teamLogic.actions.loadCurrentTeamSuccess({
             id: 1,
@@ -79,11 +77,9 @@ function setupTeamOnboarded(): void {
     }, [])
 }
 
-/**
- * Sets up the team as not yet onboarded — no events ingested, no product completed. This is the
- * "incomplete onboarding" state.
- */
-function setupTeamNotOnboarded(): void {
+/** Hook: sets the team as not yet onboarded. */
+function useTeamNotOnboarded(): void {
+    useMountedLogic(teamLogic)
     useEffect(() => {
         teamLogic.actions.loadCurrentTeamSuccess({
             id: 1,
@@ -96,20 +92,18 @@ function setupTeamNotOnboarded(): void {
     }, [])
 }
 
-/**
- * Simulates an active cloud run by writing a handle to activeCloudRunLogic.
- */
-function setupCloudRun(overrides?: Partial<CloudRunHandle>): void {
+/** Hook: simulates an active cloud run. */
+function useCloudRun(overrides?: Partial<CloudRunHandle>): void {
+    useMountedLogic(activeCloudRunLogic)
     useEffect(() => {
         const handle = makeCloudRunHandle(overrides)
         activeCloudRunLogic.actions.setActiveCloudRun(handle.taskId, handle.runId, handle.startedAt!)
     }, [overrides])
 }
 
-/**
- * Simulates an active local wizard session via the detector logic.
- */
-function setupLocalSession(): void {
+/** Hook: simulates an active local wizard session. */
+function useLocalSession(): void {
+    useMountedLogic(wizardActiveSessionDetectorLogic)
     useEffect(() => {
         wizardActiveSessionDetectorLogic.actions.markActive()
     }, [])
@@ -120,11 +114,11 @@ function setupLocalSession(): void {
 /** Flag is off — the component does not render. */
 export const FlagOff: Story = {
     parameters: {
-        featureFlags: [], // no 'onboarding-wizard-sidebar'
+        featureFlags: [],
     },
     decorators: [
         (Story) => {
-            setupTeamNotOnboarded()
+            useTeamNotOnboarded()
             return <Story />
         },
     ],
@@ -134,12 +128,8 @@ export const FlagOff: Story = {
 export const Hidden: Story = {
     decorators: [
         (Story) => {
-            setupTeamOnboarded()
-            return (
-                <>
-                    <Story />
-                </>
-            )
+            useTeamOnboarded()
+            return <Story />
         },
     ],
 }
@@ -148,7 +138,7 @@ export const Hidden: Story = {
 export const IncompleteOnboarding: Story = {
     decorators: [
         (Story) => {
-            setupTeamNotOnboarded()
+            useTeamNotOnboarded()
             return <Story />
         },
     ],
@@ -158,10 +148,8 @@ export const IncompleteOnboarding: Story = {
 export const CloudRunInProgress: Story = {
     decorators: [
         (Story) => {
-            setupTeamOnboarded()
-            setupCloudRun({
-                startedAt: new Date(Date.now() - 60_000).toISOString(),
-            })
+            useTeamOnboarded()
+            useCloudRun({ startedAt: new Date(Date.now() - 60_000).toISOString() })
             return <Story />
         },
     ],
@@ -172,8 +160,8 @@ export const LocalSessionActive: Story = {
     decorators: [
         (Story) => {
             useMountedLogic(installationStatusNavLogic)
-            setupTeamOnboarded()
-            setupLocalSession()
+            useTeamOnboarded()
+            useLocalSession()
             return <Story />
         },
     ],
@@ -186,7 +174,7 @@ export const CollapsedNav: Story = {
     },
     decorators: [
         (Story) => {
-            setupTeamNotOnboarded()
+            useTeamNotOnboarded()
             return <Story />
         },
     ],
@@ -199,10 +187,8 @@ export const CollapsedNavCloudRun: Story = {
     },
     decorators: [
         (Story) => {
-            setupTeamOnboarded()
-            setupCloudRun({
-                startedAt: new Date(Date.now() - 60_000).toISOString(),
-            })
+            useTeamOnboarded()
+            useCloudRun({ startedAt: new Date(Date.now() - 60_000).toISOString() })
             return <Story />
         },
     ],
@@ -210,121 +196,71 @@ export const CollapsedNavCloudRun: Story = {
 
 // ── Gallery ──────────────────────────────────────────────────────────────────
 
-/** Every state in one frame for side-by-side review. */
-export const AllStates: Story = {
-    parameters: { controls: { disable: true } },
-    render: () => {
-        // Each variant wraps a copy of the button with its own logic setup via decorator-style mounts.
-        function StateBlock({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-            return (
-                <div className="flex flex-col gap-1">
-                    <span className="text-xs text-muted">{label}</span>
-                    <div className="w-[240px] bg-surface-primary rounded border border-primary overflow-hidden">
-                        <div className="p-2 border-b border-primary text-xs text-muted uppercase tracking-wide">
-                            Sidebar
-                        </div>
-                        <div className="p-1 flex flex-col gap-px">{children}</div>
-                    </div>
-                </div>
-            )
-        }
-
-        return (
-            <div className="flex flex-col gap-4">
-                <StateBlock label="Hidden (onboarded)">
-                    <TeamOnboardedWrapper />
-                </StateBlock>
-                <StateBlock label="Incomplete onboarding">
-                    <TeamNotOnboardedWrapper iconOnly={false} />
-                </StateBlock>
-                <StateBlock label="Cloud run in progress">
-                    <CloudRunWrapper iconOnly={false} startedAtOffset={60_000} />
-                </StateBlock>
-                <StateBlock label="Local session active">
-                    <LocalSessionWrapper iconOnly={false} />
-                </StateBlock>
-                <StateBlock label="Collapsed (incomplete)">
-                    <TeamNotOnboardedWrapper iconOnly={true} />
-                </StateBlock>
-                <StateBlock label="Collapsed (cloud run)">
-                    <CloudRunWrapper iconOnly={true} startedAtOffset={60_000} />
-                </StateBlock>
+function StateBlock({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted">{label}</span>
+            <div className="w-[240px] bg-surface-primary rounded border border-primary overflow-hidden">
+                <div className="p-2 border-b border-primary text-xs text-muted uppercase tracking-wide">Sidebar</div>
+                <div className="p-1 flex flex-col gap-px">{children}</div>
             </div>
-        )
-    },
+        </div>
+    )
 }
 
 /** Wraps the button with team set to fully onboarded (no run active → hidden). */
-function TeamOnboardedWrapper(): JSX.Element {
+function OnboardedVariant(): JSX.Element {
     useMountedLogic(installationStatusNavLogic)
-    setupTeamOnboarded_Inline()
+    useTeamOnboarded()
     return <InstallationStatusNavButton iconOnly={false} />
 }
 
 /** Wraps the button with team not onboarded. */
-function TeamNotOnboardedWrapper({ iconOnly }: { iconOnly: boolean }): JSX.Element {
+function NotOnboardedVariant({ iconOnly }: { iconOnly: boolean }): JSX.Element {
     useMountedLogic(installationStatusNavLogic)
-    setupTeamNotOnboarded_Inline()
+    useTeamNotOnboarded()
     return <InstallationStatusNavButton iconOnly={iconOnly} />
 }
 
 /** Wraps the button with a cloud run in progress. */
-function CloudRunWrapper({ iconOnly, startedAtOffset }: { iconOnly: boolean; startedAtOffset: number }): JSX.Element {
+function CloudRunVariant({ iconOnly, startedAtOffset }: { iconOnly: boolean; startedAtOffset: number }): JSX.Element {
     useMountedLogic(installationStatusNavLogic)
-    setupTeamOnboarded_Inline()
-    setupCloudRun_Inline({ startedAt: new Date(Date.now() - startedAtOffset).toISOString() })
+    useTeamOnboarded()
+    useCloudRun({ startedAt: new Date(Date.now() - startedAtOffset).toISOString() })
     return <InstallationStatusNavButton iconOnly={iconOnly} />
 }
 
 /** Wraps the button with a local session active. */
-function LocalSessionWrapper({ iconOnly }: { iconOnly: boolean }): JSX.Element {
+function LocalSessionVariant({ iconOnly }: { iconOnly: boolean }): JSX.Element {
     useMountedLogic(installationStatusNavLogic)
-    setupTeamOnboarded_Inline()
-    setupLocalSession_Inline()
+    useTeamOnboarded()
+    useLocalSession()
     return <InstallationStatusNavButton iconOnly={iconOnly} />
 }
 
-// Inline (non-hook) versions of the setup functions for use in render callbacks.
-// In a render callback we cannot use hooks, so these dispatch actions directly via mount-time effects.
-function setupTeamOnboarded_Inline(): void {
-    useMountedLogic(teamLogic)
-    useEffect(() => {
-        teamLogic.actions.loadCurrentTeamSuccess({
-            id: 1,
-            name: 'Test Team',
-            completed_snippet_onboarding: true,
-            has_completed_onboarding_for: { product_analytics: true },
-            ingested_event: true,
-            is_demo: false,
-        } as any)
-    }, [])
-}
-
-function setupTeamNotOnboarded_Inline(): void {
-    useMountedLogic(teamLogic)
-    useEffect(() => {
-        teamLogic.actions.loadCurrentTeamSuccess({
-            id: 1,
-            name: 'Test Team',
-            completed_snippet_onboarding: false,
-            has_completed_onboarding_for: {},
-            ingested_event: false,
-            is_demo: false,
-        } as any)
-    }, [])
-}
-
-function setupCloudRun_Inline(overrides?: Partial<CloudRunHandle>): void {
-    useMountedLogic(activeCloudRunLogic)
-    useEffect(() => {
-        const handle = makeCloudRunHandle(overrides)
-        activeCloudRunLogic.actions.setActiveCloudRun(handle.taskId, handle.runId, handle.startedAt!)
-    }, [overrides])
-}
-
-function setupLocalSession_Inline(): void {
-    useMountedLogic(wizardActiveSessionDetectorLogic)
-    useEffect(() => {
-        wizardActiveSessionDetectorLogic.actions.markActive()
-    }, [])
+/** Every state in one frame for side-by-side review. */
+export const AllStates: Story = {
+    parameters: { controls: { disable: true } },
+    render: () => (
+        <div className="flex flex-col gap-4">
+            <StateBlock label="Hidden (onboarded)">
+                <OnboardedVariant />
+            </StateBlock>
+            <StateBlock label="Incomplete onboarding">
+                <NotOnboardedVariant iconOnly={false} />
+            </StateBlock>
+            <StateBlock label="Cloud run in progress">
+                <CloudRunVariant iconOnly={false} startedAtOffset={60_000} />
+            </StateBlock>
+            <StateBlock label="Local session active">
+                <LocalSessionVariant iconOnly={false} />
+            </StateBlock>
+            <StateBlock label="Collapsed (incomplete)">
+                <NotOnboardedVariant iconOnly={true} />
+            </StateBlock>
+            <StateBlock label="Collapsed (cloud run)">
+                <CloudRunVariant iconOnly={true} startedAtOffset={60_000} />
+            </StateBlock>
+        </div>
+    ),
 }

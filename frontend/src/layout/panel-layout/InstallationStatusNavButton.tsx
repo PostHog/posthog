@@ -6,18 +6,24 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import { activeCloudRunLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
+import {
+    activeCloudRunLogic,
+    type CloudRunHandle,
+} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
 import { installationProgressLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
 
 import { installationStatusNavLogic, type NavInstallationPhase } from './installationStatusNavLogic'
 
-// 1Hz clock for the elapsed timer, scoped so nothing ticks when no run is active.
-function useNow(): number {
+// 1Hz clock — only ticks while `enabled` is true (i.e. a run with startedAt is active).
+function useNow(enabled: boolean): number {
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
+        if (!enabled) {
+            return
+        }
         const id = window.setInterval(() => setNow(Date.now()), 1000)
         return () => window.clearInterval(id)
-    }, [])
+    }, [enabled])
     return now
 }
 
@@ -33,6 +39,28 @@ function phaseDotClass(phase: NavInstallationPhase): string {
         case 'running':
             return 'bg-accent animate-pulse'
     }
+}
+
+/**
+ * Mounts `installationProgressLogic` only when a cloud run is active, and reports the phase
+ * back to the parent via a callback. This avoids opening a wizard-session SSE connection for
+ * every authenticated user — the logic's `afterMount` calls `connectSession()`, and
+ * `wizardSessionStreamLogic` has no empty-workflow guard. Mirrors the `WizardSyncLocalGate` pattern.
+ */
+function CloudRunPhaseReporter({
+    handle,
+    onPhase,
+}: {
+    handle: CloudRunHandle
+    onPhase: (phase: NavInstallationPhase | null) => void
+}): null {
+    const { installationProgress } = useValues(
+        installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
+    )
+    useEffect(() => {
+        onPhase(installationProgress.isCurrent ? installationProgress.phase : null)
+    }, [installationProgress, onPhase])
+    return null
 }
 
 /**
@@ -52,27 +80,22 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
     useMountedLogic(wizardActiveSessionDetectorLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
 
-    // For cloud runs, mount the progress logic to get the real phase (completed, error, running).
-    // Mounted unconditionally — when no cloud run is active the empty-key logic is a no-op.
-    const cloudProgress = useValues(
-        installationProgressLogic({
-            mode: 'cloud',
-            runId: activeCloudRun?.runId ?? '',
-            taskId: activeCloudRun?.taskId ?? '',
-        })
-    ).installationProgress
+    // Cloud-run phase is reported via a child component that only mounts when a run is active —
+    // avoids opening an SSE stream for every user on every page (INC-886 pattern).
+    const [cloudPhase, setCloudPhase] = useState<NavInstallationPhase | null>(null)
+    const handlePhase = useRef(setCloudPhase)
+    handlePhase.current = setCloudPhase
 
     // Derive the effective phase: prefer cloud progress when available, fall back to the logic phase.
-    const effectivePhase: NavInstallationPhase =
-        cloudProgress && cloudProgress.isCurrent ? cloudProgress.phase : logicPhase
+    const effectivePhase: NavInstallationPhase = cloudPhase ?? logicPhase
 
     // Elapsed time — only meaningful for cloud runs (we have the kickoff timestamp).
-    const now = useNow()
     const startedAt = activeCloudRun?.startedAt ?? null
-    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
     const showElapsed = !!startedAt && isRunActive
+    const now = useNow(showElapsed)
+    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
 
-    // Pulse when the dot's phase changes (cloud run transitions).
+    // Pulse when the dot's phase changes.
     const [badgePulse, setBadgePulse] = useState(false)
     const prevPhaseRef = useRef(effectivePhase)
     useEffect(() => {
@@ -90,7 +113,6 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
 
     const handleClick = (): void => {
         if (isRunActive) {
-            // Reopen the WizardSyncFab dialog via the shared UI logic
             openDialog()
         } else {
             window.location.href = onboardingUrl
@@ -119,37 +141,40 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
     const statusLabel = isRunActive ? 'Installation status' : 'Complete setup'
 
     return (
-        <ButtonPrimitive
-            tooltip={iconOnly ? tooltipContent : undefined}
-            tooltipPlacement="right"
-            tooltipCloseDelayMs={0}
-            iconOnly={iconOnly}
-            menuItem={!iconOnly}
-            onClick={handleClick}
-            className="group"
-            data-attr="installation-status-nav-button"
-        >
-            <span
-                className={cn(
-                    'flex text-secondary group-hover:text-primary transition-transform duration-300',
-                    badgePulse ? 'scale-125' : 'scale-100'
-                )}
+        <>
+            {activeCloudRun && <CloudRunPhaseReporter handle={activeCloudRun} onPhase={handlePhase.current} />}
+            <ButtonPrimitive
+                tooltip={iconOnly ? tooltipContent : undefined}
+                tooltipPlacement="right"
+                tooltipCloseDelayMs={0}
+                iconOnly={iconOnly}
+                menuItem={!iconOnly}
+                onClick={handleClick}
+                className="group"
+                data-attr="installation-status-nav-button"
             >
-                <span className={cn('inline-block size-2 rounded-full', phaseDotClass(effectivePhase))} />
-            </span>
-            {!iconOnly && (
-                <>
-                    <span className="-ml-[2px]">{statusLabel}</span>
-                    {showElapsed && (
-                        <span className="ml-auto text-xs text-muted tabular-nums">
-                            {Math.floor(elapsedSeconds / 60)}:
-                            {Math.floor(elapsedSeconds % 60)
-                                .toString()
-                                .padStart(2, '0')}
-                        </span>
+                <span
+                    className={cn(
+                        'flex text-secondary group-hover:text-primary transition-transform duration-300',
+                        badgePulse ? 'scale-125' : 'scale-100'
                     )}
-                </>
-            )}
-        </ButtonPrimitive>
+                >
+                    <span className={cn('inline-block size-2 rounded-full', phaseDotClass(effectivePhase))} />
+                </span>
+                {!iconOnly && (
+                    <>
+                        <span className="-ml-[2px]">{statusLabel}</span>
+                        {showElapsed && (
+                            <span className="ml-auto text-xs text-muted tabular-nums">
+                                {Math.floor(elapsedSeconds / 60)}:
+                                {Math.floor(elapsedSeconds % 60)
+                                    .toString()
+                                    .padStart(2, '0')}
+                            </span>
+                        )}
+                    </>
+                )}
+            </ButtonPrimitive>
+        </>
     )
 }

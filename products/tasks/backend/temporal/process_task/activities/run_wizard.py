@@ -146,6 +146,6 @@ def run_wizard(input: RunWizardInput) -> None:
             # mostly npm noise. Prefer the stdout tail so the real cause shows at error level.
             detail = (result.stdout or "").strip()[-2000:] or (result.stderr or "").strip()[-2000:]
             emit_agent_log(ctx.run_id, "error", f"PostHog setup wizard failed (exit {result.exit_code}): {detail}")
-            raise RuntimeError(f"PostHog setup wizard failed with exit code {result.exit_code}")
+            raise RuntimeError(f"PostHog setup wizard failed (exit {result.exit_code}): {detail}")
 
         emit_agent_log(ctx.run_id, "info", "PostHog setup wizard completed")

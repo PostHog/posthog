@@ -65,18 +65,6 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
         /** High-level phase for the badge tone: 'running' while in flight, 'idle' for incomplete onboarding. */
         phase: [(s) => [s.isRunActive], (isRunActive): NavInstallationPhase => (isRunActive ? 'running' : 'idle')],
 
-        /** Human-readable label shown next to the icon in expanded mode. */
-        statusLabel: [
-            (s) => [s.isRunActive, s.phase],
-            (isRunActive, _phase): string => (isRunActive ? 'Installation status' : 'Complete setup'),
-        ],
-
-        /** Tooltip shown on hover. */
-        tooltip: [
-            (s) => [s.isRunActive, s.hasOnboardedAnyProduct],
-            (isRunActive): string => (isRunActive ? 'PostHog setup is in progress' : 'Finish setting up PostHog'),
-        ],
-
         /** URL to navigate to on click when no run is active. */
         onboardingUrl: [() => [], (): string => urls.onboarding()],
     }),

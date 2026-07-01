@@ -1,8 +1,9 @@
 import './WizardModeShell.scss'
 
-import { ComponentType, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
+import { WIZARD_HOG_URL } from 'scenes/onboarding/shared/wizardHog'
 
 import androidImage from '../../../legacy/sdks/logos/android.svg'
 import angularImage from '../../../legacy/sdks/logos/angular.svg'
@@ -19,8 +20,6 @@ import reactImage from '../../../legacy/sdks/logos/react.svg'
 import { ReactRouterLogo } from '../../../legacy/sdks/logos/ReactRouterLogo'
 import svelteImage from '../../../legacy/sdks/logos/svelte.svg'
 import vueImage from '../../../legacy/sdks/logos/vue.svg'
-
-export const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
 
 // Frameworks the wizard can set up — the same whichever way it runs, so both modes show them.
 const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
