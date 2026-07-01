@@ -65,20 +65,35 @@ A metric reaches an experiment one of two ways, both via `experiment-update`:
 **Prefer reusing a shared metric over duplicating it inline.** Build a new inline metric only when
 no suitable shared metric already exists.
 
-### Step 1: Check for an existing shared metric (REQUIRED — always do this first)
+### Step 1: Check for an existing shared metric (REQUIRED — match by definition, not name)
 
-Before building any new inline metric, you MUST call `experiment-saved-metrics-list` to see what
-reusable metrics already exist in the project. Do NOT skip this step — duplicating a metric that is
-already set up as a shared metric fragments measurement and is exactly what we want to avoid.
+Before building any new inline metric, you MUST check whether the project already has a shared
+(saved) metric that measures the same thing, and reuse it. Duplicating a metric that already exists
+as a shared metric fragments measurement and is exactly what we want to avoid.
+
+**Reuse is decided by the metric _definition_ — the event or action plus the metric type — not the
+name.** Saved metrics are named by each team's own conventions, which you cannot guess, so you must
+compare on what each metric measures (its `query`), never on its title.
 
 **Workflow:**
 
-1. Call `experiment-saved-metrics-list` (pass `search` to resolve by name, e.g.
-   `{ "search": "checkout conversion" }`) and scan the results (`id`, `name`, `description`, `query`)
-   for one that matches the user's intent. Results are paginated — if you're browsing without a
-   `search` term and the project has many, page through with `limit`/`offset` before concluding
-   nothing matches.
-2. **If a shared metric clearly matches** — confirm the match with the user by name/description,
+1. **Know what you're about to build first.** Settle the target event(s)/action(s) and metric type
+   (mean / funnel / ratio / retention) before searching — see Step 2 to confirm the event exists via
+   `read-data-schema`. You can only recognize a duplicate once you know the concrete event/action,
+   so this check runs _after_ you've pinned down the event, not before.
+2. **Search by the event, then compare each candidate's `query`.** Call `experiment-saved-metrics-list`
+   with `?event=<the event you're measuring>` to find metrics that reference it — matched directly (an
+   `EventsNode`) **or** via the step events of any action a metric references, so action-based metrics are
+   found by the event their action fires on. Then for each returned row, inspect its **`query`** (not the
+   `name`/`description`): a saved metric is a reuse match when its `query` measures the **same event or
+   action with the same `metric_type`** (and compatible `math`) as the metric you'd otherwise build, even
+   if its name is different.
+   - **Match on the event, not the action's name.** An action-based metric is discoverable by the event
+     the action fires on — pass that event, not the action's label.
+   - **Do not use `search` for this.** `search` matches only the metric's own `name` / `description` / tags —
+     never the underlying event or action — so it cannot find a definition match. Use `search` only when the
+     user names a specific saved metric to attach (name resolution, not a definition match).
+3. **If a saved metric matches the definition** — confirm the match with the user by name/description,
    then attach it instead of building a new one:
    - Call `experiment-get` to read the experiment's current `saved_metrics`.
    - Call `experiment-update` with `saved_metrics_ids` set to the full desired set — it **replaces**
@@ -89,11 +104,11 @@ already set up as a shared metric fragments measurement and is exactly what we w
      top-level `id` (the _link_ id) AND a `saved_metric` field (the _metric_ id). `saved_metrics_ids`
      wants the **`saved_metric`** value, not the link `id` — sending the link `id` attaches the wrong
      metric or fails validation.
-   - You do not need to discover events (Step 2) — the shared metric already encodes them.
-3. **If the list is empty or nothing matches** — fall through to Step 2 and build an inline metric.
-
-When a new inline metric you're about to build is likely to be reused across experiments, offer to
-create it as a shared metric instead, via `experiment-saved-metrics-create`, then attach it as above.
+   - You do not need to build the inline metric — the shared metric already encodes its events.
+4. **If nothing in the library measures the same event/action + type** — build an inline metric
+   (Step 2+). When that inline metric is likely to be reused across experiments, offer to create it
+   as a shared metric instead, via `experiment-saved-metrics-create`, then attach it as above, so the
+   next experiment can reuse it.
 
 ### Step 2: Discover available events (REQUIRED before building an inline metric)
 

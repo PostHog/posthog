@@ -16,7 +16,6 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
@@ -62,6 +61,7 @@ from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -669,7 +669,7 @@ class InsightSerializer(InsightBasicSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team_id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             request=self.context["request"],
         )
 
@@ -769,7 +769,7 @@ class InsightSerializer(InsightBasicSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             request=self.context["request"],
             changes=changes,
         )
@@ -992,6 +992,13 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"])
         )
 
+        # Tile filters completely replace dashboard filters (same semantics as the compute path in
+        # calculate_results.py). Without this, the returned `query` field would reflect dashboard
+        # filters while the cached result was computed with tile filters — causing the persons modal
+        # to use a different filter set than the chart.
+        dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
+
         if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
             if (
@@ -999,15 +1006,20 @@ class InsightSerializer(InsightBasicSerializer):
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
             ):
-                query = apply_dashboard_filters_to_dict(
-                    query,
-                    (
+                effective_filters = (
+                    tile_filters_override
+                    if tile_filters_override
+                    else (
                         dashboard_filters_override
                         if dashboard_filters_override is not None
                         else dashboard.filters
                         if dashboard
                         else {}
-                    ),
+                    )
+                )
+                query = apply_dashboard_filters_to_dict(
+                    query,
+                    effective_filters,
                     instance.team,
                 )
 

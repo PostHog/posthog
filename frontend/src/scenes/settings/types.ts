@@ -245,6 +245,7 @@ export type SettingId =
     | 'user-delete'
     | 'user-groups'
     | 'variables'
+    | 'web-analytics-achievements'
     | 'web-analytics-authorized-urls'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'web-analytics-pre-aggregated-tables'

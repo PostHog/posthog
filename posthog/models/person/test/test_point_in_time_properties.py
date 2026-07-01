@@ -15,8 +15,7 @@ from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
-from posthog.personhog_client.fake_client import fake_personhog_client
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import create_person
 
 

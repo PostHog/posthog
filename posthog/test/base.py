@@ -114,7 +114,7 @@ from posthog.models.event.sql import (
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -662,8 +662,7 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
     organization: Organization = cast(Organization, None)
@@ -683,7 +682,7 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -895,25 +894,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
-                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
@@ -932,23 +913,13 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE 'django_%'
-                                   """)
+                cursor.execute("""
+                               SELECT tablename
+                               FROM pg_tables
+                               WHERE schemaname = 'public'
+                                 AND tablename NOT LIKE 'pg_%'
+                                 AND tablename NOT LIKE 'django_%'
+                               """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1516,11 +1487,9 @@ def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None
             team = event.get("team")
             team_id = event.get("team_id") or (team.pk if team else None)
             if team_id:
-                from posthog.models import PersonDistinctId
-
-                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                if pdi:
-                    event["person_id"] = str(pdi.person.uuid)
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
 
     from posthog.models.ai_events.test_util import bulk_create_ai_events
 

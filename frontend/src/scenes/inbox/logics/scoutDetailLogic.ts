@@ -5,13 +5,33 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { LinkedSignalReport, SignalScoutEmission, SignalScoutEmissionReportLink, SignalScoutRunSummary } from '../types'
+import {
+    LinkedSignalReport,
+    SignalReport,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+} from '../types'
 import type { scoutDetailLogicType } from './scoutDetailLogicType'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 export interface ScoutDetailLogicProps {
     skillName: string
 }
+
+/** How a scout touched a report through the report channel: authored it (`emit_report`) or only edited
+ * an existing one (`edit_report`). Authoring supersedes a later edit of the same report. */
+export type ScoutReportAction = 'authored' | 'edited'
+
+/** A report this scout authored or edited in the window, paired with how it touched it. */
+export interface ScoutReportRow {
+    report: SignalReport
+    action: ScoutReportAction
+}
+
+// A report-authoring scout could in theory touch many reports across the window; bound the per-report
+// fetch fan-out the same way emissions are bounded.
+const MAX_TOUCHED_REPORTS = 50
 
 // A noisy scout on the 30-minute floor can rack up hundreds of emitted runs across the window;
 // fetching emissions for all of them at once would fan out hundreds of concurrent requests and
@@ -112,6 +132,27 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                 },
             },
         ],
+        // The reports this scout authored/edited directly via the report channel. Unlike findings, the run
+        // already carries the report id (no async grouping), so this fetches each report straight by id to
+        // resolve its title + live status for the Reports section. Best-effort: a deleted/inaccessible
+        // report drops out (its `get` rejects) rather than erroring the section.
+        scoutReports: [
+            [] as SignalReport[],
+            {
+                loadScoutReports: async () => {
+                    const touched = values.touchedReports.slice(0, MAX_TOUCHED_REPORTS)
+                    if (touched.length === 0) {
+                        return []
+                    }
+                    const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
+                    return settled
+                        .filter(
+                            (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
+                        )
+                        .map((result) => result.value)
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -163,6 +204,51 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                         .map((link) => [link.source_id, link.report as LinkedSignalReport])
                 ),
         ],
+        // The distinct reports this scout touched via the report channel in the window, each tagged with
+        // how it touched it. Read off the rollup's deduped id sets; authoring supersedes a later edit of
+        // the same report, so a report in both sets reads as "authored".
+        touchedReports: [
+            (s) => [s.rollups, (_, props) => props.skillName],
+            (rollups, skillName): { id: string; action: ScoutReportAction }[] => {
+                const rollup = rollups.get(skillName)
+                if (!rollup) {
+                    return []
+                }
+                const byId = new Map<string, ScoutReportAction>()
+                for (const id of rollup.editedReportIds) {
+                    byId.set(id, 'edited')
+                }
+                for (const id of rollup.authoredReportIds) {
+                    byId.set(id, 'authored')
+                }
+                return [...byId.entries()].map(([id, action]) => ({ id, action }))
+            },
+        ],
+        // Stable key over the touched report set — refetch the reports only when the set actually changes,
+        // not on every runs-window poll that returns the same runs.
+        touchedReportsKey: [
+            (s) => [s.touchedReports],
+            (touchedReports): string =>
+                touchedReports
+                    .map(({ id, action }) => `${id}:${action}`)
+                    .sort()
+                    .join(','),
+        ],
+        // Join the fetched reports back to how the scout touched each, newest-updated first. A touched id
+        // whose report fetch failed (deleted/inaccessible) is skipped.
+        reportRows: [
+            (s) => [s.scoutReports, s.touchedReports],
+            (scoutReports, touchedReports): ScoutReportRow[] => {
+                const actionById = new Map(touchedReports.map(({ id, action }) => [id, action]))
+                return scoutReports
+                    .map((report) => {
+                        const action = actionById.get(report.id)
+                        return action ? { report, action } : null
+                    })
+                    .filter((row): row is ScoutReportRow => row !== null)
+                    .sort((a, b) => (b.report.updated_at ?? '').localeCompare(a.report.updated_at ?? ''))
+            },
+        ],
         // Join fetched emissions back to their run (for the per-row task-run link) and to the inbox
         // report they grouped into (for the "In report" chip), newest first.
         emissionRows: [
@@ -186,6 +272,11 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
         emittedRunsKey: () => {
             actions.loadEmissions()
             actions.loadEmissionReports()
+        },
+        // Fires on mount (empty → real ids once the runs window loads) and whenever the set of touched
+        // reports changes; the key holds equal across no-op polls so we don't refetch.
+        touchedReportsKey: () => {
+            actions.loadScoutReports()
         },
     })),
 

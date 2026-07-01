@@ -58,6 +58,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     send_org_usage_reports,
     start_poll_query_performance,
@@ -78,7 +79,7 @@ from products.conversations.backend.tasks import (
     poll_teams_shared_channels,
     wake_snoozed_tickets,
 )
-from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
+from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
@@ -247,6 +248,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
+    )
+
+    # Re-dispatch orphaned QUEUED task runs whose on_commit dispatch was lost - every 2 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        redispatch_orphaned_queued_task_runs.s(),
+        name="redispatch orphaned queued task runs",
     )
 
     # Flags cache sync - hourly

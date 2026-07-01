@@ -1,6 +1,9 @@
+import time
 import socket
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
+
+from django.db import OperationalError, close_old_connections
 
 import structlog
 
@@ -166,18 +169,45 @@ class SSHTunnelMixin:
         return True, None
 
 
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
+
+
+def _integration_fetch_backoff_sleep(attempt: int) -> None:
+    """Sleep before the next integration-fetch retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
     def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
-        """Get OAuth integration from integration ID"""
+        """Get OAuth integration from integration ID.
+
+        Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
+        Postgres connection can be closed server-side while idle, or the connection pooler can
+        reject the query with a wait timeout when the pool is saturated. Both surface as a transient
+        ``OperationalError`` that clears on a healthy connection, so this idempotent lookup is
+        retried with backoff before failing the whole import on a momentary blip. A failed query
+        marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
+        the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
+        missing integration is surfaced as the stable, non-retryable ``ValueError`` and is not
+        retried.
+        """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
 
-        if not Integration.objects.filter(id=integration_id, team_id=team_id).exists():
-            raise ValueError(f"Integration not found: {integration_id}")
-
-        return Integration.objects.get(id=integration_id, team_id=team_id)
+        attempt = 0
+        while True:
+            try:
+                return Integration.objects.get(id=integration_id, team_id=team_id)
+            except Integration.DoesNotExist:
+                raise ValueError(f"Integration not found: {integration_id}") from None
+            except OperationalError:
+                attempt += 1
+                if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                    raise
+                close_old_connections()
+                _integration_fetch_backoff_sleep(attempt)
 
 
 class ValidateDatabaseHostMixin:

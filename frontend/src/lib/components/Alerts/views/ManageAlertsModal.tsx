@@ -95,6 +95,8 @@ interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
     insightShortId: InsightShortId
     canCreateAlertForInsight: boolean
+    /** The insight's query, so the unsupported-reason copy can be specific (e.g. time-to-convert funnels). */
+    insightQuery?: Record<string, any> | null
     onClose?: () => void
 }
 
@@ -156,7 +158,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
                     disabledReason={
                         !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled })
+                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, props.insightQuery)
                             : undefined
                     }
                 >

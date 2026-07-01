@@ -33,8 +33,6 @@ env:
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
     SCHEMA_CACHE_EPOCH: v1
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -308,7 +306,7 @@ jobs:
               run: |
                   prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common google_search_console mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce snowflake stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -660,6 +658,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1035,6 +1036,9 @@ jobs:
 
         name: Validate migrations
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1670,6 +1674,9 @@ jobs:
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2087,6 +2094,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2336,6 +2346,26 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.compat }}
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
+
+            - name: Warn (don't fail) on unused snapshots for sharded CHECK runs
+              # CHECK mode (fork PRs, the 'no-snapshot-update' label) runs without
+              # --snapshot-update, so the steps above don't fire and no snapshot flags
+              # are set. But pytest-split shards individual tests across runners, so each
+              # shard only exercises a subset of the snapshots in a given file — every
+              # snapshot owned by a test that landed on another shard is reported as
+              # "unused". Under sharding that signal is structurally unreliable, so without
+              # --snapshot-warn-unused a shard fails on those false positives even when
+              # every test that ran passed (the snapshot report's "N snapshots unused"
+              # line). Every non-fork run (UPDATE, poe, compat) already passes the flag;
+              # this just makes forks symmetric. Trade-off: it downgrades unused snapshots
+              # to a warning, so genuinely orphaned snapshots go uncaught here — but they
+              # already do everywhere else, and sharding makes per-shard orphan detection
+              # impossible regardless. Snapshot *mismatches* and missing snapshots still
+              # fail, so real value drift is still caught. Mutually exclusive with the
+              # steps above (mode != update, not poe, not compat).
+              if: ${{ needs.changes.outputs.backend == 'true' && needs.detect-snapshot-mode.outputs.mode != 'update' && !matrix.person-on-events && !matrix.compat }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-warn-unused" >> $GITHUB_ENV
 
             # Tests
             - name: Log test environment diagnostics
@@ -2936,6 +2966,9 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
