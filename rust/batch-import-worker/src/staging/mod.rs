@@ -6,8 +6,10 @@ use tracing::{info, warn};
 use crate::error::UserError;
 
 pub mod backend;
+pub mod pipeline;
 
 pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+pub use pipeline::open_plaintext_stream;
 
 /// Default amount of freshly-written data between staging-size checks. Stat-ing
 /// the whole staging tree is O(files), so we only re-measure after this much has
