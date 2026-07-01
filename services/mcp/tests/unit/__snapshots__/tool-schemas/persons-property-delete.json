@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "description": "A value identifying this person. Accepts a person's numeric ID, a person's UUID, or one of the person's distinct IDs (including UUID-shaped distinct IDs). Person ID/UUID is tried first, then distinct ID.",
             "type": "string"
         },
         "unset": {

@@ -56,11 +56,24 @@ class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
 
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_retrieve_invalid_id_returns_validation_error(self):
+    def test_retrieve_by_distinct_id_routes_through_personhog(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1"],
+            properties={"email": "test@example.com"},
+        )
+
+        resp = self.client.get("/api/person/did-1/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["uuid"] == str(person.uuid)
+        self._assert_personhog_called("get_person_by_distinct_id")
+
+    def test_retrieve_unresolvable_id_returns_404(self):
         resp = self.client.get("/api/person/not-a-valid-id/")
 
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert "does not look like a personID" in resp.json().get("detail", "")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        assert "No person found for 'not-a-valid-id'" in resp.json().get("detail", "")
 
     def test_retrieve_cross_team_isolation(self):
         other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")

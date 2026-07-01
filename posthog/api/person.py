@@ -59,6 +59,7 @@ from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
+    get_person_by_distinct_id,
     get_person_by_pk_or_uuid,
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
@@ -394,7 +395,10 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.STR,
     location=OpenApiParameter.PATH,
-    description="A unique value identifying this person. Accepts both numeric ID and UUID.",
+    description=(
+        "A value identifying this person. Accepts a person's numeric ID, a person's UUID, or one of the person's "
+        "distinct IDs (including UUID-shaped distinct IDs). Person ID/UUID is tried first, then distinct ID."
+    ),
 )
 
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
@@ -468,22 +472,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_object(self, queryset):
-        person_id = self.kwargs[self.lookup_field]
-
-        try:
-            uuid.UUID(str(person_id))
-        except ValueError:
-            try:
-                int(person_id)
-            except (ValueError, TypeError):
-                raise ValidationError(
-                    f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
-                )
+        person_id = str(self.kwargs[self.lookup_field])
+        distinct_id_limit = _GET_OBJECT_DISTINCT_ID_LIMITS.get(self.action)
 
         with personhog_caller_tag(f"persons/{self.action.replace('_', '-')}"):
-            return get_person_by_pk_or_uuid(
-                self.team_id, str(person_id), distinct_id_limit=_GET_OBJECT_DISTINCT_ID_LIMITS.get(self.action)
+            # A person UUID or numeric PK is the canonical lookup key. `get_person_by_pk_or_uuid`
+            # returns None both when the id isn't UUID/int-shaped and when it is but matches no person.
+            person = get_person_by_pk_or_uuid(self.team_id, person_id, distinct_id_limit=distinct_id_limit)
+
+            # Fall back to resolving the id as a distinct id. Callers — especially agents using the
+            # `persons-retrieve` MCP tool — very commonly pass a distinct id here, and it can itself be
+            # UUID-shaped (a session/event identifier), so it must be tried even after the UUID lookup misses.
+            if person is None:
+                person = get_person_by_distinct_id(self.team_id, person_id, distinct_id_limit=distinct_id_limit)
+
+        if person is None:
+            raise NotFound(
+                f"No person found for '{person_id}'. It did not match a person UUID or numeric ID, and no distinct id "
+                f"in this project resolves to a person. If this is a distinct id, confirm it with "
+                f"/persons?distinct_id={person_id}."
             )
+
+        return person
 
     @extend_schema(
         parameters=[
@@ -950,6 +960,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Only distinct_ids[0] is used (to attribute the property-update event), so bound the fetch to one.
         with personhog_caller_tag("persons/delete-property"):
             person = get_person_by_pk_or_uuid(self.team_id, pk, distinct_id_limit=1)
+            if person is None:
+                # Match `safely_get_object`: fall back to resolving the id as a distinct id.
+                person = get_person_by_distinct_id(self.team_id, str(pk), distinct_id_limit=1)
         if person is None:
             raise Person.DoesNotExist
 
