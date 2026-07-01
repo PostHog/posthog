@@ -13,6 +13,9 @@ import functools
 from typing import Any, TypeVar
 from uuid import UUID
 
+from django.conf import settings
+from django.db import close_old_connections
+
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
@@ -66,9 +69,8 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
+    (snapshot, team_name), llm_inputs = await asyncio.gather(
+        sync_to_async(_load_scanner_data)(inputs.observation_id, inputs.team_id),
         _load_llm_inputs(inputs.observation_id),
     )
     scanner = scanner_from_snapshot(snapshot)
@@ -130,6 +132,23 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     if trailing:
         segments.append(TextSegment(value=trailing))
     return "".join(plain_parts), segments
+
+
+def _load_scanner_data(observation_id: UUID, team_id: int) -> tuple[ScannerSnapshot, str]:
+    """Load the snapshot and team name for a scan on one clean connection, sequentially.
+
+    Long-lived Temporal workers don't run Django's request cycle, so `close_old_connections()`
+    never fires between activities and a stale pooled connection can survive into this read —
+    surfacing as a psycopg `ProtocolViolation` the first time it's touched. Evicting stale
+    connections here mirrors the request-cycle behaviour, and running both reads in a single
+    `sync_to_async` (rather than two concurrent `asyncio.gather` branches) keeps them on one
+    connection whose protocol state can't be corrupted by concurrent reuse. Skipped under
+    `settings.TEST` so it doesn't tear down the test DB connection that `transaction=True`
+    fixtures rely on.
+    """
+    if not settings.TEST:
+        close_old_connections()
+    return _load_snapshot(observation_id, team_id), _load_team_name(team_id)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
