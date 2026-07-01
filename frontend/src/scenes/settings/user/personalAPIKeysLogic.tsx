@@ -468,6 +468,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scopesObject[key] = action
             }
 
+            // Survey and early access feature writes also write a feature flag (targeting / linked flag),
+            // which requires feature_flag:write. Auto-select it so the key works out of the box. It stays
+            // visible and the user can lower it again if the key only manages plain surveys.
+            if (
+                (key === 'survey' || key === 'early_access_feature') &&
+                action === 'write' &&
+                scopesObject['feature_flag'] !== 'write'
+            ) {
+                scopesObject['feature_flag'] = 'write'
+            }
+
             // Convert back to array format
             const newScopes = scopesObjectToArray(scopesObject)
 

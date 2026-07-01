@@ -46,7 +46,7 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Early access feature',
         objectPlural: 'early access features',
         warnings: {
-            write: 'Early access features are backed by a feature flag. Creating or updating one also writes that flag, so this key also needs `feature_flag:write`.',
+            write: 'Early access features are backed by a feature flag, so `feature_flag:write` is selected automatically — creating or updating one also writes that flag.',
         },
     },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
@@ -150,7 +150,7 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Survey',
         objectPlural: 'surveys',
         warnings: {
-            write: 'Surveys with targeting also write a feature flag. If your integration sets survey targeting, this key also needs `feature_flag:write`.',
+            write: 'Surveys with targeting also write a feature flag, so `feature_flag:write` is selected automatically. You can remove it if this key only manages surveys without targeting.',
         },
     },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
