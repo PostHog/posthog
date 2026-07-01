@@ -26,6 +26,7 @@ import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { VisionActionsTab } from './components/VisionActionsTab'
+import { ImproveFromLabelsButton } from './ImproveFromLabelsButton'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 
@@ -76,6 +77,12 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 Edit scanner
                             </LemonButton>
                         </AccessControlAction>
+                        <ImproveFromLabelsButton
+                            scannerId={scannerId}
+                            scannerName={scanner.name || 'Scanner'}
+                            scannerType={scanner.scanner_type}
+                            prompt={scanner.scanner_config.prompt}
+                        />
                         <ReplayVisionFeedbackButton />
                     </>
                 }

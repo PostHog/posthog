@@ -133,6 +133,7 @@ QuickFilter
 QuickFilterContext
 Reminder
 ReplayObservation
+ReplayObservationLabel
 ReplayScanner
 RepoRoutingRule
 ReviewQueue

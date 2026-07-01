@@ -3,8 +3,12 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionObservationsRetrieve } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import {
+    visionObservationsLabelCreate,
+    visionObservationsLabelDestroy,
+    visionObservationsRetrieve,
+} from '../generated/api'
+import type { ReplayObservationApi, ReplayObservationLabelApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
@@ -28,6 +32,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         loadObservation: true,
         loadObservationSuccess: (observation: ReplayObservationApi) => ({ observation }),
         loadObservationFailure: true,
+        setLabel: (isCorrect: boolean, feedback: string) => ({ isCorrect, feedback }),
+        clearLabel: true,
+        labelUpdated: (myLabel: ReplayObservationLabelApi | null) => ({ myLabel }),
+        setLabelSaving: (saving: boolean) => ({ saving }),
+        setFeedbackDraft: (feedback: string) => ({ feedback }),
     }),
 
     reducers({
@@ -35,6 +44,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             null as ReplayObservationApi | null,
             {
                 loadObservationSuccess: (_, { observation }) => observation,
+                labelUpdated: (state, { myLabel }) => (state ? { ...state, my_label: myLabel } : state),
             },
         ],
         observationLoading: [
@@ -43,6 +53,21 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 loadObservation: () => true,
                 loadObservationSuccess: () => false,
                 loadObservationFailure: () => false,
+            },
+        ],
+        labelSaving: [
+            false,
+            {
+                setLabelSaving: (_, { saving }) => saving,
+            },
+        ],
+        feedbackDraft: [
+            '',
+            {
+                setFeedbackDraft: (_, { feedback }) => feedback,
+                // Seed from the saved label on first load, but don't clobber in-progress typing on later reloads.
+                loadObservationSuccess: (state, { observation }) => state || (observation.my_label?.feedback ?? ''),
+                labelUpdated: (_, { myLabel }) => myLabel?.feedback ?? '',
             },
         ],
     }),
@@ -78,6 +103,41 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         // When the stream reports the observation has settled, reload once to render the final result.
         streamCompleted: () => {
             actions.loadObservation()
+        },
+
+        setLabel: async ({ isCorrect, feedback }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            actions.setLabelSaving(true)
+            try {
+                const label = await visionObservationsLabelCreate(String(teamId), props.id, {
+                    is_correct: isCorrect,
+                    feedback,
+                })
+                actions.labelUpdated(label)
+            } catch (error: any) {
+                lemonToast.error(`Failed to save label${error.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.setLabelSaving(false)
+            }
+        },
+
+        clearLabel: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            actions.setLabelSaving(true)
+            try {
+                await visionObservationsLabelDestroy(String(teamId), props.id)
+                actions.labelUpdated(null)
+            } catch (error: any) {
+                lemonToast.error(`Failed to remove label${error.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.setLabelSaving(false)
+            }
         },
     })),
 
