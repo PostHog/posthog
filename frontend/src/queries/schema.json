@@ -23234,6 +23234,10 @@
             "additionalProperties": false,
             "description": "Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step.",
             "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used.",
+                    "type": "boolean"
+                },
                 "funnel_step": {
                     "anyOf": [
                         {

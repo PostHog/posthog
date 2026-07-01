@@ -9730,6 +9730,19 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     password_required: zod.boolean().optional(),
 })
 
+export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+    products: zod
+        .array(
+            zod
+                .enum(['conversations', 'error_tracking', 'session_replay'])
+                .describe(
+                    '\* `conversations` - conversations\n\* `error_tracking` - error_tracking\n\* `session_replay` - session_replay'
+                )
+        )
+        .min(1)
+        .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
+})
+
 export const projectSecretApiKeysCreateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({

@@ -1025,7 +1025,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         relay_status, relay_id = tasks_facade.relay_task_run_message(
-            pk, task_id, self.team_id, text=request.validated_data["text"]
+            pk,
+            task_id,
+            self.team_id,
+            text=request.validated_data["text"],
+            text_parts=request.validated_data.get("text_parts"),
         )
         if relay_status == "failed":
             return Response(

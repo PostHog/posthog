@@ -5340,6 +5340,12 @@ class FunnelsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+        ),
+    )
     funnel_step: int | None = Field(
         default=None,
         description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),

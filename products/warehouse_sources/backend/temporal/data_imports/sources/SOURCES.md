@@ -98,6 +98,7 @@ the row lists both.
 | coingecko               | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools           | HTTP                        | requests                                                        | ✅                          |
+| concord                 | HTTP                        | requests                                                        | ✅                          |
 | confluence              | HTTP                        | requests                                                        | ✅                          |
 | chartmogul              | HTTP                        | requests                                                        | ✅                          |
 | circleci                | HTTP                        | requests                                                        | ✅                          |
@@ -108,6 +109,7 @@ the row lists both.
 | clickhouse              | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup                 | HTTP                        | requests                                                        | ✅                          |
 | clockify                | HTTP                        | requests                                                        | ✅                          |
+| clockodo                | HTTP                        | requests                                                        | ✅                          |
 | close                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit              | HTTP                        | requests                                                        | ✅                          |
 | convex                  | HTTP                        | requests                                                        | ✅                          |
@@ -358,7 +360,6 @@ doesn't conflict with concurrent PRs.
 - cloudbeds
 - coassemble
 - cockroachdb
-- concord
 - configcat
 - constant_contact
 - copper

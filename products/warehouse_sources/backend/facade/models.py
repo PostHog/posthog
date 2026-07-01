@@ -18,6 +18,10 @@ from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
 )
+from products.warehouse_sources.backend.models.custom_oauth2_integration import (
+    CustomOAuth2Integration,
+    get_custom_oauth2_integration,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -50,6 +54,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 
 __all__ = [
+    "CustomOAuth2Integration",
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
@@ -62,6 +67,7 @@ __all__ = [
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
+    "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
     "get_latest_run_if_exists",

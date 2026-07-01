@@ -442,6 +442,9 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    product-enablement-create:
+        operation: product_enablement_create
+        enabled: false
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
