@@ -52,11 +52,18 @@ export function TaskRunChat({ taskId, runId, streamKey }: TaskRunChatProps): JSX
 }
 
 function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { composerForm, isSubmitting, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
+    const { composerForm, isSubmitting, isBusy, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
         runInteractionLogic(logicProps)
     )
-    const { setComposerFormValues, submitComposerForm, updateQueuedMessage, removeQueuedMessage, setModel, setEffort } =
-        useActions(runInteractionLogic(logicProps))
+    const {
+        setComposerFormValues,
+        submitComposerForm,
+        cancelRun,
+        updateQueuedMessage,
+        removeQueuedMessage,
+        setModel,
+        setEffort,
+    } = useActions(runInteractionLogic(logicProps))
 
     return (
         // `RunSurface.Root` and `runInteractionLogic` deliberately share the same stream key (`streamKey ?? runId`,
@@ -77,6 +84,8 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                         onChange={(value) => setComposerFormValues({ draft: value })}
                         onSubmit={submitComposerForm}
                         loading={isSubmitting}
+                        isTurnActive={isBusy}
+                        onStop={() => cancelRun()}
                     >
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>

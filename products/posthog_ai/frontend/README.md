@@ -73,7 +73,8 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 import { runInteractionLogic } from 'products/posthog_ai/frontend/api/logics'
 
 // Bind runInteractionLogic (the follow-up/queue facade) keyed by the same runId RunSurface.Root binds.
-const { draft, isSubmitting, queuedMessages } = useValues(runInteractionLogic(props))
+const { draft, isSubmitting, isBusy, queuedMessages } = useValues(runInteractionLogic(props))
+const { cancelRun } = useActions(runInteractionLogic(props))
 ;<RunSurface.Root taskId={task.id} runId={run.id} interaction="live">
   <div className="@container/thread flex flex-col h-full overflow-hidden">
     <div className="flex-1 min-h-0">
@@ -81,7 +82,14 @@ const { draft, isSubmitting, queuedMessages } = useValues(runInteractionLogic(pr
     </div>
     <RunSurface.Resources />
     <RunSurface.Composer>
-      <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
+      <Composer.Root
+        value={draft}
+        onChange={setDraft}
+        onSubmit={submit}
+        loading={isSubmitting}
+        isTurnActive={isBusy}
+        onStop={() => cancelRun()}
+      >
         {/* …Composer.Frame / Field / Textarea / Submit… */}
       </Composer.Root>
     </RunSurface.Composer>
@@ -89,6 +97,10 @@ const { draft, isSubmitting, queuedMessages } = useValues(runInteractionLogic(pr
   </div>
 </RunSurface.Root>
 ```
+
+Pass `isTurnActive` + `onStop` to make the send button a **Stop** button while the agent is working a turn and
+the input is empty (clicking cancels the run); with drafted text it stays **Send** and queues the follow-up.
+Omit both for a send-only composer.
 
 ### Custom layout via the `RunSurface` compound
 
