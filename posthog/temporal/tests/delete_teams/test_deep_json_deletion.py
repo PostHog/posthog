@@ -1,12 +1,12 @@
 import pytest
 
-from django.db import connection
+from django.db import connection, transaction
 
 from asgiref.sync import sync_to_async
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.util import delete_team_records
+from posthog.models.team.util import _team_cascade_json_columns, delete_team_records
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -32,12 +32,15 @@ def _write_deeply_nested_cohort(team_id: int) -> int:
     value back out is iterative and works at the default depth (as it does in production).
     """
     cohort = Cohort.objects.create(team_id=team_id, name="deep")
-    with connection.cursor() as cursor:
-        cursor.execute("SET max_stack_depth = '7000kB'")
-        cursor.execute(
-            "UPDATE posthog_cohort SET query = (repeat('[', %s) || repeat(']', %s))::jsonb WHERE id = %s",
-            [_NESTING_DEPTH, _NESTING_DEPTH, cohort.id],
-        )
+    # SET LOCAL scopes the raised stack limit to this transaction so it rolls back at commit
+    # instead of lingering on the pooled connection for later queries.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL max_stack_depth = '7000kB'")
+            cursor.execute(
+                "UPDATE posthog_cohort SET query = (repeat('[', %s) || repeat(']', %s))::jsonb WHERE id = %s",
+                [_NESTING_DEPTH, _NESTING_DEPTH, cohort.id],
+            )
     return cohort.id
 
 
@@ -57,3 +60,19 @@ async def test_delete_team_records_survives_deeply_nested_json():
     await sync_to_async(delete_team_records)([team_id])
 
     assert not await sync_to_async(Team.objects.filter(id=team_id).exists)()
+
+
+def test_neutralize_discovery_reaches_indirect_cascade_children():
+    # Django's cascade collect() decodes JSON on indirect children too, so neutralize discovery
+    # must reach them. ExperimentMetricResult has no team FK of its own — it reaches Team only
+    # through ExperimentMetricResult -> Experiment -> Team — so direct-children-only discovery
+    # would miss it and its deep JSON could re-block the retry. It must be targeted via a subquery.
+    targets = {table: (where_sql, params) for table, _cols, where_sql, params in _team_cascade_json_columns([123])}
+
+    # Direct child (Cohort) filters straight on its own team column.
+    assert targets["posthog_cohort"] == ('"posthog_cohort"."team_id" = ANY(%s)', [[123]])
+
+    # Indirect child reaches the doomed teams through a subquery on its parent.
+    indirect_where, indirect_params = targets["posthog_experimentmetricresult"]
+    assert 'SELECT "posthog_experiment"."id" FROM "posthog_experiment"' in indirect_where
+    assert indirect_where.count("%s") == len(indirect_params) == 1

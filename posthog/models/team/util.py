@@ -330,11 +330,12 @@ def delete_team_records(team_ids: list[int]) -> None:
             list(Team.objects.select_for_update().filter(id__in=team_ids))
             Team.objects.filter(id__in=team_ids).delete()
         except RecursionError:
-            # A row the cascade must materialize (a signal-bearing child, or a team row itself)
-            # holds JSON nested past json.loads' fixed C-recursion ceiling, so Django can't build
-            # the instance to delete it — and the value is unreachable via the ORM at all. The
-            # teams are already doomed, so blank those JSONB columns straight in Postgres (which
-            # handles deep jsonb natively) and retry; the cascade now materializes trivially.
+            # A row the cascade must materialize (a team row, or any direct/indirect CASCADE child
+            # Django instantiates while collecting) holds JSON nested past json.loads' fixed
+            # C-recursion ceiling, so Django can't build the instance to delete it — and the value
+            # is unreachable via the ORM at all. The teams are already doomed, so blank those JSONB
+            # columns straight in Postgres (which handles deep jsonb natively) and retry; the
+            # cascade now materializes trivially.
             logger.warning("Team deletion cascade hit undecodable JSON; neutralizing and retrying", team_ids=team_ids)
             _neutralize_undecodable_json_columns(team_ids)
             list(Team.objects.select_for_update().filter(id__in=team_ids))
@@ -349,46 +350,98 @@ def _neutralize_undecodable_json_columns(team_ids: list[int]) -> None:
     """
     from django.db import connection
 
-    for table, filter_column, json_columns in _team_cascade_json_columns():
+    for table, json_columns, where_sql, params in _team_cascade_json_columns(team_ids):
         assignments = ", ".join(f"\"{column}\" = 'null'::jsonb" for column in json_columns)
         with connection.cursor() as cursor:
-            cursor.execute(f'UPDATE "{table}" SET {assignments} WHERE "{filter_column}" = ANY(%s)', [team_ids])
+            cursor.execute(f'UPDATE "{table}" SET {assignments} WHERE {where_sql}', params)
 
 
-def _team_cascade_json_columns() -> list[tuple[str, str, list[str]]]:
-    """(table, filter_column, json_columns) for the team rows plus their CASCADE children with JSON.
+def _team_cascade_json_columns(team_ids: list[int]) -> list[tuple[str, list[str], str, list[Any]]]:
+    """(table, json_columns, where_sql, params) for every model in the Team CASCADE graph with JSON.
 
-    These are exactly the rows Django decodes while collecting a Team cascade: the team itself and
-    every model with a CASCADE foreign key to Team that carries a JSONField.
+    Django's Collector.collect() walks the *entire* CASCADE dependency tree, so materialization
+    isn't limited to direct children: a model reached through a chain of CASCADE foreign keys
+    (ModelB → ModelA → Team) is decoded too. We walk that same tree here — the team rows, their
+    direct CASCADE children, and their children recursively — and target the JSON-bearing ones.
+
+    Direct children filter on their own team FK (`col = ANY(team_ids)`); indirect children filter
+    through a chain of subqueries back to the doomed teams. `where_sql` carries `%s` placeholders,
+    one per element of `params`, each bound to `team_ids`.
     """
     from django.apps import apps
     from django.db import models
 
     from posthog.models.team import Team
 
-    targets: list[tuple[str, str, list[str]]] = []
-
-    team_json_columns = [f.column for f in Team._meta.concrete_fields if isinstance(f, models.JSONField)]
-    if team_json_columns:
-        targets.append((Team._meta.db_table, Team._meta.pk.column, team_json_columns))
-
+    # Group every CASCADE foreign key by the model it points *into* — i.e. parent -> cascade children.
+    cascade_children: dict[type[models.Model], list[tuple[type[models.Model], models.Field]]] = {}
     for model in apps.get_models():
-        meta = model._meta
-        team_fk = next(
-            (
-                field
-                for field in meta.concrete_fields
-                if field.is_relation
-                and field.related_model is Team
+        for field in model._meta.concrete_fields:
+            if (
+                field.is_relation
                 and getattr(field.remote_field, "on_delete", None) is models.CASCADE
-            ),
-            None,
-        )
-        if team_fk is None:
+                and field.related_model is not None
+            ):
+                cascade_children.setdefault(field.related_model, []).append((model, field))
+
+    # BFS from Team over reverse-CASCADE edges to find every model in the cascade graph.
+    in_cascade: set[type[models.Model]] = {Team}
+    queue: list[type[models.Model]] = [Team]
+    while queue:
+        parent = queue.pop()
+        for child, _field in cascade_children.get(parent, []):
+            if child not in in_cascade:
+                in_cascade.add(child)
+                queue.append(child)
+
+    def row_selector(model: type[models.Model], path: frozenset[type[models.Model]]) -> tuple[str, list[Any]] | None:
+        """SQL predicate (+ params) selecting `model`'s rows that belong to the doomed teams."""
+        table = model._meta.db_table
+        if model is Team:
+            return f'"{table}"."{Team._meta.pk.column}" = ANY(%s)', [team_ids]
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        for field in model._meta.concrete_fields:
+            if not (
+                field.is_relation
+                and getattr(field.remote_field, "on_delete", None) is models.CASCADE
+                and field.related_model in in_cascade
+            ):
+                continue
+            parent = field.related_model
+            if parent in path:
+                continue  # cyclic edge (self-ref / diamond) — skip to avoid infinite recursion
+            if parent is Team:
+                clauses.append(f'"{table}"."{field.column}" = ANY(%s)')
+                params.append(team_ids)
+                continue
+            parent_selector = row_selector(parent, path | {model})
+            if parent_selector is None:
+                continue
+            parent_sql, parent_params = parent_selector
+            parent_table = parent._meta.db_table
+            parent_pk = parent._meta.pk.column
+            clauses.append(
+                f'"{table}"."{field.column}" IN '
+                f'(SELECT "{parent_table}"."{parent_pk}" FROM "{parent_table}" WHERE {parent_sql})'
+            )
+            params.extend(parent_params)
+
+        if not clauses:
+            return None
+        return " OR ".join(clauses), params
+
+    targets: list[tuple[str, list[str], str, list[Any]]] = []
+    for model in in_cascade:
+        json_columns = [f.column for f in model._meta.concrete_fields if isinstance(f, models.JSONField)]
+        if not json_columns:
             continue
-        json_columns = [f.column for f in meta.concrete_fields if isinstance(f, models.JSONField)]
-        if json_columns:
-            targets.append((meta.db_table, team_fk.column, json_columns))
+        selector = row_selector(model, frozenset())
+        if selector is None:
+            continue
+        where_sql, params = selector
+        targets.append((model._meta.db_table, json_columns, where_sql, params))
 
     return targets
 
