@@ -372,3 +372,28 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertNotIn("await_start", run.state)
         self.assertEqual(run.state["pending_user_message"], "please start")
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", side_effect=RuntimeError("boom"))
+    def test_start_task_run_failure_restores_await_start_marker(self, _mock_trigger):
+        task = self._make_task()
+        result = facade.bootstrap_task_run(
+            task.id,
+            self.team.id,
+            self.user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+        assert result is not None
+        assert result.run is not None
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            facade.start_task_run(
+                result.run.id,
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"pending_user_message": "please start"},
+            )
+
+        run = TaskRun.objects.get(id=result.run.id)
+        self.assertEqual(run.state["await_start"], True)
+        self.assertNotIn("pending_user_message", run.state)
