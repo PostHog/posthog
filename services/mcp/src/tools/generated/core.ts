@@ -18,7 +18,7 @@ import {
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
+import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })

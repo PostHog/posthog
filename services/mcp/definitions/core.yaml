@@ -445,10 +445,6 @@ tools:
     product-enablement-create:
         operation: product_enablement_create
         enabled: false
-    # Hand-written in src/tools/projects/getProject.ts so it can degrade gracefully
-    # (return the caller's accessible projects + guidance) on an unknown or
-    # inaccessible id instead of a bare error. Disabled here to avoid a duplicate
-    # generated handler shadowing the hand-written one.
     project-get:
         operation: organizations_projects_retrieve
         enabled: false
