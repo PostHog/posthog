@@ -356,7 +356,9 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters workflow health by branch server-side, only reloading on a real change', async () => {
+    it('filters workflow health by the shared branch scope, only reloading on a real change', async () => {
+        // Branch lives in the shared filters logic (so it carries into the workflow detail page); the
+        // Workflows tab reads it and reloads workflow health when it's applied.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
@@ -365,20 +367,20 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
         // Typing only stages the value — no reload until applied.
-        logic.actions.setBranchFilter('main')
-        expect(logic.values.branchInput).toBe('main')
-        expect(logic.values.appliedBranch).toBe('')
+        filters.actions.setBranchFilter('main')
+        expect(filters.values.branchInput).toBe('main')
+        expect(filters.values.appliedBranch).toBe('')
 
         // Applying promotes it and reloads with the branch param (trimmed).
-        logic.actions.setBranchFilter('  main  ')
-        logic.actions.applyBranchFilter()
+        filters.actions.setBranchFilter('  main  ')
+        filters.actions.applyBranchFilter()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
-        expect(logic.values.appliedBranch).toBe('main')
+        expect(filters.values.appliedBranch).toBe('main')
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
 
         // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
         mockWorkflowHealth.mockClear()
-        logic.actions.applyBranchFilter()
+        filters.actions.applyBranchFilter()
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
         expect(mockWorkflowHealth).not.toHaveBeenCalled()
 
@@ -389,9 +391,9 @@ describe('engineeringAnalyticsLogic', () => {
 
         // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
         // immediately — no Enter/blur needed — and drops the filter.
-        logic.actions.setBranchFilter('')
+        filters.actions.setBranchFilter('')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(logic.values.appliedBranch).toBe('')
+        expect(filters.values.appliedBranch).toBe('')
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 

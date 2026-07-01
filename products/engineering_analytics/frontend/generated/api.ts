@@ -416,7 +416,7 @@ export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
 }
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
  */
 export const engineeringAnalyticsWorkflowRunnerCosts = async (
     projectId: string,
@@ -449,7 +449,7 @@ export const getEngineeringAnalyticsWorkflowRunsUrl = (
 }
 
 /**
- * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
+ * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
  */
 export const engineeringAnalyticsWorkflowRuns = async (
     projectId: string,

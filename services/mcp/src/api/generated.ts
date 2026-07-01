@@ -30718,6 +30718,7 @@ export namespace Schemas {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -30735,6 +30736,7 @@ export namespace Schemas {
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
     } as const;
 
     /**
@@ -41481,7 +41483,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -52136,7 +52139,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -61629,7 +61633,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string;
     /**
@@ -61674,6 +61678,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
@@ -61696,6 +61704,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
