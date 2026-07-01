@@ -232,18 +232,15 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         return integration.access_token
 
     def _egress_identity(self, config: GithubSourceConfig, team_id: int) -> GithubEgressIdentity:
-        """Resolve the per-installation ids used to gate egress and label telemetry. Empty on the PAT
-        path (no installation budget, token-blind), which makes the source record counter-only and
-        skip the limiter — the pre-limiter behavior. The integration is a cheap PK lookup; resolving
-        it separately from the token keeps ``_get_access_token`` a token-only method (and its tests
-        untouched), at the cost of one extra indexed query per pipeline build (negligible)."""
+        """Resolve the installation id used to gate egress and label telemetry. Empty on the PAT path
+        (no installation budget, token-blind), which makes the source record counter-only and skip the
+        limiter — the pre-limiter behavior. The integration is a cheap PK lookup; resolving it separately
+        from the token keeps ``_get_access_token`` a token-only method (and its tests untouched), at the
+        cost of one extra indexed query per pipeline build (negligible)."""
         if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
             return GithubEgressIdentity()
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
-        return GithubEgressIdentity(
-            installation_id=GitHubIntegration(integration).github_installation_id,
-            integration_id=str(integration.id),
-        )
+        return GithubEgressIdentity(installation_id=GitHubIntegration(integration).github_installation_id)
 
     @staticmethod
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:

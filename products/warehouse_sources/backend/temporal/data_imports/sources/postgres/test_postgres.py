@@ -1062,6 +1062,11 @@ class TestIsConnectionDroppedError:
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :etimedout}"),
+            # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
+            # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
+            psycopg.errors.ConnectionFailure(
+                "Failed to connect to database: authentication did not complete within 15000ms"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):

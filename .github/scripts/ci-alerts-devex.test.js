@@ -307,6 +307,128 @@ describe('ci-alerts-devex', () => {
         assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
     })
 
+    // --- Stale-bridge duration ---
+    const failureRun = (name, key, createdAt, updatedAt) => ({
+        name,
+        conclusion: 'failure',
+        head_sha: `${name}_${key}`,
+        html_url: `https://github.com/runs/${name}/${key}`,
+        created_at: createdAt,
+        updated_at: updatedAt,
+    })
+    const pushAt = (iso) => [
+        { sha: 'push', html_url: 'https://github.com/commit/push', author: { login: 'dev' }, commit: { message: 'p', author: { name: 'dev', date: iso } } },
+    ]
+
+    it('bridged stale failures do not inflate the displayed duration (regression)', async () => {
+        // Recent failure + stale failure (the cancelled runs between are dropped) → the detection
+        // streak spans multiple days. Must still open, but report the recent contiguous red.
+        const now = minutes(13)
+        const github = createGithubMock(
+            {
+                'ci-rust.yml': [
+                    failureRun('Rust CI', 'recent', minutes(-9).toISOString(), minutes(5).toISOString()),
+                    failureRun('Rust CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
+                ],
+                'ci-backend.yml': [
+                    failureRun('Backend CI', 'recent', minutes(-21).toISOString(), minutes(6).toISOString()),
+                    failureRun('Backend CI', 'stale', minutes(-3590).toISOString(), minutes(-3576).toISOString()),
+                ],
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-backend.yml' } })
+
+        assert.equal(outputs.action, 'create') // detection unchanged: full-span byDuration still opens
+        const anchor = slack.postMessage.calls[0][0]
+        const body = JSON.stringify(anchor.attachments)
+        assert.match(body, /Rust CI/)
+        assert.match(body, /Backend CI/)
+        assert.doesNotMatch(body, /\d{2,}h/) // no stale multi-day duration survives
+        assert.match(anchor.text, /\(\d+m\)/) // summary duration is minutes of recent contiguous red
+        // anchored to the recent failure, not the stale run
+        assert.equal(anchor.metadata.event_payload.since, minutes(-21).toISOString())
+    })
+
+    it('does not falsely resolve an open incident while the newest run is still failing (regression)', async () => {
+        // Newest run still failing, prior failure >180m back — detection uses the full span, so the
+        // incident must stay open (never a false "master recovered").
+        const now = minutes(13)
+        const github = createGithubMock({
+            'ci-backend.yml': [
+                failureRun('Backend CI', 'recent', minutes(-10).toISOString(), minutes(5).toISOString()),
+                failureRun('Backend CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
+            ],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { slack, outputs } = await run(github, { now, history: [activeAnchor()] })
+        assert.equal(outputs.action, 'update') // stays open — not 'resolve'
+        assert.equal(slack.update.calls[0][0].attachments[0].color, '#E01E5A')
+        assert.equal(slack.update.calls[0][0].metadata.event_payload.status, 'active')
+    })
+
+    it('still pages for a sparse workflow whose genuine failures are far apart (regression)', async () => {
+        // Sparse workflow: two genuine failures >180m apart, no green between. Must still open.
+        const now = minutes(13)
+        const github = createGithubMock(
+            {
+                'ci-rust.yml': [
+                    failureRun('Rust CI', 'recent', minutes(-5).toISOString(), minutes(2).toISOString()),
+                    failureRun('Rust CI', 'older', minutes(-270).toISOString(), minutes(-255).toISOString()),
+                ],
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-frontend.yml' } })
+        assert.equal(outputs.action, 'create') // old gap-break would have missed this entirely
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for \d+m/) // shows the recent contiguous red, not the ~4.5h span
+        assert.doesNotMatch(body, /red for \d+h/)
+    })
+
+    it('re-running a run inside the streak does not collapse the shown duration to ~0', async () => {
+        // Oldest failure re-run (updated_at bumped to ~now) — created_at anchor keeps the full span.
+        const now = minutes(13)
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock({
+            'ci-backend.yml': [
+                f('f5', minutes(0).toISOString(), minutes(7).toISOString()),
+                f('f4', minutes(-5).toISOString(), minutes(2).toISOString()),
+                f('f3', minutes(-10).toISOString(), minutes(-3).toISOString()),
+                f('f2', minutes(-15).toISOString(), minutes(-8).toISOString()),
+                f('f1', minutes(-20).toISOString(), minutes(11).toISOString()), // oldest, re-run → updated bumped
+            ],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /5 failed runs in a row/)
+        assert.match(body, /red for 33m/) // from f1's created_at, not its re-run updated_at
+    })
+
+    it('reports the honest full duration for a genuinely-continuous outage', async () => {
+        // Dense failures, no gap > 180m — the cap must NOT fire, so the full ~1h13m is reported.
+        const now = minutes(13)
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock(
+            {
+                'ci-backend.yml': [
+                    f('c3', minutes(-5).toISOString(), minutes(5).toISOString()),
+                    f('c2', minutes(-30).toISOString(), minutes(-20).toISOString()),
+                    f('c1', minutes(-60).toISOString(), minutes(-50).toISOString()),
+                ],
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for 1h 13m/)
+    })
+
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {
         const github = createGithubMock(
             { 'ci-backend.yml': failingFor(2400), 'ci-frontend.yml': runs('Frontend CI', ['success']) },

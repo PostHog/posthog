@@ -23,9 +23,9 @@ class _FakeEmitter:
     def __exit__(self, *_args):
         return None
 
-    def emit_log_archive(self, archive, **_kwargs):
-        self.archive = archive
-        return len(archive.splitlines())
+    def emit_log_archive(self, lines, **_kwargs):
+        self.lines = lines
+        return len(lines)
 
 
 def _patch(monkeypatch, *, acquired=True, archive="l1\nl2\nl3"):

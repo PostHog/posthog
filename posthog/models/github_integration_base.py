@@ -254,7 +254,7 @@ class GitHubIntegrationBase:
         record_github_api_response(
             response,
             source=_OBSERVABILITY_SOURCE,
-            integration_id=str(self.integration.id),
+            installation_id=self.github_installation_id,
             method=method,
             endpoint=endpoint,
         )
@@ -262,7 +262,7 @@ class GitHubIntegrationBase:
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
         record_github_api_exception(
             source=_OBSERVABILITY_SOURCE,
-            integration_id=str(self.integration.id),
+            installation_id=self.github_installation_id,
             method=method,
             endpoint=endpoint,
         )

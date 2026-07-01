@@ -21,13 +21,13 @@ def github_request(
     url: str,
     access_token: str,
     *,
-    integration_id: str | None = None,
+    installation_id: str | None = None,
     **kwargs,
 ) -> requests.Response:
     """Make a GitHub API request with standard headers, rate limit logging, and rate limit detection.
 
-    Pass ``integration_id`` (the GitHub integration's id) so egress telemetry records the
-    per-integration rate-limit gauges, not just request volume.
+    Pass ``installation_id`` (the GitHub App installation id) so egress telemetry records the shared
+    rate-limit gauges, not just request volume.
 
     Raises GitHubRateLimitError on 403/429 when the rate limit is exhausted.
     """
@@ -41,7 +41,7 @@ def github_request(
     response = requests.request(method, url, headers=headers, **kwargs)
 
     # source="visual_review"; the existing structlog lines below stay for low-remaining alerts.
-    record_github_api_response(response, source="visual_review", integration_id=integration_id)
+    record_github_api_response(response, source="visual_review", installation_id=installation_id)
     _log_rate_limit_headers(response, method, url)
     _check_rate_limit_response(response, method, url)
 

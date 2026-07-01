@@ -16,7 +16,7 @@ from urllib3.util.retry import Retry
 
 from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
 from posthog.rate_limiting.github import consume_github_installation_sync
-from posthog.rate_limiting.github_observability import record_github_api_response
+from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
 from posthog.rate_limiting.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -64,17 +64,15 @@ class GithubResumeConfig:
 
 @dataclasses.dataclass(frozen=True)
 class GithubEgressIdentity:
-    """Per-installation identifiers threaded to the HTTP chokepoint (``_fetch_page``) so it can gate
-    on the shared per-installation egress budget and label per-integration telemetry.
+    """Identity threaded to the HTTP chokepoint (``_fetch_page``) so it can gate on the shared
+    per-installation egress budget and label telemetry.
 
-    ``installation_id`` is the GitHub App installation id — the limiter's budget owner, matching the
-    key other consumers of the same installation use, so the shared budget is genuinely shared.
-    ``integration_id`` is the PostHog ``Integration`` PK — the telemetry gauge label, matching every
-    other ``record_github_api_response`` caller. Both are ``None`` on the PAT path (no installation,
-    token-blind), which skips the gate and records request volume only — the pre-limiter behavior."""
+    ``installation_id`` is the GitHub App installation id — the limiter's budget owner and the
+    telemetry key, matching every other consumer of the same installation so the shared budget is
+    genuinely shared. ``None`` on the PAT path (no installation, token-blind), which skips the gate and
+    records request volume only — the pre-limiter behavior."""
 
     installation_id: str | None = None
-    integration_id: str | None = None
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -394,21 +392,24 @@ def _fetch_page(
     # Only the App path has an installation to bill (PAT path has no shared budget). On denial raise
     # the retryable error so tenacity backs off instead of blocking a worker — bulk traffic defers,
     # critical traffic keeps the headroom the BATCH reserve protects. Skipped entirely on the PAT path.
-    if egress_identity is not None and egress_identity.installation_id is not None:
-        if not consume_github_installation_sync(
-            egress_identity.installation_id, priority=Priority.BATCH, source="warehouse"
-        ):
-            raise GithubRetryableError(
-                f"GitHub egress budget exhausted for installation {egress_identity.installation_id}; deferring"
-            )
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    if installation_id is not None:
+        if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
+            raise GithubRetryableError(f"GitHub egress budget exhausted for installation {installation_id}; deferring")
 
-    response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+    # Record transport failures (ReadTimeout/ConnectionError from the retry tuple) too, so a GitHub
+    # connectivity incident doesn't silently zero out warehouse telemetry exactly when it matters. Best
+    # effort — the recorder never raises, and we re-raise the original error untouched.
+    try:
+        response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+    except requests.RequestException:
+        record_github_api_exception(source="warehouse", method="GET", url=page_url, installation_id=installation_id)
+        raise
 
-    # Record before the branching below so rate-limited (403/429) and error responses count too.
-    # Pass the PostHog integration id when known (App path) so the per-integration rate-limit gauges
-    # are set too; the PAT path stays counter-only (no installation id, integration_id None).
-    integration_id = egress_identity.integration_id if egress_identity is not None else None
-    record_github_api_response(response, source="warehouse", integration_id=integration_id)
+    # Record before the branching below so rate-limited (403/429) and error responses count too. Pass the
+    # installation id when known (App path) so the shared rate-limit gauges are set; the PAT path stays
+    # counter-only (no installation, token-blind).
+    record_github_api_response(response, source="warehouse", installation_id=installation_id)
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:

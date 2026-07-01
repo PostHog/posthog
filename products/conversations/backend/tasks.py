@@ -1792,7 +1792,7 @@ def post_reply_to_github(
             },
             timeout=15,
         )
-        record_github_api_response(resp, source="conversations", integration_id=str(github.integration.id))
+        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
         if resp.status_code not in (200, 201):
             logger.warning(
                 "github_reply_post_failed",
@@ -1864,7 +1864,7 @@ def create_github_issue(
             },
             timeout=15,
         )
-        record_github_api_response(resp, source="conversations", integration_id=str(github.integration.id))
+        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))

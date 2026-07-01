@@ -434,7 +434,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
             "GET",
             f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
             access_token=access_token,
-            integration_id=str(github.integration.id),
+            installation_id=github.github_installation_id,
             timeout=10,
         )
     except requests.RequestException:
@@ -474,7 +474,7 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
             "GET",
             f"https://api.github.com/repos/{repo_full_name}",
             access_token=access_token,
-            integration_id=str(github.integration.id),
+            installation_id=github.github_installation_id,
             timeout=10,
         )
     except requests.RequestException:
@@ -1386,7 +1386,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
         "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
         access_token=access_token,
-        integration_id=str(github.integration.id),
+        installation_id=github.github_installation_id,
         timeout=10,
     )
     if response.status_code == 200:
@@ -1419,7 +1419,7 @@ def _github_api_request(
 
     url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
     response = github_request(
-        method, url, access_token=access_token, integration_id=str(github.integration.id), **kwargs
+        method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
     )
 
     if response.status_code == 404 and repo.repo_external_id:
@@ -1436,7 +1436,7 @@ def _github_api_request(
 
             url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
             response = github_request(
-                method, url, access_token=access_token, integration_id=str(github.integration.id), **kwargs
+                method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
             )
 
     return response
@@ -1456,7 +1456,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
         "GET",
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
         access_token=access_token,
-        integration_id=str(github.integration.id),
+        installation_id=github.github_installation_id,
         timeout=10,
     )
 
@@ -1492,7 +1492,7 @@ def _fetch_baseline_file(
         "GET",
         f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
         access_token=access_token,
-        integration_id=str(github.integration.id),
+        installation_id=github.github_installation_id,
         params={"ref": branch},
         timeout=10,
     )
@@ -1617,7 +1617,7 @@ def _post_commit_status(
             "POST",
             f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
             access_token=access_token,
-            integration_id=str(github.integration.id),
+            installation_id=github.github_installation_id,
             json={
                 "state": state,
                 "description": description[:140],

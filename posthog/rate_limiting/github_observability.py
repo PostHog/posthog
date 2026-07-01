@@ -30,24 +30,26 @@ _metrics = EgressMetrics(
     request_counter=Counter(
         "github_integration_api_requests",
         "Number of GitHub API requests made through a GitHub client.",
-        labelnames=["integration_id", "method", "endpoint", "status_code", "source"],
+        labelnames=["installation_id", "method", "endpoint", "status_code", "source"],
     ),
-    # Gauges carry no source label: GitHub's budget is shared per installation, so all sources update
-    # one series per (integration_id, resource). (This also matches the pre-unification gauge labels.)
+    # Gauges are keyed by installation_id, not integration_id: GitHub meters the rate limit per App
+    # installation, and several PostHog integration rows can share one installation. Keying by the row
+    # would split one real budget into flip-flopping per-row series; the installation is the true budget
+    # owner. Gauges also carry no source label — all sources sharing an installation update one series.
     remaining_gauge=Gauge(
         "github_integration_api_rate_limit_remaining",
-        "Most recently observed GitHub API rate limit remaining count by integration and resource.",
-        labelnames=["integration_id", "resource"],
+        "Most recently observed GitHub API rate limit remaining count by installation and resource.",
+        labelnames=["installation_id", "resource"],
     ),
     limit_gauge=Gauge(
         "github_integration_api_rate_limit_limit",
-        "Most recently observed GitHub API rate limit limit by integration and resource.",
-        labelnames=["integration_id", "resource"],
+        "Most recently observed GitHub API rate limit limit by installation and resource.",
+        labelnames=["installation_id", "resource"],
     ),
     reset_gauge=Gauge(
         "github_integration_api_rate_limit_reset_timestamp_seconds",
-        "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
-        labelnames=["integration_id", "resource"],
+        "Most recently observed GitHub API rate limit reset timestamp by installation and resource.",
+        labelnames=["installation_id", "resource"],
     ),
 )
 
@@ -134,21 +136,24 @@ def record_github_api_response(
     response: requests.Response,
     *,
     source: str,
-    integration_id: str | None = None,
+    installation_id: str | None = None,
     method: str | None = None,
     endpoint: str | None = None,
 ) -> None:
-    """Record one GitHub API response. ``integration_id`` is the budget owner; pass it when known so
-    the per-integration rate-limit gauges are set (identity-blind callers get request volume only)."""
-    github_egress.record_response(response, source=source, scope=integration_id, method=method, endpoint=endpoint)
+    """Record one GitHub API response. ``installation_id`` is the GitHub App installation — the shared
+    rate-limit budget GitHub meters. Pass it when known so the rate-limit gauges are set; identity-blind
+    callers (raw PATs) get request volume only. ``source`` attributes the call to a subsystem."""
+    github_egress.record_response(response, source=source, scope=installation_id, method=method, endpoint=endpoint)
 
 
 def record_github_api_exception(
     *,
     source: str,
     method: str,
-    endpoint: str,
-    integration_id: str | None = None,
+    endpoint: str | None = None,
+    url: str | None = None,
+    installation_id: str | None = None,
 ) -> None:
-    """Record a request that raised before a response (timeout, connection error)."""
-    github_egress.record_exception(source=source, scope=integration_id, method=method, endpoint=endpoint)
+    """Record a request that raised before a response (timeout, connection error). Pass a curated
+    ``endpoint`` or a raw ``url`` (normalised internally)."""
+    github_egress.record_exception(source=source, scope=installation_id, method=method, endpoint=endpoint, url=url)
