@@ -93,6 +93,10 @@ class FingerprintIssueNotFoundError(RuntimeError):
     pass
 
 
+class StaleAutoMergeStateError(RuntimeError):
+    pass
+
+
 def _capture_activity_exception(
     error: Exception,
     inputs: FingerprintEmbeddingResultInputs,
@@ -312,7 +316,7 @@ def _merge_fingerprint_into_closest_issue(
             closest_fingerprint.fingerprint: target_issue_id,
         },
     ):
-        return 0
+        raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
 
     with ph_scoped_capture() as capture:
         capture(
