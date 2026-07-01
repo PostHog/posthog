@@ -14,6 +14,20 @@ from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 
 M15 = timedelta(minutes=15)
+H6 = timedelta(hours=6)
+
+
+def _no_existing_schedules():
+    async def fake_list_schedules(*_args, **_kwargs):
+        async def gen():
+            return
+            yield  # pragma: no cover — empty async generator
+
+        return gen()
+
+    temporal = mock.Mock()
+    temporal.list_schedules = fake_list_schedules
+    return temporal
 
 
 def _table_node(team, dag, name, properties):
@@ -67,3 +81,33 @@ class TestPreviewFreshnessSchedules(BaseTest):
         self.assertIn("CREATE", output)
         self.assertIn("0:15:00", output)
         self.assertIn("dry run", output)
+
+    def test_seed_mode_models_go_live_from_current_cadence(self):
+        # a DAG on a 6h cadence with no per-node targets: raw would schedule nothing, --seed
+        # reproduces today's 6h cadence as a tier so go-live doesn't unschedule it.
+        dag = DAG.objects.create(team=self.team, name="on-6h", sync_frequency_interval=H6)
+        _saved_query_node(self.team, dag, "v", NodeType.VIEW)
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        out = StringIO()
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=_no_existing_schedules())),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            call_command(
+                "preview_freshness_schedules",
+                "--team-id",
+                str(self.team.pk),
+                "--dag-id",
+                str(dag.id),
+                "--seed",
+                stdout=out,
+            )
+
+        create.assert_not_called()
+        delete.assert_not_called()
+        output = out.getvalue()
+        self.assertIn("seeded from current cadence", output)
+        self.assertIn("CREATE", output)
+        self.assertIn("6:00:00", output)

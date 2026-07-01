@@ -2,13 +2,15 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest import mock
+from unittest import TestCase, mock
 
+from parameterized import parameterized
 from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.node_frequency import set_frequency_target
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
+from products.data_modeling.backend.logic.freshness import STREAMING
+from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_frequency_target
+from products.data_modeling.backend.logic.schedule_reconcile import _find_unsatisfiable, reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -16,6 +18,7 @@ from products.data_modeling.backend.models.node import Node, NodeType
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
+H6 = timedelta(hours=6)
 
 
 def _table_node(team, dag, name, properties):
@@ -75,3 +78,39 @@ class TestReconcileDagSchedules(BaseTest):
         # the stale H1 schedule is removed; nothing to update
         update.assert_not_called()
         delete.assert_called_once_with(temporal, schedule_id=stale_id)
+
+
+class TestFindUnsatisfiable(TestCase):
+    @parameterized.expand(
+        [
+            # scheduled finer than the 6h source delivers -> flagged
+            ("finer_than_source_floor", M15, H6, True),
+            # exactly at the floor -> satisfiable
+            ("at_floor", H6, H6, False),
+            # coarser than the floor -> satisfiable
+            ("coarser_than_floor", H6, H1, False),
+            # streamed source imposes no floor -> satisfiable at any cadence
+            ("streamed_source", M15, STREAMING, False),
+        ]
+    )
+    def test_flags_node_finer_than_its_source(self, _name, effective, source_interval, flagged):
+        graph = FrequencyGraph(
+            nodes={"a"},
+            edges=[("src", "a")],
+            targets={"a": effective},
+            source_intervals={"src": source_interval},
+            best_effort_source_ids=set(),
+        )
+        result = _find_unsatisfiable(graph, {"a": effective}, {"a": effective})
+        if flagged:
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].node_id, "a")
+            self.assertEqual(result[0].floor, source_interval)
+        else:
+            self.assertEqual(result, [])
+
+    def test_unscheduled_node_is_never_flagged(self):
+        graph = FrequencyGraph(
+            nodes={"a"}, edges=[("src", "a")], targets={}, source_intervals={"src": H6}, best_effort_source_ids=set()
+        )
+        self.assertEqual(_find_unsatisfiable(graph, {"a": None}, {}), [])

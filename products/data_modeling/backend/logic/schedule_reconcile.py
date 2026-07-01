@@ -40,8 +40,8 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
-from products.data_modeling.backend.logic.freshness import compute_effective_cadences
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
+from products.data_modeling.backend.logic.freshness import compute_effective_cadences, frequency_target_bounds
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, seed_targets
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
 
@@ -62,6 +62,15 @@ def reconcile_dag_schedules(dag: DAG) -> None:
 
 
 @dataclasses.dataclass
+class UnsatisfiableTier:
+    """A node scheduled finer than its slowest ancestor source can actually deliver."""
+
+    node_id: str
+    effective: timedelta  # cadence it would be scheduled at
+    floor: timedelta  # coarsest cadence its sources can actually deliver
+
+
+@dataclasses.dataclass
 class DagSchedulePreview:
     """What reconcile would do for a DAG, computed read-only (no schedule writes)."""
 
@@ -69,16 +78,21 @@ class DagSchedulePreview:
     desired_tiers: dict[timedelta, set[str]]
     plan: ScheduleReconcilePlan
     best_effort_source_ids: set[str]  # sources whose freshness is not actually guaranteed
+    unsatisfiable: list[UnsatisfiableTier]  # effective finer than the source floor can honor
+    seeded: bool  # whether targets were seeded in-memory from current cadence
 
 
-def preview_dag_schedules(dag: DAG) -> DagSchedulePreview:
+def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview:
     """Compute the reconciliation a DAG would undergo, without creating/updating/deleting anything.
 
     Reads the graph and lists the DAG's current schedules; never writes. This is the dry-run
-    behind the preview management command.
+    behind the preview management command. With `seed`, nodes lacking an explicit target fall
+    back in memory to `seed_targets(dag)` — modelling the go-live plan after the PR B backfill,
+    without persisting anything (explicit targets still win).
     """
     graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=graph.targets)
+    targets = {**seed_targets(dag), **graph.targets} if seed else graph.targets
+    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=targets)
     desired_tiers = bucket_into_cadence_tiers(effective)
     existing_ids = _list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
@@ -87,7 +101,23 @@ def preview_dag_schedules(dag: DAG) -> DagSchedulePreview:
         desired_tiers=desired_tiers,
         plan=plan,
         best_effort_source_ids=graph.best_effort_source_ids,
+        unsatisfiable=_find_unsatisfiable(graph, effective, targets),
+        seeded=seed,
     )
+
+
+def _find_unsatisfiable(graph, effective, targets) -> list[UnsatisfiableTier]:
+    """Flag nodes whose scheduled cadence is finer than their ancestor sources can deliver."""
+    flagged: list[UnsatisfiableTier] = []
+    for node_id, node_effective in effective.items():
+        if node_effective is None:
+            continue
+        floor, _ceiling = frequency_target_bounds(
+            node_id=node_id, edges=graph.edges, targets=targets, source_intervals=graph.source_intervals
+        )
+        if node_effective < floor:
+            flagged.append(UnsatisfiableTier(node_id=node_id, effective=node_effective, floor=floor))
+    return flagged
 
 
 @async_to_sync
@@ -132,7 +162,10 @@ async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[s
     ids: set[str] = set()
     async for listing in schedules:
         action = listing.schedule.action if listing.schedule else None
-        if isinstance(action, ScheduleListActionStartWorkflow) and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW:
+        if (
+            isinstance(action, ScheduleListActionStartWorkflow)
+            and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
+        ):
             ids.add(listing.id)
     return ids
 

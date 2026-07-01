@@ -15,6 +15,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--team-id", type=int, required=True)
         parser.add_argument("--dag-id", type=str, default=None, help="Limit to one DAG (default: all of the team's)")
+        parser.add_argument(
+            "--seed",
+            action="store_true",
+            help="Model the go-live plan: seed a target from current cadence for nodes without one (in memory, no write)",
+        )
 
     def handle(self, *args, **options):
         dags = DAG.objects.filter(team_id=options["team_id"])
@@ -24,14 +29,15 @@ class Command(BaseCommand):
         if not dags:
             raise CommandError("No matching DAGs")
         for dag in dags:
-            self._preview(dag)
+            self._preview(dag, seed=options["seed"])
         self.stdout.write("\n(dry run — no schedules were created, updated, or deleted)")
 
-    def _preview(self, dag: DAG) -> None:
-        preview = preview_dag_schedules(dag)
+    def _preview(self, dag: DAG, *, seed: bool) -> None:
+        preview = preview_dag_schedules(dag, seed=seed)
         names = {str(node_id): name for node_id, name in Node.objects.filter(dag=dag).values_list("id", "name")}
 
-        self.stdout.write(f"\nDAG {dag.name} ({dag.id}) — team {dag.team_id}")
+        seeded_note = "  [targets seeded from current cadence]" if preview.seeded else ""
+        self.stdout.write(f"\nDAG {dag.name} ({dag.id}) — team {dag.team_id}{seeded_note}")
 
         self.stdout.write("  Effective cadences:")
         for node_id, interval in sorted(preview.effective.items(), key=lambda item: names.get(item[0], item[0])):
@@ -44,6 +50,12 @@ class Command(BaseCommand):
             self.stdout.write(f"    {interval}: {members}")
 
         self._print_plan(preview)
+
+        for tier in sorted(preview.unsatisfiable, key=lambda t: names.get(t.node_id, t.node_id)):
+            self.stdout.write(
+                f"  ⚠ unsatisfiable: {names.get(tier.node_id, tier.node_id)} would run every {tier.effective} "
+                f"but its sources only deliver every {tier.floor}"
+            )
 
         if preview.best_effort_source_ids:
             flagged = ", ".join(sorted(names.get(node_id, node_id) for node_id in preview.best_effort_source_ids))

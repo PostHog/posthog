@@ -18,6 +18,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
     get_frequency_target,
     resolve_source_intervals,
+    seed_targets,
     set_frequency_target,
 )
 from products.data_modeling.backend.models.dag import DAG
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+DAY = timedelta(days=1)
 
 
 def _table_node(team: Team, dag: DAG, name: str, properties: dict) -> Node:
@@ -182,3 +184,34 @@ class TestBuildFrequencyGraph(BaseTest):
                 targets=graph.targets,
                 source_intervals=graph.source_intervals,
             )
+
+
+@pytest.mark.django_db
+class TestSeedTargets(BaseTest):
+    def _view_node_in_dag_with(self, *, saved_query_interval, dag_interval) -> tuple[DAG, Node]:
+        dag = DAG.objects.create(team=self.team, name="seed-demo", sync_frequency_interval=dag_interval)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="v",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=saved_query_interval,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=saved_query, type=NodeType.VIEW)
+        return dag, node
+
+    @parameterized.expand(
+        [
+            ("saved_query_interval_wins", H1, DAY, H1),
+            ("falls_back_to_dag_interval", None, DAY, DAY),
+            ("no_signal_leaves_node_unseeded", None, None, None),
+        ]
+    )
+    def test_seed(self, _name, saved_query_interval, dag_interval, expected):
+        dag, node = self._view_node_in_dag_with(saved_query_interval=saved_query_interval, dag_interval=dag_interval)
+        seeds = seed_targets(dag)
+        self.assertEqual(seeds, {} if expected is None else {str(node.id): expected})
+
+    def test_source_tables_are_never_seeded(self):
+        dag = DAG.objects.create(team=self.team, name="seed-demo-src", sync_frequency_interval=H1)
+        _table_node(self.team, dag, "events", {"origin": "posthog"})
+        self.assertEqual(seed_targets(dag), {})
