@@ -1,5 +1,8 @@
-import { matchesDataAttribute } from 'lib/utils/actions'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
+import { elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
+
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { ElementType } from '~/types'
 
@@ -8,6 +11,11 @@ interface ElementFingerprint {
     id: string | null
     classes: Set<string>
     dataAttrs: Map<string, string>
+    nthChild: number
+    nthOfType: number
+}
+
+interface ElementPosition {
     nthChild: number
     nthOfType: number
 }
@@ -30,17 +38,36 @@ function addToIndex(map: Map<string, HTMLElement[]>, key: string, element: HTMLE
     }
 }
 
-function createFingerprint(element: HTMLElement): ElementFingerprint {
+function getPosition(
+    element: HTMLElement,
+    positionsByParent: WeakMap<HTMLElement, Map<Element, ElementPosition>>
+): ElementPosition {
     const parent = element.parentElement
-    let nthChild = 1
-    let nthOfType = 1
-
-    if (parent) {
-        const siblings = Array.from(parent.children)
-        const elementIndex = siblings.indexOf(element)
-        nthChild = elementIndex + 1
-        nthOfType = siblings.filter((s, idx) => s.tagName === element.tagName && idx < elementIndex).length + 1
+    if (!parent) {
+        return { nthChild: 1, nthOfType: 1 }
     }
+
+    let positions = positionsByParent.get(parent)
+    if (!positions) {
+        positions = new Map()
+        const typeCounts = new Map<string, number>()
+        let nthChild = 0
+        for (const child of Array.from(parent.children)) {
+            nthChild += 1
+            const nthOfType = (typeCounts.get(child.tagName) ?? 0) + 1
+            typeCounts.set(child.tagName, nthOfType)
+            positions.set(child, { nthChild, nthOfType })
+        }
+        positionsByParent.set(parent, positions)
+    }
+    return positions.get(element) ?? { nthChild: 1, nthOfType: 1 }
+}
+
+function createFingerprint(
+    element: HTMLElement,
+    positionsByParent: WeakMap<HTMLElement, Map<Element, ElementPosition>>
+): ElementFingerprint {
+    const { nthChild, nthOfType } = getPosition(element, positionsByParent)
 
     const dataAttrs = new Map<string, string>()
     for (let i = 0; i < element.attributes.length; i++) {
@@ -69,9 +96,10 @@ export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
         byHref: new Map(),
         fingerprints: new WeakMap(),
     }
+    const positionsByParent = new WeakMap<HTMLElement, Map<Element, ElementPosition>>()
 
     for (const element of pageElements) {
-        const fingerprint = createFingerprint(element)
+        const fingerprint = createFingerprint(element, positionsByParent)
         index.fingerprints.set(element, fingerprint)
 
         if (fingerprint.id) {
@@ -162,34 +190,28 @@ function getCandidatesFromIndex(
     })
 }
 
-function matchesParent(candidate: HTMLElement, parentEvent: ElementType, index: DOMIndex): boolean {
-    const parent = candidate.parentElement
-    if (!parent) {
+function fingerprintMatchesEventElement(
+    fingerprint: ElementFingerprint | undefined,
+    eventElement: ElementType
+): boolean {
+    if (!fingerprint) {
         return false
     }
-
-    const fp = index.fingerprints.get(parent)
-    if (!fp) {
+    if (eventElement.tag_name && fingerprint.tagName !== eventElement.tag_name.toLowerCase()) {
         return false
     }
-
-    if (parentEvent.tag_name && fp.tagName !== parentEvent.tag_name.toLowerCase()) {
+    if (eventElement.attr_id && fingerprint.id !== eventElement.attr_id) {
         return false
     }
-    if (parentEvent.attr_id && fp.id !== parentEvent.attr_id) {
-        return false
-    }
-    if (parentEvent.attr_class?.length) {
-        for (const cls of parentEvent.attr_class) {
-            if (cls && !fp.classes.has(cls)) {
-                return false
-            }
+    for (const cls of eventElement.attr_class ?? []) {
+        if (cls && !fingerprint.classes.has(cls)) {
+            return false
         }
     }
-    return true
+    return matchesPosition(fingerprint, eventElement)
 }
 
-function isTooSimple(element: ElementType): boolean {
+export function isTooSimple(element: ElementType): boolean {
     return !!(
         element.tag_name &&
         !element.attr_class &&
@@ -213,19 +235,26 @@ export function matchEventToElementUsingIndex(
         return null
     }
 
-    let candidates = getCandidatesFromIndex(targetElement, dataAttributes, matchLinksByHref, index)
+    const candidates = getCandidatesFromIndex(targetElement, dataAttributes, matchLinksByHref, index)
 
     if (candidates.length === 0) {
         return null
     }
 
-    for (let i = 1; i < event.elements.length && candidates.length > 1; i++) {
-        candidates = candidates.filter((c) => matchesParent(c, event.elements[i], index))
+    let walkers = candidates.map((candidate) => ({ candidate, ancestor: candidate.parentElement }))
+    for (let i = 1; i < event.elements.length && walkers.length > 1; i++) {
+        const eventAncestor = event.elements[i]
+        walkers = walkers.flatMap(({ candidate, ancestor }) => {
+            if (!ancestor || !fingerprintMatchesEventElement(index.fingerprints.get(ancestor), eventAncestor)) {
+                return []
+            }
+            return [{ candidate, ancestor: ancestor.parentElement }]
+        })
     }
 
-    if (candidates.length === 1 && !isTooSimple(targetElement)) {
+    if (walkers.length === 1 && !isTooSimple(targetElement)) {
         return {
-            element: candidates[0],
+            element: walkers[0].candidate,
             count: event.count,
             selector: '',
             hash: event.hash,
@@ -234,6 +263,67 @@ export function matchEventToElementUsingIndex(
             rageclickCount: 0,
             deadclickCount: 0,
         }
+    }
+
+    return null
+}
+
+export function matchEventToElementUsingSelectors(
+    event: ElementsEventType,
+    dataAttributes: string[],
+    matchLinksByHref: boolean,
+    pageElements: HTMLElement[],
+    selectorCache: Record<string, HTMLElement[]>,
+    hasShadowRoots: boolean
+): CountedHTMLElement | null {
+    let lastSelector: string | undefined
+
+    for (let i = 0; i < event.elements.length; i++) {
+        const element = event.elements[i]
+        const selector =
+            elementToSelector(matchLinksByHref ? element : { ...element, href: undefined }, dataAttributes) || '*'
+        const combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
+
+        try {
+            let domElements: HTMLElement[] | undefined = selectorCache[combinedSelector]
+            if (domElements === undefined) {
+                domElements = hasShadowRoots
+                    ? Array.from(querySelectorAllDeep(combinedSelector, document, pageElements))
+                    : Array.from(document.querySelectorAll<HTMLElement>(combinedSelector))
+                selectorCache[combinedSelector] = domElements
+            }
+
+            if (domElements.length === 1) {
+                if (!(i === 0 && isTooSimple(event.elements[i]))) {
+                    return {
+                        element: domElements[0],
+                        count: event.count,
+                        selector: selector,
+                        hash: event.hash,
+                        type: event.type,
+                        clickCount: 0,
+                        rageclickCount: 0,
+                        deadclickCount: 0,
+                    }
+                }
+            }
+
+            if (domElements.length === 0) {
+                if (i === event.elements.length - 1) {
+                    return null
+                } else if (i > 0 && lastSelector) {
+                    lastSelector = `* > ${lastSelector}`
+                    continue
+                }
+            }
+        } catch {
+            toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
+                selector: combinedSelector,
+            })
+            break
+        }
+
+        lastSelector = combinedSelector
     }
 
     return null
