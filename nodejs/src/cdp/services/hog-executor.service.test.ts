@@ -47,6 +47,7 @@ describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorService
     let hub: Hub
+    let buildExecutor: (fetchTimeoutMsOverrides?: string) => HogExecutorService
 
     beforeEach(async () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -68,21 +69,23 @@ describe('Hog Executor', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorService(
-            {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                fetchTimeoutMsOverrides: hub.CDP_FETCH_TIMEOUT_MS_OVERRIDES,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-            },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
-        )
+        buildExecutor = (fetchTimeoutMsOverrides: string = hub.CDP_FETCH_TIMEOUT_MS_OVERRIDES): HogExecutorService =>
+            new HogExecutorService(
+                {
+                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    fetchRetries: hub.CDP_FETCH_RETRIES,
+                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    fetchTimeoutMsOverrides,
+                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
+                },
+                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                hogInputsService,
+                emailService,
+                recipientTokensService
+            )
+        executor = buildExecutor()
     })
 
     afterEach(() => {
@@ -1558,6 +1561,26 @@ describe('Hog Executor', () => {
                 ]
             `)
         })
+
+        it('applies a longer per-destination timeout from the allowlist', async () => {
+            // Server responds after 4s: longer than the 3s default (which would abort), shorter
+            // than the 5s allowlist override. Proves the override reaches undici end to end.
+            mockRequest.mockImplementation((_req: any, res: any) => {
+                clearTimeout(timeoutHandle)
+                timeoutHandle = setTimeout(() => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                }, 4000)
+            })
+
+            const overrideExecutor = buildExecutor(JSON.stringify({ [hogFunction.id]: 5000 }))
+            const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+
+            const result = await overrideExecutor.executeFetch(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toMatchObject({ status: 200 })
+        }, 20000)
 
         it('handles ResponseContentLengthMismatchError', async () => {
             jest.mocked(fetch).mockImplementationOnce(() => {
