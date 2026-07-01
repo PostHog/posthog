@@ -14,10 +14,12 @@ interface TrendLineOverlayProps {
  * Designed for bar charts where the underlying BarChart canvas can't draw mixed line/bar —
  * this overlay draws the regression line on top as a DOM element using chart scales.
  */
+let _nextId = 0
+
 export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.ReactElement | null {
-    // Stable per-instance ID so clipPath refs don't collide when multiple charts share a page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally stable, computed once
-    const clipId = useMemo(() => `tlo-${(Math.random() * 1e9) | 0}`, [])
+    // Stable per-instance ID — module counter is deterministic and avoids Math.random().
+    // useRef so the ID is allocated once on mount and never changes across re-renders.
+    const clipId = React.useRef(`tlo-${_nextId++}`).current
     const { scales, dimensions, labels } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
 
