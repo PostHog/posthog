@@ -9,6 +9,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
+import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { InsightsTable, InsightsTableProps } from './InsightsTable'
 
 type Story = StoryObj<InsightsTableProps>
@@ -24,7 +25,7 @@ const renderInsightsTable = (props: any, { parameters }: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
     const cachedInsight = {
         ...insight,
         short_id: dashboardItemId,
@@ -101,7 +102,7 @@ const renderCompareInsightsTable = (props: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
 
     // Duplicate each result series with "current" and "previous" compare labels
     const currentResults = insight.result.map((r: Record<string, any>) => ({

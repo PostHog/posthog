@@ -644,6 +644,7 @@ export namespace Schemas {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort
@@ -676,6 +677,7 @@ export namespace Schemas {
       EventMetadata: 'event_metadata',
       Feature: 'feature',
       Person: 'person',
+      PersonMetadata: 'person_metadata',
       Cohort: 'cohort',
       Element: 'element',
       StaticCohort: 'static-cohort',
@@ -733,6 +735,7 @@ export namespace Schemas {
        * * `event_metadata` - event_metadata
        * * `feature` - feature
        * * `person` - person
+       * * `person_metadata` - person_metadata
        * * `cohort` - cohort
        * * `element` - element
        * * `static-cohort` - static-cohort
@@ -802,6 +805,7 @@ export namespace Schemas {
        * * `event_metadata` - event_metadata
        * * `feature` - feature
        * * `person` - person
+       * * `person_metadata` - person_metadata
        * * `cohort` - cohort
        * * `element` - element
        * * `static-cohort` - static-cohort
@@ -867,6 +871,7 @@ export namespace Schemas {
        * * `event_metadata` - event_metadata
        * * `feature` - feature
        * * `person` - person
+       * * `person_metadata` - person_metadata
        * * `cohort` - cohort
        * * `element` - element
        * * `static-cohort` - static-cohort
@@ -928,6 +933,7 @@ export namespace Schemas {
        * * `event_metadata` - event_metadata
        * * `feature` - feature
        * * `person` - person
+       * * `person_metadata` - person_metadata
        * * `cohort` - cohort
        * * `element` - element
        * * `static-cohort` - static-cohort
@@ -986,6 +992,7 @@ export namespace Schemas {
        * * `event_metadata` - event_metadata
        * * `feature` - feature
        * * `person` - person
+       * * `person_metadata` - person_metadata
        * * `cohort` - cohort
        * * `element` - element
        * * `static-cohort` - static-cohort
@@ -1245,6 +1252,15 @@ export namespace Schemas {
       operator: PropertyOperator;
       /** Person properties */
       type?: 'person';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+      type?: 'person_metadata';
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
@@ -1686,7 +1702,7 @@ export namespace Schemas {
     export interface ActionsNode {
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: 'ActionsNode';
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -1699,7 +1715,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: ActionsNodeResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -2032,7 +2048,7 @@ export namespace Schemas {
 
     export interface PropertyGroupFilterValue {
       type: FilterLogicalOperator;
-      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
+      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
     }
 
     export interface ActorsQueryResponse {
@@ -2209,7 +2225,7 @@ export namespace Schemas {
       /** The event or `null` for all events. */
       event?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsNode';
       limit?: number | null;
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -2224,7 +2240,7 @@ export namespace Schemas {
       /** Columns to order by */
       orderBy?: string[] | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: EventsNodeResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -2237,7 +2253,7 @@ export namespace Schemas {
       distinct_id_field: string;
       dw_source_type?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
       kind?: 'DataWarehouseNode';
@@ -2251,7 +2267,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: DataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
@@ -2264,7 +2280,7 @@ export namespace Schemas {
     export interface GroupNode {
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'GroupNode';
       limit?: number | null;
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -2283,7 +2299,7 @@ export namespace Schemas {
       /** Columns to order by */
       orderBy?: string[] | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: GroupNodeResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -2526,7 +2542,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: TrendsQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -2557,7 +2573,7 @@ export namespace Schemas {
       /** The event or `null` for all events. */
       event?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       funnelFromStep: number;
       funnelToStep: number;
       kind?: 'EventsNode';
@@ -2574,7 +2590,7 @@ export namespace Schemas {
       /** Columns to order by */
       orderBy?: string[] | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: FunnelExclusionEventsNodeResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -2585,7 +2601,7 @@ export namespace Schemas {
     export interface FunnelExclusionActionsNode {
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       funnelFromStep: number;
       funnelToStep: number;
       id: number;
@@ -2600,7 +2616,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: FunnelExclusionActionsNodeResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -2725,7 +2741,7 @@ export namespace Schemas {
       custom_name?: string | null;
       dw_source_type?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
       kind?: 'FunnelsDataWarehouseNode';
@@ -2739,7 +2755,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: FunnelsDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
@@ -2768,7 +2784,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: FunnelsQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -2905,7 +2921,7 @@ export namespace Schemas {
       name?: string | null;
       order?: number | null;
       /** filters on the event */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       /** Data warehouse table name */
       table_name?: string | null;
       /** Data warehouse timestamp field */
@@ -2971,7 +2987,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: RetentionQueryResponse | null;
       /** Properties specific to the retention insight */
       retentionFilter: RetentionFilter;
@@ -3080,7 +3096,7 @@ export namespace Schemas {
       /** Properties specific to the paths insight */
       pathsFilter: PathsFilter;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: PathsQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -3173,7 +3189,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: StickinessQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -3237,7 +3253,7 @@ export namespace Schemas {
       created_at_field: string;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       kind?: 'LifecycleDataWarehouseNode';
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -3250,7 +3266,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: LifecycleDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
@@ -3277,7 +3293,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: LifecycleQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -3624,7 +3640,7 @@ export namespace Schemas {
     export interface FunnelCorrelationActorsQuery {
       funnelCorrelationPersonConverted?: boolean | null;
       funnelCorrelationPersonEntity?: EventsNode | ActionsNode | DataWarehouseNode | null;
-      funnelCorrelationPropertyValues?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      funnelCorrelationPropertyValues?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       includeRecordings?: boolean | null;
       kind?: 'FunnelCorrelationActorsQuery';
       /** Modifiers used when performing the query */
@@ -3641,7 +3657,7 @@ export namespace Schemas {
     export interface ExperimentEventExposureConfig {
       event: string;
       kind?: 'ExperimentEventExposureConfig';
-      properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
+      properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
       response?: ExperimentEventExposureConfigResponse;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -3670,7 +3686,7 @@ export namespace Schemas {
       data_warehouse_join_key: string;
       events_join_key: string;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'ExperimentDataWarehouseNode';
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
@@ -3682,7 +3698,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: ExperimentDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
@@ -3999,7 +4015,7 @@ export namespace Schemas {
     export interface HogQLFilters {
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
     export interface HogQLNotice {
@@ -4107,7 +4123,7 @@ export namespace Schemas {
 
     export interface ActorsQuery {
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-      fixedProperties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
+      fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
       kind?: 'ActorsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -4115,7 +4131,7 @@ export namespace Schemas {
       offset?: number | null;
       orderBy?: string[] | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-      properties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
+      properties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
       response?: ActorsQueryResponse | null;
       search?: string | null;
       select?: string[] | null;
@@ -5505,6 +5521,7 @@ export namespace Schemas {
       EventMetadata: 'event_metadata',
       NumericalEventProperties: 'numerical_event_properties',
       PersonProperties: 'person_properties',
+      PersonMetadata: 'person_metadata',
       PageviewUrls: 'pageview_urls',
       PageviewEvents: 'pageview_events',
       Screens: 'screens',
@@ -5577,7 +5594,7 @@ export namespace Schemas {
       event?: string | null;
       href?: string | null;
       href_matching?: HrefMatching | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       selector?: string | null;
       tag_name?: string | null;
       text?: string | null;
@@ -5629,7 +5646,7 @@ export namespace Schemas {
       /** Filter test accounts */
       filterTestAccounts?: boolean | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsQuery';
       /** Number of rows to return */
       limit?: number | null;
@@ -5642,7 +5659,7 @@ export namespace Schemas {
       /** Show events for a given person */
       personId?: string | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: EventsQueryResponse | null;
       /** Return a limited set of data. Required. */
       select: string[];
@@ -5661,14 +5678,14 @@ export namespace Schemas {
       cohort?: number | null;
       distinctId?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'PersonsNode';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: PersonsNodeResponse;
       search?: string | null;
       tags?: QueryLogTags | null;
@@ -6035,11 +6052,11 @@ export namespace Schemas {
       /** Filter sessions by event name - sessions that contain this event */
       event?: string | null;
       /** Event property filters - filters sessions that contain events matching these properties */
-      eventProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      eventProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       /** Filter test accounts */
       filterTestAccounts?: boolean | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'SessionsQuery';
       /** Number of rows to return */
       limit?: number | null;
@@ -6052,7 +6069,7 @@ export namespace Schemas {
       /** Show sessions for a given person */
       personId?: string | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: SessionsQueryResponse | null;
       /** Return a limited set of data. Required. */
       select: string[];
@@ -6340,7 +6357,7 @@ export namespace Schemas {
       /** The event or `null` for all events. */
       event?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsNode';
       limit?: number | null;
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -6355,7 +6372,7 @@ export namespace Schemas {
       /** Columns to order by */
       orderBy?: string[] | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: ConversionGoalFilter1Response;
       schema_map: ConversionGoalFilter1SchemaMap;
       /** version of the node, used for schema migrations */
@@ -6371,7 +6388,7 @@ export namespace Schemas {
       conversion_goal_name: string;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: 'ActionsNode';
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -6384,7 +6401,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: ConversionGoalFilter2Response;
       schema_map: ConversionGoalFilter2SchemaMap;
       /** version of the node, used for schema migrations */
@@ -6402,7 +6419,7 @@ export namespace Schemas {
       distinct_id_field: string;
       dw_source_type?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
       kind?: 'DataWarehouseNode';
@@ -6416,7 +6433,7 @@ export namespace Schemas {
       name?: string | null;
       optionalInFunnel?: boolean | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: ConversionGoalFilter3Response;
       schema_map: ConversionGoalFilter3SchemaMap;
       table_name: string;
@@ -6890,7 +6907,7 @@ export namespace Schemas {
       /** Person who performed the event */
       personId?: string | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
       randomOrder?: boolean | null;
       response?: TracesQueryResponse | null;
@@ -6932,7 +6949,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: TraceQueryResponse | null;
       tags?: QueryLogTags | null;
       traceId: string;
@@ -8669,6 +8686,8 @@ export namespace Schemas {
     } as const;
 
     export interface FunnelsAlertConfig {
+      /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+      check_ongoing_interval?: boolean | null;
       /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
       funnel_step?: number | null;
       metric: FunnelConversionMetric;
@@ -8927,7 +8946,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -12024,7 +12043,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: CalendarHeatmapResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
@@ -12922,13 +12941,28 @@ export namespace Schemas {
     }
 
     export interface PersonFilter {
+      operator?: string | null;
+      value?: unknown;
       bytecode?: unknown[] | null;
       bytecode_error?: string | null;
       conditionHash?: string | null;
       type: 'person';
       key: string;
+      negation?: boolean;
+    }
+
+    /**
+     * Filter on a top-level persons-table column (e.g. created_at) rather than the
+     * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+     */
+    export interface PersonMetadataFilter {
       operator?: string | null;
       value?: unknown;
+      bytecode?: unknown[] | null;
+      bytecode_error?: string | null;
+      conditionHash?: string | null;
+      type: 'person_metadata';
+      key: string;
       negation?: boolean;
     }
 
@@ -12937,7 +12971,7 @@ export namespace Schemas {
      */
     export interface CohortFilterGroup {
       type: PropertyGroupOperator;
-      values: (BehavioralFilter | CohortFilter | PersonFilter | CohortFilterGroup)[];
+      values: (BehavioralFilter | CohortFilter | PersonFilter | PersonMetadataFilter | CohortFilterGroup)[];
     }
 
     export interface CohortFilters {
@@ -14392,7 +14426,7 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
     /**
@@ -19047,6 +19081,31 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data: unknown;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingBypassRuleCreateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+      filters: PropertyGroupFilterValue;
+    }
+
+    export interface ErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+    }
+
     export interface ErrorTrackingDateRange {
       /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
       date_from?: string;
@@ -21647,7 +21706,7 @@ export namespace Schemas {
     export interface FeatureFlagGroupType {
       aggregation_group_type_index?: number | null;
       description?: string | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       rollout_percentage?: number | null;
       sort_key?: string | null;
       users_affected?: number | null;
@@ -26358,7 +26417,7 @@ export namespace Schemas {
       distinct_ids?: string[] | null;
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
-      having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      having_predicates?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
       hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
@@ -26371,7 +26430,7 @@ export namespace Schemas {
       /** Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here */
       order_direction?: RecordingOrderDirection | null;
       person_uuid?: string | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: RecordingsQueryResponse | null;
       session_ids?: string[] | null;
       /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
@@ -26405,7 +26464,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: TraceNeighborsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** Timestamp of the current trace to find neighbors for */
@@ -26555,7 +26614,7 @@ export namespace Schemas {
       kind?: 'MCPHarnessBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: MCPHarnessBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
@@ -30684,6 +30743,7 @@ export namespace Schemas {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -30701,6 +30761,7 @@ export namespace Schemas {
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
     } as const;
 
     /**
@@ -31265,6 +31326,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
+    }
+
+    export interface PaginatedErrorTrackingBypassRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingBypassRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
@@ -35252,9 +35322,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
      */
-    export interface VisionActionRun {
+    export interface VisionActionRunList {
       readonly id: string;
       /** Run outcome: running, completed, failed, or skipped.
        *
@@ -35270,8 +35340,6 @@ export namespace Schemas {
       readonly scheduled_at: string | null;
       /** Number of observations that fed this run's summary. */
       readonly observation_count: number;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
       /**
          * Short human-readable reason a run skipped or failed; null on success.
          * @nullable
@@ -35281,13 +35349,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export interface PaginatedVisionActionRunList {
+    export interface PaginatedVisionActionRunListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: VisionActionRun[];
+      results: VisionActionRunList[];
     }
 
     export interface WarehouseColumnAnnotation {
@@ -35749,7 +35817,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -36733,6 +36801,26 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id?: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters?: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key?: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data?: unknown;
+      /** When the rule was created. */
+      readonly created_at?: string;
+      /** When the rule was last updated. */
+      readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
     }
 
     /**
@@ -41447,7 +41535,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -42546,6 +42635,38 @@ export namespace Schemas {
     export interface PrimaryPropertiesResponse {
       /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
       primary_properties: PrimaryPropertiesResponsePrimaryProperties;
+    }
+
+    /**
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `session_replay` - session_replay
+     */
+    export type ProductsEnum = typeof ProductsEnum[keyof typeof ProductsEnum];
+
+
+    export const ProductsEnum = {
+      Conversations: 'conversations',
+      ErrorTracking: 'error_tracking',
+      SessionReplay: 'session_replay',
+    } as const;
+
+    export interface ProductEnablement {
+      /**
+         * Products to turn on for this project, each enabled with server-owned conservative defaults.
+         * @minItems 1
+         */
+      products: ProductsEnum[];
+    }
+
+    /**
+     * Per requested product: "enabled" (just turned on) or "already_enabled".
+     */
+    export type ProductEnablementResultResults = {[key: string]: string};
+
+    export interface ProductEnablementResult {
+      /** Per requested product: "enabled" (just turned on) or "already_enabled". */
+      results: ProductEnablementResultResults;
     }
 
     /**
@@ -47070,6 +47191,28 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+     */
+    export interface RunObservation {
+      /** Observation id; links to the observation detail view. */
+      readonly id: string;
+      /** Session recording id this observation was made on. */
+      readonly session_id: string;
+      /**
+         * Email of the person in the recorded session, captured at scan time; null if unidentified.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Short title from the observation's summary; null if the observation had none.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the observation was produced. */
+      readonly created_at: string;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -48096,6 +48239,22 @@ export namespace Schemas {
       source_id: string;
       /** ISO-8601 timestamp the finding was emitted. */
       emitted_at: string;
+    }
+
+    /**
+     * Response for an on-demand (`run now`) scout dispatch.
+     *
+     * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+     * row yet at response time — the bridge row is created once the run's first turn starts.
+     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     */
+    export interface SignalScoutManualRun {
+      /** The `signals-scout-*` skill that was dispatched. */
+      skill_name: string;
+      /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+      workflow_id: string;
+      /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+      started: boolean;
     }
 
     /**
@@ -51869,8 +52028,16 @@ export namespace Schemas {
     }
 
     export interface TaskRunRelayMessageRequest {
-      /** @maxLength 10000 */
+      /**
+         * Joined message body. Used when text_parts is absent.
+         * @maxLength 10000
+         */
       text: string;
+      /**
+         * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+         * @items.maxLength 10000
+         */
+      text_parts?: string[];
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -52046,7 +52213,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -52919,6 +53087,38 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    /**
+     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+      readonly observations: readonly RunObservation[];
+    }
+
     export interface VisionQuota {
       /** Total observations the org may complete per calendar month. */
       readonly monthly_quota: number;
@@ -53284,6 +53484,36 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunActivityPoint {
+      /** GitHub Actions run id. */
+      run_id: number;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+      run_started_at: string;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      head_branch: string;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunActivity {
+      /** Per-run chart points, newest first, capped at `limit`. */
+      points: WorkflowRunActivityPoint[];
+      /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+      truncated: boolean;
+      /** Maximum number of run points returned in `points`. */
+      limit: number;
     }
 
     export interface WorkflowRunDetail {
@@ -55505,6 +55735,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -58012,11 +58253,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -61536,7 +61780,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string;
     /**
@@ -61579,7 +61823,38 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsWorkflowRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to load run activity for.
+     */
+    workflow_name: string;
+    };
+
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61603,6 +61878,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61644,6 +61923,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -62036,6 +62326,10 @@ export namespace Schemas {
     };
 
     export type ExperimentSavedMetricsListParams = {
+    /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string;
     /**
      * Number of results to return per page.
      */
@@ -64643,11 +64937,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**

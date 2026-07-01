@@ -1046,6 +1046,29 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
+    def test_create_task_with_hogdesk_origin_product(self):
+        # HogDesk creates Code tasks from a support ticket's Code chat with this
+        # origin. Ensure the value round-trips through the API — the serializer
+        # validates origin_product against OriginProduct.choices and 400s an
+        # unknown value, so this is the regression that guards the enum addition.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "hogdesk",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.HOGDESK)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
+
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
@@ -3342,13 +3365,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
+                "use_modal_directory_resume_snapshots": True,
+                "snapshot_external_id": "im-real",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": "/tmp",
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
         # credential-propagation target at a sandbox they control, inflate the run's compute /
         # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
-        # (which would mint a write-scoped wizard token into the sandbox). Non-protected keys merge.
+        # (which would mint a write-scoped wizard token into the sandbox), change rollout
+        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3361,6 +3389,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
+                    "use_modal_directory_resume_snapshots": False,
+                    "snapshot_external_id": "im-attacker",
+                    "snapshot_kind": "directory",
+                    "snapshot_mount_path": "/tmp/workspace",
                     "scratch": "ok",
                 }
             },
@@ -3376,18 +3408,37 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
+        assert run.state["use_modal_directory_resume_snapshots"] is True
+        assert run.state["snapshot_external_id"] == "im-real"
+        assert run.state["snapshot_kind"] == "directory"
+        assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            {
+                "state": {},
+                "state_remove_keys": [
+                    "github_credential_source",
+                    "sandbox_id",
+                    "use_modal_directory_resume_snapshots",
+                    "snapshot_external_id",
+                    "snapshot_kind",
+                    "snapshot_mount_path",
+                    "scratch",
+                ],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
+        assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
+        assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
+        assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -3885,6 +3936,58 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_execute_relay.assert_called_once_with(
             run_id=str(run.id),
             text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "prefers_last_non_empty_text_part",
+                {
+                    "text": "I'll pull DAU.\n\nHere's your answer.",
+                    "text_parts": ["I'll pull DAU.", "Here's your answer."],
+                },
+                "Here's your answer.",
+            ),
+            (
+                "falls_back_to_text_when_parts_only_blank",
+                {"text": "actual message", "text_parts": ["", "   "]},
+                "actual message",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_text_selection(self, _name, payload, expected_posted_text, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-selected"
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text=expected_posted_text,
             delete_progress=True,
         )
 
