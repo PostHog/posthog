@@ -3,9 +3,12 @@ import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
+    findPostHogPermissionError,
+    findRecoverableApiError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
@@ -305,10 +308,44 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // These are best-effort cache fetches: every caller degrades
+            // gracefully on failure (returning the stale cache below, then
+            // failing closed). A 4xx here — most commonly a 404/403 when the
+            // configured project or org isn't accessible to the token in use —
+            // is an expected per-user config state, not a service bug. Capturing
+            // it as an exception mints a fresh error tracking issue and, on the
+            // `getAnalyticsContext` path that runs on every tool call, can do so
+            // repeatedly. Downgrade those to a warn and reserve
+            // `captureException` for genuinely unexpected failures (5xx, network
+            // errors). Mirrors the 4xx short-circuit in `handleToolError`.
+            if (this._isExpectedClientError(error)) {
+                console.warn(
+                    `[StateManager] get_or_fetch_${opts.name} returned an expected client error; returning cached value`
+                )
+            } else {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
+    }
+
+    /**
+     * Client errors (4xx and permission denials) on a best-effort
+     * `get_or_fetch_*` fetch are expected, recoverable user-config states — an
+     * inaccessible project/org, a stale id, a missing scope — not bugs. Keep
+     * them out of error tracking. Unwraps `cause` chains so a wrapped typed
+     * error (e.g. `getUser`'s `wrapError`) is still classified correctly.
+     */
+    private _isExpectedClientError(error: unknown): boolean {
+        if (findPostHogPermissionError(error)) {
+            return true
+        }
+        const apiError = findRecoverableApiError(error)
+        if (!apiError) {
+            return false
+        }
+        return apiError instanceof PostHogValidationError || (apiError.status >= 400 && apiError.status < 500)
     }
 
     async getCachedOrFetchUser(): Promise<CachedUser | undefined> {
