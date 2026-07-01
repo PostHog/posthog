@@ -230,6 +230,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -495,6 +496,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription

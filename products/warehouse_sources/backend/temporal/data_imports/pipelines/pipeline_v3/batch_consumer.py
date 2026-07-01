@@ -166,7 +166,6 @@ class BatchConsumerAdapter(Protocol):
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
-        keep_locks: bool = False,
     ) -> list[PendingBatch]: ...
 
     async def reconcile_failed_runs(
@@ -747,12 +746,10 @@ class BatchConsumer:
 
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
-        # keep_locks lets advisory-lock sinks (duckgres) hold their probe locks
-        # through the re-queue so a concurrent consumer can't pick a batch up
-        # mid-recovery. The lease sink ignores it: get_stale_executing already
-        # excludes any group with a live lease, and the finally-unlock below is a
-        # no-op for leases this pod doesn't own.
-        stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=True)
+        # Both sinks coordinate via group leases: get_stale_executing already
+        # excludes any group with a live lease, and the finally-unlock below only
+        # deletes leases this pod owns, so it can't steal a live group.
+        stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
             return
@@ -802,9 +799,9 @@ class BatchConsumer:
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
-            # Release probe locks held by keep_locks=True (advisory sinks). For the
-            # lease sink this only deletes leases this pod owns, so it's a no-op for
-            # the abandoned groups recovered above.
+            # Drop any leases this pod still owns for the recovered groups so a
+            # surviving consumer can claim them immediately; a no-op for groups
+            # abandoned by other pods.
             try:
                 await self._adapter.unlock(conn, batches=stale, owner_token=self._owner_token)
             except Exception:

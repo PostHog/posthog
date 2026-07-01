@@ -195,10 +195,7 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
-        keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        # keep_locks is meaningless for the lease sink: get_stale_executing holds
-        # no locks and the lease LEFT JOIN already excludes live groups.
         return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(

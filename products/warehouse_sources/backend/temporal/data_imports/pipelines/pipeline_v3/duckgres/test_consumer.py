@@ -231,6 +231,8 @@ class TestDuckgresEnablementGating:
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
         assert mock_fetch.call_args[1]["retry_backoff_base_seconds"] == 30
         assert mock_fetch.call_args[1]["blocked_schema_ids"] == ["blocked-schema"]
+        assert mock_fetch.call_args[1]["owner_token"] == "test-owner"
+        assert mock_fetch.call_args[1]["lease_ttl_seconds"] == 300
         mock_supersede.assert_called_once()
         mock_backlog.assert_called_once()
         mock_planner.assert_called_once_with([1, 2])

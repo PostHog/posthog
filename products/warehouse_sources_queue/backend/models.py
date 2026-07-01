@@ -144,6 +144,36 @@ class SourceGroupLease(models.Model):
         ]
 
 
+class SourceDuckgresGroupLease(ProductTeamModel):
+    """Lease-based mutual exclusion for the duckgres sink's (team_id, schema_id) groups.
+
+    Same mechanics as [SourceGroupLease] but a separate table: the delta consumer
+    and the duckgres sink process the same groups independently, so they must
+    never contend for one lease row. Replaces the duckgres sink's session-scoped
+    advisory lock, whose ownership was tied to a live server session and could be
+    orphaned indefinitely on SIGKILL or pgbouncer session lingering. All access
+    is via raw SQL in ``duckgres/jobs_db.py`` — this model exists for
+    migration/introspection.
+    """
+
+    schema_id = models.CharField(max_length=200)
+    owner_token = models.CharField(max_length=64, help_text="Per-pod identity (uuid4) of the current lease holder.")
+    expires_at = models.DateTimeField()
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    __repr__ = sane_repr("team_id", "schema_id", "owner_token", "expires_at")
+
+    class Meta:
+        db_table = "sourceduckgresgrouplease"
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "schema_id"], name="sdgl_team_schema_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["expires_at"], name="sdgl_expires_at_idx"),
+        ]
+
+
 class SourceBatchDuckgresApply(ProductTeamModel, UUIDModel):
     schema_id = models.CharField(max_length=200)
     run_uuid = models.CharField(max_length=200)

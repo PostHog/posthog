@@ -6,6 +6,7 @@ import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
+    DUCKGRES_LEASE_TABLE,
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
     DuckgresBatchQueue,
@@ -115,11 +116,23 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
         )
     """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {DUCKGRES_LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sdgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
 
 
 def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(
-        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE} RESTART IDENTITY CASCADE"
+        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE}, {DUCKGRES_LEASE_TABLE} RESTART IDENTITY CASCADE"
     )
 
 
@@ -179,7 +192,7 @@ class TestDuckgresBatchQueueEligibility:
     async def test_ignores_batches_until_delta_succeeds(self, conn):
         await _insert_batch(conn)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -188,7 +201,7 @@ class TestDuckgresBatchQueueEligibility:
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert len(batches) == 1
         assert str(batches[0].id) == batch_id
@@ -199,7 +212,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -209,7 +222,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="waiting_retry", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert len(batches) == 1
         assert batches[0].latest_attempt == 1
@@ -221,7 +234,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
         await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert [batch.batch_index for batch in batches] == [0]
 
@@ -232,13 +245,13 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=data_id, job_state="succeeded", attempt=1)
         await BatchQueue.update_status(conn, batch_id=final_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(batch.id) for batch in batches] == [data_id]
 
         await DuckgresBatchQueue.mark_applied(conn, batch=batches[0])
-        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(batch.id) for batch in batches] == [final_id]
 
     @pytest.mark.asyncio
@@ -248,7 +261,7 @@ class TestDuckgresBatchQueueEligibility:
         failed_id = await _insert_batch(conn, batch_index=1)
         await BatchQueue.update_status(conn, batch_id=failed_id, job_state="failed", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -260,7 +273,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=failed_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=failed_id, job_state="failed", attempt=3)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -298,7 +311,7 @@ class TestDuckgresCrossRunOrdering:
         new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         # Only the older run's next batch is eligible; run-2 waits behind it.
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 1)]
@@ -312,7 +325,7 @@ class TestDuckgresCrossRunOrdering:
         new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
 
@@ -332,7 +345,7 @@ class TestDuckgresCrossRunOrdering:
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
         assert superseded == 1  # run-1's pending batch 1
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
 
     @pytest.mark.asyncio
@@ -348,7 +361,7 @@ class TestDuckgresCrossRunOrdering:
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
         assert superseded == 0
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 0)]
 
 
@@ -359,10 +372,15 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn, team_id=1)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        # Advisory locks are session-reentrant, so repeated fetches on one conn are fine.
-        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[2]) == []
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[1, 2])) == 1
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=None)) == 1
+        # The same owner re-claims its own lease, so repeated fetches are fine.
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=[2]) == []
+        assert (
+            len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=[1, 2]))
+            == 1
+        )
+        assert (
+            len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=None)) == 1
+        )
 
     @pytest.mark.asyncio
     async def test_backlog_stats(self, conn):
@@ -394,8 +412,20 @@ class TestBackfillGating:
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"]) == []
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["other"])) == 1
+        assert (
+            await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+                conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+            )
+            == []
+        )
+        assert (
+            len(
+                await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+                    conn, owner_token="owner-a", blocked_schema_ids=["other"]
+                )
+            )
+            == 1
+        )
 
     @pytest.mark.asyncio
     async def test_backfill_batches_pass_the_block(self, conn):
@@ -408,7 +438,9 @@ class TestBackfillGating:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
 
         assert [b.run_uuid for b in batches] == ["duckgres-backfill-schema-1-v7"]
 
@@ -449,7 +481,7 @@ class TestBackfillQueueContracts:
 
         assert await BatchQueue.get_unprocessed_and_lock(conn, owner_token="test-owner") == []
 
-        duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in duck] == [batch_id]
 
     @pytest.mark.asyncio
@@ -469,7 +501,9 @@ class TestBackfillQueueContracts:
         )
         await BatchQueue.update_status(conn, batch_id=chunk, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
@@ -488,7 +522,7 @@ class TestBackfillQueueContracts:
 
         # Schema primed (not blocked) but the backfill run is older and
         # incomplete: the live batch must wait.
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
@@ -527,7 +561,7 @@ class TestBackfillQueueContracts:
         # The straddling sibling is NOT lost: its head-of-line prev is satisfied
         # by the pre-apply marker, the run is not failed, and it remains the
         # schema's claimable work (post-swap it applies as a live batch).
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in batches] == [late_b]
 
     @pytest.mark.asyncio
@@ -544,5 +578,130 @@ class TestBackfillQueueContracts:
         # Retire the plain run first so the cross-run gate isn't what hides it.
         await DuckgresBatchQueue.update_status(conn, batch_id=plain, job_state="failed", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
         assert [str(b.id) for b in batches] == [head]
+
+
+async def _insert_chunk(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batch_index: int,
+    chunk_count: int = 3,
+    run_uuid: str = "duckgres-backfill-schema-1-v1-g00000000",
+) -> str:
+    batch_id = await _insert_batch(
+        conn,
+        run_uuid=run_uuid,
+        job_id="duckgres-backfill",
+        is_resume=True,
+        batch_index=batch_index,
+        metadata={
+            "duckgres_backfill": True,
+            "chunk_paths": [f"s3://b/c{batch_index}.parquet"],
+            "chunk_count": chunk_count,
+        },
+    )
+    await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+    return batch_id
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillChunkClaiming:
+    @pytest.mark.asyncio
+    async def test_whole_backfill_run_claimable_in_one_fetch(self, conn):
+        for i in range(3):
+            await _insert_chunk(conn, batch_index=i)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        # Chunks must come back in index order: the group loop applies them
+        # sequentially, so chunk 0's CREATE always lands before the inserts.
+        assert [b.batch_index for b in batches] == [0, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_chunks_blocked_behind_executing_predecessor(self, conn):
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+        await _insert_chunk(conn, batch_index=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="executing", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "backoff_seconds,expected_indexes",
+        [
+            (3600, []),  # predecessor inside its backoff window gates the run
+            (0, [0, 1]),  # backoff elapsed: predecessor and successor co-claim
+        ],
+    )
+    async def test_retry_backoff_gates_successor_chunks(self, conn, backoff_seconds, expected_indexes):
+        chunk0 = await _insert_chunk(conn, batch_index=0, chunk_count=2)
+        await _insert_chunk(conn, batch_index=1, chunk_count=2)
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="waiting_retry", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", retry_backoff_base_seconds=backoff_seconds
+        )
+
+        assert [b.batch_index for b in batches] == expected_indexes
+
+    @pytest.mark.asyncio
+    async def test_applied_predecessor_does_not_block(self, conn):
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+        await _insert_chunk(conn, batch_index=1)
+        await _mark_applied_raw(
+            conn, batch_id=chunk0, run_uuid="duckgres-backfill-schema-1-v1-g00000000", batch_index=0
+        )
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert [b.batch_index for b in batches] == [1]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresGroupLease:
+    @pytest.mark.asyncio
+    async def test_live_lease_blocks_other_owner_until_released(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert len(claimed) == 1
+
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b") == []
+
+        # A non-owner's unlock must not release owner-a's lease.
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=claimed, owner_token="owner-b")
+        assert await DuckgresBatchQueue.verify_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=claimed, owner_token="owner-a")
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
+
+    @pytest.mark.asyncio
+    async def test_expired_lease_is_reclaimable_by_another_owner(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
+        assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+        assert await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-b")
+
+    @pytest.mark.asyncio
+    async def test_stale_executing_visible_only_after_lease_expiry(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+
+        assert await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0) == []
+
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        stale = await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0)
+        assert [str(b.id) for b in stale] == [batch_id]

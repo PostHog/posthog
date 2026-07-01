@@ -80,10 +80,10 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
-    # Advisory locks are session-scoped: the lock acquired during fetch_and_lock
-    # must be verified/released on the same connection, so groups share the poll
-    # connection. Migrating duckgres to leases is tracked separately.
-    per_group_connections: bool = False
+    # Lease ownership is token-based (sourceduckgresgrouplease), so any connection
+    # works per group — the poll loop keeps claiming new groups while others are
+    # in flight instead of barriering on the slowest batch of each poll cycle.
+    per_group_connections: bool = True
 
     def __init__(self) -> None:
         self._team_ids: list[int] | None = None
@@ -178,9 +178,6 @@ class DuckgresBatchConsumerAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
-        # The duckgres sink coordinates via session advisory locks, not leases:
-        # owner_token / lease_ttl_seconds are part of the shared adapter contract
-        # but unused here.
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
             return []
@@ -194,10 +191,12 @@ class DuckgresBatchConsumerAdapter:
 
         return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
             conn,
+            owner_token=owner_token,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
             blocked_schema_ids=self._blocked_schema_ids,
+            lease_ttl_seconds=lease_ttl_seconds,
         )
 
     async def unlock(
@@ -207,7 +206,7 @@ class DuckgresBatchConsumerAdapter:
         batches: list[PendingBatch],
         owner_token: str,
     ) -> None:
-        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token)
 
     async def release_all_owned(
         self,
@@ -215,8 +214,7 @@ class DuckgresBatchConsumerAdapter:
         *,
         owner_token: str,
     ) -> None:
-        # Duckgres holds session advisory locks; release them all on graceful shutdown.
-        await conn.execute("SELECT pg_advisory_unlock_all()")
+        await DuckgresBatchQueue.release_all_owned_leases(conn, owner_token=owner_token)
 
     async def update_status(
         self,
@@ -261,7 +259,9 @@ class DuckgresBatchConsumerAdapter:
         schema_id: str,
         owner_token: str,
     ) -> bool:
-        return await DuckgresBatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+        return await DuckgresBatchQueue.verify_lease(
+            conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token
+        )
 
     async def renew_lease(
         self,
@@ -272,18 +272,21 @@ class DuckgresBatchConsumerAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
     ) -> bool:
-        # Duckgres ownership is the session advisory lock (checked by verify_advisory_lock),
-        # which has no TTL to renew; report ownership retained.
-        return True
+        return await DuckgresBatchQueue.renew_lease(
+            conn,
+            team_id=team_id,
+            schema_id=schema_id,
+            owner_token=owner_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+        )
 
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
-        keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=keep_locks)
+        return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,
