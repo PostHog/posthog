@@ -1806,3 +1806,61 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).toContain('actionLabel: "Enforce 2FA"')
     })
 })
+
+describe('optional param with state fallback', () => {
+    const resolved = (): ResolvedOperation =>
+        makeResolved({
+            path: '/api/organizations/{organization_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { in: 'path', name: 'organization_id', required: true, schema: { type: 'string' } },
+                    { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+    const config = (): ToolConfig => ({
+        operation: 'things_retrieve',
+        enabled: true,
+        param_overrides: {
+            id: {
+                description: 'Thing ID. If omitted, uses the active project.',
+                optional: true,
+                fallback: 'projectId',
+                cast: 'string-int',
+            },
+        },
+    })
+
+    it('resolves the omitted param from state in the handler', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('const id = params.id ?? await context.stateManager.getProjectId()')
+    })
+
+    it('surfaces the field as optional despite the cast wrapper (z.preprocess strips inner optionality)', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        // The outer `.optional()` after the preprocess is what makes the agent-facing
+        // JSON Schema treat the param as optional. Without it, the tool would still
+        // demand the id the fallback exists to supply.
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('.optional()).optional()')
+    })
+})

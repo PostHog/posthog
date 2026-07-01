@@ -1152,7 +1152,9 @@ class FilloutSourceConfig(config.Config):
 
 @config.config
 class FinageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
+    start_date: str | None = None
 
 
 @config.config

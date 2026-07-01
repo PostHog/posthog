@@ -155,7 +155,9 @@ describe('visionActionsLogic', () => {
             scanner: 's1',
             trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
             synthesis_config: { prompt_guide: 'focus on checkout' },
-            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123' }],
+            // The full `${id}|#${name}` composite is stored so the actions table can show the channel
+            // name; the backend strips it to the bare id for the Slack destination.
+            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123|#general' }],
         })
     })
 

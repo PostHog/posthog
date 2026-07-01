@@ -364,10 +364,16 @@ class LogsFilterBuilder:
             )
 
         if self.query.liveLogsCheckpoint:
+            try:
+                checkpoint = dt.datetime.fromisoformat(self.query.liveLogsCheckpoint)
+            except ValueError as e:
+                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")
+            if checkpoint.tzinfo is None:
+                checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
             exprs.append(
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
-                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=checkpoint)},
                 )
             )
 

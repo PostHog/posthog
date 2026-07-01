@@ -242,7 +242,12 @@ class _AccountCustomPropertiesTable(LazyTable):
         ),
         "values": StringJSONDatabaseField(
             name="values",
-            description="JSON object of active custom property values keyed by definition id, coalesced to strings.",
+            description=(
+                "JSON object of active custom property values keyed by custom property definition id, "
+                "coalesced to strings. Read one property with "
+                "accounts.custom_properties.values.`<definition_id>` (backtick-quote the id). "
+                "Get definition ids and names from system.custom_property_definitions."
+            ),
         ),
     }
 
