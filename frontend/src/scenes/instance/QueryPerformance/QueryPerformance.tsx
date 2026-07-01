@@ -4,11 +4,14 @@ import { IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
+import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanizeBytes } from 'lib/utils/numbers'
@@ -43,6 +46,74 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'ratio', label: 'Ratio' },
     { value: 'retention', label: 'Retention' },
 ]
+
+// Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
+// mirroring how the Duration column sums total_duration_ms over the group.
+const groupBytes = (item: SlowestQuery): number =>
+    item.read_bytes + item.sub_queries.reduce((sum, q) => sum + q.read_bytes, 0)
+
+// Off/gated reasons come straight from the runner tag; build-failed/not-ready are derived from the
+// precompute-build sub-queries. Empty tag + no sub-queries is the legacy/forward-only case ("not ready").
+const SKIP_REASON_LABELS: Record<string, string> = {
+    override_direct: 'forced direct (query override)',
+    team_disabled: 'precompute off for team',
+    min_runtime: 'experiment <12h old',
+    data_warehouse: 'data warehouse metric',
+}
+
+function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {
+    const skip = item.experiment_precompute_skip_reason
+    if (skip && SKIP_REASON_LABELS[skip]) {
+        return SKIP_REASON_LABELS[skip]
+    }
+    const builds = item.sub_queries.filter((q) => q.experiment_precompute_table === table)
+    const failed = builds.find((q) => q.exception)
+    if (failed) {
+        return `build failed (${failed.exception_code || 'error'})`
+    }
+    if (builds.length > 0) {
+        return 'build incomplete / not ready'
+    }
+    return 'not ready'
+}
+
+const EXCEPTION_CODE_LABELS: Record<number, string> = {
+    307: 'exceeded byte limit',
+    159: 'timeout',
+    241: 'out of memory',
+    202: 'cluster busy',
+}
+
+const codeLabel = (code: number): string => EXCEPTION_CODE_LABELS[code] ?? `error ${code}`
+
+// One-glance terminal result for the group: the read plus its precompute builds. exception_code 0 = ok.
+function outcome(item: SlowestQuery): { label: string; type: LemonTagType } {
+    const parentFailed = item.exception_code !== 0
+    const buildFailed = item.sub_queries.some((q) => q.exception_code !== 0)
+    if (!parentFailed && !buildFailed) {
+        return { label: 'OK', type: 'success' }
+    }
+    if (parentFailed && buildFailed) {
+        return { label: `Build + read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    if (parentFailed) {
+        return { label: `Read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    return { label: 'Build failed', type: 'warning' }
+}
+
+// Compact day-span of a scan window, exact dates on hover. Renders nothing for pre-tag (empty) rows.
+function ScanWindow({ from, to }: { from: string; to: string }): JSX.Element | null {
+    if (!from || !to) {
+        return null
+    }
+    const days = Math.max(1, dayjs(to).diff(dayjs(from), 'day'))
+    return (
+        <Tooltip title={`${from} → ${to}`}>
+            <span className="font-mono text-xs">{days}d</span>
+        </Tooltip>
+    )
+}
 
 function QueryStats({
     read_bytes,
@@ -193,6 +264,31 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
+            title: 'Read',
+            key: 'read_bytes',
+            width: 130,
+            sorter: (a, b) => groupBytes(a) - groupBytes(b),
+            render: function Read(_, item): JSX.Element {
+                const total = groupBytes(item)
+                const hasSubQueries = item.sub_queries && item.sub_queries.length > 0
+                return (
+                    <div className="font-mono">
+                        <span>{humanizeBytes(total)}</span>
+                        {hasSubQueries && (
+                            <span className="text-muted text-xs"> · read {humanizeBytes(item.read_bytes)}</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Scan window',
+            width: 110,
+            render: function ScanWindowCol(_, item): JSX.Element | null {
+                return <ScanWindow from={item.experiment_scan_date_from} to={item.experiment_scan_date_to} />
+            },
+        },
+        {
             title: 'Organization',
             render: function OrgCell(_, item) {
                 return (
@@ -256,19 +352,30 @@ export function QueryPerformance(): JSX.Element {
                         </LemonTag>
                     )
                 }
-                const pathTag = (label: string, value: string): JSX.Element | null => {
+                const pathTag = (
+                    label: string,
+                    value: string,
+                    table: 'exposures' | 'metric_events'
+                ): JSX.Element | null => {
                     if (!value || value === 'not_applicable') {
                         return null
                     }
+                    if (value === 'precomputed') {
+                        return <LemonTag type="success">{label}: precomputed</LemonTag>
+                    }
                     return (
-                        <LemonTag type={value === 'precomputed' ? 'success' : 'default'}>
-                            {label}: {value === 'precomputed' ? 'precomputed' : 'direct'}
-                        </LemonTag>
+                        <Tooltip title={reasonForDirect(item, table)}>
+                            <LemonTag type="default">{label}: direct</LemonTag>
+                        </Tooltip>
                     )
                 }
                 // Fall back to the deprecated experiment_execution_path for rows logged before the split.
-                const exposures = pathTag('exposures', item.experiment_exposures_path || item.experiment_execution_path)
-                const events = pathTag('events', item.experiment_metric_events_path)
+                const exposures = pathTag(
+                    'exposures',
+                    item.experiment_exposures_path || item.experiment_execution_path,
+                    'exposures'
+                )
+                const events = pathTag('events', item.experiment_metric_events_path, 'metric_events')
                 if (!exposures && !events) {
                     return null
                 }
@@ -298,6 +405,14 @@ export function QueryPerformance(): JSX.Element {
                 )
             },
         },
+        {
+            title: 'Outcome',
+            width: 160,
+            render: function Outcome(_, item): JSX.Element {
+                const { label, type } = outcome(item)
+                return <LemonTag type={type}>{label}</LemonTag>
+            },
+        },
     ]
 
     const subQueryColumns: LemonTableColumns<SlowestQuery> = [
@@ -313,6 +428,20 @@ export function QueryPerformance(): JSX.Element {
             width: 120,
             render: function SubQueryDuration(_, item) {
                 return <span className="font-mono">{Math.round(item.execution_time)}</span>
+            },
+        },
+        {
+            title: 'Scan window',
+            width: 110,
+            render: function SubQueryWindow(_, item): JSX.Element | null {
+                return <ScanWindow from={item.precompute_window_start} to={item.precompute_window_end} />
+            },
+        },
+        {
+            title: 'Read',
+            width: 110,
+            render: function SubQueryRead(_, item): JSX.Element {
+                return <span className="font-mono">{humanizeBytes(item.read_bytes)}</span>
             },
         },
         {
@@ -410,6 +539,23 @@ export function QueryPerformance(): JSX.Element {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
                                                     <QueryStats {...item} />
+                                                    <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                        <span>
+                                                            query_id:{' '}
+                                                            <CopyToClipboardInline description="query ID">
+                                                                {item.query_id}
+                                                            </CopyToClipboardInline>
+                                                        </span>
+                                                        {item.experiment_query_group_id && (
+                                                            <span>
+                                                                group:{' '}
+                                                                <CopyToClipboardInline description="group ID">
+                                                                    {item.experiment_query_group_id}
+                                                                </CopyToClipboardInline>
+                                                            </span>
+                                                        )}
+                                                        <LinkMetabaseQuery queryId={item.query_id} />
+                                                    </div>
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>

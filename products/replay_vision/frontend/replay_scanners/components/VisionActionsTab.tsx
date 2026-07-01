@@ -1,14 +1,15 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { HedgehogXRay } from '@posthog/brand/hoggies'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -68,7 +69,7 @@ function VisionActionsTable(): JSX.Element {
                 productName="Scheduled summaries"
                 thingName="action"
                 isEmpty
-                customHog={XRayHog}
+                customHog={HedgehogXRay}
                 description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
                 actionElementOverride={
                     <EditorGate>
@@ -90,7 +91,15 @@ function VisionActionsTable(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, action) => <span className="font-semibold">{action.name}</span>,
+            render: (_, action) => (
+                <Link
+                    className="font-semibold"
+                    to={urls.replayVisionAction(action.id)}
+                    data-attr="vision-action-view-runs"
+                >
+                    {action.name}
+                </Link>
+            ),
         },
         {
             title: 'Schedule',

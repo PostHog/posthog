@@ -47,7 +47,13 @@ pub struct TeamFilters {
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
     /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
     pub behavioral_conditions: HashSet<[u8; 16]>,
+    /// Event name → the behavioral conditionHashes whose bytecode roots at `event == <name>`; the
+    /// fan-out gate evaluates only the incoming event's bucket.
+    pub behavioral_by_event_name: HashMap<String, Vec<[u8; 16]>>,
     pub person_property_conditions: HashSet<[u8; 16]>,
+    /// `person_property_conditions` sorted — the stable bit positions the person memo indexes by, so
+    /// an entry's bits stay aligned across no-op refreshes.
+    pub person_conditions_ordered: Vec<[u8; 16]>,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
@@ -73,7 +79,9 @@ impl Default for TeamFilters {
             unique_condition_hashes: HashSet::new(),
             by_lsk: HashMap::new(),
             behavioral_conditions: HashSet::new(),
+            behavioral_by_event_name: HashMap::new(),
             person_property_conditions: HashSet::new(),
+            person_conditions_ordered: Vec::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
             by_lsk_to_composable_cohorts: HashMap::new(),
             by_referenced_cohort: HashMap::new(),
@@ -163,6 +171,7 @@ impl TeamFiltersBuilder {
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
+        let mut behavioral_by_event_name: HashMap<String, HashSet<[u8; 16]>> = HashMap::new();
         let mut person_property_conditions = HashSet::new();
 
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
@@ -171,6 +180,7 @@ impl TeamFiltersBuilder {
                 &tree.root,
                 &mut by_lsk,
                 &mut behavioral_conditions,
+                &mut behavioral_by_event_name,
                 &mut person_property_conditions,
             );
             let flags = self.flags.get(&tree.cohort_id).copied().unwrap_or_default();
@@ -247,6 +257,19 @@ impl TeamFiltersBuilder {
             cohorts.sort_unstable();
         }
 
+        let mut person_conditions_ordered: Vec<[u8; 16]> =
+            person_property_conditions.iter().copied().collect();
+        person_conditions_ordered.sort_unstable();
+
+        let behavioral_by_event_name = behavioral_by_event_name
+            .into_iter()
+            .map(|(name, hashes)| {
+                let mut hashes: Vec<[u8; 16]> = hashes.into_iter().collect();
+                hashes.sort_unstable();
+                (name, hashes)
+            })
+            .collect();
+
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
@@ -254,7 +277,9 @@ impl TeamFiltersBuilder {
             unique_condition_hashes: self.unique_condition_hashes,
             by_lsk,
             behavioral_conditions,
+            behavioral_by_event_name,
             person_property_conditions,
+            person_conditions_ordered,
             by_lsk_to_single_leaf_cohorts,
             by_lsk_to_composable_cohorts,
             by_referenced_cohort,
@@ -285,6 +310,7 @@ fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
     behavioral_conditions: &mut HashSet<[u8; 16]>,
+    behavioral_by_event_name: &mut HashMap<String, HashSet<[u8; 16]>>,
     person_property_conditions: &mut HashSet<[u8; 16]>,
 ) {
     match node {
@@ -294,6 +320,7 @@ fn collect_leaf_meta(
                     child,
                     by_lsk,
                     behavioral_conditions,
+                    behavioral_by_event_name,
                     person_property_conditions,
                 );
             }
@@ -322,6 +349,10 @@ fn collect_leaf_meta(
                     },
                 );
                 behavioral_conditions.insert(leaf.condition_hash);
+                behavioral_by_event_name
+                    .entry(leaf.event_key.clone())
+                    .or_default()
+                    .insert(leaf.condition_hash);
             }
         }
         FilterNode::Leaf(CohortLeaf::PersonProperty(leaf)) => {
@@ -755,6 +786,115 @@ mod tests {
         assert!(frozen
             .behavioral_conditions
             .is_disjoint(&frozen.person_property_conditions));
+    }
+
+    #[test]
+    fn person_conditions_ordered_is_the_sorted_person_condition_set() {
+        let mut other_person = person_leaf();
+        other_person
+            .as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!("0011223344556677"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    person_leaf(),
+                    other_person,
+                    behavioral_performed_event(7),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let mut expected: Vec<[u8; 16]> =
+            frozen.person_property_conditions.iter().copied().collect();
+        expected.sort_unstable();
+        assert_eq!(frozen.person_conditions_ordered, expected);
+        assert!(
+            frozen
+                .person_conditions_ordered
+                .windows(2)
+                .all(|w| w[0] < w[1]),
+            "the order is strictly ascending and carries no behavioral hash",
+        );
+    }
+
+    #[test]
+    fn behavioral_by_event_name_buckets_each_name_and_unions_to_behavioral_conditions() {
+        const PURCHASE_HASH: [u8; 16] = *b"purchasehash0002";
+        let purchase = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "purchase",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": "purchasehash0002",
+            "bytecode": ["_H", 1, 32, "purchase", 32, "event", 1, 1, 11],
+        });
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), purchase, person_leaf()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(frozen.behavioral_by_event_name["$pageview"], vec![HASH]);
+        assert_eq!(
+            frozen.behavioral_by_event_name["purchase"],
+            vec![PURCHASE_HASH],
+        );
+        assert!(
+            !frozen.behavioral_by_event_name.contains_key("email"),
+            "a person leaf is not bucketed by event name",
+        );
+
+        let union: HashSet<[u8; 16]> = frozen
+            .behavioral_by_event_name
+            .values()
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(
+            union, frozen.behavioral_conditions,
+            "the buckets partition exactly the behavioral conditions",
+        );
+    }
+
+    #[test]
+    fn same_event_name_collects_distinct_hashes_deduped_and_sorted() {
+        const HASH2: [u8; 16] = *b"0011223344556677";
+        let mut other = behavioral_performed_event_multiple(7, "day", "gte", 3);
+        other
+            .as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!("0011223344556677"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    behavioral_performed_event(7),
+                    behavioral_performed_event(7),
+                    other,
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let mut expected = [HASH, HASH2];
+        expected.sort_unstable();
+        assert_eq!(
+            frozen.behavioral_by_event_name["$pageview"],
+            expected.to_vec(),
+            "the bucket dedupes the repeated leaf and sorts its two distinct hashes",
+        );
     }
 
     #[test]

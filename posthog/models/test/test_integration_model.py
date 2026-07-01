@@ -1,6 +1,5 @@
 import time
 import base64
-import socket
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -2052,9 +2051,8 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
 
 
 class TestDatabricksIntegrationModel(BaseTest):
-    @patch("posthog.models.integration.socket.socket")
-    def test_integration_from_config_with_valid_config(self, mock_socket):
-        mock_socket.return_value.connect.return_value = None
+    @patch("posthog.models.integration.is_url_allowed", return_value=(True, None))
+    def test_integration_from_config_with_valid_config(self, mock_is_url_allowed):
         integration = DatabricksIntegration.integration_from_config(
             team_id=self.team.pk,
             server_hostname="databricks.com",
@@ -2067,14 +2065,10 @@ class TestDatabricksIntegrationModel(BaseTest):
         assert integration.config == {"server_hostname": "databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
 
-    @patch("posthog.models.integration.socket.socket")
-    def test_integration_from_config_with_invalid_server_hostname(self, mock_socket):
-        # this is the error raised when the server hostname is invalid
-        mock_socket.return_value.connect.side_effect = socket.gaierror(
-            8, "nodename nor servname provided, or not known"
-        )
+    @patch("posthog.models.integration.is_url_allowed", return_value=(False, "Could not resolve host"))
+    def test_integration_from_config_with_invalid_server_hostname(self, mock_is_url_allowed):
         with pytest.raises(
-            DatabricksIntegrationError, match="Databricks integration error: could not connect to hostname 'invalid'"
+            DatabricksIntegrationError, match="Databricks integration error: could not validate hostname 'invalid'"
         ):
             DatabricksIntegration.integration_from_config(
                 team_id=self.team.pk,

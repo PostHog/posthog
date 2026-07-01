@@ -39,6 +39,7 @@ register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
+register_supported_function("postHogSetAccountProperties")
 
 
 # Globals that the realtime transformer actually populates at runtime.
@@ -246,6 +247,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_ticket_tags",
             "posthog_business_hours",
             "non_failure_status_codes",
+            "customer_analytics_account_properties",
         ]
     )
     key = serializers.CharField()
@@ -323,7 +325,7 @@ class InputsItemSerializer(serializers.Serializer):
             else:
                 if not isinstance(value, bool):
                     raise serializers.ValidationError({"input": f"Value must be a boolean."})
-        elif item_type == "dictionary":
+        elif item_type in ("dictionary", "customer_analytics_account_properties"):
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
@@ -369,6 +371,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "email",
                         "native_email",
                         "posthog_ticket_tags",
+                        "customer_analytics_account_properties",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
@@ -584,7 +587,12 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
-def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(
+    hog: str,
+    hog_type: str,
+    in_repl: Optional[bool] = False,
+    null_safe_comparisons: bool = False,
+) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
@@ -604,7 +612,12 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
 
-        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+        return create_bytecode(
+            program,
+            supported_functions=supported_functions,
+            in_repl=in_repl,
+            null_safe_comparisons=null_safe_comparisons,
+        ).bytecode
     except serializers.ValidationError:
         raise
     except Exception as e:
