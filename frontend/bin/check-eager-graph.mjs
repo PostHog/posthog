@@ -19,32 +19,34 @@ const reportOnly = process.argv.includes('--report-only')
 // bundle-size Signals scout tracks regressions from the PR comment, so the check informs.
 const assertReportIndex = process.argv.indexOf('--assert-report')
 
-// The eager graph is everything reachable from a root through STATIC imports only —
-// the code a browser must download and decode before that surface is interactive,
-// regardless of how the bytes are distributed across chunks. Total dist size can't
-// see regressions here (a fake-lazy require() moves no bytes, but makes them eager),
-// which is why this check exists alongside the compressed-size check.
+// The eager graph is everything a root actually SHIPS on the critical path — the bytes a
+// browser downloads and parses before that surface is interactive. It is measured from the
+// esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
+// (import-statement) chunk edges. Lazy (dynamic-import) chunks are excluded, and tree-shaken
+// code is already gone from the output — so a side-effect-free re-export barrel only costs
+// what its used exports actually ship, not its whole surface (the earlier input-graph metric
+// counted the whole barrel and mistook reachability for shipped weight).
+// Total dist size can't see this regression class (a fake-lazy import moves no total bytes
+// but shifts them onto the eager path), which is why this check exists.
 //
-// Budgets are input-source bytes (pre-minification): stable across builds and
-// proportional to decoded-script memory cost per renderer (see #32479).
+// Budgets are eager output bytes (shipped, minified).
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // master 2026-06-12: 14.62 MiB / 751 files
-        budgetBytes: 16_000_000,
+        // 2026-07-01: 2.73 MiB eager output (21 chunks)
+        budgetBytes: 3_400_000,
         forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-06-13: 30.86 MiB / 5,083 files (post lazy activity describers)
-        // 2026-06-30: 32.44 MiB — the eager graph drifted ~1.6 MiB on master and breached the previous
-        // 34_000_000 budget. Conscious bump to restore a small margin; the breach is pre-existing master
-        // drift, not this PR. Re-ratchet down when the next bundle-split win lands.
-        budgetBytes: 34_500_000,
+        // 2026-07-01: 10.85 MiB eager output (104 chunks). Includes ~3.6 MiB of inlined
+        // @posthog/brand/hoggies SVGs pulled onto the eager path by #66238 — a ratchet-down
+        // target (make those hog usages lazy, or import them only where they render).
+        budgetBytes: 13_000_000,
         forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
     },
 ]
@@ -76,8 +78,8 @@ function assertReport(reportFilePath) {
     for (const r of reportToAssert.roots) {
         if (r.overBudget) {
             warnViolation(
-                `Eager graph for '${r.root}' is ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
-                    `Largest files in the closure:\n` +
+                `Eager graph for '${r.root}' ships ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
+                    `Largest eagerly-shipped files:\n` +
                     r.largest.map(({ file, bytes }) => `   ${formatMiB(bytes).padStart(9)}  ${file}`).join('\n') +
                     `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                     `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
@@ -86,7 +88,7 @@ function assertReport(reportFilePath) {
         }
         for (const hit of r.forbiddenHits) {
             warnViolation(
-                `'${hit.module}' is statically reachable from '${r.root}' — it must stay behind a dynamic import.\n` +
+                `'${hit.module}' ships eagerly from '${r.root}' — it must stay behind a dynamic import.\n` +
                     `Import chain:\n   ${hit.chain.join('\n   -> ')}`
             )
             violations++
@@ -148,50 +150,97 @@ if (!fs.existsSync(metaPath)) {
     process.exit(1)
 }
 
-const inputs = JSON.parse(fs.readFileSync(metaPath, 'utf-8')).inputs
+const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+const inputs = meta.inputs
+const outputs = meta.outputs
+if (!outputs) {
+    fail(`Metafile at ${metaPath} has no "outputs" — rebuild with metafile output enabled.`)
+    process.exit(1)
+}
+
+// esbuild makes every code-split point (real entry points and dynamically-imported
+// modules alike) an entryPoint of some output chunk, so a root maps to exactly one chunk.
+function entryChunk(root) {
+    for (const [name, chunk] of Object.entries(outputs)) {
+        if (chunk.entryPoint === root) {
+            return name
+        }
+    }
+    return null
+}
+
+// The eager download for a root: its entry chunk plus every chunk reachable through static
+// (import-statement) chunk edges. dynamic-import edges are the lazy boundaries — stop there.
+function eagerChunkClosure(entry) {
+    const seen = new Set([entry])
+    const queue = [entry]
+    while (queue.length) {
+        const chunk = queue.shift()
+        for (const imp of outputs[chunk].imports || []) {
+            if (imp.kind !== 'import-statement' || seen.has(imp.path) || !outputs[imp.path]) {
+                continue
+            }
+            seen.add(imp.path)
+            queue.push(imp.path)
+        }
+    }
+    return seen
+}
+
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [] }
 
 for (const { root, label, budgetBytes, forbidden } of ROOTS) {
-    if (!inputs[root]) {
-        const candidates = Object.keys(inputs)
-            .filter((k) => k.endsWith(path.basename(root)))
+    const entry = entryChunk(root)
+    if (!entry) {
+        const candidates = Object.values(outputs)
+            .map((c) => c.entryPoint)
+            .filter((e) => e && e.endsWith(path.basename(root)))
             .slice(0, 5)
-        const message = `Root '${root}' not found in metafile. Was it moved/renamed? Candidates: ${candidates.join(', ')}`
+        const message = `Root '${root}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
         report.errors.push(message)
         fail(message)
         continue
     }
 
-    const { seen, parentOf } = eagerClosure(inputs, root)
+    // Attribute each input module the bytes it actually contributes to the eager chunks —
+    // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
+    const eagerBytesByFile = new Map()
     let totalBytes = 0
-    for (const file of seen) {
-        totalBytes += inputs[file].bytes
+    for (const chunk of eagerChunkClosure(entry)) {
+        totalBytes += outputs[chunk].bytes
+        for (const [file, info] of Object.entries(outputs[chunk].inputs || {})) {
+            if (info.bytesInOutput > 0) {
+                eagerBytesByFile.set(file, (eagerBytesByFile.get(file) || 0) + info.bytesInOutput)
+            }
+        }
     }
-    const largest = [...seen]
-        .map((f) => [f, inputs[f].bytes])
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 15)
+    const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
     const forbiddenHits = []
     for (const forbiddenSubstr of forbidden) {
-        const hit = [...seen].find((f) => f.includes(forbiddenSubstr))
+        const hit = [...eagerBytesByFile.keys()].find((f) => f.includes(forbiddenSubstr))
         if (hit) {
+            const { parentOf } = eagerClosure(inputs, root)
             forbiddenHits.push({ module: forbiddenSubstr, chain: chainTo(parentOf, hit) })
         }
     }
 
-    const status = overBudget || forbiddenHits.length > 0 ? '❌' : '✅'
+    const status = overBudget || forbiddenHits.length > 0 ? '🟡' : '🟢'
     console.info(`${status} ${label}`)
     console.info(`   root: ${root}`)
-    console.info(`   eager closure: ${seen.size} files, ${formatMiB(totalBytes)} (budget ${formatMiB(budgetBytes)})`)
-    summaryLines.push(`| ${status} \`${root}\` | ${formatMiB(totalBytes)} | ${formatMiB(budgetBytes)} | ${seen.size} |`)
+    console.info(
+        `   eager output: ${eagerBytesByFile.size} files, ${formatMiB(totalBytes)} (budget ${formatMiB(budgetBytes)})`
+    )
+    summaryLines.push(
+        `| ${status} \`${root}\` | ${formatMiB(totalBytes)} | ${formatMiB(budgetBytes)} | ${eagerBytesByFile.size} |`
+    )
 
     if (overBudget) {
         fail(
-            `Eager graph for '${root}' is ${formatMiB(totalBytes)}, over the ${formatMiB(budgetBytes)} budget.\n` +
-                `Something newly reachable through static imports is inflating it. Largest files in the closure:\n` +
+            `Eager graph for '${root}' ships ${formatMiB(totalBytes)}, over the ${formatMiB(budgetBytes)} budget.\n` +
+                `Something newly shipped on the eager path is inflating it. Largest eagerly-shipped files:\n` +
                 largest.map(([f, b]) => `   ${formatMiB(b).padStart(10)}  ${f}`).join('\n') +
                 `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                 `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
@@ -200,7 +249,7 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
 
     for (const hit of forbiddenHits) {
         fail(
-            `'${hit.module}' is statically reachable from '${root}' — it must stay behind a dynamic import.\n` +
+            `'${hit.module}' ships eagerly from '${root}' — it must stay behind a dynamic import.\n` +
                 `Import chain:\n   ${hit.chain.join('\n   -> ')}`
         )
     }
@@ -209,7 +258,7 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
         root,
         label,
         bytes: totalBytes,
-        files: seen.size,
+        files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
         forbidden,
