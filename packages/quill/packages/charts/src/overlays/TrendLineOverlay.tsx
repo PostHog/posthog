@@ -20,9 +20,14 @@ interface TrendLineOverlayProps {
 let _nextId = 0
 
 export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.ReactElement | null {
-    // Stable per-instance ID — module counter is deterministic and avoids Math.random().
-    // useRef so the ID is allocated once on mount and never changes across re-renders.
-    const clipId = React.useRef(`tlo-${_nextId++}`).current
+    // Stable per-instance ID — allocate exactly once per component instance.
+    // Cannot use useRef(expr) directly because the initialiser runs on every render
+    // (React discards it after the first, but the side-effect of _nextId++ still fires).
+    const clipIdRef = React.useRef('')
+    if (!clipIdRef.current) {
+        clipIdRef.current = `tlo-${_nextId++}`
+    }
+    const clipId = clipIdRef.current
     const { scales, dimensions, labels, axis } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
 
