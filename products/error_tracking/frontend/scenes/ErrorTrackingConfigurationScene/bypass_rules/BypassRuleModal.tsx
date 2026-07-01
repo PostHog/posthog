@@ -15,11 +15,6 @@ export function BypassRuleModal(): JSX.Element {
                 TaxonomicFilterGroupType.ErrorTrackingProperties,
                 TaxonomicFilterGroupType.EventProperties,
             ]}
-            suffix={(issuesLink, dateRangeLabel) => (
-                <>
-                    across {issuesLink} would have bypassed rate limiting in the last {dateRangeLabel}
-                </>
-            )}
             showTestButton={false}
         />
     )

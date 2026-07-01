@@ -20,7 +20,7 @@ interface RuleModalProps {
     width?: number
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     saveDisabledReason?: string
-    suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
+    suffix?: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     filterLabels?: ReactNode
     extraFields?: ReactNode
     footerExtra?: ReactNode
@@ -194,7 +194,7 @@ export function RuleModal({
 
                 {extraFields}
 
-                {matchResult !== null && !matchResultLoading ? (
+                {matchResult !== null && !matchResultLoading && suffix ? (
                     <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
                             matchResult={matchResult}
