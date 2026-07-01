@@ -1301,7 +1301,8 @@ class InsightBulkDeleteResponseSerializer(serializers.Serializer):
         child=serializers.IntegerField(),
         help_text="IDs of the insights that were successfully soft-deleted.",
     )
-    errors: serializers.ListSerializer = serializers.ListSerializer(
+    # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
+    errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
         child=InsightBulkDeleteErrorSerializer(),
         help_text="Insights that were skipped, each with the reason it could not be deleted.",
     )
