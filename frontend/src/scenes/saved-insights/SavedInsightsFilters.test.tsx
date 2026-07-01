@@ -134,11 +134,11 @@ describe('SavedInsightsFilters Created by dropdown', () => {
         expect(setFilters).toHaveBeenCalledWith({ createdBy: [MOCK_SECOND_BASIC_USER.id] })
     })
 
-    it('toggles hideOnDashboard when the dashboard membership filter is clicked', async () => {
-        renderFilters({ hideOnDashboard: false })
+    it('toggles notOnAnyDashboard when the dashboard membership filter is clicked', async () => {
+        renderFilters({ notOnAnyDashboard: false })
 
-        await userEvent.click(screen.getByText(/Hide insights on dashboards/))
+        await userEvent.click(screen.getByText(/Not on any dashboard/))
 
-        expect(setFilters).toHaveBeenCalledWith({ hideOnDashboard: true })
+        expect(setFilters).toHaveBeenCalledWith({ notOnAnyDashboard: true })
     })
 })

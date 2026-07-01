@@ -298,16 +298,16 @@ describe('savedInsightsLogic', () => {
         })
     })
 
-    describe('hideOnDashboard filter', () => {
+    describe('notOnAnyDashboard filter', () => {
         it.each([
             [undefined, false],
             [true, true],
             [false, false],
-        ])('cleanFilters({ hideOnDashboard: %s }).hideOnDashboard === %s', (input, expected) => {
-            expect(cleanFilters({ hideOnDashboard: input as boolean | undefined }).hideOnDashboard).toBe(expected)
+        ])('cleanFilters({ notOnAnyDashboard: %s }).notOnAnyDashboard === %s', (input, expected) => {
+            expect(cleanFilters({ notOnAnyDashboard: input as boolean | undefined }).notOnAnyDashboard).toBe(expected)
         })
 
-        it('sends hide_on_dashboard=true query param when filter is enabled', async () => {
+        it('sends not_on_any_dashboard=true query param when filter is enabled', async () => {
             let lastSearchParams: URLSearchParams | null = null
             useMocks({
                 get: {
@@ -318,13 +318,13 @@ describe('savedInsightsLogic', () => {
                 },
             })
 
-            logic.actions.setSavedInsightsFilters({ hideOnDashboard: true })
+            logic.actions.setSavedInsightsFilters({ notOnAnyDashboard: true })
             await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
 
-            expect(lastSearchParams?.get('hide_on_dashboard')).toBe('true')
+            expect(lastSearchParams?.get('not_on_any_dashboard')).toBe('true')
         })
 
-        it('omits hide_on_dashboard query param when filter is disabled', async () => {
+        it('omits not_on_any_dashboard query param when filter is disabled', async () => {
             let lastSearchParams: URLSearchParams | null = null
             useMocks({
                 get: {
@@ -338,7 +338,7 @@ describe('savedInsightsLogic', () => {
             logic.actions.setSavedInsightsFilters({ search: 'noop' })
             await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
 
-            expect(lastSearchParams?.has('hide_on_dashboard')).toBe(false)
+            expect(lastSearchParams?.has('not_on_any_dashboard')).toBe(false)
         })
     })
 

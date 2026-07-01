@@ -1348,6 +1348,11 @@ Background calculation can be tracked using the `query_status` response field.""
                 description="JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
             ),
             OpenApiParameter(
+                name="not_on_any_dashboard",
+                type=OpenApiTypes.BOOL,
+                description="When truthy, restricts results to insights that aren't tiled on any dashboard.",
+            ),
+            OpenApiParameter(
                 name="tags",
                 type=OpenApiTypes.STR,
                 description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
@@ -1709,8 +1714,8 @@ class InsightViewSet(
                     queryset = queryset.exclude(
                         name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
                     )
-            elif key == "hide_on_dashboard":
-                if str_to_bool(request.GET["hide_on_dashboard"]):
+            elif key == "not_on_any_dashboard":
+                if str_to_bool(request.GET["not_on_any_dashboard"]):
                     # Mirrors the `saved` filter above: an insight is considered
                     # "on a dashboard" only if it has a tile on a non-unlisted dashboard.
                     # DashboardTile.objects (default manager) already excludes soft-deleted tiles

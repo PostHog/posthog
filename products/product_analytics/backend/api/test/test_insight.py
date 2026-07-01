@@ -474,7 +474,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
 
-    def test_hide_on_dashboard_filter(self) -> None:
+    def test_not_on_any_dashboard_filter(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -531,7 +531,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 4)
 
         # With filter: insights with no active non-unlisted dashboard tile.
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_on_dashboard=true")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&not_on_any_dashboard=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = sorted(r["name"] for r in response.json()["results"])
         self.assertEqual(names, ["Not on dashboard", "On unlisted dashboard", "Soft-deleted tile"])
