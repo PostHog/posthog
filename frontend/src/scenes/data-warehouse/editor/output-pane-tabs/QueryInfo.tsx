@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTarget } from '@posthog/icons'
-import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -15,10 +16,10 @@ import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/
 
 import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
+import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
@@ -32,10 +33,25 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
     const targetView = view ?? editingView
     const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
     const { sourceTableItems } = useValues(infoLogic)
-    const { saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
+    const { saveAsView, setUpstreamViewMode, editView } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
+
+    const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
+    const openInEditor = async (node: DataModelingNode): Promise<void> => {
+        if (!node.saved_query_id) {
+            return
+        }
+        try {
+            const savedQuery = await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+            if (savedQuery?.query?.query) {
+                editView(savedQuery.query.query, savedQuery)
+            }
+        } catch {
+            lemonToast.error('Failed to load view details')
+        }
+    }
 
     const { updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
         useValues(dataWarehouseViewsLogic)
@@ -240,7 +256,23 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <UpstreamGraph tabId={tabId} />
+                            <div className="h-[500px] border border-border rounded-md overflow-hidden">
+                                <LineageGraph
+                                    nodes={upstream.nodes}
+                                    edges={upstream.edges}
+                                    currentNodeId={currentNodeId}
+                                    variant="full"
+                                    interactive
+                                    showControls
+                                    showMinimap
+                                    nodeCallbacks={(node) => ({
+                                        onEdit:
+                                            node.type !== 'table' && node.id !== currentNodeId
+                                                ? () => void openInEditor(node)
+                                                : undefined,
+                                    })}
+                                />
+                            </div>
                         )}
                     </>
                 )}
