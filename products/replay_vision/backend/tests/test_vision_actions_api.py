@@ -337,11 +337,12 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
 
-    def test_error_reason_surfaced(self) -> None:
-        run = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "over budget"})
+    def test_error_reason_humanized(self) -> None:
+        # A raw engine skip reason is mapped to human copy, not surfaced verbatim.
+        run = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "skipped_empty"})
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "over budget")
+        self.assertEqual(resp.json()["error_reason"], "No new observations in this window to summarize.")
 
     def test_failed_run_error_reason_does_not_leak_raw_exception(self) -> None:
         # The engine stamps error["message"] with raw exception text (str(e)[:500]); the API must not
@@ -352,7 +353,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         )
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "Run failed")
+        self.assertNotIn("secret_token", resp.json()["error_reason"])
+        self.assertEqual(resp.json()["error_reason"], "This run failed while generating the summary.")
 
     def test_runs_scoped_to_their_action(self) -> None:
         other_action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="other-action")

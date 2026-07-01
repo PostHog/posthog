@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -105,7 +106,12 @@ function VisionActionRunScene(): JSX.Element {
             {run.synthesized_markdown ? (
                 <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
             ) : (
-                <div className="text-muted italic">{run.error_reason || 'No summary was produced for this run.'}</div>
+                <LemonBanner type={run.status === 'failed' ? 'error' : 'info'}>
+                    <div className="font-semibold">
+                        {run.status === 'failed' ? 'This run failed' : 'This run was skipped'}
+                    </div>
+                    <div>{run.error_reason || 'No summary was produced for this run.'}</div>
+                </LemonBanner>
             )}
 
             {run.observations.length > 0 ? (
