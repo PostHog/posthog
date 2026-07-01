@@ -1,9 +1,10 @@
 import { type ChangeTypes, type FileDiffMetadata, type FileDiffOptions, parsePatchFiles } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 
-import { LemonTag, type LemonTagType } from '@posthog/lemon-ui'
+import { IconArrowRight, IconMinus, IconPencil, IconPlus } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -11,19 +12,19 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 // `themeType`, which we drive off PostHog's own light/dark state.
 const DIFF_THEME = { light: 'github-light', dark: 'github-dark' } as const
 
-// Pierre's own file header uses a colour-coded glyph and a prose-font filename, neither of which reads
-// clearly in our UI. We replace it with a labelled status tag + monospace path, in PostHog's tokens.
-const CHANGE_META: Record<ChangeTypes, { label: string; type: LemonTagType }> = {
-    new: { label: 'Added', type: 'success' },
-    deleted: { label: 'Deleted', type: 'danger' },
-    change: { label: 'Modified', type: 'muted' },
-    'rename-pure': { label: 'Renamed', type: 'highlight' },
-    'rename-changed': { label: 'Renamed', type: 'highlight' },
+// Pierre's own file header uses a prose-font filename and an unlabelled glyph. We render our own header
+// with a monospace path and a colour-coded, tooltipped status icon so the change type is unambiguous.
+const CHANGE_META: Record<ChangeTypes, { label: string; icon: ReactNode; className: string }> = {
+    new: { label: 'Added', icon: <IconPlus />, className: 'text-success' },
+    deleted: { label: 'Deleted', icon: <IconMinus />, className: 'text-danger' },
+    change: { label: 'Modified', icon: <IconPencil />, className: 'text-secondary' },
+    'rename-pure': { label: 'Renamed', icon: <IconArrowRight />, className: 'text-secondary' },
+    'rename-changed': { label: 'Renamed', icon: <IconArrowRight />, className: 'text-secondary' },
 }
 
-/** Our own file header (rendered into Pierre's light-DOM header slot): status tag + monospace path + counts. */
+/** Our own file header (rendered into Pierre's light-DOM header slot): status icon + monospace path + counts. */
 function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
-    const meta = CHANGE_META[file.type] ?? { label: 'Changed', type: 'muted' as const }
+    const meta = CHANGE_META[file.type] ?? { label: 'Changed', icon: <IconPencil />, className: 'text-secondary' }
     let additions = 0
     let deletions = 0
     for (const hunk of file.hunks) {
@@ -34,9 +35,9 @@ function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
 
     return (
         <div className="flex items-center gap-2 min-w-0 border-b border-primary px-3 py-2">
-            <LemonTag size="small" type={meta.type}>
-                {meta.label}
-            </LemonTag>
+            <Tooltip title={meta.label}>
+                <span className={`flex shrink-0 items-center ${meta.className}`}>{meta.icon}</span>
+            </Tooltip>
             <span className="truncate font-mono text-xs text-secondary" title={path}>
                 {path}
             </span>
