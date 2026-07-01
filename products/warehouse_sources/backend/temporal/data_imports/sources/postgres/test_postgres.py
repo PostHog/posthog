@@ -1376,6 +1376,7 @@ class TestResolveHostaddrWithTimeout:
         [
             "127.0.0.1",  # already an IP (also the SSH-tunnel local endpoint) — nothing to resolve
             "::1",
+            "[::1]",  # bracketed IPv6 literal — exercises the host.strip("[]") path in _is_ip_literal
             "/var/run/postgresql",  # Unix-socket path
             "",
         ],

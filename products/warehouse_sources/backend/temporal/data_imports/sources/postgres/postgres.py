@@ -5,13 +5,10 @@ import math
 import time
 import socket
 import ipaddress
+import threading
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    TimeoutError as FuturesTimeoutError,
-)
 from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
@@ -586,21 +583,33 @@ def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str 
     if not host or host.startswith("/") or _is_ip_literal(host):
         return None
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    try:
-        future = executor.submit(socket.getaddrinfo, host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM)
-        try:
-            addrinfo = future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
-        except OSError:
-            return None
-    finally:
-        # Never join the lookup thread — a stalled getaddrinfo would re-block us here. Let it finish
-        # in the background; the OS resolver bounds it on its own.
-        executor.shutdown(wait=False)
+    addrinfo: list[Any] = []
+    lookup_error: list[BaseException] = []
 
-    return addrinfo[0][4][0] if addrinfo else None
+    def _lookup() -> None:
+        try:
+            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
+        except BaseException as e:  # noqa: BLE001 — surfaced to the caller below via lookup_error
+            lookup_error.append(e)
+
+    # Daemon thread so a stalled getaddrinfo can be abandoned without blocking worker shutdown or
+    # piling up non-daemon threads — the OS resolver bounds the orphaned lookup on its own.
+    thread = threading.Thread(target=_lookup, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
+    # A genuine resolution failure falls through to None so psycopg connects and re-raises it,
+    # preserving the existing "Name or service not known" classification.
+    if lookup_error:
+        if isinstance(lookup_error[0], OSError):
+            return None
+        raise lookup_error[0]
+    if not addrinfo:
+        return None
+    # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
+    # tuple variants, so coerce to satisfy the str return type).
+    return str(addrinfo[0][4][0])
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
