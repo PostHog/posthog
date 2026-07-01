@@ -51,6 +51,11 @@ class ErrorTrackingBypassRuleFiltersField(serializers.JSONField):
             except (PydanticValidationError, TypeError) as err:
                 logger.warning("Invalid bypass rule filters payload", exc_info=err)
                 raise serializers.ValidationError("Invalid filters payload.") from err
+        elif value.get("values"):
+            # A non-empty `values` list whose leaves carry no `key` has no usable filter and would
+            # silently compile to a match-all rule that bypasses all rate limiting. Only a genuinely
+            # empty `values` array (or an omitted field) may mean match-all.
+            raise serializers.ValidationError("Invalid filters")
         elif "values" not in value:
             raise serializers.ValidationError("Invalid filters")
 

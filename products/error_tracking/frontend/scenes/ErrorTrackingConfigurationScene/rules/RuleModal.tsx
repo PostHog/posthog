@@ -26,6 +26,7 @@ interface RuleModalProps {
     footerExtra?: ReactNode
     samplingRate?: number
     filtersOptional?: boolean
+    emptyFilterWarning?: ReactNode
 }
 
 export function RuleModal({
@@ -42,6 +43,7 @@ export function RuleModal({
     footerExtra,
     samplingRate,
     filtersOptional = false,
+    emptyFilterWarning,
 }: RuleModalProps): JSX.Element {
     const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(logic)
@@ -144,6 +146,9 @@ export function RuleModal({
         >
             <div className="space-y-4 py-2">
                 {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
+                {filtersOptional && !hasFilters && emptyFilterWarning && (
+                    <LemonBanner type="warning">{emptyFilterWarning}</LemonBanner>
+                )}
                 <div>
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">

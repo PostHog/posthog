@@ -21,6 +21,7 @@ export function BypassRuleModal(): JSX.Element {
                 </>
             )}
             filtersOptional
+            emptyFilterWarning="This rule has no filters, so it matches every exception and bypasses all rate limiting for this project."
         />
     )
 }

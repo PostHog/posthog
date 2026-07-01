@@ -1,7 +1,9 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
+from products.error_tracking.backend.logic import match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingBypassRule
 
 VALID_FILTERS = {
@@ -56,6 +58,27 @@ class TestBypassRuleAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(
+        [
+            ("empty_object_leaf", {"type": "AND", "values": [{}]}),
+            ("keyless_leaf", {"type": "AND", "values": [{"not": "valid"}]}),
+            ("empty_nested_group", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
+        ]
+    )
+    def test_create_valueless_nonempty_filters_returns_400(self, _name: str, filters: dict) -> None:
+        response = self.client.post(self._url(), data={"filters": filters}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "filters"
+        assert not ErrorTrackingBypassRule.objects.exists()
+
+    def test_create_explicit_empty_values_creates_match_all_rule(self) -> None:
+        response = self.client.post(self._url(), data={"filters": {"type": "AND", "values": []}}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        rule = ErrorTrackingBypassRule.objects.get(id=response.json()["id"])
+        assert rule.bytecode == match_all_bytecode()
 
     def test_update_recompiles_bytecode_and_clears_disabled_data(self) -> None:
         rule = ErrorTrackingBypassRule.objects.create(
