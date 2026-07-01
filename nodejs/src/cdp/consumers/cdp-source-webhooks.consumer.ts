@@ -421,7 +421,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processWebhook',
+        // Unmatched-source (404) and disabled (429) webhooks are expected, handled control flow that a
+        // misconfigured sender can emit in the millions - don't pollute error tracking with them.
+        // Genuine processing failures (5xx and any non-SourceWebhookError) are still captured.
+        shouldCaptureException: (error) => !(error instanceof SourceWebhookError) || error.status >= 500,
+    })
     public async processWebhook(
         identifier: string,
         req: ModifiedRequest

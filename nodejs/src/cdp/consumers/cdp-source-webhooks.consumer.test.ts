@@ -15,6 +15,7 @@ import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/we
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import * as posthogUtils from '~/common/utils/posthog'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -193,7 +194,11 @@ describe('SourceWebhooksConsumer', () => {
         }
 
         describe('hog function processing', () => {
-            it('should 404 if the hog function does not exist', async () => {
+            it('should 404 without capturing an exception if the hog function does not exist', async () => {
+                // An unmatched-source webhook is expected, handled control flow - a misconfigured sender
+                // can emit these in the millions, so they must not be sent to error tracking.
+                const captureSpy = jest.spyOn(posthogUtils, 'captureException').mockReturnValue(undefined as any)
+
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
@@ -201,6 +206,27 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+                expect(captureSpy).not.toHaveBeenCalled()
+                captureSpy.mockRestore()
+            })
+
+            it('should 500 and capture the exception when processing throws an unexpected error', async () => {
+                // Genuine processing failures must still reach error tracking.
+                const captureSpy = jest.spyOn(posthogUtils, 'captureException').mockReturnValue(undefined as any)
+                const getWebhookSpy = jest
+                    .spyOn(api['cdpSourceWebhooksConsumer'], 'getWebhook')
+                    .mockRejectedValue(new Error('boom'))
+
+                try {
+                    const res = await doPostRequest({
+                        body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                    })
+                    expect(res.status).toEqual(500)
+                    expect(captureSpy).toHaveBeenCalledWith(expect.any(Error))
+                } finally {
+                    getWebhookSpy.mockRestore()
+                    captureSpy.mockRestore()
+                }
             })
 
             it('should capture an event using internal capture', async () => {

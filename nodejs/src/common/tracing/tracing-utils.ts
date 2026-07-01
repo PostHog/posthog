@@ -104,6 +104,9 @@ interface FunctionInstrumentationOptions {
     getLoggingContext?: () => Record<string, any>
     logExecutionTime?: boolean
     sendException?: boolean
+    // Optional predicate to skip capturing expected/handled errors while still capturing genuine ones.
+    // Return false to suppress the capture for a given error.
+    shouldCaptureException?: (error: unknown) => boolean
     measureTime?: boolean
 }
 
@@ -121,6 +124,8 @@ export async function instrumentFn<T>(
     const getLoggingContext = (typeof options === 'string' ? undefined : options.getLoggingContext) ?? undefined
     const timeout = (typeof options === 'string' ? undefined : options.timeoutMs) ?? defaultConfig.TASK_TIMEOUT * 1000
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
+    const shouldCaptureException =
+        (typeof options === 'string' ? undefined : options.shouldCaptureException) ?? undefined
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
@@ -146,7 +151,7 @@ export async function instrumentFn<T>(
         if (logExecutionTime) {
             logTime(startTime, key, error)
         }
-        if (sendException) {
+        if (sendException && (!shouldCaptureException || shouldCaptureException(error))) {
             captureException(error)
         }
         throw error
