@@ -32428,7 +32428,7 @@ export namespace Schemas {
     }
 
     /**
-     * A user's judgement on whether the scanner scored this session correctly.
+     * The team's shared judgement on whether the scanner scored this session correctly.
      */
     export interface ReplayObservationLabel {
       /** True if the scanner scored this session correctly, false if not. */
@@ -32489,8 +32489,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_observation_id: string | null;
-      /** The requesting user's label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly my_label: ReplayObservationLabel | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -59054,9 +59054,9 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: boolean;
+    labeled?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -59097,9 +59097,9 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: string;
+    labeled?: string;
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
@@ -66486,9 +66486,9 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: boolean;
+    labeled?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -66529,9 +66529,9 @@ export namespace Schemas {
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: string;
+    labeled?: string;
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */

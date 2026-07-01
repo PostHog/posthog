@@ -124,13 +124,13 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
             try {
                 // Newest-first; cap the sample so the prompt stays focused and reviewable.
                 const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
-                    labeled_by_me: true,
+                    labeled: true,
                     limit: MAX_LABELED_SESSIONS,
                 })
                 // Drop anything without a label rather than guessing its correctness — the filter should
                 // already guarantee one, but a missing label must not silently become a "correct" example.
                 const examples: LabeledExample[] = (response.results ?? []).flatMap((observation) => {
-                    const label = observation.my_label
+                    const label = observation.label
                     if (!label) {
                         return []
                     }
@@ -185,6 +185,7 @@ export function ImproveFromLabelsButton({
     return (
         <LemonButton
             type="secondary"
+            size="small"
             icon={<IconAI />}
             loading={improving}
             onClick={() => improveFromLabels(scannerName, scannerType, prompt)}

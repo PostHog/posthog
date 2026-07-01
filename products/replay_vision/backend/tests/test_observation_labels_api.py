@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.utils import timezone
 
 from posthog.models import User
@@ -38,8 +40,8 @@ class TestObservationLabels(_VisionAPITestCase):
     def _retrieve_url(self, observation: ReplayObservation) -> str:
         return f"{self.observations_url(self.scanner.id)}{observation.id}/"
 
-    def test_upsert_and_my_label_roundtrip(self) -> None:
-        self.assertIsNone(self.client.get(self._retrieve_url(self.observation)).json()["my_label"])
+    def test_upsert_and_label_roundtrip(self) -> None:
+        self.assertIsNone(self.client.get(self._retrieve_url(self.observation)).json()["label"])
 
         resp = self.client.post(
             self._label_url(self.observation), {"is_correct": False, "feedback": "should be yes"}, format="json"
@@ -47,10 +49,10 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(ReplayObservationLabel.objects.filter(observation=self.observation).count(), 1)
 
-        my_label = self.client.get(self._retrieve_url(self.observation)).json()["my_label"]
-        self.assertEqual(my_label, {"is_correct": False, "feedback": "should be yes"})
+        label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
+        self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
-    def test_relabeling_updates_in_place(self) -> None:
+    def test_relabeling_updates_the_single_shared_label(self) -> None:
         self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
 
@@ -75,19 +77,35 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
 
-    def test_labeled_by_me_filter_excludes_unlabeled(self) -> None:
+    def test_labeled_filter_excludes_unlabeled(self) -> None:
         unlabeled = self._create_observation(self.scanner, "sess-2")
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
 
-        results = self.client.get(f"{self.observations_url(self.scanner.id)}?labeled_by_me=true").json()["results"]
+        results = self.client.get(f"{self.observations_url(self.scanner.id)}?labeled=true").json()["results"]
         ids = {r["id"] for r in results}
         self.assertIn(str(self.observation.id), ids)
         self.assertNotIn(str(unlabeled.id), ids)
 
-    def test_my_label_is_scoped_to_the_requesting_user(self) -> None:
+    def test_label_is_shared_not_scoped_to_a_user(self) -> None:
+        # A label another user set is visible to everyone — there are no personal versions.
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         ReplayObservationLabel.objects.create(
-            observation=self.observation, created_by=other_user, is_correct=False, feedback="theirs"
+            observation=self.observation, created_by=other_user, is_correct=False, feedback="shared feedback"
+        )
+        label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
+        self.assertEqual(label, {"is_correct": False, "feedback": "shared feedback"})
+
+    def _deny_editor(self):
+        # Viewer access still passes (reading observations); only editor is withheld.
+        return patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: required_level != "editor",
         )
 
-        self.assertIsNone(self.client.get(self._retrieve_url(self.observation)).json()["my_label"])
+    def test_editing_label_requires_editor_access(self) -> None:
+        with self._deny_editor():
+            post = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
+            delete = self.client.delete(self._label_url(self.observation))
+        self.assertEqual(post.status_code, 403, post.json())
+        self.assertEqual(delete.status_code, 403)
+        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
