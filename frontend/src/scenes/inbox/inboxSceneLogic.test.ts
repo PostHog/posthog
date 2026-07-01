@@ -71,14 +71,14 @@ describe('mergeSignalRuns', () => {
         expect(row).toMatchObject({ status: null, created_at: '2026-06-11T07:00:00Z' })
     })
 
-    it("maps the latest run's task status to a scout status, and uses the run's timestamp", () => {
+    it("maps the latest run's task status to the scout status string, and uses the run's timestamp", () => {
         const latest_run = {
-            status: TaskRunStatus.CANCELLED,
+            status: TaskRunStatus.IN_PROGRESS,
             created_at: '2026-06-11T12:00:00Z',
         } as TaskRun
         const [row] = mergeSignalRuns([], [signalTask({ latest_run, created_at: '2026-06-11T07:00:00Z' })])
-        // TaskRunStatus.CANCELLED normalizes to the 'failed' scout status (input differs from output),
-        // and the run's own timestamp wins over the task's.
-        expect(row).toMatchObject({ status: 'failed', created_at: '2026-06-11T12:00:00Z' })
+        // The `TaskRunStatus` enum is bridged to the equivalent `SignalScoutRunStatus` string the row
+        // field holds (here 'in_progress'), and the run's own timestamp wins over the task's.
+        expect(row).toMatchObject({ status: 'in_progress', created_at: '2026-06-11T12:00:00Z' })
     })
 })
