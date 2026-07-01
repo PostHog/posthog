@@ -1,6 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 import { HttpResponse } from 'msw'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -92,20 +90,6 @@ export const PullRequest: Story = {
             <PullRequestDetail report={pullRequestReports[0]} />
         </Frame>
     ),
-}
-
-// The "Files changed" tab rendered in context: the GitHub-style branch diff, syntax-highlighted via
-// @pierre/diffs, with the unified/split toggle. The play fn opens the tab so the snapshot captures it.
-export const PullRequestDiff: Story = {
-    render: () => (
-        <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
-        </Frame>
-    ),
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Files changed'))
-    },
 }
 
 export const RunInProgress: Story = {

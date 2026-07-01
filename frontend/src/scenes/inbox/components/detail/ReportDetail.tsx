@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { ReactNode } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -8,7 +8,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -217,13 +216,11 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** When present, the body splits into "Overview" / diff tabs; otherwise the overview renders bare. */
-    diffTab?: { label: string; content: ReactNode }
+    /** Full-width section rendered below the two-column overview (the Graphite-style diff). */
+    diffSection?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
-
-type DetailTabKey = 'overview' | 'diff'
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
@@ -236,10 +233,9 @@ export function InboxDetailFrame({
     tab,
     summary,
     primaryAction,
-    diffTab,
+    diffSection,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('overview')
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
@@ -396,18 +392,11 @@ export function InboxDetailFrame({
                 </div>
             </div>
 
-            {diffTab ? (
-                <LemonTabs
-                    activeKey={activeDetailTab}
-                    onChange={setActiveDetailTab}
-                    tabs={[
-                        { key: 'overview', label: 'Overview', content: overviewBody },
-                        { key: 'diff', label: diffTab.label, content: <>{diffTab.content}</> },
-                    ]}
-                />
-            ) : (
-                overviewBody
-            )}
+            <div className="flex flex-col gap-8">
+                {overviewBody}
+                {/* Full-width diff below the overview, Graphite-style — always visible, not tabbed away. */}
+                {diffSection}
+            </div>
         </div>
     )
 }
@@ -420,8 +409,8 @@ function prFilesUrl(prUrl: string): string {
 /**
  * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
- * report. When the report has a "Commit pushed" artefact, a "Files changed" tab renders the branch's
- * diff against the default branch. Runs keep their own `AgentRunDetail`.
+ * report. When the report has a "Commit pushed" artefact, a full-width "Files changed" section at the
+ * bottom renders the branch's diff against the default branch. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
@@ -454,20 +443,15 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                     </LemonButton>
                 ) : undefined
             }
-            diffTab={
-                canDiff && commit && latestCommitArtefact
-                    ? {
-                          label: 'Files changed',
-                          content: (
-                              <PullRequestDiffPanel
-                                  reportId={report.id}
-                                  artefactId={latestCommitArtefact.id}
-                                  commit={commit}
-                                  prUrl={hasPr ? prFilesUrl(prUrl) : null}
-                              />
-                          ),
-                      }
-                    : undefined
+            diffSection={
+                canDiff && commit && latestCommitArtefact ? (
+                    <PullRequestDiffPanel
+                        reportId={report.id}
+                        artefactId={latestCommitArtefact.id}
+                        commit={commit}
+                        prUrl={hasPr ? prFilesUrl(prUrl) : null}
+                    />
+                ) : undefined
             }
         />
     )

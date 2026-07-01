@@ -66,15 +66,17 @@ export function PullRequestDiffView({
     return (
         <div className="flex flex-col gap-3">
             {files.map((file) => (
-                <FileDiff
+                // Card chrome around each file so the diff sits in PostHog's visual language (bordered,
+                // rounded surface); @pierre/diffs renders its own header + syntax-highlighted body inside.
+                <div
                     key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`}
-                    fileDiff={file}
-                    options={options}
-                    disableWorkerPool
-                />
+                    className="overflow-hidden rounded-lg border border-primary bg-surface-primary"
+                >
+                    <FileDiff fileDiff={file} options={options} disableWorkerPool />
+                </div>
             ))}
             {truncated ? (
-                <p className="m-0 text-[12px] text-tertiary italic">
+                <p className="m-0 text-xs text-tertiary italic">
                     Diff truncated — open the pull request in GitHub for the full change.
                 </p>
             ) : null}
