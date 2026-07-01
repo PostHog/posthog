@@ -3,7 +3,6 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.db.models.functions import Length
 from django.http import HttpResponseNotAllowed
-from django.middleware.csrf import get_token
 from django.shortcuts import redirect
 from django.template.defaultfilters import filesizeformat
 from django.urls import path, reverse
@@ -13,7 +12,7 @@ from structlog import get_logger
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.django_checkpoint.compaction import compact_thread
+from ee.hogai.django_checkpoint.compaction import compact_conversation
 
 logger = get_logger()
 
@@ -42,11 +41,6 @@ class ConversationAdmin(admin.ModelAdmin):
         # Conversation is soft-deleted by the app; don't expose a cascading hard-delete here.
         return False
 
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        # Stash the request so checkpoint_storage can mint a CSRF token for its POST form.
-        self._current_request = request
-        return super().changeform_view(request, object_id, form_url, extra_context)
-
     def get_urls(self):
         compact_url = path(
             "<path:object_id>/compact/",
@@ -67,20 +61,21 @@ class ConversationAdmin(admin.ModelAdmin):
     def checkpoint_storage(self, conversation: Conversation):
         # Change-page only — do not add to list_display: the bytea Length() sum would run per row.
         # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
+        checkpoints = conversation.checkpoints.aggregate(
+            total=Count("id"), namespaces=Count("checkpoint_ns", distinct=True)
+        )
         blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
-        request = getattr(self, "_current_request", None)
-        # POST form rather than a link: compaction deletes rows, so it must not run on a GET.
+        # A submit button in the admin's own <form> (not a nested one, which browsers won't submit):
+        # formaction posts with the form's CSRF token, so this destructive action never runs on a GET.
         return format_html(
-            "{} checkpoints, {} blobs ({}) &nbsp;"
-            '<form method="post" action="{}" style="display: inline">'
-            '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
-            '<button type="submit" class="button" data-attr="conversation-admin-compact-now">Compact now</button>'
-            "</form>",
-            conversation.checkpoints.count(),
+            "{} checkpoints across {} namespace(s), {} blobs ({}) &nbsp;"
+            '<button type="submit" class="button" formmethod="post" formaction="{}" formnovalidate '
+            'data-attr="conversation-admin-compact-now">Compact now</button>',
+            checkpoints["total"],
+            checkpoints["namespaces"],
             blobs["count"] or 0,
             filesizeformat(blobs["total_bytes"] or 0),
             reverse("admin:posthog_ai_conversation_compact", args=[conversation.pk]),
-            get_token(request) if request is not None else "",
         )
 
     def compact_view(self, request, object_id: str):
@@ -93,13 +88,14 @@ class ConversationAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
-        result = compact_thread(str(conversation.id))
+        result = compact_conversation(str(conversation.id))
         logger.info(
             "admin_compact_conversation",
             conversation_id=str(conversation.id),
             compacted=result.compacted,
             checkpoints_deleted=result.checkpoints_deleted,
             blobs_deleted=result.blobs_deleted,
+            namespaces=result.namespaces,
             triggered_by=request.user.email,
         )
         if result.compacted:
@@ -117,7 +113,7 @@ class ConversationAdmin(admin.ModelAdmin):
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
         compacted = skipped = checkpoints = blobs = 0
         for conversation in queryset:
-            result = compact_thread(str(conversation.id))
+            result = compact_conversation(str(conversation.id))
             if result.compacted:
                 compacted += 1
                 checkpoints += result.checkpoints_deleted
