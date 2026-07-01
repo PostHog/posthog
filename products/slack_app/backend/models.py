@@ -92,13 +92,19 @@ class SlackSettings(UUIDModel):
     resolution time.
     """
 
+    # Nullable so a personal row can carry AI preferences while inheriting the
+    # workspace routing default.
     default_integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.CASCADE,
         related_name="slack_settings_as_default",
+        null=True,
+        blank=True,
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Keys mirror the task-run request serializer.
+    ai_preferences = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -122,6 +128,18 @@ class SlackSettings(UUIDModel):
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
+
+    @property
+    def runtime_adapter(self) -> str | None:
+        return (self.ai_preferences or {}).get("runtime_adapter")
+
+    @property
+    def model(self) -> str | None:
+        return (self.ai_preferences or {}).get("model")
+
+    @property
+    def reasoning_effort(self) -> str | None:
+        return (self.ai_preferences or {}).get("reasoning_effort")
 
 
 class SlackChannel(UUIDModel):

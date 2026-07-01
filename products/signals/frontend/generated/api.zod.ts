@@ -19,6 +19,35 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const signalsReportsPartialUpdateBodyTitleMax = 300
+
+export const signalsReportsPartialUpdateBodySummaryMax = 10000
+
+export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodyTitleMax)
+            .optional()
+            .describe('New human-facing title for the report. Omit to leave the title unchanged.'),
+        summary: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPartialUpdateBodySummaryMax)
+            .optional()
+            .describe(
+                "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged."
+            ),
+    })
+    .describe(
+        'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
+    )
+
+/**
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
@@ -240,10 +269,14 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReportBodyTitleMax = 300
+
+export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEditReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
@@ -265,6 +298,33 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+        suggested_reviewers: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax)
+                            .optional()
+                            .describe(
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                            ),
+                        user_uuid: zod
+                            .uuid()
+                            .optional()
+                            .describe(
+                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                    })
+                    .describe(
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                    )
+            )
+            .max(signalsScoutEditReportBodySuggestedReviewersMax)
+            .optional()
+            .describe(
+                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -279,6 +339,9 @@ export const signalsScoutEmitReportBodyTitleMax = 300
 export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
+export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -354,10 +417,31 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .nullish()
             .describe('2-3 sentence justification for `priority`. Required when `priority` is set.'),
         suggested_reviewers: zod
-            .array(zod.string())
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax)
+                            .optional()
+                            .describe(
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                            ),
+                        user_uuid: zod
+                            .uuid()
+                            .optional()
+                            .describe(
+                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                    })
+                    .describe(
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                    )
+            )
+            .max(signalsScoutEmitReportBodySuggestedReviewersMax)
             .optional()
             .describe(
-                'Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path.'
+                "Optional reviewers to route the report to (each a `github_login` and\/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -454,6 +538,44 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
+ * @summary List emitted findings for many runs at once
+ */
+export const signalsScoutRunsEmissionsBatchBodyRunIdsMax = 200
+
+export const SignalsScoutRunsEmissionsBatchBody = /* @__PURE__ */ zod
+    .object({
+        run_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutRunsEmissionsBatchBodyRunIdsMax)
+            .describe(
+                'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
+            ),
+    })
+    .describe(
+        "Request body for the batched emissions \/ emission-reports lookups: the set of run UUIDs to\nresolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the\nreports lookup, one ClickHouse round-trip — per emitted run) into a single request."
+    )
+
+/**
+ * Batched form of the per-run emission-reports endpoint. For every finding the requested runs emitted, resolve the inbox `SignalReport` (if any) its signal grouped into — all in a single ClickHouse round-trip rather than one query per run, which is what made the findings page slow to open. `report` is null when a finding hasn't grouped yet, was de-duplicated, or its signal was deleted. Strictly team-scoped — run ids belonging to another team contribute no rows.
+ * @summary List the inbox reports many runs' findings linked to
+ */
+export const signalsScoutRunsEmissionReportsBatchBodyRunIdsMax = 200
+
+export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
+    .object({
+        run_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutRunsEmissionReportsBatchBodyRunIdsMax)
+            .describe(
+                'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
+            ),
+    })
+    .describe(
+        "Request body for the batched emissions \/ emission-reports lookups: the set of run UUIDs to\nresolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the\nreports lookup, one ClickHouse round-trip — per emitted run) into a single request."
+    )
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.

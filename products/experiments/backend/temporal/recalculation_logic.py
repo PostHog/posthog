@@ -13,13 +13,20 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.event_usage import groups
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
@@ -414,6 +421,22 @@ def _capture_experiment_metric_event(
         )
 
 
+# error_type values mirror the client-side `classifyError` taxonomy (experimentLogic.tsx) so
+# recalculation failures land on the same dashboards as the legacy client events.
+def _classify_query_error_type(e: Exception) -> str:
+    if isinstance(e, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
+        return "timeout"
+    if isinstance(e, ClickHouseQueryMemoryLimitExceeded):
+        return "out_of_memory"
+    if isinstance(e, ServerException):
+        name = look_up_clickhouse_error_code_meta(e).name
+        if name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
+            return "timeout"
+        if name == "MEMORY_LIMIT_EXCEEDED":
+            return "out_of_memory"
+    return "server_error"
+
+
 # ---------------------------------------------------------------------------
 # Calculation
 # ---------------------------------------------------------------------------
@@ -519,9 +542,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team=experiment.team,
                 as_of=query_to_dt,
                 workload=Workload.OFFLINE,
-                # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-                # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
-                user=experiment.created_by,
+                # Userless background recompute. Warehouse access is enforced when the metric is authored,
+                # so resolve warehouse tables here instead of failing closed.
+                bypass_warehouse_access_control=True,
             )
 
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
@@ -619,13 +642,25 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     query_id=client_query_id,
                 )
                 _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                # Emit only on the terminal failure (retries exhausted) — the error the user actually
+                # sees. error_type mirrors the client taxonomy so it lands on the same dashboards.
+                # Earlier attempts re-raise silently to avoid double-counting a failure that may still succeed.
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": _classify_query_error_type(e),
+                        "error_message": message,
+                    },
+                )
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 is_final_attempt=is_final_attempt,
             )
-            # No 'experiment metric error' event here: this path re-raises and Temporal retries, so
-            # emitting would double-count per attempt. The final failed count is reported once at the
-            # run level ('experiment results refresh completed').
             raise

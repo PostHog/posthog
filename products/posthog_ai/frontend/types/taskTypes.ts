@@ -4,6 +4,8 @@ export interface RepositoryConfig {
     integrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
     repository?: string
+    /** Git branch the run checks out; defaults to the repo's default branch when unset. */
+    branch?: string
 }
 
 export enum OriginProduct {
@@ -15,7 +17,13 @@ export enum OriginProduct {
     // Tasks kicked off from an Inbox SignalReport (Discuss / Create PR). Backend already
     // accepts `signal_report` + `signal_report_task_relationship` for this origin.
     SIGNAL_REPORT = 'signal_report',
+    // Tasks created autonomously by the headless Signals Scout — team-scoped, visible to everyone.
+    SIGNALS_SCOUT = 'signals_scout',
+    POSTHOG_AI = 'posthog_ai',
 }
+
+/** TaskTracker list filter: the current user's own tasks vs. team scout tasks. */
+export type TaskAssigneeFilter = 'for_you' | 'team_scouts'
 
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',

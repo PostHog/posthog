@@ -4318,6 +4318,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
+    def test_tile_filters_override_replaces_dashboard_filters_in_returned_query(self) -> None:
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-30d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        # Tile has its own date-range filter (no person properties). The compute path treats
+        # this as a complete replacement for all dashboard filters.
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={"date_from": "-7d"},
+        )
+
+        # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
+        dashboard_filters = {
+            "properties": [{"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": str(dashboard.pk),
+                "filters_override": json.dumps(dashboard_filters),
+            },
+        ).json()
+
+        source = response["query"]["source"]
+        # The tile's filter (date_from = -7d, no person properties) must win over the
+        # dashboard filter. If the dashboard person properties appeared here the persons
+        # modal would use a different filter set than the chart — the bug this test guards.
+        assert source["dateRange"]["date_from"] == "-7d"
+        # properties must be absent or empty — the dashboard's person filter must not appear.
+        assert not source.get("properties"), (
+            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
+        )
+
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,

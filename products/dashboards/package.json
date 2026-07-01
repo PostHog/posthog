@@ -15,10 +15,12 @@
         "@testing-library/jest-dom": "^5.17.0",
         "@testing-library/react": "^14.3.1",
         "@testing-library/user-event": "^14.6.1",
-        "jest": "^29.7.0"
+        "jest": "^29.7.0",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "*",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",

@@ -8,8 +8,10 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
+import { ReadFileContent } from './ReadFileContent'
 import { ToolActivity } from './ToolActivity'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from './toolDiffContent'
 import type { ToolRendererProps } from './toolRegistry'
@@ -59,6 +61,7 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
                     language={languageFromPath(path)}
                     theme={isDarkModeOn ? 'vs-dark' : 'vs'}
                     options={DIFF_EDITOR_OPTIONS}
+                    loading={<EditorSkeleton />}
                 />
             ) : (
                 <div className="h-24 rounded border border-border-secondary" />
@@ -78,8 +81,9 @@ function DiffStats({ added, removed }: { added: number; removed: number }): JSX.
 
 /**
  * Renderer for Edit / Write / MultiEdit / NotebookEdit. The header reads "Edited a file" / "Created a
- * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and an inline visual
- * diff per file. Without `type: "diff"` content blocks it degrades to the generic card.
+ * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and a per-file view:
+ * a single-pane read-only editor for a newly created file (no "before" to diff against), an inline visual
+ * diff for a real edit. Without `type: "diff"` content blocks it degrades to the generic card.
  */
 export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
@@ -104,7 +108,11 @@ export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
                             {path && <FilePath path={path} />}
                             <DiffStats added={stats.added} removed={stats.removed} />
                         </div>
-                        <DiffEditor diff={diff} path={path} />
+                        {diff.oldText == null ? (
+                            <ReadFileContent text={diff.newText ?? ''} path={path} />
+                        ) : (
+                            <DiffEditor diff={diff} path={path} />
+                        )}
                     </div>
                 )
             })}

@@ -212,6 +212,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
+                'setRunOpening as setSandboxRunOpening',
                 'bootstrapRun as bootstrapSandboxRun',
                 'reset as resetSandboxStream',
                 'cancelRun as cancelSandboxRun',
@@ -717,6 +718,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
+                        // Optimistic boot indicator: light the "spinning up sandbox" provisioning state
+                        // for the duration of the open POST, before any SSE state exists. `openSandboxSse`
+                        // (success) clears it via the reducer; the failure/no-handle paths clear it below.
+                        actions.setSandboxRunOpening(true)
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
@@ -763,7 +768,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     posthog.captureException(e)
                     actions.pushSandboxError('Failed to send your message. Please try again.')
                 }
-                // The POST failed or no run was started — nothing will stream, release the lock now.
+                // The POST failed or no run was started — nothing will stream. Drop the optimistic boot
+                // indicator and release the lock now.
+                actions.setSandboxRunOpening(false)
                 actions.decrActiveStreamingThreads()
                 releaseStreamingLock()
                 return
