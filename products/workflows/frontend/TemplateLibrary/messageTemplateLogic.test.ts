@@ -22,20 +22,19 @@ describe('messageTemplateLogic unsaved-changes guard', () => {
         confirmSpy.mockRestore()
     })
 
-    it('blocks navigation away from an unsaved new template', async () => {
-        logic.actions.setTemplateValue('name', 'My one-hour template')
-        await expectLogic(logic).toMatchValues({ templateChanged: true })
+    it.each([
+        { description: 'blocks navigation away from an unsaved new template', changed: true, expectedCalls: 1 },
+        { description: 'does not block navigation when there are no unsaved changes', changed: false, expectedCalls: 0 },
+    ])('$description', async ({ changed, expectedCalls }) => {
+        if (changed) {
+            logic.actions.setTemplateValue('name', 'My one-hour template')
+            await expectLogic(logic).toMatchValues({ templateChanged: true })
+        } else {
+            await expectLogic(logic).toMatchValues({ templateChanged: false })
+        }
 
         router.actions.push('/workflows/library')
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not block navigation when there are no unsaved changes', async () => {
-        await expectLogic(logic).toMatchValues({ templateChanged: false })
-
-        router.actions.push('/workflows/library')
-
-        expect(confirmSpy).not.toHaveBeenCalled()
+        expect(confirmSpy).toHaveBeenCalledTimes(expectedCalls)
     })
 })
