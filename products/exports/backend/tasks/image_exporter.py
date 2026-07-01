@@ -177,7 +177,7 @@ def _export_to_png(
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
-        page_load_timeout: int = 40
+        page_load_timeout: int = settings.IMAGE_EXPORTER_RENDER_TIMEOUT_SECONDS
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
@@ -201,6 +201,9 @@ def _export_to_png(
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
+            # Many-tile dashboards take longer to render every card + load fonts, so give them
+            # more headroom than a single insight before we treat the render as failed.
+            page_load_timeout = settings.IMAGE_EXPORTER_DASHBOARD_RENDER_TIMEOUT_SECONDS
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = absolute_uri(
@@ -364,6 +367,11 @@ def _is_browserless_connection_error(error: Exception) -> bool:
     return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
 
 
+# The page is already in a failed state when we grab a debug screenshot, so bound it tightly
+# rather than letting it silently inherit Playwright's 30s default and compound the delay.
+DEBUG_SCREENSHOT_TIMEOUT_MS = 10000
+
+
 def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
     try:
         take_screenshot(image_path)
@@ -412,7 +420,9 @@ def _screenshot_asset_browserless(
             except PlaywrightTimeoutError as e:
                 with posthoganalytics.new_context():
                     posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
-                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+                    _save_debug_screenshot(
+                        lambda p: page.screenshot(path=p, timeout=DEBUG_SCREENSHOT_TIMEOUT_MS), image_path
+                    )
                     capture_exception(e)
 
                 raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
@@ -422,7 +432,9 @@ def _screenshot_asset_browserless(
             except PlaywrightTimeoutError as e:
                 with posthoganalytics.new_context():
                     posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
-                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+                    _save_debug_screenshot(
+                        lambda p: page.screenshot(path=p, timeout=DEBUG_SCREENSHOT_TIMEOUT_MS), image_path
+                    )
                     capture_exception(e)
 
             effective_max = _effective_max_height(max_height_pixels)
@@ -442,7 +454,10 @@ def _screenshot_asset_browserless(
             )
 
             page.set_viewport_size({"width": width, "height": final_height})
-            page.screenshot(path=image_path)
+            # Without an explicit timeout, page.screenshot falls back to Playwright's 30s default —
+            # shorter than, and inconsistent with, the render budget we deliberately configured. Align
+            # it so a slow-but-succeeding render (e.g. fonts still loading) gets the full budget.
+            page.screenshot(path=image_path, timeout=page_load_timeout * 1000)
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -454,7 +469,9 @@ def _screenshot_asset_browserless(
             with posthoganalytics.new_context():
                 posthoganalytics.tag("url_to_render", url_to_render)
                 if page:
-                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+                    _save_debug_screenshot(
+                        lambda p: page.screenshot(path=p, timeout=DEBUG_SCREENSHOT_TIMEOUT_MS), image_path
+                    )
             capture_exception(e)
 
             raise

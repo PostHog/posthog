@@ -773,6 +773,32 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    def test_screenshot_uses_explicit_timeout_aligned_with_render_budget(self) -> None:
+        # Regression guard: page.screenshot must carry an explicit timeout. Without one it silently
+        # falls back to Playwright's 30s default — shorter than the configured render budget — which
+        # is exactly the font-load screenshot timeout this path kept hitting.
+        page = MagicMock()
+        page.evaluate.return_value = 800  # height/width measurement
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.sync_playwright",
+                return_value=sync_playwright_cm,
+            ),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight", page_load_timeout=90)
+
+        page.screenshot.assert_called_once_with(path="p", timeout=90 * 1000)
+
 
 class TestDimensionHelpers(SimpleTestCase):
     @parameterized.expand(
