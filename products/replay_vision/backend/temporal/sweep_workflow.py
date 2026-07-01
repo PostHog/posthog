@@ -52,6 +52,13 @@ _VISION_ACTION_EVAL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=5), maximum_interval=dt.timedelta(minutes=1), maximum_attempts=3
 )
 
+# The candidate fetch is read-only and idempotent, so let a transient ClickHouse transport blip
+# (SSL bad-record-mac, connection reset, EOF mid-read) be retried instead of failing the whole tick.
+# A malformed-query config error is raised as non_retryable, so it still aborts on the first attempt.
+_FIND_CANDIDATES_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=5), maximum_interval=dt.timedelta(minutes=1), maximum_attempts=3
+)
+
 
 @wf.defn(name=SWEEP_SCANNER_WORKFLOW_NAME)
 class SweepScannerWorkflow(PostHogWorkflow):
@@ -83,7 +90,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=dt.timedelta(seconds=200),
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
+            retry_policy=_FIND_CANDIDATES_RETRY,
         )
         if not find_result.candidates:
             return
