@@ -23507,9 +23507,9 @@ class HogQLQuery(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     explain: bool | None = None
@@ -27491,9 +27491,9 @@ class HogQLAutocomplete(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     endPosition: int = Field(..., description="End position of the editor word")
@@ -27585,9 +27585,9 @@ class HogQLMetadata(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     debug: bool | None = Field(
