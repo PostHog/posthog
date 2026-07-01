@@ -275,7 +275,9 @@ Each scout's body is an instruction set the harness loads verbatim into the syst
 prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 `Skill.read_file()` from inside the run. Keep the body lean — every line is a
 recurring token cost on every run — and push detail into references that are only
-read when needed.
+read when needed. Do not hard-wrap scout `SKILL.md` prose at a column width — use
+semantic line breaks (sentence per line); the body is a prompt, not display text,
+and column wrapping only adds diff noise.
 
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
 directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh
