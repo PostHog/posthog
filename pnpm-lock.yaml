@@ -126,7 +126,7 @@ overrides:
   '@smithy/node-http-handler': 4.4.9
   '@smithy/core': 3.24.6
 
-pnpmfileChecksum: sha256-BDsketUX1aqY6llZEL6tbtUknORD9XUlzvKVXvGjir4=
+pnpmfileChecksum: sha256-m+MhZ/VuNu6vwZSY1j7b0vGC2vMQa+onb4N6QpvugJA=
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
