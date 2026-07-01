@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -50,6 +50,16 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{BASE_URL}/{path}?{urlencode(params)}"
 
 
+def _scrub_url(url: str | None) -> str:
+    # The access_key rides in the query string, so strip the query before the URL reaches any error
+    # message or log line — otherwise a non-2xx response would leak the credential into job errors.
+    # The base host stays intact so `get_non_retryable_errors()` can still match on it.
+    if not url:
+        return BASE_URL
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def _raise_on_functional_error(data: Any, url: str) -> None:
     """apilayer returns HTTP 200 with ``{"success": false, "error": {...}}`` for functional errors
     (e.g. an invalid date, or a base currency the plan doesn't allow). Surface those as failures
@@ -58,7 +68,7 @@ def _raise_on_functional_error(data: Any, url: str) -> None:
         error = data.get("error") or {}
         code = error.get("code") or error.get("type") or "unknown_error"
         message = error.get("message") or error.get("info") or "Unknown error"
-        raise ExchangeRatesApiError(f"Exchange Rates API error ({code}): {message} url={url}")
+        raise ExchangeRatesApiError(f"Exchange Rates API error ({code}): {message} url={_scrub_url(url)}")
 
 
 def _request(session: requests.Session, path: str, params: dict[str, Any], logger: FilteringBoundLogger) -> Any:
@@ -67,12 +77,19 @@ def _request(session: requests.Session, path: str, params: dict[str, Any], logge
 
     if response.status_code == 429 or response.status_code >= 500:
         raise ExchangeRatesApiRetryableError(
-            f"Exchange Rates API error (retryable): status={response.status_code}, url={url}"
+            f"Exchange Rates API error (retryable): status={response.status_code}, url={_scrub_url(url)}"
         )
 
     if not response.ok:
-        logger.error(f"Exchange Rates API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        logger.error(
+            f"Exchange Rates API error: status={response.status_code}, body={response.text}, url={_scrub_url(url)}"
+        )
+        # Raise with the access_key scrubbed from the URL rather than calling raise_for_status(), whose
+        # message embeds the full credential-bearing URL.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {_scrub_url(response.url)}",
+            response=response,
+        )
 
     data = response.json()
     _raise_on_functional_error(data, url)
@@ -96,8 +113,9 @@ def _iter_symbols(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _iter_latest(data: dict[str, Any]) -> list[dict[str, Any]]:
-    base = data.get("base")
-    value_date = data.get("date")
+    # base and date are part of the composite primary key — fail fast rather than write None rows.
+    base = data["base"]
+    value_date = data["date"]
     timestamp = data.get("timestamp")
     rates = data.get("rates") or {}
     return [
@@ -107,7 +125,8 @@ def _iter_latest(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _iter_timeseries(data: dict[str, Any]) -> list[dict[str, Any]]:
-    base = data.get("base")
+    # base is part of the composite primary key — fail fast rather than write None rows.
+    base = data["base"]
     rates_by_date = data.get("rates") or {}
     rows: list[dict[str, Any]] = []
     # Sort by date so rows arrive in ascending order, matching sort_mode="asc" and keeping the

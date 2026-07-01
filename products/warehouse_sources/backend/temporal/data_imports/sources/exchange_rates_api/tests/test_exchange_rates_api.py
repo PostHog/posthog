@@ -33,10 +33,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = ""):
+    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = "", reason: str = ""):
         self.status_code = status_code
         self._json_data = json_data
         self.text = text
+        self.reason = reason
+        # Mirrors requests.Response.url; the session sets it to the requested URL.
+        self.url: str = ""
 
     @property
     def ok(self) -> bool:
@@ -61,7 +64,9 @@ class _FakeSession:
 
     def get(self, url: str, **kwargs: Any) -> _FakeResponse:
         self.requested_urls.append(url)
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        response.url = url
+        return response
 
 
 def _manager(can_resume: bool = False, state: ExchangeRatesApiResumeConfig | None = None) -> mock.MagicMock:
@@ -106,6 +111,15 @@ class TestRequest:
         session = _FakeSession([_FakeResponse(status_code=401, json_data=None, text="unauthorized")])
         with pytest.raises(requests.HTTPError):
             exchange_rates_api._request(session, "symbols", {}, mock.MagicMock())  # type: ignore[arg-type]
+
+    def test_client_error_does_not_leak_access_key(self) -> None:
+        # The access_key rides in the query string; a 4xx must never surface it in the raised error.
+        session = _FakeSession([_FakeResponse(status_code=401, reason="Unauthorized")])
+        logger = mock.MagicMock()
+        with pytest.raises(requests.HTTPError) as exc:
+            exchange_rates_api._request(session, "symbols", {"access_key": "SECRET_KEY"}, logger)  # type: ignore[arg-type]
+        assert "SECRET_KEY" not in str(exc.value)
+        assert "SECRET_KEY" not in str(logger.error.call_args)
 
     def test_functional_error_raises_after_200(self) -> None:
         body = {"success": False, "error": {"code": "base_currency_access_restricted", "message": "upgrade"}}
@@ -220,7 +234,9 @@ class TestResolveTimeseriesStart:
 
 
 class TestGetRows:
-    def _run(self, endpoint: str, responses: list[_FakeResponse], manager: mock.MagicMock, **kwargs: Any) -> list[Any]:
+    def _run(
+        self, endpoint: str, responses: list[_FakeResponse], manager: mock.MagicMock, **kwargs: Any
+    ) -> tuple[list[Any], _FakeSession]:
         session = _FakeSession(responses)
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session",
