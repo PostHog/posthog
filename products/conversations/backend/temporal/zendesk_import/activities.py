@@ -169,6 +169,7 @@ def _process_attachments(
     return build_content_with_images(content, rich_content, images)
 
 
+# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression -- constant template + operator; operands are a column F() and a parameterized Value, never user input
 class _JSONBConcat(Func):
     """Atomic ``jsonb || jsonb`` merge (right-hand keys win).
 
