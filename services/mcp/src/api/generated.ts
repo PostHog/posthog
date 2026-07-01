@@ -51951,8 +51951,16 @@ export namespace Schemas {
     }
 
     export interface TaskRunRelayMessageRequest {
-      /** @maxLength 10000 */
+      /**
+         * Joined message body. Used when text_parts is absent.
+         * @maxLength 10000
+         */
       text: string;
+      /**
+         * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+         * @items.maxLength 10000
+         */
+      text_parts?: string[];
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -58094,11 +58102,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -64729,11 +64740,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**

@@ -898,23 +898,21 @@ class TaskRun(models.Model):
 
         state = self.state or {}
         prior_snapshot_external_id = state.get("snapshot_external_id")
+        prior_snapshot_kind = state.get("snapshot_kind")
+        prior_snapshot_mount_path = state.get("snapshot_mount_path")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
-        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
-            state.pop("snapshot_external_id", None)
         self.state = state
 
         logger.info(
             "prepare_for_cloud_handoff",
             run_id=str(self.id),
             task_id=str(self.task_id),
-            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
             prior_snapshot_external_id=prior_snapshot_external_id,
-            stripped_snapshot_external_id=(
-                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
-            ),
+            prior_snapshot_kind=prior_snapshot_kind,
+            prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
         self.save(
