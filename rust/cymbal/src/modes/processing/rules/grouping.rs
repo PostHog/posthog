@@ -125,19 +125,31 @@ impl GroupingRule {
     }
 }
 
-pub async fn evaluate_grouping_rules(
+pub async fn evaluate_grouping_rules<F>(
     con: &mut PgConnection,
     team_id: TeamId,
     team_manager: &TeamManager,
-    props: Value,
-) -> Result<Option<GroupingRule>, UnhandledError> {
+    props: F,
+) -> Result<Option<GroupingRule>, UnhandledError>
+where
+    F: FnOnce() -> Result<Value, UnhandledError>,
+{
     let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
 
     let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
 
     metrics::counter!(GROUPING_RULES_FOUND).increment(rules.len() as u64);
 
+    // Most teams have no grouping rules. Bail before materializing `props`, which
+    // the caller defers (serializing the event to JSON is expensive per-event work).
+    if rules.is_empty() {
+        timing.label("outcome", "no_match").fin();
+        return Ok(None);
+    }
+
     rules.sort_unstable_by_key(|r| r.order_key);
+
+    let props = props()?;
 
     for rule in rules {
         match rule.try_match(&props) {
@@ -235,10 +247,11 @@ mod test {
             .grouping_rules
             .insert(test_team_id, vec![rule]);
 
-        let matched =
-            evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, props.clone())
-                .await
-                .unwrap();
+        let matched = evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, || {
+            Ok(props.clone())
+        })
+        .await
+        .unwrap();
         let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
 
         assert_eq!(fingerprint.value, expected_fingerprint);
@@ -247,9 +260,10 @@ mod test {
         // tries to access an undefined global
         let props = test_props(JsonValue::from("no_match"));
 
-        let matched = evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, props)
-            .await
-            .unwrap();
+        let matched =
+            evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, || Ok(props))
+                .await
+                .unwrap();
 
         assert!(matched.is_none());
     }
