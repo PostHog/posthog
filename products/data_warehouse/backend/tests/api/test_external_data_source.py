@@ -1681,19 +1681,76 @@ class TestExternalDataSource(APIBaseTest):
                     "id": str(snowflake_source.pk),
                     "prefix": "Analytics Snowflake",
                     "engine": "snowflake",
+                    "source_type": "Snowflake",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(mysql_source.pk),
                     "prefix": "Reporting MySQL",
                     "engine": "mysql",
+                    "source_type": "MySQL",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
             ],
         )
+
+    def test_connections_lists_synced_sources_only_when_direct_query_enabled(self):
+        enabled_synced = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Enabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # Toggle off: must not be listed.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Disabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=False,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # No direct engine for the type: must not be listed even with the toggle on.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="Stripe synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["id"] for item in payload], [str(enabled_synced.pk)])
+        self.assertEqual(payload[0]["access_method"], "warehouse")
+        self.assertEqual(payload[0]["source_type"], "Postgres")
+        self.assertEqual(payload[0]["supports_hogql"], True)
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()

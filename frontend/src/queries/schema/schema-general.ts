@@ -568,7 +568,7 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
@@ -784,7 +784,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
@@ -804,7 +804,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
