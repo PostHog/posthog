@@ -53,7 +53,7 @@ class ErrorTrackingIssue(UUIDTModel):
     class Meta:
         db_table = "posthog_errortrackingissue"
 
-    def merge(self, issue_ids: list[str | UUID]) -> bool:
+    def merge(self, issue_ids: list[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None) -> bool:
         team_id = self.team_id
         target_issue_id = self.id
         source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
@@ -65,6 +65,10 @@ class ErrorTrackingIssue(UUIDTModel):
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
             if not existing_source_issue_ids:
+                return False
+            if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
+                team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
+            ):
                 return False
 
             locked_source_fingerprints = list(
@@ -210,14 +214,20 @@ def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids:
         .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
         .order_by("id")
     }
-    if target_issue_id not in locked_issue_ids:
+    if target_issue_id not in locked_issue_ids or not set(source_issue_ids).issubset(locked_issue_ids):
         return []
 
-    locked_source_issue_ids = [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
-    if len(locked_source_issue_ids) != len(source_issue_ids):
-        return []
+    return source_issue_ids
 
-    return locked_source_issue_ids
+
+def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_issue_ids: dict[str, UUID]) -> bool:
+    current_fingerprint_issue_ids = {
+        row.fingerprint: row.issue_id
+        for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+        .filter(team_id=team_id, fingerprint__in=list(expected_fingerprint_issue_ids))
+        .order_by("fingerprint", "id")
+    }
+    return current_fingerprint_issue_ids == expected_fingerprint_issue_ids
 
 
 def _sync_error_tracking_issue_changes_on_commit(
@@ -525,6 +535,9 @@ def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[
 def update_error_tracking_issue_fingerprints(
     team_id: int, issue_id: str | UUID, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
+    if not fingerprints:
+        return []
+
     return list(
         # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
         ErrorTrackingIssueFingerprintV2.objects.raw(

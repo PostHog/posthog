@@ -93,6 +93,26 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
 
+    def test_merge_stale_expected_fingerprint_issue_is_noop(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+        issue_three = self.create_issue(["fingerprint_three"])
+
+        assert (
+            issue_two.merge(
+                issue_ids=[issue_one.id],
+                expected_fingerprint_issue_ids={
+                    "fingerprint_one": issue_three.id,
+                    "fingerprint_two": issue_two.id,
+                },
+            )
+            is False
+        )
+
+        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
+
     def test_merge_syncs_target_issue_to_clickhouse(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
@@ -276,7 +296,7 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
         finally:
             close_old_connections()
 
-    def test_opposite_concurrent_merges_do_not_deadlock(self):
+    def test_concurrent_overlapping_merges_do_not_deadlock(self):
         source_issue_one = self.create_issue(["source_fingerprint_one"])
         source_issue_two = self.create_issue(["source_fingerprint_two"])
         target_issue_one = self.create_issue(["target_fingerprint_one"])
@@ -307,7 +327,10 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
         assert not ErrorTrackingIssue.objects.filter(id__in=[source_issue_one.id, source_issue_two.id]).exists()
         assert ErrorTrackingIssue.objects.filter(id__in=[target_issue_one.id, target_issue_two.id]).count() == 2
 
-        source_fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(
-            fingerprint__in=["source_fingerprint_one", "source_fingerprint_two"]
-        ).values_list("issue_id", flat=True)
-        assert len(set(source_fingerprints)) == 1
+        source_fingerprint_issue_ids = list(
+            ErrorTrackingIssueFingerprintV2.objects.filter(
+                fingerprint__in=["source_fingerprint_one", "source_fingerprint_two"]
+            ).values_list("issue_id", flat=True)
+        )
+        assert len(source_fingerprint_issue_ids) == 2
+        assert len(set(source_fingerprint_issue_ids)) == 1

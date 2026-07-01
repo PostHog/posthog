@@ -305,7 +305,13 @@ def _merge_fingerprint_into_closest_issue(
 
     source_issue_id = source_fingerprint.issue_id
     target_issue_id = target_fingerprint.issue_id
-    if not target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)]):
+    if not target_fingerprint.issue.merge(
+        issue_ids=[source_issue_id],
+        expected_fingerprint_issue_ids={
+            fingerprint: source_issue_id,
+            closest_fingerprint.fingerprint: target_issue_id,
+        },
+    ):
         return 0
 
     with ph_scoped_capture() as capture:
