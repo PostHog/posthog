@@ -625,7 +625,7 @@ describe('the property definitions model', () => {
 
         it('stops polling after a bounded number of attempts when the backend stays refreshing', async () => {
             const requestUrls: string[] = []
-            let pendingPoll: (() => void) | null = null
+            const scheduledPolls: (() => void)[] = []
 
             // Capture the backed-off poll timers (>= base delay) and run them synchronously below;
             // let short timers (kea breakpoints) run normally. Without a cap this chain is infinite.
@@ -636,7 +636,7 @@ describe('the property definitions model', () => {
                 ...args: unknown[]
             ) => {
                 if (typeof delay === 'number' && delay >= 2000) {
-                    pendingPoll = () => (fn as (...a: unknown[]) => unknown)(...args)
+                    scheduledPolls.push(() => (fn as (...a: unknown[]) => unknown)(...args))
                     return 0 as unknown as ReturnType<typeof setTimeout>
                 }
                 return originalSetTimeout(fn, delay, ...args)
@@ -663,9 +663,8 @@ describe('the property definitions model', () => {
 
             // Drain the poll chain; the loop is bounded so a missing cap fails loudly instead of hanging.
             let iterations = 0
-            while (pendingPoll && iterations < 50) {
-                const next = pendingPoll
-                pendingPoll = null
+            while (scheduledPolls.length > 0 && iterations < 50) {
+                const next = scheduledPolls.shift()!
                 await expectLogic(logic, () => next()).toFinishAllListeners()
                 iterations += 1
             }
@@ -673,7 +672,7 @@ describe('the property definitions model', () => {
             jest.restoreAllMocks()
 
             // Polling terminated on its own after the initial request plus the capped follow-up polls.
-            expect(pendingPoll).toBeNull()
+            expect(scheduledPolls).toHaveLength(0)
             expect(requestUrls.length).toBeGreaterThan(1)
             expect(requestUrls.length).toBeLessThanOrEqual(9)
         })
