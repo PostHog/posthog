@@ -588,11 +588,22 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         serialized = database.serialize(hogql_context, include_only={table_name})
 
-        if table_name not in serialized:
+        # Warehouse tables serialize under their dotted key (`zendesk.groups`) but are also queryable by
+        # their raw underscore name (`zendesk_groups`), carried in `search_aliases`. Accept either form.
+        table = serialized.get(table_name)
+        if table is None:
+            table = next(
+                (t for t in serialized.values() if table_name in (getattr(t, "search_aliases", None) or [])),
+                None,
+            )
+        if table is None:
             return f"Could not serialize schema for table `{table_name}`."
 
-        table = serialized[table_name]
-        semantics = self._warehouse_table_semantics({table_name}).get(table_name) or {}
+        # Semantics are keyed by the raw DataWarehouseTable name (underscore form), which is the
+        # `search_aliases` entry when the serialized key is dotted.
+        aliases = getattr(table, "search_aliases", None) or []
+        db_name = aliases[0] if aliases else table_name
+        semantics = self._warehouse_table_semantics({db_name}).get(db_name) or {}
         column_descriptions: dict[str, str] = semantics.get("columns") or {}
 
         header = f"Table `{table_name}`"
