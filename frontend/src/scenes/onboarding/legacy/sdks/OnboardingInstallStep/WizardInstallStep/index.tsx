@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -7,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { OnboardingStepKey, type SDK } from '~/types'
 
 import { OnboardingStep } from '../../../OnboardingStep'
+import { useVerificationStalled } from '../../hooks/useInstallationComplete'
 import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndicator'
 import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
@@ -35,7 +37,11 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
 }
 
 function WizardInstallStepStatic(props: VariantProps): JSX.Element {
-    const continueDisabledReason = props.installationComplete ? undefined : 'Installation is not complete'
+    // After an extended wait, stop trapping users behind a disabled Continue — the
+    // "Waiting for…" check may never resolve for their setup, so let them proceed.
+    const stalled = useVerificationStalled(props.installationComplete)
+    const canContinue = props.installationComplete || stalled
+    const continueDisabledReason = canContinue ? undefined : 'Installation is not complete'
     return (
         <WizardInstallShell
             continueDisabledReason={continueDisabledReason}
@@ -46,6 +52,9 @@ function WizardInstallStepStatic(props: VariantProps): JSX.Element {
             <div className="max-w-xl mx-auto">
                 <WizardCommandBlock />
             </div>
+            {stalled && !props.installationComplete && (
+                <VerificationStalledHint listeningForName={props.listeningForName} />
+            )}
         </WizardInstallShell>
     )
 }
@@ -53,9 +62,11 @@ function WizardInstallStepStatic(props: VariantProps): JSX.Element {
 function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
     const isTakeoverActive = useWizardTakeoverActive()
     // Once the wizard is in flight, trust it — installation events aren't required
-    // to unblock Continue.
-    const continueDisabledReason =
-        isTakeoverActive || props.installationComplete ? undefined : 'Installation is not complete'
+    // to unblock Continue. Otherwise fall back to the same stall escape hatch as the
+    // static arm so a never-resolving check can't trap users.
+    const stalled = useVerificationStalled(props.installationComplete)
+    const canContinue = isTakeoverActive || props.installationComplete || stalled
+    const continueDisabledReason = canContinue ? undefined : 'Installation is not complete'
     return (
         <WizardInstallShell
             continueDisabledReason={continueDisabledReason}
@@ -70,9 +81,29 @@ function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
                     <div className="max-w-xl mx-auto">
                         <WizardCommandBlock />
                     </div>
+                    {stalled && !props.installationComplete && (
+                        <VerificationStalledHint listeningForName={props.listeningForName} />
+                    )}
                 </>
             )}
         </WizardInstallShell>
+    )
+}
+
+/**
+ * Shown once verification has been waiting a while without an event landing. Points
+ * users at the now-enabled Continue button so they aren't stuck copying the command
+ * with no visible way forward.
+ */
+function VerificationStalledHint({ listeningForName }: { listeningForName?: string }): JSX.Element {
+    return (
+        <div className="max-w-xl mx-auto flex items-start gap-2 px-3 py-2 rounded border border-border bg-bg-light text-sm">
+            <IconInfo className="text-muted mt-0.5 shrink-0" />
+            <span>
+                Still waiting for your first {listeningForName ?? 'event'}? Once you've run the command it can take a
+                moment to arrive — you can continue setup now and we'll keep checking in the background.
+            </span>
+        </div>
     )
 }
 
