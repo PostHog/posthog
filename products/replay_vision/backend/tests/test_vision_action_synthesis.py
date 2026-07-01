@@ -157,6 +157,24 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertEqual(run.observation_ids, [str(included.id)])
 
+    def test_samples_across_window_when_over_cap(self) -> None:
+        # Over the action's cap, observations are sampled evenly across the window by recency rank —
+        # not just the newest N — so a busy window still reflects the whole period. With 9 in-window
+        # observations and a cap of 3, the stride (9/3=3) picks recency ranks 0, 3, 6.
+        obs = []
+        for i in range(1, 10):
+            o = self._observation(f"obs {i}", session_id=f"s{i}")
+            ReplayObservation.objects.filter(pk=o.pk).update(created_at=datetime.now(UTC) - timedelta(hours=i))
+            obs.append(o)  # obs[0] is newest (1h ago) … obs[8] is oldest (9h ago)
+        action = self._action(max_observations=3)
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 3)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(obs[0].id), str(obs[3].id), str(obs[6].id)])
+
     def test_empty_model_output_skips_without_persisting(self) -> None:
         # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
         # to the idempotency guard and re-bill the LLM on every retry.

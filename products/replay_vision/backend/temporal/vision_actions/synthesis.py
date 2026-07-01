@@ -180,7 +180,22 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         created_at__lt=_window_end(run),
     )
 
-    rows = observations_qs.order_by("-created_at").values_list("id", "scanner_result", "created_at")[:MAX_OBSERVATIONS]
+    # Cap how many observations feed the summary (bounds context size + LLM cost). Per-action, tunable
+    # via Django admin; falls back to the module default. When the window holds more than the cap, sample
+    # evenly across it by recency rank rather than just taking the newest, so a busy weekly action still
+    # reflects the whole period instead of only its last few hours.
+    cap = action.max_observations or MAX_OBSERVATIONS
+    ids = list(observations_qs.order_by("-created_at").values_list("id", flat=True))
+    if len(ids) > cap:
+        step = len(ids) / cap
+        selected = {ids[int(i * step)] for i in range(cap)}
+    else:
+        selected = set(ids)
+    rows = (
+        observations_qs.filter(id__in=selected)
+        .order_by("-created_at")
+        .values_list("id", "scanner_result", "created_at")
+    )
 
     lines: list[str] = []
     observation_ids: list[str] = []

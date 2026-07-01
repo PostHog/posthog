@@ -76,6 +76,12 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    # How many observations may feed one group summary. When the window holds more, they're sampled
+    # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
+    max_observations = models.PositiveIntegerField(
+        default=100,
+        help_text="Max observations included in one group summary; sampled across the window when exceeded.",
+    )
     delivery_config = models.JSONField(
         default=list,
         help_text="List of destination targets, e.g. [{type: 'slack', integration_id, channel}].",
