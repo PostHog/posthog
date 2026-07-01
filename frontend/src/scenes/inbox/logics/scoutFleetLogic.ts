@@ -19,6 +19,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    prettifyScoutSkillName,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -49,6 +50,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        deleteScoutConfig: (configId: string) => ({ configId }),
+        removeScoutConfigLocally: (configId: string) => ({ configId }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
         setExpanded: (expanded: boolean) => ({ expanded }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
@@ -187,6 +190,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Optimistic patch; the listener reconciles against the server response.
                 patchScoutConfigLocally: (state, { configId, updates }) =>
                     state?.map((config) => (config.id === configId ? { ...config, ...updates } : config)) ?? state,
+                // Drop a deleted row from the list once the backend confirms removal.
+                removeScoutConfigLocally: (state, { configId }) =>
+                    state?.filter((config) => config.id !== configId) ?? state,
             },
         ],
         // Flips true the first time the runs window loads *successfully* and stays true across the
@@ -285,6 +291,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     actions.patchScoutConfigLocally(configId, previousConfig)
                 }
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
+            }
+        },
+        deleteScoutConfig: async ({ configId }) => {
+            const config = values.scoutConfigs?.find((c) => c.id === configId)
+            try {
+                await api.signalScout.configs.delete(configId)
+                // Remove only after the backend confirms — deletion is irreversible, so no optimistic
+                // drop that would have to be re-inserted (and re-sorted) on failure.
+                actions.removeScoutConfigLocally(configId)
+                lemonToast.success(`Deleted ${config ? prettifyScoutSkillName(config.skill_name) : 'scout'} config`)
+            } catch (error: any) {
+                lemonToast.error(error?.detail || error?.message || 'Failed to delete scout config')
             }
         },
         startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {

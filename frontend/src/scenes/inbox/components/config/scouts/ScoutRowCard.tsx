@@ -23,11 +23,14 @@ export function ScoutRowCard({
     config,
     rollup,
     onUpdate,
+    onDelete,
     asHeader = false,
 }: {
     config: SignalScoutConfig
     rollup: ScoutRollup | undefined
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
+    /** Delete the whole config row. Omitted where deletion isn't offered (e.g. the detail header). */
+    onDelete?: (configId: string) => void
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
@@ -121,7 +124,7 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} />
+                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} />
                 </div>
             ) : null}
         </div>
