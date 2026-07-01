@@ -109,6 +109,7 @@ the row lists both.
 | clickhouse              | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup                 | HTTP                        | requests                                                        | ✅                          |
 | clockify                | HTTP                        | requests                                                        | ✅                          |
+| clockodo                | HTTP                        | requests                                                        | ✅                          |
 | close                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit              | HTTP                        | requests                                                        | ✅                          |
 | convex                  | HTTP                        | requests                                                        | ✅                          |
