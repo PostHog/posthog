@@ -915,7 +915,7 @@ class TestGitHubIntegrationModel(BaseTest):
         return Integration.objects.create(
             team=self.team,
             kind="github",
-            integration_id=_config.get("installation_id"),
+            integration_id=(config or {}).get("installation_id"),
             config=_config,
             sensitive_config=_sensitive_config,
         )
