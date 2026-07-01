@@ -350,13 +350,12 @@ tools:
             idempotent: true
         title: Enable PostHog products for the project
         description: >
-            Turn PostHog products ON for the current project so their signal sources have data to read — call this
-            BEFORE enabling sources. Pass `products`, any of: `session_replay`, `error_tracking`, `conversations`. The
-            server owns each recipe (the toggle plus conservative defaults such as replay input masking), so you only
-            name the products; you cannot pass settings. Idempotent: re-enabling an already-on product is a no-op.
-            Returns `results`, a per-product map of "enabled" (just turned on) or "already_enabled". Note: this flips
-            server-side flags read by posthog-js — for a pure backend or mobile app the flip is inert until the SDK is
-            configured in code. It does NOT create signal sources; do that separately with inbox-source-configs-create.
+            Turn PostHog products ON for the current project. Pass `products`, any of: `session_replay`,
+            `error_tracking`, `conversations`. The server owns each recipe (the toggle plus conservative defaults such
+            as replay input masking), so you only name the products; you cannot pass settings. Idempotent: re-enabling
+            an already-on product is a no-op. Returns `results`, a per-product map of "enabled" (just turned on) or
+            "already_enabled". Note: this flips server-side flags read by posthog-js — for a pure backend or mobile
+            app the flip is inert until the SDK is configured in code.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
