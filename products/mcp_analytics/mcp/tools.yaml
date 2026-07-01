@@ -77,8 +77,8 @@ tools:
             newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort
             tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not
             returned as a field; an unrecognised key silently falls back to newest-first. Also supports a
-            case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset`
-            paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with
+            case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging
+            — see each parameter for the specifics. To then summarise a single session's goal, follow up with
             mcp-analytics-sessions-generate-intent.
         feature_flag: mcp-analytics
     mcp-analytics-sessions-tool-calls:
