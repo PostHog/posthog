@@ -10,6 +10,9 @@ import { logger } from '~/common/utils/logger'
  * calls (e.g., Django -> Node.js CDP API). The primary protection comes from Contour
  * routing configuration at the infrastructure level, which restricts access to internal
  * endpoints. This middleware adds an additional layer of verification using a shared secret.
+ *
+ * Do not gate new endpoints on this shared secret — prefer a scoped JWT (see recording-api/auth.ts)
+ * or a dedicated per-purpose secret. See .agents/security.md ("Secrets & key management").
  */
 
 export const INTERNAL_SERVICE_CALL_HEADER_NAME = 'X-Internal-Api-Secret'
