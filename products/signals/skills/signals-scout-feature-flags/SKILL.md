@@ -89,7 +89,7 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-Three cheap reads cold-start a run:
+Four cheap reads cold-start a run:
 
 - `signals-scout-scratchpad-search` (`text=feature flag`, high `limit`) — durable
   steering: known high-volume flags and their baselines, which report covers a flag
