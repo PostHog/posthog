@@ -340,14 +340,6 @@ class ExperimentQueryRunner(QueryRunner):
             and not self.is_data_warehouse_query
         )
 
-    def _resolve_funnel_steps_data_disabled(self) -> bool:
-        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
-        parameters = self.experiment.parameters or {}
-        if "funnel_steps_data_disabled" in parameters:
-            return bool(parameters["funnel_steps_data_disabled"])
-
-        return self._team_experiments_config.funnel_steps_data_disabled
-
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -364,10 +356,6 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (
-            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
-        )
-
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -380,7 +368,6 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
-            funnel_steps_data_disabled=funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
