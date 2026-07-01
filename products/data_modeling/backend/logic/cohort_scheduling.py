@@ -42,6 +42,11 @@ def dag_id_from_schedule_id(schedule_id: str) -> str:
     return schedule_id.rsplit(_TIER_SEPARATOR, 1)[0]
 
 
+def is_tier_schedule_id(schedule_id: str) -> bool:
+    """Whether a schedule id is a cadence tier's (vs the pre-tier bare DAG id)."""
+    return _TIER_SEPARATOR in schedule_id
+
+
 @dataclasses.dataclass
 class ScheduleReconcilePlan:
     """What to do to Temporal to make a DAG's schedules match its desired cadence tiers.

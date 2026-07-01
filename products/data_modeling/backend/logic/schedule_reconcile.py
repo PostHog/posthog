@@ -14,8 +14,10 @@ import uuid
 import dataclasses
 from collections.abc import Iterable
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.db import transaction
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -32,6 +34,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -40,6 +43,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 from products.data_modeling.backend.logic.cohort_scheduling import (
     ScheduleReconcilePlan,
     bucket_into_cadence_tiers,
+    is_tier_schedule_id,
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
@@ -59,15 +63,74 @@ from products.data_modeling.backend.schedule import (
     dag_schedule_search_attributes,
 )
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 logger = structlog.get_logger(__name__)
 
+TIERED_SCHEDULES_FLAG = "data-modeling-tiered-schedules"
 
-def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False) -> None:
+
+def tiered_schedules_enabled(team: "Team") -> bool:
+    """Whether per-node cadence tiers may drive this team's DAG schedules."""
+    return feature_enabled_or_false(
+        TIERED_SCHEDULES_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def maybe_reconcile_dag(dag: DAG) -> None:
+    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+
+    Runs after commit so the reconcile reads the mutated graph, and never raises past the
+    commit — the user's write already succeeded. Only DAGs already converted to cadence
+    tiers are touched: legacy single-schedule DAGs are converted solely by the
+    reconcile_freshness_schedules command, so a stray mutation can neither unschedule an
+    unseeded DAG nor create tiers alongside live v1 schedules on an unmigrated team.
+    """
+    if not tiered_schedules_enabled(dag.team):
+        return
+    transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
+
+
+def _reconcile_dag_best_effort(dag: DAG) -> None:
+    try:
+        _warn_on_invalid_targets(dag)
+        reconcile_dag_schedules(dag, require_tiered=True)
+    except Exception as error:
+        logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+        capture_exception(error)
+
+
+def _warn_on_invalid_targets(dag: DAG) -> None:
+    """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
+    graph = build_frequency_graph(dag)
+    for invalid in find_invalid_targets(
+        edges=graph.edges, targets=graph.targets, source_intervals=graph.source_intervals
+    ):
+        logger.warning(
+            "Declared freshness target outside its legal range",
+            dag_id=str(dag.id),
+            node_id=invalid.node_id,
+            target=str(invalid.target),
+            floor=str(invalid.floor),
+            ceiling=str(invalid.ceiling),
+        )
+
+
+def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False, require_tiered: bool = False) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     Converging a covered DAG to zero schedules is refused unless `allow_unschedule` — an
     empty tier set on a DAG with live schedules almost always means unseeded targets, not
-    a deliberate wind-down.
+    a deliberate wind-down. With `require_tiered`, a DAG that has no tiered schedule yet
+    (legacy single schedule or nothing) is left untouched.
     """
     team = dag.team
     graph = build_frequency_graph(dag)
@@ -80,6 +143,7 @@ def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False) -> None
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
         allow_unschedule=allow_unschedule,
+        require_tiered=require_tiered,
     )
 
 
@@ -165,6 +229,7 @@ async def _apply_reconciliation(
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
     allow_unschedule: bool = False,
+    require_tiered: bool = False,
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS)
     if unsupported:
@@ -174,6 +239,9 @@ async def _apply_reconciliation(
 
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
+        logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
+        return
     if not desired_tiers and existing_ids and not allow_unschedule:
         logger.warning(
             "Refusing to unschedule a covered DAG with no cadence tiers (unseeded targets?)",

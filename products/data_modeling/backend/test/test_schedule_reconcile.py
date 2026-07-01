@@ -10,7 +10,11 @@ from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionSta
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import STREAMING, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_frequency_target
-from products.data_modeling.backend.logic.schedule_reconcile import _find_unsatisfiable, reconcile_dag_schedules
+from products.data_modeling.backend.logic.schedule_reconcile import (
+    _find_unsatisfiable,
+    maybe_reconcile_dag,
+    reconcile_dag_schedules,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -237,6 +241,87 @@ class TestReconcileDagSchedules(BaseTest):
             with self.assertRaises(UnsupportedFrequencyTargetError):
                 reconcile_dag_schedules(dag)
         connect.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestMaybeReconcileDag(BaseTest):
+    def _dag_with_target(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_frequency_target(endpoint, M15)
+        return dag
+
+    def _temporal_listing(self, schedule_ids):
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                for schedule_id in schedule_ids:
+                    yield _listing(schedule_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        return temporal
+
+    def test_flag_off_never_touches_temporal(self):
+        dag = self._dag_with_target()
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.feature_enabled_or_false", return_value=False),
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock()) as connect,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+        connect.assert_not_called()
+
+    def test_untiered_dag_is_left_alone(self):
+        # a legacy single-schedule DAG converts only via the conversion command; a mutation
+        # trigger must neither unschedule it nor create tiers next to live v1 schedules
+        dag = self._dag_with_target()
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
+            mock.patch(
+                f"{module}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
+            ),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+        create.assert_not_called()
+        update.assert_not_called()
+        delete.assert_not_called()
+
+    def test_tiered_dag_reconciles_after_commit(self):
+        dag = self._dag_with_target()
+        tier_id = tier_schedule_id(str(dag.id), M15)
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([tier_id]))),
+            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+        update.assert_called_once()
+        self.assertEqual(update.call_args.kwargs["id"], tier_id)
+
+    def test_reconcile_failure_never_raises_past_commit(self):
+        dag = self._dag_with_target()
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch(f"{module}.capture_exception") as capture,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+        capture.assert_called_once()
 
 
 class TestFindUnsatisfiable(TestCase):
