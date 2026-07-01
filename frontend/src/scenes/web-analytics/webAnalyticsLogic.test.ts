@@ -376,6 +376,17 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values._graphsTab).toBe(GraphsTab.UNIQUE_CONVERSIONS)
     })
 
+    it('reconciles the URL when a restored param is normalised away', async () => {
+        // A conversion goal makes PAGE_VIEWS an incompatible graphs tab, so restoration coerces it to
+        // UNIQUE_USERS. The URL must be updated to match, or the visible chart and the shareable/reload
+        // URL diverge (the per-action actionToUrl writes are suppressed during restore).
+        router.actions.push('/web', { 'conversionGoal.actionId': '42', graphs_tab: 'PAGE_VIEWS' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.graphsTab).toBe(GraphsTab.UNIQUE_USERS)
+        expect(router.values.searchParams.graphs_tab).toBe(GraphsTab.UNIQUE_USERS)
+    })
+
     it('restores the date range and interval from the URL', async () => {
         router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'week' })
         await expectLogic(logic).toFinishAllListeners()
