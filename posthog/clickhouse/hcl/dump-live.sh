@@ -27,6 +27,10 @@ CH_USER="${CLICKHOUSE_USER:-default}"
 CH_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 OUTDIR="${1:-${LIVE_DUMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")}}"
 mkdir -p "$OUTDIR"
+# mktemp -d makes the dir mode 700; the nonroot hclexp container (a different uid
+# than the host) then can't traverse it to read the dumps back in check-live.
+# Make it world-traversable so the container can read what the host wrote.
+chmod 0755 "$OUTDIR" 2>/dev/null || true
 
 # Match the published ports in docker-compose.multinode-clickhouse.yml.
 #   role  default-host  default-port  default-db
@@ -72,6 +76,7 @@ for spec in "${ROLES[@]}"; do
     echo "FAIL: introspect $ENV/$role ($host:$port/$db)" >&2
     rc=1
   fi
+  chmod 0644 "$out" 2>/dev/null || true  # readable by the nonroot container in check-live
 done
 
 echo "$OUTDIR"
