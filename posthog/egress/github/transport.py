@@ -11,6 +11,7 @@ is defined here for the same reason: the transport needs it, and it can't reach 
 """
 
 import time
+from typing import Any
 
 import requests
 
@@ -120,7 +121,7 @@ def github_request(
     endpoint: str | None = None,
     timeout: float | tuple[float, float] | None = None,
     session: requests.Session | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> requests.Response:
     """Make a gated, recorded GitHub API request. ``installation_id`` is the shared budget owner — pass
     it when known so the call is gated (at ``priority``) and the rate-limit gauges are set; leave it

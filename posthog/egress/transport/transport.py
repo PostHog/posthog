@@ -9,6 +9,7 @@ budget-exhausted exception). GitHub is the first incarnation — see :mod:`posth
 """
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import requests
 
@@ -43,7 +44,7 @@ class EgressClient(ABC):
         endpoint: str | None = None,
         timeout: float | tuple[float, float] | None = None,
         session: requests.Session | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> requests.Response:
         self._gate(scope, source, priority)
 
@@ -61,7 +62,8 @@ class EgressClient(ABC):
 
     def _gate(self, scope: str | None, source: str, priority: Priority) -> None:
         # Identity-blind callers have no shared budget to draw on — record volume only, never gate.
-        if scope is None:
+        # An empty scope is no identity either: gating on it would key a phantom budget/metric series.
+        if not scope:
             return
         granted = self._consume(scope, priority, source)
         # CRITICAL never blocks: it records the decision (and consumes if there's room) but proceeds

@@ -23,7 +23,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GITHUB_API_VERSION, github_request
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
@@ -122,7 +122,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=timeout,
         )
@@ -235,7 +235,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {user_access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             params={"per_page": 1},
             timeout=10,
@@ -446,7 +446,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 params=params,
                 timeout=timeout,
@@ -772,7 +772,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 json_body={"query": query, "variables": variables},
             )
@@ -922,7 +922,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -1061,7 +1061,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -1186,7 +1186,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -1242,7 +1242,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=10,
         )
@@ -1527,7 +1527,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=timeout,
             )
