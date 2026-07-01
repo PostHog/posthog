@@ -176,18 +176,6 @@ export function SQLEditor({
         dataNodeCollectionId: dataLogicKey,
         variablesOverride: undefined,
         autoLoad: false,
-        onError: (error) => {
-            const mountedLogic = sqlEditorLogic.findMounted({
-                tabId: tabId || '',
-                mode,
-                monaco,
-                editor,
-            })
-
-            if (mountedLogic) {
-                mountedLogic.actions.setDataError(error)
-            }
-        },
     }
 
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
