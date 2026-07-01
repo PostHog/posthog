@@ -7,14 +7,19 @@ import asyncio
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+import structlog
+
 from posthog.models import Team
 
+from products.conversations.backend.api.zendesk_import import WORKFLOW_START_FAILED_MESSAGE
 from products.conversations.backend.models import ZendeskImportJob
 from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskCredentials,
     validate_zendesk_credentials,
 )
 from products.conversations.backend.temporal.zendesk_import.starter import start_zendesk_import_workflow
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -64,18 +69,26 @@ class Command(BaseCommand):
             },
         )
 
-        workflow_id, workflow_run_id = asyncio.run(
-            start_zendesk_import_workflow(
-                job_id=str(job.id),
-                team_id=team_id,
-                dry_run=options["dry_run"],
+        try:
+            workflow_id, workflow_run_id = asyncio.run(
+                start_zendesk_import_workflow(
+                    job_id=str(job.id),
+                    team_id=team_id,
+                    dry_run=options["dry_run"],
+                )
             )
-        )
-        job.workflow_id = workflow_id
-        job.workflow_run_id = workflow_run_id
-        job.status = ZendeskImportJob.Status.RUNNING
-        job.started_at = timezone.now()
-        job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
+            job.workflow_id = workflow_id
+            job.workflow_run_id = workflow_run_id
+            job.status = ZendeskImportJob.Status.RUNNING
+            job.started_at = timezone.now()
+            job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
+        except Exception as exc:
+            logger.exception("zendesk_import_workflow_start_failed", job_id=str(job.id), team_id=team_id)
+            job.status = ZendeskImportJob.Status.FAILED
+            job.latest_error = WORKFLOW_START_FAILED_MESSAGE
+            job.finished_at = timezone.now()
+            job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+            raise CommandError(f"Failed to start workflow: {exc}")
 
         self.stdout.write(
             self.style.SUCCESS(

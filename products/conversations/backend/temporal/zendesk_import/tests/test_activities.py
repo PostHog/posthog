@@ -226,10 +226,13 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=401)
         stored = Comment.objects.get(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
-        self.assertIsNotNone(stored.rich_content)
-        image_nodes = [n for n in stored.rich_content["content"] if n.get("type") == "image"]
+        rich_content = stored.rich_content
+        assert rich_content is not None
+        image_nodes = [n for n in rich_content["content"] if n.get("type") == "image"]
         self.assertEqual(image_nodes[0]["attrs"]["src"], "https://media.posthog.test/shot.png")
-        self.assertIn("https://media.posthog.test/shot.png", stored.content)
+        content = stored.content
+        assert content is not None
+        self.assertIn("https://media.posthog.test/shot.png", content)
 
     def test_non_image_attachment_linked(self) -> None:
         comment = _zd_comment(
@@ -248,7 +251,9 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=402)
         stored = Comment.objects.get(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
-        self.assertIn("[doc.pdf](https://media.posthog.test/doc.pdf)", stored.content)
+        content = stored.content
+        assert content is not None
+        self.assertIn("[doc.pdf](https://media.posthog.test/doc.pdf)", content)
         self.assertIsNone(stored.rich_content)
 
     def test_failed_attachment_download_does_not_fail_the_ticket(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db import transaction
@@ -94,7 +94,7 @@ def _parse_zendesk_datetime(value: str | None) -> datetime | None:
     if parsed is None:
         return None
     if timezone.is_naive(parsed):
-        return timezone.make_aware(parsed, timezone=timezone.utc)
+        return timezone.make_aware(parsed, timezone=UTC)
     return parsed
 
 
@@ -226,8 +226,8 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     users_by_id = client.fetch_users(requester_ids)
 
     emails: set[str] = set()
-    for ticket in zendesk_tickets:
-        requester_id = ticket.get("requester_id")
+    for zendesk_ticket in zendesk_tickets:
+        requester_id = zendesk_ticket.get("requester_id")
         if requester_id is None:
             continue
         user = users_by_id.get(int(requester_id), {})
