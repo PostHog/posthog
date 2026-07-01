@@ -128,16 +128,16 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     duration_filter: zod
-        .string()
+        .enum(['completed', 'successful'])
         .optional()
         .describe(
-            "Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to 'completed'."
+            "Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Any other value is a 400."
         ),
     run_scope: zod
-        .string()
+        .enum(['all', 'pull_request'])
         .optional()
         .describe(
-            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'."
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Any other value is a 400."
         ),
     source_id: zod
         .string()

@@ -141,7 +141,7 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 - `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
 - `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
-- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`) or PR/non-master runs (`run_scope=pull_request`), with p50/p95 computed over completed runs by default or successful runs via `duration_filter=successful`.
+- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`) or PR runs excluding the default branch (`run_scope=pull_request`; master/main), with p50/p95 computed over completed runs by default or successful runs via `duration_filter=successful`.
 - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
 - `ci_failure_logs` — the thinned failure log lines for a PR's CI, grouped by job. Resolves the PR to its run_ids via the same `pull_requests` attribution as `pr_runs`, then reads the Logs product (`service.name = github-ci-logs`) joined on `run_id`. Reads from Logs, not the warehouse.
 

@@ -61792,18 +61792,34 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to 'completed'.
+     * Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Any other value is a 400.
      */
-    duration_filter?: string;
+    duration_filter?: EngineeringAnalyticsWorkflowHealthDurationFilter;
     /**
-     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'.
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Any other value is a 400.
      */
-    run_scope?: string;
+    run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowHealthDurationFilter = typeof EngineeringAnalyticsWorkflowHealthDurationFilter[keyof typeof EngineeringAnalyticsWorkflowHealthDurationFilter];
+
+
+    export const EngineeringAnalyticsWorkflowHealthDurationFilter = {
+      Completed: 'completed',
+      Successful: 'successful',
+    } as const;
+
+    export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowHealthRunScope = {
+      All: 'all',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**

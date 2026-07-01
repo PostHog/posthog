@@ -8,7 +8,8 @@ only in canonical types.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from enum import StrEnum
+from typing import TYPE_CHECKING, TypeVar
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -51,6 +52,8 @@ if TYPE_CHECKING:
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
+_ChoiceT = TypeVar("_ChoiceT", bound=StrEnum)
+
 _DEFAULT_WINDOW = "-30d"
 
 # Workflow health defaults to a tighter window than the PR backlog — CI health is a "right now"
@@ -214,8 +217,8 @@ def build_workflow_health(
         date_from=parsed_from,
         date_to=parsed_to,
         branch=branch,
-        run_scope=_parse_workflow_health_run_scope(run_scope),
-        duration_filter=_parse_workflow_health_duration_filter(duration_filter),
+        run_scope=_parse_choice("run_scope", run_scope, WorkflowHealthRunScope.ALL),
+        duration_filter=_parse_choice("duration_filter", duration_filter, WorkflowHealthDurationFilter.COMPLETED),
     )
 
 
@@ -223,18 +226,16 @@ def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
 
 
-def _parse_workflow_health_run_scope(value: str | None) -> WorkflowHealthRunScope:
-    normalized = value.strip().lower() if value else ""
-    if normalized in {"pull_request", "pull-request", "pr", "prs"}:
-        return WorkflowHealthRunScope.PULL_REQUEST
-    return WorkflowHealthRunScope.ALL
-
-
-def _parse_workflow_health_duration_filter(value: str | None) -> WorkflowHealthDurationFilter:
-    normalized = value.strip().lower() if value else ""
-    if normalized in {"successful", "success", "success_only", "success-only"}:
-        return WorkflowHealthDurationFilter.SUCCESSFUL
-    return WorkflowHealthDurationFilter.COMPLETED
+def _parse_choice(param: str, value: str | None, default: _ChoiceT) -> _ChoiceT:
+    """Absent/blank selects the default; anything else must be an exact enum value (ValueError → 400)."""
+    normalized = value.strip() if value else ""
+    if not normalized:
+        return default
+    choices = type(default)
+    try:
+        return choices(normalized)
+    except ValueError:
+        raise ValueError(f"{param} must be one of: {', '.join(member.value for member in choices)}") from None
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:

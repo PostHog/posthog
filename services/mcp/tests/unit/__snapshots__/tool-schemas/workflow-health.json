@@ -14,11 +14,13 @@
             "type": "string"
         },
         "duration_filter": {
-            "description": "Which runs feed p50/p95. Use \"successful\" for success-only duration percentiles; omit or pass \"completed\" for the legacy completed-run percentile. Unknown values fall back to \"completed\".",
+            "description": "Which runs feed p50/p95. Use \"successful\" for success-only duration percentiles; omit or pass \"completed\" for the legacy completed-run percentile.",
+            "enum": ["completed", "successful"],
             "type": "string"
         },
         "run_scope": {
-            "description": "Run scope. Use \"pull_request\" for PR/non-master CI runs; omit or pass \"all\" for the legacy all-branches scope. Unknown values fall back to \"all\".",
+            "description": "Run scope. Use \"pull_request\" for PR CI runs (excludes default-branch master/main runs); omit or pass \"all\" for the legacy all-branches scope.",
+            "enum": ["all", "pull_request"],
             "type": "string"
         },
         "source_id": {

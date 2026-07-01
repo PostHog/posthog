@@ -16,7 +16,10 @@ def branch_filter_clause(branch: str | None, *, alias: str = "") -> str:
 
 def run_scope_filter_clause(run_scope: WorkflowHealthRunScope, *, alias: str = "") -> str:
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:
-        return f"AND {_column(alias, 'pr_number')} > 0 AND {_column(alias, 'head_branch')} != 'master'"
+        # A default-branch run can still carry a PR association (its SHA matches an open PR),
+        # so PR attribution alone doesn't keep trunk runs out. The warehouse source doesn't
+        # sync the repo's default branch, so exclude the common default-branch names instead.
+        return f"AND {_column(alias, 'pr_number')} > 0 AND {_column(alias, 'head_branch')} NOT IN ('master', 'main')"
     return ""
 
 

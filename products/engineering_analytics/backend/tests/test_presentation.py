@@ -367,6 +367,14 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
+    @parameterized.expand(["run_scope", "duration_filter"])
+    def test_workflow_health_400_on_invalid_filter(self, param: str) -> None:
+        # A typo'd filter must 400, not silently return the legacy population as a 200.
+        response = self.client.get(self._url("workflow_health"), {param: "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{param} must be one of" in response.json()["detail"]
+
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()

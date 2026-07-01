@@ -790,7 +790,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert legacy.p50_seconds != successful.p50_seconds
         assert legacy.p95_seconds != successful.p95_seconds
 
-    def test_workflow_health_pull_request_scope_excludes_master_and_unattributed_runs(self) -> None:
+    def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -833,6 +833,17 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                     _ago(1),
                     head_branch="feature/no-pr",
                 ),
+                _run_row(
+                    9105,
+                    "CI",
+                    "sha-main-pr",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=91,
+                    head_branch="main",
+                ),
             ],
         )
 
@@ -845,7 +856,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             if item.workflow_name == "CI"
         )
 
-        assert legacy.run_count == 4
+        assert legacy.run_count == 5
         assert pull_request.run_count == 1
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:

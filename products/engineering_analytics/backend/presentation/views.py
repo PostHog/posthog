@@ -26,6 +26,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSourceNotConnectedError,
     QuarantineRequest,
     QuarantineWriteError,
+    WorkflowHealthDurationFilter,
+    WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
@@ -86,8 +88,9 @@ _RUN_SCOPE = OpenApiParameter(
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
     required=False,
+    enum=[scope.value for scope in WorkflowHealthRunScope],
     description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
-    "attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'.",
+    "attributed to pull requests, excluding default-branch (master/main) runs. Any other value is a 400.",
 )
 
 _DURATION_FILTER = OpenApiParameter(
@@ -95,9 +98,9 @@ _DURATION_FILTER = OpenApiParameter(
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
     required=False,
+    enum=[choice.value for choice in WorkflowHealthDurationFilter],
     description="Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed "
-    "run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to "
-    "'completed'.",
+    "run; 'successful' includes only completed runs whose conclusion is 'success'. Any other value is a 400.",
 )
 
 _SOURCE_ID = OpenApiParameter(
@@ -253,7 +256,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
-                description="Invalid date_from, date_to, or source_id, or a window longer than 366 days."
+                description="Invalid date_from, date_to, run_scope, duration_filter, or source_id, or a window "
+                "longer than 366 days."
             ),
         },
         description=(
