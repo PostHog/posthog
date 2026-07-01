@@ -577,6 +577,7 @@ export class LogsIngestionConsumer {
 
                         let bytesUncompressedHeaderOverride: number | undefined
                         let bytesCompressedHeaderOverride: number | undefined
+                        let recordCountHeaderOverride: number | undefined
 
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
@@ -628,8 +629,9 @@ export class LogsIngestionConsumer {
                                     )
                                 }
 
-                                // Scale both size headers down by the same dropped content fraction so
-                                // downstream accounting sees only the surviving bytes.
+                                // Scale both size headers down by the same dropped content fraction, and
+                                // reduce the record count by the exact number of rows dropped, so
+                                // downstream accounting sees only the surviving rows and bytes.
                                 const compressedCredit = billingByteReductionForDrops(
                                     message.bytesCompressed,
                                     resolved.contentBytesDropped,
@@ -637,6 +639,7 @@ export class LogsIngestionConsumer {
                                 )
                                 bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
                                 bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
+                                recordCountHeaderOverride = Math.max(0, message.recordCount - resolved.recordsDropped)
                             }
                         }
 
@@ -671,6 +674,9 @@ export class LogsIngestionConsumer {
                                         : {}),
                                     ...(bytesCompressedHeaderOverride !== undefined
                                         ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                        : {}),
+                                    ...(recordCountHeaderOverride !== undefined
+                                        ? { record_count: recordCountHeaderOverride.toString() }
                                         : {}),
                                 },
                             },
