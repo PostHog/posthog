@@ -100,7 +100,9 @@ def get_rows(
     params = _endpoint_params(endpoint)
     url = f"{CLOCKODO_BASE_URL}/{config.path}"
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Redact the API key from logged URLs and captured samples — it travels in a custom
+    # header the name-based scrubbers don't recognise.
+    session = make_tracked_session(redact_values=(api_key,))
     batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=200 * 1024 * 1024)
 
     if not config.paginated:
@@ -168,7 +170,7 @@ def clockodo_source(
 def validate_credentials(api_user: str, api_key: str) -> bool:
     """Cheap probe to confirm the API user/key pair is genuine."""
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{CLOCKODO_BASE_URL}/v2/users",
             headers=_build_headers(api_user, api_key),
             timeout=REQUEST_TIMEOUT_SECONDS,

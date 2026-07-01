@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import ClockodoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import ENDPOINTS
@@ -32,6 +32,7 @@ class TestClockodoSource:
     def test_api_key_field_is_secret(self) -> None:
         config = ClockodoSource().get_source_config
         api_key = next(f for f in config.fields if f.name == "api_key")
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.secret is True
         assert api_key.required is True
 
