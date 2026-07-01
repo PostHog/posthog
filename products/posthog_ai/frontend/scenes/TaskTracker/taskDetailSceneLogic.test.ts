@@ -85,6 +85,10 @@ describe('taskDetailSceneLogic', () => {
         // mounts the common logics, so clear before init or flags enabled in one test leak into
         // the next.
         window.localStorage.clear()
+        // streamViaProxyEnabled is now purely flag-driven, so preflight no longer affects it. The
+        // default test fixture has is_debug: true; pin it to false to keep the app context minimal
+        // and unsurprising for these tests.
+        window.POSTHOG_APP_CONTEXT = { preflight: { is_debug: false } } as unknown as typeof window.POSTHOG_APP_CONTEXT
         initKeaTests()
         global.fetch = createFetchMock()
     })
