@@ -13,7 +13,10 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/MaterializationStatusPanel'
 
-import { DataWarehouseSavedQuery, LineageNode } from '~/types'
+import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
 import { sqlEditorLogic } from '../sqlEditorLogic'
@@ -195,21 +198,16 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     {
                                         key: 'type',
                                         title: 'Type',
-                                        render: (_, { type, last_run_at }) => {
-                                            if (type === 'view') {
-                                                return last_run_at ? 'Mat. View' : 'View'
-                                            }
-                                            return 'Table'
-                                        },
+                                        render: (_, { type }) => NODE_TYPE_TAG_SETTINGS[type].label,
                                     },
                                     {
                                         key: 'upstream',
                                         title: 'Direct Upstream',
                                         render: (_, node) => {
                                             const upstreamNodes = upstream.edges
-                                                .filter((edge) => edge.target === node.id)
-                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
-                                                .filter((n): n is LineageNode => n !== undefined)
+                                                .filter((edge) => edge.target_id === node.id)
+                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source_id))
+                                                .filter((n): n is DataModelingNode => n !== undefined)
 
                                             if (upstreamNodes.length === 0) {
                                                 return <span className="text-secondary">None</span>
@@ -229,25 +227,12 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     {
                                         key: 'last_run_at',
                                         title: 'Last Run At',
-                                        render: (_, { last_run_at, sync_frequency }) => {
+                                        render: (_, { last_run_at, sync_interval }) => {
                                             if (!last_run_at) {
                                                 return 'On demand'
                                             }
-                                            const numericSyncFrequency = Number(sync_frequency)
-                                            const frequencyMap: Record<string, string> = {
-                                                300: '5 mins',
-                                                1800: '30 mins',
-                                                3600: '1 hour',
-                                                21600: '6 hours',
-                                                43200: '12 hours',
-                                                86400: '24 hours',
-                                                604800: '1 week',
-                                            }
-
-                                            return `${humanFriendlyDetailedTime(last_run_at)} ${
-                                                frequencyMap[numericSyncFrequency]
-                                                    ? `every ${frequencyMap[numericSyncFrequency]}`
-                                                    : ''
+                                            return `${humanFriendlyDetailedTime(last_run_at)}${
+                                                sync_interval ? ` every ${syncIntervalToShorthand(sync_interval)}` : ''
                                             }`
                                         },
                                     },

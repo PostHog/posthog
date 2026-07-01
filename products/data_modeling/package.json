@@ -12,6 +12,8 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@types/react": "*",
+        "@xyflow/react": "*",
+        "clsx": "*",
         "react": "*",
         "react-dom": "*"
     }

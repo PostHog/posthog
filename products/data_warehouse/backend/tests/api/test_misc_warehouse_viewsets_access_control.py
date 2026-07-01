@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
@@ -214,37 +214,4 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-
-@pytest.mark.ee
-class TestLineageAccessControl(WarehouseAccessControlTestMixin):
-    """Upstream lineage read — viewer OK, none blocked."""
-
-    resource = "warehouse_objects"
-
-    def setUp(self):
-        super().setUp()
-        self.saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="lineage_root",
-            query={"kind": "HogQLQuery", "query": "select 1"},
-            created_by=self.viewer_user,
-        )
-
-    def _url(self) -> str:
-        return f"/api/environments/{self.team.pk}/lineage/get_upstream/?model_id={self.saved_query.id}"
-
-    def test_viewer_can_read(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_project_default_none_blocks(self):
-        self._create_project_default(access_level="none")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

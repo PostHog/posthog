@@ -3,39 +3,66 @@ import { useActions } from 'kea'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { LineageGraph } from '~/types'
+import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { sqlEditorLogic } from '../../sqlEditorLogic'
 import { UpstreamGraph } from './UpstreamGraph'
 
-const MOCK_LINEAGE_WITH_GRAPH: LineageGraph = {
-    nodes: [
-        { id: '1', name: 'orders', type: 'table' },
-        { id: '2', name: 'customers', type: 'table' },
-        {
-            id: '3',
-            name: 'revenue_summary',
-            type: 'view',
-            last_run_at: '2024-01-15T10:30:00Z',
-            status: 'Completed',
-        },
-        { id: '4', name: 'monthly_report', type: 'view' },
-    ],
-    edges: [
-        { source: '1', target: '3' },
-        { source: '2', target: '3' },
-        { source: '3', target: '4' },
-    ],
+interface MockLineage {
+    nodes: DataModelingNode[]
+    edges: DataModelingEdge[]
 }
 
-const MOCK_LINEAGE_SINGLE_NODE: LineageGraph = {
-    nodes: [{ id: '1', name: 'raw_events', type: 'table' }],
+function mockNode(
+    partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
+): DataModelingNode {
+    return {
+        dag: 'dag-1',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        upstream_count: 0,
+        downstream_count: 0,
+        ...partial,
+    }
+}
+
+function mockEdge(id: string, sourceId: string, targetId: string): DataModelingEdge {
+    return {
+        id,
+        source_id: sourceId,
+        target_id: targetId,
+        dag: 'dag-1',
+        properties: {},
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+    }
+}
+
+const MOCK_LINEAGE_WITH_GRAPH: MockLineage = {
+    nodes: [
+        mockNode({ id: '1', name: 'orders', type: 'table' }),
+        mockNode({ id: '2', name: 'customers', type: 'table' }),
+        mockNode({
+            id: '3',
+            name: 'revenue_summary',
+            type: 'matview',
+            last_run_at: '2024-01-15T10:30:00Z',
+            last_run_status: 'Completed',
+            sync_interval: '1hour',
+        }),
+        mockNode({ id: '4', name: 'monthly_report', type: 'view' }),
+    ],
+    edges: [mockEdge('e1', '1', '3'), mockEdge('e2', '2', '3'), mockEdge('e3', '3', '4')],
+}
+
+const MOCK_LINEAGE_SINGLE_NODE: MockLineage = {
+    nodes: [mockNode({ id: '1', name: 'raw_events', type: 'table' })],
     edges: [],
 }
 
 const TAB_ID = 'story-tab'
 
-function GraphLoader({ lineage }: { lineage: LineageGraph }): JSX.Element {
+function GraphLoader({ lineage }: { lineage: MockLineage }): JSX.Element {
     const { loadUpstreamSuccess } = useActions(sqlEditorLogic({ tabId: TAB_ID }))
     useDelayedOnMountEffect(() => loadUpstreamSuccess(lineage))
     return <UpstreamGraph tabId={TAB_ID} />

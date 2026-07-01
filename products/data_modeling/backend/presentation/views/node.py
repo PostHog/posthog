@@ -8,6 +8,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models import OuterRef, Subquery
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -111,7 +113,6 @@ class NodePagination(PageNumberPagination):
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
-# - products/data_warehouse/backend/api/lineage.py (get_upstream_dag) should be deleted after new system takes over
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
 # - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
 # the temporal workflow and lineage API should migrate to Graph
@@ -321,12 +322,38 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("node_id", OpenApiTypes.UUID, description="Node to build lineage for."),
+            OpenApiParameter(
+                "saved_query_id",
+                OpenApiTypes.UUID,
+                description="Saved query to build lineage for, resolved to its node. Alternative to node_id.",
+            ),
+        ]
+    )
+    @action(methods=["GET"], detail=False)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
+        """Return the subgraph of nodes and edges reachable from a node (upstream + downstream).
+
+        Accepts either node_id or saved_query_id, so a caller holding only a saved query (the SQL
+        editor) doesn't need to resolve the node itself.
+        """
         from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
-        node = self.get_object()
+        node_id = req.query_params.get("node_id")
+        saved_query_id = req.query_params.get("saved_query_id")
+        if node_id:
+            node = Node.objects.filter(id=node_id, team_id=self.team_id).first()
+        elif saved_query_id:
+            node = Node.objects.filter(saved_query_id=saved_query_id, team_id=self.team_id).first()
+        else:
+            return response.Response(
+                {"error": "node_id or saved_query_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if node is None:
+            return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
+
         upstream_ids = _get_upstream_nodes(node, include_tables=True)
         downstream_ids = _get_downstream_nodes(node)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
