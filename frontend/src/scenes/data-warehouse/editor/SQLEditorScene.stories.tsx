@@ -1,4 +1,5 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useEffect, useRef } from 'react'
 
 import { App } from 'scenes/App'
@@ -104,11 +105,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-07',
-        // open_query pre-fills the editor but does not auto-run — the screenshot capture clicks
-        // "Run" before snapshotting so the results grid is populated.
+        // open_query pre-fills the editor but does not auto-run — the play function below clicks
+        // "Run" so the results grid is populated before the snapshot is taken.
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL }),
         testOptions: {
-            waitForSelector: '.monaco-editor',
+            // Wait on the results grid (not just the editor) so the snapshot always captures
+            // the populated results the play function produces.
+            waitForSelector: '[data-attr="sql-editor-output-pane-results"]',
             viewport: { width: 1600, height: 900 },
         },
     },
@@ -116,4 +119,26 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const TopToolsPerServer: Story = {}
+export const TopToolsPerServer: Story = {
+    play: async () => {
+        // open_query loads SAMPLE_SQL into a tab but doesn't run it. Wait for the Run button to
+        // become enabled (query loaded + HogQLMetadata resolved), click it, then wait for the
+        // results grid so SQL_RESULTS is actually rendered in the snapshot.
+        const runButton = await waitFor(() => {
+            const button = document.querySelector<HTMLButtonElement>('[data-attr="sql-editor-run-button"]')
+            if (!button || button.disabled) {
+                throw new Error('Run button not ready')
+            }
+            return button
+        })
+        runButton.click()
+        await waitFor(
+            () => {
+                if (!document.querySelector('[data-attr="sql-editor-output-pane-results"]')) {
+                    throw new Error('Results grid not rendered')
+                }
+            },
+            { timeout: 5000 }
+        )
+    },
+}

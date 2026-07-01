@@ -193,7 +193,17 @@ function toRow(call: MCPCall): any[] {
         properties,
         elements_chain: '',
     }
-    return [event, 'mcp_tool_call', call.tool, call.client, call.isError, call.durationMs, call.timestamp]
+    // Derive the row tuple from COLUMNS so reordering the columns can't silently desync the mock.
+    const valueByColumn: Record<string, any> = {
+        '*': event,
+        event: 'mcp_tool_call',
+        'properties.$mcp_tool_name -- Tool': call.tool,
+        'properties.$mcp_client_name -- Client': call.client,
+        'properties.$mcp_is_error -- Error': call.isError,
+        'properties.$mcp_duration_ms -- Duration (ms)': call.durationMs,
+        timestamp: call.timestamp,
+    }
+    return COLUMNS.map((column) => valueByColumn[column])
 }
 
 const mcpEventsResponse = {
