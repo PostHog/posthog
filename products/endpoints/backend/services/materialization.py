@@ -26,7 +26,12 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+    delete_node_from_dag,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.materialization_transforms import (
@@ -197,10 +202,8 @@ class EndpointMaterializationService:
         self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
         version.enable_materialization(saved_query, bucket_overrides)
 
-        # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
-        # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
-        saved_query.schedule_materialization()
-
+        # The DAG node must exist before scheduling: the v2 detection and the freshness-target
+        # write-through both resolve this saved query through its Node row.
         try:
             sync_saved_query_to_dag(saved_query)
         except Exception as e:
@@ -218,6 +221,15 @@ class EndpointMaterializationService:
                     "saved_query_id": saved_query.id,
                 },
             )
+
+        # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
+        # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
+        try:
+            saved_query.schedule_materialization()
+        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+            # The chosen data freshness can't be honored (e.g. finer than an upstream import
+            # delivers) — a request problem, not a server one.
+            raise ValidationError(str(e))
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
         """Find this version's saved query, or build a new (unsaved) one.

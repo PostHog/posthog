@@ -168,6 +168,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
+        from products.data_modeling.backend.logic.freshness import (
+            UnsatisfiableFrequencyError,
+            UnsupportedFrequencyTargetError,
+        )
+        from products.data_modeling.backend.logic.schedule_reconcile import (
+            apply_saved_query_frequency_target,
+            tiered_schedules_enabled,
+        )
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
@@ -177,11 +185,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         try:
             # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
-            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
-            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
-            # fails, we honor the failure contract below rather than leaving is_materialized=True
-            # with no schedule backing it.
+            # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
+            # that, if it fails, we honor the failure contract below rather than leaving
+            # is_materialized=True with no schedule backing it.
             if self.id in get_v2_saved_query_ids([self.id]):
+                # Tiered v2: the interval is one-shot transport for frequency intent — consume
+                # it into the node target(s) and reconcile. Validation raises before the
+                # nulling below, so a rejected frequency stays visible for retry. A call with
+                # no interval carries no frequency opinion and must not touch existing targets.
+                if tiered_schedules_enabled(self.team) and self.sync_frequency_interval is not None:
+                    apply_saved_query_frequency_target(self, self.sync_frequency_interval)
+                # On any v2 flavor the interval must end up NULL: a lingering value would let
+                # a v1 per-query schedule be recreated, and on tiered teams the node target is
+                # the only durable store of frequency intent.
                 if self.sync_frequency_interval is not None:
                     self.sync_frequency_interval = None
                     self.save(update_fields=["sync_frequency_interval"])
@@ -193,6 +209,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             if schedule_exists and unpause:
                 unpause_saved_query_schedule(self)
             sync_saved_query_workflow(self, create=not schedule_exists)
+        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+            # The query is fine — the requested frequency is not. Surface it to the caller
+            # instead of silently disabling materialization.
+            raise
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -208,6 +228,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.save(update_fields=["is_materialized"])
 
     def revert_materialization(self):
+        from products.data_modeling.backend.logic.schedule_reconcile import (
+            apply_saved_query_frequency_target,
+            tiered_schedules_enabled,
+        )
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
         from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
@@ -231,6 +255,20 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         finally:
             if should_delete_saved_query_schedule:
                 delete_saved_query_schedule(self)
+
+        # A reverted matview must also leave its cadence tier, or it would keep being
+        # materialized on tiered v2. Best-effort like the schedule delete above — the
+        # revert itself already succeeded.
+        try:
+            if tiered_schedules_enabled(self.team):
+                apply_saved_query_frequency_target(self, None)
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_clear_frequency_target_on_revert",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
 
     def soft_delete(self):
         self.deleted = True

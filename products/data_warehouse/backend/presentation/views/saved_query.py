@@ -986,9 +986,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query.is_materialized = True
         saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
 
+        from products.data_modeling.backend.facade.api import (
+            UnsatisfiableFrequencyError,
+            UnsupportedFrequencyTargetError,
+        )
+
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
-        saved_query.schedule_materialization(unpause=should_unpause)
+        try:
+            saved_query.schedule_materialization(unpause=should_unpause)
+        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+            # The requested cadence can't be honored (e.g. finer than an upstream source
+            # delivers) — a request problem, not a server one.
+            raise serializers.ValidationError(str(e))
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
         saved_query.refresh_from_db()

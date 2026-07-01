@@ -54,9 +54,16 @@ from products.data_modeling.backend.logic.freshness import (
     compute_effective_cadences,
     find_invalid_targets,
     frequency_target_bounds,
+    validate_frequency_target,
 )
-from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, build_frequency_graph, seed_targets
+from products.data_modeling.backend.logic.node_frequency import (
+    FrequencyGraph,
+    build_frequency_graph,
+    seed_targets,
+    set_frequency_target,
+)
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
     DATA_MODELING_EXECUTE_DAG_WORKFLOW,
     build_schedule_spec,
@@ -65,6 +72,8 @@ from products.data_modeling.backend.schedule import (
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -122,6 +131,35 @@ def _warn_on_invalid_targets(dag: DAG) -> None:
             floor=str(invalid.floor),
             ceiling=str(invalid.ceiling),
         )
+
+
+def apply_saved_query_frequency_target(
+    saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
+) -> None:
+    """Write a frequency target through to the DAG node(s) carrying this saved query.
+
+    On tiered v2 the node target is the only durable store of frequency intent. `target=None`
+    clears it ("never" / revert) and must be a deliberate caller choice, never a default —
+    otherwise a caller with no frequency opinion would silently wipe targets. Non-None targets
+    are validated against the node's [floor, ceiling] bounds (raising for the caller to
+    surface) before writing, then each affected DAG is queued for reconcile (skippable for
+    callers batching many writes into one reconcile).
+    """
+    for node in Node.objects.filter(saved_query=saved_query).select_related("dag", "dag__team"):
+        if target is None:
+            set_frequency_target(node, None)
+        else:
+            graph = build_frequency_graph(node.dag)
+            validate_frequency_target(
+                node_id=str(node.id),
+                target=target,
+                edges=graph.edges,
+                targets=graph.targets,
+                source_intervals=graph.source_intervals,
+            )
+            set_frequency_target(node, target)
+        if reconcile:
+            maybe_reconcile_dag(node.dag)
 
 
 def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False, require_tiered: bool = False) -> None:
