@@ -17,6 +17,7 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS = frozenset(
+    {
+        DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+        DEFAULT_SANDBOX_WORKING_DIR,
+    }
+)
 
 
 class PrAuthorshipMode(StrEnum):
@@ -211,6 +219,19 @@ def get_reasoning_effort_error(
     )
 
 
+def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str:
+    if not snapshot_mount_path:
+        return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in _ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+        return snapshot_mount_path
+
+    logger.warning(
+        "Ignoring unsupported directory resume snapshot mount path",
+        extra={"snapshot_mount_path": snapshot_mount_path},
+    )
+    return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+
+
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
@@ -247,7 +268,7 @@ class RunState(BaseModel, extra="allow"):
     def resume_snapshot_mount_path(self) -> str | None:
         if self.resume_snapshot_kind() != SNAPSHOT_KIND_DIRECTORY:
             return None
-        return self.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+        return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
@@ -266,8 +287,9 @@ def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata
         if snapshot.metadata.get("snapshot_kind") == SNAPSHOT_KIND_DIRECTORY
         else SNAPSHOT_KIND_FILESYSTEM
     )
-    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
-    mount_path = metadata_mount_path if isinstance(metadata_mount_path, str) and metadata_mount_path else None
+    mount_path = None
+    if kind == SNAPSHOT_KIND_DIRECTORY:
+        mount_path = normalize_directory_resume_snapshot_mount_path(snapshot.metadata.get("snapshot_mount_path"))
     return SnapshotMetadata(kind=kind, mount_path=mount_path)
 
 
