@@ -43,7 +43,7 @@ from .process_task.activities import (
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.activities.slack_agent_design import (
-    append_slack_agent_design_step,
+    append_slack_agent_design_steps,
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
@@ -91,7 +91,7 @@ ACTIVITIES = [
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,
-    append_slack_agent_design_step,
+    append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
     run_task_automation_activity,
     # create_snapshot activities

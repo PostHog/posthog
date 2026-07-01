@@ -1,9 +1,12 @@
-"""Agent-design activities: chat.startStream lifecycle + setup-phase setStatus.
+"""Agent-design activities: chat.startStream lifecycle (start / append / stop).
 
-All best-effort — a Slack outage must never escalate to a task failure.
+Every turn shape rides the same three-activity lifecycle — plan-block steps,
+interim narrative between them, and the final answer all flow as chunks into
+one streamed message. Best-effort: a Slack outage must never escalate to a
+task failure.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from temporalio import activity
@@ -16,8 +19,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class TaskUpdateChunk:
-    """One step in a plan-block transition. Flat so Temporal can serialize it
-    without pulling Slack SDK types into the workflow sandbox."""
+    """One plan-block step. Flat so Temporal can serialize it."""
 
     id: str
     title: str
@@ -28,16 +30,18 @@ class TaskUpdateChunk:
 @dataclass
 class StartSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
-    first_task_id: str
-    first_task_title: str
+    # Seed with EITHER a task_update step OR a markdown_text chunk.
+    first_task_id: Optional[str] = None
+    first_task_title: Optional[str] = None
     first_task_details: Optional[str] = None
+    first_markdown_text: Optional[str] = None
 
 
 @dataclass
-class AppendSlackAgentDesignStepInput:
+class AppendSlackAgentDesignStepsInput:
     slack_thread_context: dict[str, Any]
     ts: str
-    task_updates: list[TaskUpdateChunk]
+    task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     markdown_text: Optional[str] = None
 
 
@@ -48,12 +52,15 @@ class StopSlackAgentDesignStreamInput:
     complete_task_id: Optional[str] = None
     complete_task_title: Optional[str] = None
     complete_task_details: Optional[str] = None
+    # Streamed as markdown_text chunks below the plan block right before stopStream.
+    final_markdown: Optional[str] = None
 
 
 @activity.defn
 @close_db_connections
 def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> Optional[str]:
-    """Open a streaming status message. None on failure → relay skips this turn."""
+    """Open the stream, seeded with either a first tool-call step or a first
+    markdown_text chunk (pre-first-tool-call streaming). Returns ts or None."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
@@ -62,6 +69,7 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
+            first_markdown_text=input.first_markdown_text,
         )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
@@ -70,7 +78,8 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
 @activity.defn
 @close_db_connections
-def append_slack_agent_design_step(input: AppendSlackAgentDesignStepInput) -> None:
+def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> None:
+    """Append plan-block step transitions and/or a markdown_text chunk."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
@@ -78,23 +87,18 @@ def append_slack_agent_design_step(input: AppendSlackAgentDesignStepInput) -> No
         SlackThreadHandler(context).append_status_chunks(
             ts=input.ts,
             task_updates=[
-                {
-                    "id": t.id,
-                    "title": t.title,
-                    "status": t.status,
-                    "details": t.details,
-                }
-                for t in input.task_updates
+                {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
             ],
             markdown_text=input.markdown_text,
         )
     except Exception as e:
-        logger.warning("slack_app_append_agent_design_step_failed", error=str(e))
+        logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
 
 
 @activity.defn
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
+    """Mark the last step complete, stream the final answer, append @-mention, close."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
@@ -104,6 +108,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
+            final_markdown=input.final_markdown,
         )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

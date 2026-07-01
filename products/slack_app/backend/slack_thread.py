@@ -172,12 +172,23 @@ class SlackThreadHandler:
 
     def start_status_stream(
         self,
-        first_task_id: str,
-        first_task_title: str,
+        first_task_id: str | None = None,
+        first_task_title: str | None = None,
         first_task_details: str | None = None,
+        first_markdown_text: str | None = None,
     ) -> str | None:
-        """chat.startStream in plan-block mode with one in_progress step. None on failure."""
+        """chat.startStream in plan-block mode. Seed with EITHER a task_update
+        (starts with a plan-block step) OR a markdown_text chunk (starts as
+        prose; a plan block appears later when a task_update arrives)."""
         if not self.context.mentioning_slack_user_id:
+            return None
+        chunks: list[dict[str, Any]] = []
+        if first_task_id and first_task_title:
+            chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
+        if first_markdown_text:
+            for piece in _split_markdown_text(first_markdown_text):
+                chunks.append({"type": "markdown_text", "text": piece})
+        if not chunks:
             return None
         try:
             client = self._get_client()
@@ -188,7 +199,7 @@ class SlackThreadHandler:
                 recipient_user_id=self.context.mentioning_slack_user_id,
                 recipient_team_id=integration.integration_id,
                 task_display_mode="plan",
-                chunks=[_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details)],
+                chunks=chunks,
             )
             ts = response.get("ts") if isinstance(response, dict) else response["ts"]
             return ts if isinstance(ts, str) else None
@@ -199,12 +210,12 @@ class SlackThreadHandler:
     def append_status_chunks(
         self,
         ts: str,
-        task_updates: list[dict[str, Any]],
+        task_updates: list[dict[str, Any]] | None = None,
         markdown_text: str | None = None,
     ) -> None:
-        """One appendStream carrying an ordered batch of step transitions + optional markdown."""
+        """Append plan-block step transitions and/or markdown_text chunks."""
         chunks: list[dict[str, Any]] = []
-        for t in task_updates:
+        for t in task_updates or []:
             task_id = t.get("id")
             title = t.get("title")
             status = t.get("status")
@@ -231,16 +242,21 @@ class SlackThreadHandler:
         complete_task_id: str | None = None,
         complete_task_title: str | None = None,
         complete_task_details: str | None = None,
+        final_markdown: str | None = None,
     ) -> None:
-        """Mark current step complete, append a trailing @-mention (single Slack
-        notification on commit), then chat.stopStream."""
+        """Final flush: mark the last plan-block step complete, stream the final
+        answer as markdown_text chunks (this is what STAYS in the message body),
+        append a trailing @-mention for one notification, then chat.stopStream."""
         final_chunks: list[dict[str, Any]] = []
         if complete_task_id and complete_task_title:
             final_chunks.append(
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
+        if final_markdown:
+            for piece in _split_markdown_text(final_markdown):
+                final_chunks.append({"type": "markdown_text", "text": piece})
         if self.context.mentioning_slack_user_id:
-            # Newlines keep the mention on its own line, off the prior chunk's punctuation.
+            # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
         if final_chunks:
             try:
