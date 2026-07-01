@@ -48,7 +48,7 @@ class TestMollieSource:
             "400 Client Error: Bad Request for url: https://api.mollie.com/v2/chargebacks?limit=250",
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+    def test_non_retryable_errors_match_client_errors(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 

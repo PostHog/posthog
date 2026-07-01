@@ -45,7 +45,8 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
             # Mollie rejects profile-scoped list endpoints with a 400 when the credential is an
             # organization/OAuth access token, which needs an explicit profile a regular API key
             # supplies implicitly. The request shape is fixed, so retrying replays the same failure.
-            "400 Client Error: Bad Request for url: https://api.mollie.com": "Mollie rejected the request as a Bad Request. This usually means an organization or OAuth access token was used, which requires a specific profile to list this data. Please reconnect the source with a regular Mollie API key (starts with `live_` or `test_`).",
+            # The match is any Mollie 400, so the message leads with the common cause but hedges.
+            "400 Client Error: Bad Request for url: https://api.mollie.com": "Mollie rejected the request as a Bad Request (400). The most common cause is connecting an organization or OAuth access token, which needs a specific profile that a regular API key supplies implicitly — reconnect with a regular Mollie API key (starts with `live_` or `test_`). If you are already using a regular API key, contact support so we can investigate.",
         }
 
     @property
