@@ -98,12 +98,15 @@ def compact_thread(thread_id: str, checkpoint_ns: str = "") -> CompactionResult:
             referenced = Q()
             for channel, version in channel_versions.items():
                 referenced |= Q(channel=channel, version=str(version))
-            # Match by (channel, version), not checkpoint_ns: DjangoCheckpointer._put writes every
-            # blob with the default checkpoint_ns="" regardless of the checkpoint's namespace, so a
-            # subgraph tip's blobs live under "" too. Scoping the reassignment to `checkpoint_ns`
-            # would match nothing for a subgraph and let the cascade delete blobs the tip still needs.
-            # (thread_id, channel, version) is unique, so this is unambiguous.
-            ConversationCheckpointBlob.objects.filter(Q(thread_id=thread_id) & referenced).update(checkpoint=tip)
+            # Scope by the *owning checkpoint's* namespace, not the blob's own checkpoint_ns:
+            # DjangoCheckpointer._put writes every blob with the default checkpoint_ns="" regardless
+            # of its checkpoint's namespace, so filtering on the blob's field would match nothing for
+            # a subgraph and let the cascade delete blobs the tip still references. Joining through the
+            # owning checkpoint keeps the reassignment inside this namespace — it never touches another
+            # namespace's blobs.
+            ConversationCheckpointBlob.objects.filter(
+                Q(checkpoint__thread_id=thread_id, checkpoint__checkpoint_ns=checkpoint_ns) & referenced
+            ).update(checkpoint=tip)
 
         ConversationCheckpoint.objects.filter(pk=tip.pk).update(parent_checkpoint=None)
 
