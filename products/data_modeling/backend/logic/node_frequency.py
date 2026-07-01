@@ -134,6 +134,26 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     )
 
 
+def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
+    """Persist a seed target on every schedulable node lacking one; never overwrites.
+
+    `default` covers nodes with no seedable cadence anywhere (no saved-query interval, no
+    DAG interval) — the operator escape hatch for DAGs that are scheduled but carry no
+    interval metadata. Returns how many targets were written.
+    """
+    seeds = seed_targets(dag)
+    written = 0
+    for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE):
+        if get_frequency_target(node) is not None:
+            continue
+        target = seeds.get(str(node.id), default)
+        if target is None:
+            continue
+        set_frequency_target(node, target)
+        written += 1
+    return written
+
+
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
