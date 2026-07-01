@@ -60,9 +60,11 @@ _shadow = ShadowGuard(github=None)  # currently shadow — record, don't act
 def _default_launcher(trial_id: UUID) -> None:
     # noqa: PLC0415 — keep temporalio off the engine's import path; load it only when a
     # trial is actually dispatched (the web process imports lifecycle, not Temporal).
-    from products.merge_queue.backend.temporal.client import start_trial_workflow  # noqa: PLC0415
+    from products.merge_queue.backend.temporal.client import start_trial_workflow, trial_workflow_id  # noqa: PLC0415
 
-    start_trial_workflow(str(trial_id))
+    tid = str(trial_id)
+    Trial.objects.filter(id=trial_id).update(workflow_id=trial_workflow_id(tid))
+    start_trial_workflow(tid)
 
 
 def _no_master_head(repo: str) -> str:
@@ -308,8 +310,11 @@ def _active_enrollments_with_all_green(partition: Partition) -> list[Enrollment]
         .values_list("enrollment_id", flat=True)
         .distinct()
     )
+    enrollments = Enrollment.objects.filter(id__in=enrollment_ids, state=EnrollmentState.ACTIVE).prefetch_related(
+        "slots"
+    )
     out: list[Enrollment] = []
-    for enrollment in Enrollment.objects.filter(id__in=list(enrollment_ids), state=EnrollmentState.ACTIVE):
+    for enrollment in enrollments:
         slots = list(enrollment.slots.all())
         if slots and all(s.state == SlotState.GREEN for s in slots):
             out.append(enrollment)

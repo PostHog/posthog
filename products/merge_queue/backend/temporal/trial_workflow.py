@@ -52,12 +52,16 @@ class TrialWorkflow(PostHogWorkflow):
         )
 
         # The full suite — no test selection. Real CI dispatch is stubbed for now.
-        result: SuiteResult = await workflow.execute_activity(
-            run_full_suite,
-            ref,
-            start_to_close_timeout=timedelta(hours=2),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        try:
+            result: SuiteResult = await workflow.execute_activity(
+                run_full_suite,
+                ref,
+                start_to_close_timeout=timedelta(hours=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as err:
+            workflow.logger.exception("run_full_suite activity failed; recording failed verdict")
+            result = SuiteResult(passed=False, failing_tests=[f"internal:{type(err).__name__}"])
 
         await workflow.execute_activity(
             record_trial_result,
