@@ -3,6 +3,8 @@ from typing import Optional, cast
 
 import pytest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
@@ -12,6 +14,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.union_type_coercion import coerce_union_column_types
 from posthog.hogql.type_diagnostics import (
     build_select_expression_type_name_query,
     compare_select_expression_types_with_type_names,
@@ -664,6 +667,39 @@ class TestHogQLTypeSystem:
 
         assert isinstance(node.type, ast.SelectSetQueryType)
         assert node.type.resolve_column_constant_type("value", self.context) == ast.FloatType(nullable=False)
+
+    def _print_coerced_union(self, query: str) -> str:
+        node = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        node = coerce_union_column_types(node, self.context)
+        return print_prepared_ast(node, self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            # An integer branch unioned with a float branch — the shape behind the reported
+            # `Variant(Float64, UInt64)` failure. The integer side is cast up to the Float64 supertype the
+            # resolver already computed, regardless of branch order.
+            ("int_then_float", "SELECT 1 AS value UNION ALL SELECT 2.5 AS value"),
+            ("float_then_int", "SELECT 2.5 AS value UNION ALL SELECT 1 AS value"),
+        ]
+    )
+    def test_union_mixed_numeric_branches_cast_to_float_supertype(self, _name: str, query: str) -> None:
+        sql = self._print_coerced_union(query)
+        # The integer branch is coerced to the Float64 supertype, so ClickHouse never infers a Variant column.
+        assert "toFloat64(1)" in sql
+        assert "Variant" not in sql
+        assert "AS value" in sql
+
+    def test_union_matching_numeric_branches_are_not_cast(self) -> None:
+        # Same-family branches already share a common type, so no cast is injected — the fix stays surgical.
+        sql = self._print_coerced_union("SELECT 1 AS value UNION ALL SELECT 2 AS value")
+        assert "toFloat64(" not in sql
+
+    def test_union_mixed_numeric_branches_cast_inside_subquery(self) -> None:
+        # The reported server-side failure: sum() over a Variant. Coercing the branches inside the subquery
+        # hands the aggregate a plain Float64 column instead.
+        sql = self._print_coerced_union("SELECT sum(value) FROM (SELECT 1 AS value UNION ALL SELECT 2.5 AS value)")
+        assert "toFloat64(1)" in sql
+        assert "Variant" not in sql
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(

@@ -45,6 +45,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
+from posthog.hogql.transforms.union_type_coercion import coerce_union_column_types
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -189,6 +190,14 @@ def prepare_ast_for_printing(
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
+
+    # Cast UNION branch columns to the resolver's computed supertype so ClickHouse is handed one concrete
+    # type per column and never infers a Variant(...) (which sum() rejects and clickhouse_driver can't parse).
+    # Runs while the SelectSetQuery's unified column types still align with the branch column types resolved
+    # against them, and only for ClickHouse — Variant is a ClickHouse-only union artifact.
+    if dialect == "clickhouse":
+        with context.timings.measure("coerce_union_column_types"):
+            node = coerce_union_column_types(node, context)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
