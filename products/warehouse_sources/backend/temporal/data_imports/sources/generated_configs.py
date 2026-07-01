@@ -876,6 +876,8 @@ class CustomSourceConfig(config.Config):
     auth_token: str | None = None
     auth_api_key: str | None = None
     auth_password: str | None = None
+    auth_oauth2_client_secret: str | None = None
+    auth_oauth2_refresh_token: str | None = None
 
 
 @config.config

@@ -152,6 +152,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "redeem_code_invite",
+    "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
     "reset_code_workflow_bindings",
@@ -807,6 +808,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
     if run is not None:
         run.mark_failed(error)
     return True
+
+
+def redispatch_task_run(run_id: str | UUID) -> str:
+    """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
+
+    Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``error``).
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        redispatch_orphaned_task_run,
+    )
+
+    return redispatch_orphaned_task_run(str(run_id))
 
 
 def upsert_internal_sandbox_env(
