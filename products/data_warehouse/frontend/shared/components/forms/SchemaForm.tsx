@@ -61,6 +61,7 @@ export default function SchemaForm(): JSX.Element {
         setSchemaNameFilter,
         setSchemaSyncedColumns,
         setSchemaRowFilters,
+        setSchemaMaskedColumns,
     } = useActions(sourceWizardLogic)
     const [columnSelectionSchema, setColumnSelectionSchema] = useState<ExternalDataSourceSyncSchema | null>(null)
     const {
@@ -612,7 +613,7 @@ export default function SchemaForm(): JSX.Element {
                         </>
                     ) : null
                 }
-                description="Choose which columns to sync and add row filters to sync only matching rows. Primary-key and incremental columns are always synced."
+                description="Choose which columns to sync, mask sensitive ones to replace their values with a one-way hash, and add row filters to sync only matching rows. Primary-key and incremental columns are always synced and can't be masked."
                 isOpen={columnSelectionSchema !== null}
                 onClose={() => setColumnSelectionSchema(null)}
                 footer={
@@ -626,12 +627,14 @@ export default function SchemaForm(): JSX.Element {
                         <h4 className="font-semibold mb-0">Columns to sync</h4>
                         <ColumnSelectionPicker
                             hideActions
+                            enableMasking
                             schema={
                                 columnSelectionSchema
                                     ? {
                                           id: columnSelectionSchema.table,
                                           name: columnSelectionSchema.table,
                                           enabled_columns: columnSelectionSchema.enabled_columns,
+                                          masked_columns: columnSelectionSchema.masked_columns,
                                           primary_key_columns: columnSelectionSchema.primary_key_columns,
                                           incremental_field: columnSelectionSchema.incremental_field,
                                           available_columns: columnSelectionSchema.available_columns.map((c) => ({
@@ -645,6 +648,11 @@ export default function SchemaForm(): JSX.Element {
                             onChange={(enabledColumns) => {
                                 if (columnSelectionSchema) {
                                     setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                                }
+                            }}
+                            onMaskedChange={(maskedColumns) => {
+                                if (columnSelectionSchema) {
+                                    setSchemaMaskedColumns(columnSelectionSchema, maskedColumns)
                                 }
                             }}
                         />

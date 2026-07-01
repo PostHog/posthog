@@ -512,14 +512,21 @@ function ColumnsAndRowFiltersSection({
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
+    const [draftMasked, setDraftMasked] = useState<string[]>(schema.masked_columns ?? [])
 
     // Reset drafts on schema switch or when server values change (e.g. reload after save).
     // Keyed on content so unrelated re-renders don't wipe edits.
     useEffect(() => {
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
+        setDraftMasked(schema.masked_columns ?? [])
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema.id, JSON.stringify(schema.enabled_columns ?? null), JSON.stringify(schema.row_filters ?? null)])
+    }, [
+        schema.id,
+        JSON.stringify(schema.enabled_columns ?? null),
+        JSON.stringify(schema.row_filters ?? null),
+        JSON.stringify(schema.masked_columns ?? []),
+    ])
 
     const alwaysRetained = new Set<string>([
         ...(schema.primary_key_columns ?? []),
@@ -539,15 +546,25 @@ function ColumnsAndRowFiltersSection({
 
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
-        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null)
+        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null) ||
+        JSON.stringify([...draftMasked].sort()) !== JSON.stringify([...(schema.masked_columns ?? [])].sort())
 
     const commit = (resyncAfter: boolean): void => {
-        const next = { ...schema, enabled_columns: draftColumns, row_filters: draftRowFilters }
+        const next = {
+            ...schema,
+            enabled_columns: draftColumns,
+            row_filters: draftRowFilters,
+            masked_columns: draftMasked,
+        }
         if (resyncAfter) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
             void api.externalDataSchemas
-                .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
+                .update(schema.id, {
+                    enabled_columns: draftColumns,
+                    row_filters: draftRowFilters,
+                    masked_columns: draftMasked,
+                })
                 .then(() => {
                     updateSchema(next)
                     resyncSchema(next)
@@ -620,7 +637,13 @@ function ColumnsAndRowFiltersSection({
                         <>
                             <span className="text-sm text-secondary">{columnsSummary}</span>
                             <fieldset disabled={!!editorDisabledReason}>
-                                <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
+                                <ColumnSelectionPicker
+                                    hideActions
+                                    enableMasking
+                                    schema={schema}
+                                    onChange={setDraftColumns}
+                                    onMaskedChange={setDraftMasked}
+                                />
                             </fieldset>
                         </>
                     )}
