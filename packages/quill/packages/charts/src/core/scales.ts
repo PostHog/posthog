@@ -614,12 +614,11 @@ export function createBarScales(
     const valueSeries = series.map(restrictToKept)
     const valueStackedSeries = stackedSeries?.map(restrictToKept)
 
-    // Build per-axis scales whenever multiple axes are present — chart.js rendered each axis
-    // group with its own scale regardless of bar layout, so stacked bars with a right-axis
-    // series stack independently on their respective axes.
+    // Build per-axis scales for grouped layouts with multiple axes. Stacked/percent layouts
+    // share a single value axis — per-series yAxisId is ignored so the stack is consistent.
     const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
     const positions = orderedAxisPositions(visibleSeries)
-    if (positions.length > 1) {
+    if (positions.length > 1 && barLayout === 'grouped') {
         const byAxis = groupVisibleSeriesByAxis(visibleSeries)
         const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
         positions.forEach(({ axisId, position }, axisIndex) => {

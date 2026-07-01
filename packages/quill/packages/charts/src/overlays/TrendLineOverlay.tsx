@@ -1,33 +1,29 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID, type Series } from '../core/types'
+import type { Series } from '../core/types'
 import { useChartLayout } from '../core/chart-context'
+import { resolveYScaleForSeries } from '../core/scales'
 
 interface TrendLineOverlayProps {
     /** Pre-computed trend line series (from buildTrendLineSeries). One per source series. */
     trendSeries: Series[]
 }
 
-/**
- * Renders trend lines as SVG polylines over any chart type that uses ChartLayoutContext.
- * Designed for bar charts where the underlying BarChart canvas can't draw mixed line/bar —
- * this overlay draws the regression line on top as a DOM element using chart scales.
- */
-let _nextId = 0
-
+/** Renders trend lines as SVG polylines over vertical bar and combo charts. */
 export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.ReactElement | null {
-    // Stable per-instance ID — module counter is deterministic and avoids Math.random().
-    // useRef so the ID is allocated once on mount and never changes across re-renders.
-    const clipId = React.useRef(`tlo-${_nextId++}`).current
-    const { scales, dimensions, labels } = useChartLayout()
+    const clipId = React.useId()
+    const { scales, dimensions, labels, axis } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
 
     const lines = useMemo(() => {
+        if (axis.orientation === 'horizontal') {
+            return []
+        }
         return trendSeries
+            .filter((s) => !s.visibility?.excluded)
             .map((s) => {
-                // Resolve the y-scale for this series's axis — right-axis series must not use the primary scale.
-                const yScale = scales.yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
+                const yScale = resolveYScaleForSeries(scales, s)
                 const points: string[] = []
                 for (let i = 0; i < labels.length; i++) {
                     const rawY = s.data[i]
@@ -48,7 +44,7 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
                 return { key: s.key, points: points.join(' '), color: s.color ?? 'currentColor', dashArray }
             })
             .filter((l): l is NonNullable<typeof l> => l !== null)
-    }, [trendSeries, scales, labels])
+    }, [trendSeries, scales, labels, axis.orientation])
 
     if (lines.length === 0) {
         return null
