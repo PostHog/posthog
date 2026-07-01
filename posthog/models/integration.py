@@ -39,6 +39,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.egress.github.transport import GITHUB_API_VERSION
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -82,8 +83,6 @@ def _decode_jwt_payload(token: str) -> dict | None:
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
-
-GITHUB_API_VERSION = "2022-11-28"
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the

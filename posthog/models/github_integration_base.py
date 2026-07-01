@@ -23,6 +23,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+from posthog.egress.github.transport import github_request
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
@@ -281,13 +282,16 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         timeout: int | None = None,
     ) -> requests.Response:
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=timeout)
-        except requests.RequestException:
-            self._record_github_api_exception("GET", endpoint)
-            raise
-        self._record_github_api_response(response, "GET", endpoint)
-        return response
+        return github_request(
+            "GET",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            params=params,
+            timeout=timeout,
+        )
 
     def _github_api_post(
         self,
@@ -297,13 +301,15 @@ class GitHubIntegrationBase:
         headers: dict[str, str],
         json_body: Mapping[str, object] | None = None,
     ) -> requests.Response:
-        try:
-            response = requests.post(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        return response
+        return github_request(
+            "POST",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            json=json_body,
+        )
 
     def _github_api_put(
         self,
@@ -313,13 +319,15 @@ class GitHubIntegrationBase:
         headers: dict[str, str],
         json_body: Mapping[str, object],
     ) -> requests.Response:
-        try:
-            response = requests.put(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("PUT", endpoint)
-            raise
-        self._record_github_api_response(response, "PUT", endpoint)
-        return response
+        return github_request(
+            "PUT",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            json=json_body,
+        )
 
     # --- Installation access token ---
 
