@@ -635,6 +635,7 @@ async def _insert_chunk(
     batch_index: int,
     chunk_count: int = 3,
     run_uuid: str = "duckgres-backfill-schema-1-v1-g00000000",
+    delta_succeeded: bool = True,
 ) -> str:
     batch_id = await _insert_batch(
         conn,
@@ -648,7 +649,8 @@ async def _insert_chunk(
             "chunk_count": chunk_count,
         },
     )
-    await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+    if delta_succeeded:
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
     return batch_id
 
 
@@ -670,6 +672,18 @@ class TestBackfillChunkClaiming:
         chunk0 = await _insert_chunk(conn, batch_index=0)
         await _insert_chunk(conn, batch_index=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="executing", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    async def test_chunks_blocked_behind_non_delta_succeeded_predecessor(self, conn):
+        # enqueue_chunks writes every chunk pre-succeeded atomically, so this
+        # state shouldn't exist — but the gate must fail closed rather than let
+        # chunk 1 apply before chunk 0's CREATE if that invariant ever breaks.
+        await _insert_chunk(conn, batch_index=0, delta_succeeded=False)
+        await _insert_chunk(conn, batch_index=1)
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 

@@ -206,8 +206,9 @@ class DuckgresBatchQueue:
         ineligible until every lower batch_index in its run has an apply marker
         (inserts/merges must apply in order). Backfill CHUNKS relax this: a
         pending predecessor blocks a chunk only when it cannot be returned in
-        this same fetch (executing, waiting_retry inside its backoff window, or
-        succeeded-without-marker, an anomalous state we fail closed on).
+        this same fetch (not delta-succeeded, executing, waiting_retry inside
+        its backoff window, or succeeded-without-marker — the latter states are
+        anomalous and fail closed).
         Predecessors that are claimable sort earlier in the same poll window,
         land in the same (team_id, schema_id) group, and the consumer processes
         a group strictly in order and halts on the first non-success — so chunk
@@ -275,6 +276,7 @@ class DuckgresBatchQueue:
                                 AND a.schema_id = prev.schema_id
                                 AND a.run_uuid = prev.run_uuid
                                 AND a.batch_index = prev.batch_index
+                            LEFT JOIN {_latest_status_lateral(STATUS_TABLE, "prev")} ds_prev ON true
                             LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "prev")} dgs_prev ON true
                             WHERE prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND prev.team_id = b.team_id
@@ -294,6 +296,11 @@ class DuckgresBatchQueue:
                                     -- only when it cannot be co-claimed in this fetch;
                                     -- otherwise it is returned alongside (it sorts
                                     -- earlier) and the group loop applies it first.
+                                    -- Not delta-succeeded blocks: enqueue_chunks writes
+                                    -- every chunk pre-succeeded atomically, so this
+                                    -- state should not exist — fail closed rather than
+                                    -- lean on that invariant from here.
+                                    OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
                                     OR dgs_prev.job_state = 'executing'
                                     OR dgs_prev.job_state = 'succeeded'
                                     OR (
