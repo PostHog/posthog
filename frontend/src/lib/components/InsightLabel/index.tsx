@@ -195,7 +195,7 @@ export function InsightLabel({
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) &&
                         !(hideHogQLTagWhenCustomName && action?.custom_name && action?.math === 'hogql') && (
-                            <div className="insights-label__math flex flex-nowrap items-center gap-x-1 shrink-0">
+                            <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
                                 <MathTag
                                     math={action?.math}
                                     mathProperty={action?.math_property}
@@ -206,7 +206,7 @@ export function InsightLabel({
                         )}
 
                     {pillValues.length > 0 && (
-                        <div className="flex flex-wrap gap-1 shrink-0">
+                        <div className="flex flex-wrap gap-1">
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
                                     <LemonTag className="tag-pill">

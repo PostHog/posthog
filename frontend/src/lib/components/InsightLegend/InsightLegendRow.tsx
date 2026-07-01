@@ -88,7 +88,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
 
     const row = (
         <div className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
-            <div className="grow min-w-0">
+            <div className="grow">
                 <LemonCheckbox
                     className="text-xs mr-4"
                     color={mainColor}
