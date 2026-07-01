@@ -610,6 +610,58 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
     })
 })
 
+describe('TrendsBarChart (ActionsStackedBar)', () => {
+    // Regression for #66497: the ActionsStackedBar display type (added for hog-charts, and handled
+    // by the SQL/DataVisualization renderer) was never wired into the scenes/trends/Trends.tsx render
+    // dispatch, which only matched ActionsBar/ActionsUnstackedBar. Trends insights given this display
+    // via the API/MCP fell through to `undefined` and rendered a blank tile.
+    const stackedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+        buildTrendsQuery({
+            trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+            ...extra,
+        })
+
+    it('routes stacked bar insights through the hog-charts adapter instead of rendering blank', async () => {
+        renderInsight({ query: stackedBar() })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('renders one series per breakdown value', async () => {
+        renderInsight({
+            query: stackedBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+                breakdownFilter: {
+                    breakdown: 'hedgehog',
+                    breakdown_type: 'event',
+                },
+            }),
+        })
+
+        await waitFor(
+            () => {
+                expect(
+                    screen.getByRole('img', {
+                        name: /chart with 5 data series/i,
+                    })
+                ).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
 describe('TrendsBarChart overlays', () => {
     it('renders value labels when showValuesOnSeries is enabled', async () => {
         renderInsight({

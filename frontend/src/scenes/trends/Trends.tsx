@@ -103,7 +103,11 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             }
             return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
         }
-        if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+        if (
+            display === ChartDisplayType.ActionsBar ||
+            display === ChartDisplayType.ActionsUnstackedBar ||
+            display === ChartDisplayType.ActionsStackedBar
+        ) {
             if (isStickiness) {
                 return <StickinessBarChart context={context} />
             }
