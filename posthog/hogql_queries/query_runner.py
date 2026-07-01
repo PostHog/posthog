@@ -1584,7 +1584,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # Autocapture is disabled here so an expected access-control denial (a 403 from a
+        # query-runner access gate, e.g. the mcp-analytics flag being off) doesn't get filed
+        # as a brand-new error-tracking issue when it propagates out of this block. Genuine
+        # failures are captured explicitly in the except handler below, still carrying the
+        # context tags set here.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1763,6 +1768,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                    # Mirror new_context's default autocapture (disabled above) for everything
+                    # except expected access-control denials — those are surfaced as
+                    # ValidationErrors upstream and classified as SUCCESS, so filing them as
+                    # error-tracking issues is just noise. capture_exception is idempotent, so a
+                    # re-raise that crosses another capturing context won't double-report.
+                    if not isinstance(exc, UserAccessControlError):
+                        posthoganalytics.capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(

@@ -618,13 +618,14 @@ class TestQueryRunner(BaseTest):
                 lambda: UserAccessControlError("query", "viewer", None),
                 SloOutcome.SUCCESS,
                 "user_error",
+                False,
             ),
-            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
-            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", True),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
     def test_run_classifies_slo_error_at_except_boundary(
-        self, _name, exception_factory, expected_outcome, expected_error_category
+        self, _name, exception_factory, expected_outcome, expected_error_category, expected_captured
     ):
         TestQueryRunner = self.setup_test_query_runner_class()
         raised_exc = exception_factory()
@@ -635,7 +636,10 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.posthoganalytics.capture_exception") as mock_capture,
+        ):
             with pytest.raises(type(raised_exc)):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
@@ -643,6 +647,9 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+        # Expected access-control denials must not be filed as error-tracking issues; genuine
+        # failures still are, since new_context's blanket autocapture is disabled in run().
+        assert mock_capture.called == expected_captured
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
