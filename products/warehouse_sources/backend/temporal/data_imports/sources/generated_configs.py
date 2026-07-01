@@ -1175,7 +1175,7 @@ class FinnworldsSourceConfig(config.Config):
 
 @config.config
 class FireHydrantSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
