@@ -30,6 +30,12 @@ tools:
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
         enabled: false
+    vision-observations-label-create:
+        operation: vision_observations_label_create
+        enabled: false
+    vision-observations-label-destroy:
+        operation: vision_observations_label_destroy
+        enabled: false
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -211,6 +217,12 @@ tools:
             Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying
             recording.
         feature_flag: replay-vision
+    vision-scanners-observations-label-create:
+        operation: vision_scanners_observations_label_create
+        enabled: false
+    vision-scanners-observations-label-destroy:
+        operation: vision_scanners_observations_label_destroy
+        enabled: false
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
