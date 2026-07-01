@@ -256,16 +256,30 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # new mode is ever added.
             assert_never(new_mode)
 
-        change_label = (
-            ", ".join(label_bits) + " (pinned for this reset)" if label_bits else "repartition (pinned for this reset)"
-        )
+        change_label = ", ".join(label_bits) if label_bits else "repartition"
+
+        # Translate the validated operator inputs into a `repartition_pending` target. The next run's
+        # pre-extraction activity rewrites the existing S3 data into this scheme in place — no source
+        # re-pull, no reset. `staged` is reused only as a validated carrier of the chosen knobs.
+        target = {
+            "partition_mode": new_mode,
+            "partition_format": staged.get("partition_format"),
+            "partition_count": staged.get("partition_count_override"),
+            "partition_size": staged.get("partition_size_override"),
+            "partition_keys": (
+                staged.get("partitioning_keys_override") or schema.partitioning_keys or schema.primary_key_columns or []
+            ),
+            "trigger_reason": "admin",
+            "attempts": 0,
+        }
 
         return self._pause_save_and_resync(
             request,
             schema,
-            staged_updates=staged,
+            staged_updates={"repartition_pending": target},
             change_label=change_label,
             workflow_kind="repartition",
+            reset_pipeline=False,
         )
 
     def _pause_save_and_resync(
@@ -276,10 +290,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         staged_updates: dict[str, Any],
         change_label: str,
         workflow_kind: str,
+        reset_pipeline: bool = True,
     ):
         # Shared tail for the partition-tuning admin actions (repartition, change partition mode):
-        # pause the schedule, stage the operator's sync_type_config updates alongside
-        # reset_pipeline, and trigger a single non-billable reset resync.
+        # pause the schedule, stage the operator's sync_type_config updates, and trigger a single
+        # non-billable run. With reset_pipeline=True the run re-pulls from source; with False the run's
+        # pre-extraction activity repartitions in place from S3 (no source pull) before syncing.
         #
         # Pause first so the scheduled workflow doesn't race with the admin one (Temporal's
         # "OnlyOne" overlap policy is per-schedule, not across schedule + ad-hoc workflow). If
@@ -308,7 +324,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # re-read True and wipe Delta + cursor, restarting from row 0.
         for key, value in staged_updates.items():
             schema.sync_type_config[key] = value
-        schema.sync_type_config["reset_pipeline"] = True
+        if reset_pipeline:
+            schema.sync_type_config["reset_pipeline"] = True
         if admin_paused_now:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
         schema.save(update_fields=["sync_type_config"])
@@ -337,7 +354,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                     pass
             messages.error(
                 request,
-                f"Saved {change_label}, but failed to trigger reset resync: {e}. "
+                f"Saved {change_label}, but failed to trigger run: {e}. "
                 f"Trigger one manually before the next scheduled sync.",
             )
             return redirect(_change_url(schema.id))
@@ -347,9 +364,14 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if admin_paused_now
             else " Schedule was already paused; leaving it paused."
         )
+        run_note = (
+            "non-billable reset resync (re-pulls from source)"
+            if reset_pipeline
+            else "non-billable in-place repartition (no source pull)"
+        )
         messages.success(
             request,
-            f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).{pause_note}",
+            f"{change_label}. Triggered {run_note} (workflow_id={workflow_id}).{pause_note}",
         )
         return redirect(_change_url(schema.id))
 

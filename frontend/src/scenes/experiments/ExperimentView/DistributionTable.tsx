@@ -174,7 +174,9 @@ export function DistributionTable(): JSX.Element {
                   {
                       className,
                       key: 'analysis',
-                      title: 'Analysis',
+                      title: 'Include in analysis',
+                      tooltip:
+                          'Toggle off to exclude a variant from metric results. Excluded variants are still served to users but omitted from statistical analysis.',
                       render: function Analysis(_, { key }): JSX.Element {
                           /**
                            * bail early for holdouts

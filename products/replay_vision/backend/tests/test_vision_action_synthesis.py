@@ -96,6 +96,20 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
 
+    def test_persists_only_included_observation_ids(self) -> None:
+        # observation_ids must track the summaries actually included — a blank-summary observation is
+        # skipped by _fetch_observations, so its id must not land in the persisted list.
+        included = self._observation("Users churned at checkout", title="Checkout")
+        self._observation("   ", session_id="s2")  # blank summary → excluded from the summary and the ids
+        action = self._action()
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(included.id)])
+
     def test_empty_model_output_skips_without_persisting(self) -> None:
         # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
         # to the idempotency guard and re-bill the LLM on every retry.

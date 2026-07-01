@@ -525,7 +525,7 @@ Use this tool when the user wants to:
         if not repos:
             if search:
                 return f"No repositories found matching '{search}'", {"repositories": []}
-            settings_url = "/settings/project-integrations"
+            settings_url = "/integrations/github"
             return (
                 f"No GitHub repositories available. Please connect a GitHub integration in Settings: {settings_url}",
                 {"repositories": [], "settings_url": settings_url},

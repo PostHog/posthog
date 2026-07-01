@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from unittest.mock import patch
+
 from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import encode_logs
 from opentelemetry.sdk._logs.export import InMemoryLogExporter
 from parameterized import parameterized
@@ -129,6 +131,19 @@ def test_noop_when_unconfigured():
     # With no exporter, endpoint, or token, the emitter must be a safe no-op (return 0, no crash)
     # so the worker is harmless until the Logs lane is wired in.
     assert JobLogsEmitter().emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0
+
+
+def test_production_exporter_bypasses_egress_proxy():
+    # The endpoint+token path builds the real OTLP exporter, and its requests.Session must have
+    # trust_env=False: capture-logs is an in-cluster private ClusterIP, and the worker's
+    # HTTP_PROXY/HTTPS_PROXY Smokescreen egress proxy denies private-range hosts (407) — so a
+    # proxy-routed export silently drops every batch. No other test hits this branch (they all inject
+    # an in-memory exporter), which is exactly how the 407 shipped unnoticed.
+    otlp = "products.engineering_analytics.backend.logic.job_logs.emitter.OTLPLogExporter"
+    with patch(otlp) as mock_otlp:
+        with JobLogsEmitter(endpoint="http://capture-logs.posthog.svc.cluster.local:4318/i/v1/logs", token="phc_x"):
+            pass
+    assert mock_otlp.call_args.kwargs["session"].trust_env is False
 
 
 def test_noop_when_token_missing():

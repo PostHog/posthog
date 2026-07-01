@@ -58,7 +58,29 @@ tools:
         feature_flag: mcp-analytics
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List MCP sessions
+        description: >
+            List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's
+            $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions
+            are: "which clients are most active this week?", "which sessions called tool X?", "how long do sessions
+            usually run?", "which person's sessions made the most calls?". Each row has session_id, tool_calls,
+            session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email /
+            person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated),
+            newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort
+            tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not
+            returned as a field; an unrecognised key silently falls back to newest-first. Also supports a
+            case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging
+            — see each parameter for the specifics. To then summarise a single session's goal, follow up with
+            mcp-analytics-sessions-generate-intent.
+        feature_flag: mcp-analytics
     mcp-analytics-sessions-tool-calls:
         operation: mcp_analytics_sessions_tool_calls
         enabled: false
