@@ -34,7 +34,9 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
+        calendar_runner.bypass_warehouse_access_control = self.bypass_warehouse_access_control
 
         calendar_response = calendar_runner._calculate()
 

@@ -321,6 +321,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -394,6 +395,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,

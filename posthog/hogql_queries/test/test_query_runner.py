@@ -53,6 +53,7 @@ from posthog.hogql_queries.query_runner import (
     QueryRunner,
     QueryRunnerWithHogQLContext,
     get_query_runner,
+    get_query_runner_or_none,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -193,6 +194,18 @@ class TestQueryRunner(BaseTest):
         runner = get_query_runner(query=query, team=self.team)
 
         self.assertEqual(runner.query, expected_source_query)
+
+    @parameterized.expand([("bypass", True), ("no_bypass", False)])
+    def test_get_query_runner_or_none_threads_warehouse_bypass(self, _name, bypass):
+        # Trusted server-side callers (background exports) rely on this flag reaching the runner so it
+        # can be forwarded into the warehouse access-control check when building the database.
+        runner = get_query_runner_or_none(
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]),
+            team=self.team,
+            bypass_warehouse_access_control=bypass,
+        )
+        assert runner is not None
+        assert runner.bypass_warehouse_access_control is bypass
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()

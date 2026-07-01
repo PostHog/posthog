@@ -60,6 +60,7 @@ def calculate_for_query_based_insight(
     tile_filters_override: Optional[dict] = None,
     query_override: Optional[dict] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -97,6 +98,7 @@ def calculate_for_query_based_insight(
         # QUERY_ASYNC provides extended max execution time for insight queries
         limit_context=LimitContext.QUERY_ASYNC,
         analytics_props=analytics_props,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     if isinstance(process_response, BaseModel):

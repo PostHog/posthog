@@ -521,6 +521,9 @@ def export_image(
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         # Background render (no request user); attribute the read to the export owner.
                         user=exported_asset.created_by,
+                        # Ownerless renders (e.g. shared dashboards/insights) have no user to resolve
+                        # warehouse access control against, so treat them as trusted server-side renders.
+                        bypass_warehouse_access_control=exported_asset.created_by is None,
                         variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
@@ -535,6 +538,7 @@ def export_image(
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
+                            bypass_warehouse_access_control=exported_asset.created_by is None,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
@@ -572,6 +576,7 @@ def export_image(
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
+                            bypass_warehouse_access_control=exported_asset.created_by is None,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
                             analytics_props=export_analytics_props,

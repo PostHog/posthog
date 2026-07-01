@@ -75,14 +75,16 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
             else:
                 series_query.properties = [*(existing or []), end_buckets_filter]
 
-        response = TrendsQueryRunner(
+        sub_runner = TrendsQueryRunner(
             query=series_query,
             team=self.team,
             timings=self.timings,
             limit_context=self.limit_context,
             modifiers=self.modifiers,
             user=self.user,
-        ).calculate()
+        )
+        sub_runner.bypass_warehouse_access_control = self.bypass_warehouse_access_control
+        response = sub_runner.calculate()
 
         # Whether the last bucket is the current, still-accumulating period — computed once here so
         # the insight and the MCP both forward it rather than each re-deriving it on the frontend.

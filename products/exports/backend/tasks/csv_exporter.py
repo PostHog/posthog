@@ -507,6 +507,9 @@ def get_from_query(
                 # Background export (no request user); attribute the read to the export owner so
                 # warehouse HogQL access control resolves against their access.
                 user=exported_asset.created_by,
+                # Ownerless renders (e.g. shared insights) have no user to resolve warehouse access
+                # control against, so treat them as trusted server-side renders.
+                bypass_warehouse_access_control=exported_asset.created_by is None,
                 pagination_cursor=cursor,
                 analytics_props=analytics_props,
             )

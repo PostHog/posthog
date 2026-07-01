@@ -1242,6 +1242,7 @@ def get_query_runner_or_none(
     modifiers: Optional[HogQLQueryModifiers] = None,
     user: Optional[User] = None,
     user_access_control: Optional[UserAccessControl] = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> Optional["QueryRunner"]:
     try:
         runner = get_query_runner(
@@ -1260,6 +1261,7 @@ def get_query_runner_or_none(
     # insight runners) so the cache fingerprint doesn't bulk-load access control once per runner.
     if user_access_control is not None and isinstance(runner, AnalyticsQueryRunner):
         runner._user_access_control = user_access_control
+    runner.bypass_warehouse_access_control = bypass_warehouse_access_control
     return runner
 
 
@@ -1285,6 +1287,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
+    # Set by trusted server-side callers (e.g. background exports of already-authorized content) to
+    # skip warehouse table/view access control. Only honored by runners that thread it into their
+    # execute_hogql_query calls; never set from client-controlled input.
+    bypass_warehouse_access_control: bool = False
     workload: Workload
 
     def __init__(

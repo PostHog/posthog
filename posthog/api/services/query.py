@@ -58,6 +58,7 @@ def process_query_dict(
     is_query_service: bool = False,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -109,6 +110,7 @@ def process_query_dict(
         is_query_service=is_query_service,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
 
@@ -129,6 +131,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -182,7 +185,12 @@ def process_query_model(
         )
 
     query_runner = get_query_runner_or_none(
-        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+        query,
+        team,
+        limit_context=limit_context,
+        user=user,
+        user_access_control=user_access_control,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
@@ -201,6 +209,7 @@ def process_query_model(
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
                 analytics_props=analytics_props,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
