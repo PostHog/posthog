@@ -522,7 +522,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
-    @extend_schema(responses=NotebookMarkdownSerializer)
+    @extend_schema(exclude=True)
     @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
     def markdown(self, request: Request, **kwargs) -> Response:
         notebook = self.get_object()

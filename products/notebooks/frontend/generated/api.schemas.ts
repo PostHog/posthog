@@ -272,14 +272,6 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
-export interface NotebookMarkdownApi {
-    /**
-     * Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.
-     * @nullable
-     */
-    readonly markdown: string | null
-}
-
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.

@@ -12,7 +12,6 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
-    NotebookMarkdownApi,
     NotebookMarkdownSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
@@ -439,24 +438,6 @@ export const notebooksKernelStopCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
-    })
-}
-
-export const getNotebooksMarkdownRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/markdown/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksMarkdownRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<NotebookMarkdownApi> => {
-    return apiMutator<NotebookMarkdownApi>(getNotebooksMarkdownRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
     })
 }
 

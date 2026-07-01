@@ -29942,14 +29942,6 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
-    export interface NotebookMarkdown {
-      /**
-         * Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.
-         * @nullable
-         */
-      readonly markdown: string | null;
-    }
-
     export interface NotebookMarkdownSave {
       /** Unique identifier for the client session, used to skip self-echo on the update stream. */
       client_id: string;
