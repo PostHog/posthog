@@ -38,18 +38,26 @@ export const tasksLogic = kea<tasksLogicType>([
                 loadTasks: async (params: TaskListParams = {}, breakpoint) => {
                     const response = await api.tasks.list(params)
                     breakpoint()
-                    actions.setTasksNext(response.next)
+                    actions.setTasksNext(response.next ?? null)
                     return response.results
                 },
                 // Appends the next page for infinite scroll. The cursor is the absolute `next`
                 // URL from the previous response, so it carries the active filters forward.
                 loadMoreTasks: async (_, breakpoint) => {
-                    if (!values.tasksNext) {
+                    const next = values.tasksNext
+                    if (!next) {
                         return values.tasks
                     }
-                    const response = await api.get<PaginatedResponse<Task>>(values.tasksNext)
+                    const response = await api.get<PaginatedResponse<Task>>(next)
                     breakpoint()
-                    actions.setTasksNext(response.next)
+                    // `breakpoint` only cancels a second `loadMoreTasks` call, not a `loadTasks` triggered
+                    // by a filter change while this page was in flight. A fresh `loadTasks` resets
+                    // `tasksNext` to null synchronously on dispatch, so a mismatch here means this page
+                    // belongs to a filter that's no longer active — discard it instead of appending.
+                    if (values.tasksNext !== next) {
+                        return values.tasks
+                    }
+                    actions.setTasksNext(response.next ?? null)
                     return [...values.tasks, ...response.results]
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
@@ -112,6 +120,9 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 loadTasks: () => null,
                 setTasksNext: (_, { next }) => next,
+                // Clear the cursor on failure too, otherwise `hasMore` stays true forever and the
+                // infinite-scroll spinner keeps spinning with no feedback that the request failed.
+                loadMoreTasksFailure: () => null,
             },
         ],
         // Distinct from `tasksLoading` (which also flips for `loadMoreTasks`) so the infinite-scroll
@@ -152,6 +163,9 @@ export const tasksLogic = kea<tasksLogicType>([
         },
         setAssigneeFilter: () => {
             actions.loadTasks(values.taskListParams)
+        },
+        loadMoreTasksFailure: ({ error, errorObject }) => {
+            lemonToast.error(`Couldn't load more tasks: ${loadErrorMessage(error, errorObject)}`)
         },
     })),
 ])
