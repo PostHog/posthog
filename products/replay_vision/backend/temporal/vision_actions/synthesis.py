@@ -104,10 +104,11 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         logger.warning("vision_action.synthesis.empty_output", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    markdown = strip_external_links_markdown(markdown)
-    # Always lead with a trusted header stating what this summary covers — scanner, count, and the
-    # window it spans — so the reader has that context in-app and in Slack without trusting the LLM.
-    markdown = _summary_header(action, batch.window_start, len(batch.lines)) + markdown
+    # Lead with a trusted header stating what this summary covers — scanner, count, and the window it
+    # spans — so the reader has that context in-app and in Slack. Defang links across the whole report
+    # AFTER prepending: the header carries the free-text scanner name, so a name with link/image
+    # markdown must be neutralized too, not just the LLM body.
+    markdown = strip_external_links_markdown(_summary_header(action, batch.window_start, len(batch.lines)) + markdown)
     slack_text = _markdown_to_slack(markdown)
 
     run.synthesized_markdown = markdown
@@ -216,8 +217,12 @@ def _summary_header(action: VisionAction, window_start: datetime | None, count: 
                 tz = ZoneInfo(tz_name)
             except Exception:
                 tz = UTC  # timezone is validated on write, but never let a bad value break synthesis
-        # e.g. "since Jun 30, 2026 at 10:00 AM PDT"
-        since = f" since {window_start.astimezone(tz):%b %-d, %Y at %-I:%M %p %Z}"
+        # e.g. "since Jun 30, 2026 at 10:00 AM PDT". Avoid %-d/%-I (POSIX-only, ValueError on Windows) —
+        # build the no-leading-zero form portably instead.
+        local = window_start.astimezone(tz)
+        since = (
+            f" since {local.strftime('%b')} {local.day}, {local.year} at {local.strftime('%I:%M %p %Z').lstrip('0')}"
+        )
     return f"**Summary for {scanner_name}** — {count} {noun}{since}\n\n"
 
 

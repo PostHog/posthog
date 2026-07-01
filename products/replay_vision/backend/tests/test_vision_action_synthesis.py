@@ -128,6 +128,21 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
 
+    def test_summary_header_defangs_links_in_scanner_name(self) -> None:
+        # A scanner name is free text and lands in the header; a name with link/image markdown must not
+        # become an active external link/image in the delivered report (in-app or Slack).
+        self.scanner.name = "Checkout ![x](https://evil.example/pixel)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertNotIn("](https://evil.example", run.synthesized_markdown)
+        self.assertNotIn("](https://evil.example", run.output["slack"])
+
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
         # skipped by _fetch_observations, so its id must not land in the persisted list.
