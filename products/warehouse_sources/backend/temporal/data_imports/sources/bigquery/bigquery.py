@@ -372,7 +372,20 @@ def delete_table(
     token_uri: str,
 ) -> None:
     with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
-        bq.delete_table(table_id, not_found_ok=True)
+        try:
+            bq.delete_table(table_id, not_found_ok=True)
+        except RefreshError as e:
+            # Called from `build_pipeline`'s `finally`. When the service-account grant is rejected
+            # (`invalid_grant` — rotated/revoked key or deleted account), the sync has already failed
+            # on the same credentials with an actionable `BigQueryCredentialsRejectedError`. Re-raising
+            # the opaque `RefreshError` here would clobber that error (a `finally`-block raise replaces
+            # the in-flight exception) and spam error tracking on every run, so skip cleanup quietly.
+            # Other RefreshErrors carry their own diagnoses — let them propagate.
+            if "invalid_grant" not in str(e):
+                raise
+            structlog.get_logger().warning(
+                "Skipping BigQuery temp table cleanup for %s — credentials rejected (invalid_grant)", table_id
+            )
 
 
 def delete_all_temp_destination_tables(
@@ -402,6 +415,17 @@ def delete_all_temp_destination_tables(
             # otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+        except RefreshError as e:
+            # Google rejects a rotated/revoked key (or deleted service account) with an opaque
+            # `invalid_grant` RefreshError. Retrying can't recover it and the sync fails on the same
+            # credentials downstream, so skip this best-effort cleanup quietly rather than capturing a
+            # non-actionable error on every run. Transient token-endpoint RefreshErrors stay captured.
+            if "invalid_grant" not in str(e):
+                capture_exception(e)
+            elif logger:
+                logger.warning(
+                    f"Skipping temp table cleanup for dataset {dataset_id} — credentials rejected (invalid_grant)"
+                )
         except Exception as e:
             capture_exception(e)
 

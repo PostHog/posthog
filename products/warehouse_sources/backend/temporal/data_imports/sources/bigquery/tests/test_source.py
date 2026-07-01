@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _resolve_query_project,
     _resolve_region,
     delete_all_temp_destination_tables,
+    delete_table,
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
@@ -586,11 +587,15 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
     [
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
+        # Rotated/revoked key or deleted service account — non-recoverable, fires on every sync.
+        RefreshError(
+            "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})"
+        ),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
+    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
@@ -599,13 +604,58 @@ def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exc
     logger.warning.assert_called_once()
 
 
-def test_delete_all_temp_destination_tables_captures_unexpected_errors():
+@pytest.mark.parametrize(
+    "exception",
+    [
+        RuntimeError("boom"),
+        # A transient token-endpoint RefreshError (no invalid_grant) is retryable — stay visible.
+        RefreshError("('Failed to retrieve token', {'error': 'internal_failure'})"),
+    ],
+)
+def test_delete_all_temp_destination_tables_captures_unexpected_errors(exception):
     """Genuinely unexpected errors are still captured so we don't lose visibility."""
     logger = mock.MagicMock()
 
-    mock_capture = _run_delete_all_temp_destination_tables(RuntimeError("boom"), logger)
+    mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
 
     mock_capture.assert_called_once()
+
+
+def _run_delete_table(side_effect):
+    bq = mock.MagicMock()
+    bq.delete_table.side_effect = side_effect
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = bq
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.bigquery_client",
+        return_value=client_cm,
+    ):
+        delete_table(
+            table_id="project.dataset.__posthog_import_temp",
+            project_id="project-id",
+            location=None,
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        )
+
+
+def test_delete_table_swallows_rejected_credentials_quietly():
+    """`delete_table` runs in `build_pipeline`'s `finally`. A rejected-credentials RefreshError here
+    would clobber the actionable error from the sync body and spam error tracking, so it's suppressed."""
+    _run_delete_table(
+        RefreshError(
+            "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})"
+        )
+    )
+
+
+def test_delete_table_propagates_transient_refresh_errors():
+    """A non-`invalid_grant` RefreshError is retryable and must still propagate."""
+    with pytest.raises(RefreshError):
+        _run_delete_table(RefreshError("('Failed to retrieve token', {'error': 'internal_failure'})"))
 
 
 # Regression: a stray leading/trailing space in a hand-entered project or dataset ID made
