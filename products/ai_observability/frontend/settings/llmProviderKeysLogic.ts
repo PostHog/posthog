@@ -136,12 +136,6 @@ export function firstUsableProviderKeyIdForProvider(
 }
 
 export interface EvaluationConfig {
-    trial_eval_limit: number
-    trial_evals_used: number
-    trial_evals_remaining: number
-    // True only while a mid-trial team keeps PostHog-funded inference during the deprecation window.
-    trial_grandfathered: boolean
-    trial_deprecation_date: string
     active_provider_key: LLMProviderKey | null
     created_at: string
     updated_at: string
@@ -171,12 +165,6 @@ export interface KeyValidationResult {
     error_field?: string | null
 }
 
-export interface TrialEvaluation {
-    id: string
-    name: string
-    enabled: boolean
-}
-
 export interface DependentEvaluation {
     id: string
     name: string
@@ -203,9 +191,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
-        setNewlyCreatedKey: (key: LLMProviderKey | null) => ({ key }),
-        confirmAssignKey: (evaluationIds: string[], enable: boolean) => ({ evaluationIds, enable }),
-        dismissAssignKey: true,
     }),
 
     reducers({
@@ -245,32 +230,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 deleteProviderKeySuccess: () => null,
             },
         ],
-        newlyCreatedKey: [
-            null as LLMProviderKey | null,
-            {
-                setNewlyCreatedKey: (_, { key }) => key,
-                dismissAssignKey: () => null,
-            },
-        ],
     }),
 
     loaders(({ values, actions }) => ({
-        trialEvaluations: [
-            [] as TrialEvaluation[],
-            {
-                loadTrialEvaluations: async ({ provider }: { provider: LLMProvider }): Promise<TrialEvaluation[]> => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(
-                        `/api/environments/${teamId}/llm_analytics/provider_keys/trial_evaluations/?provider=${encodeURIComponent(provider)}`
-                    )
-                    return response.evaluations
-                },
-            },
-        ],
         dependentConfigs: [
             null as DependentConfigsResponse | null,
             {
@@ -378,9 +340,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     )
                     actions.setNewKeyModalOpen(false)
                     actions.loadEvaluationConfig()
-                    // Check if there are trial evaluations that could use this key
-                    actions.setNewlyCreatedKey(response)
-                    actions.loadTrialEvaluations({ provider: response.provider })
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
@@ -446,34 +405,11 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     })),
 
     selectors({
-        trialEvalsUsed: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_used ?? 0,
-        ],
-        trialEvalLimit: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_eval_limit ?? 100,
-        ],
-        trialEvalsRemaining: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_remaining ?? 0,
-        ],
-        isTrialGrandfathered: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_grandfathered ?? false,
-        ],
-        trialDeprecationDate: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_deprecation_date ?? null,
-        ],
-        // Terminal state: the team has no active key and is not (or no longer) grandfathered into the
-        // trial, so it must bring its own provider key to run llm_judge evals and taggers.
+        // The team has no active key, so it must bring its own provider key to run llm_judge evals and taggers.
         requiresProviderKey: [
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) =>
-                evaluationConfig !== null &&
-                evaluationConfig.active_provider_key === null &&
-                !evaluationConfig.trial_grandfathered,
+                evaluationConfig !== null && evaluationConfig.active_provider_key === null,
         ],
     }),
 
@@ -498,43 +434,10 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 actions.loadDependentConfigs({ keyId: key.id })
             }
         },
-        loadTrialEvaluationsSuccess: ({ trialEvaluations }) => {
-            // If no trial evaluations found, auto-dismiss the assign key modal
-            if (trialEvaluations.length === 0 && values.newlyCreatedKey) {
-                actions.setNewlyCreatedKey(null)
-            }
-        },
         confirmDelete: ({ replacementKeyId }) => {
             if (values.keyToDelete) {
                 actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
             }
-        },
-        confirmAssignKey: async ({ evaluationIds, enable }) => {
-            const key = values.newlyCreatedKey
-            if (!key || evaluationIds.length === 0) {
-                actions.setNewlyCreatedKey(null)
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                // nosemgrep: prefer-codegen-api
-                await api.create(`/api/environments/${teamId}/llm_analytics/provider_keys/${key.id}/assign/`, {
-                    evaluation_ids: evaluationIds,
-                    enable,
-                })
-                const count = evaluationIds.length
-                lemonToast.success(
-                    enable
-                        ? `Assigned key and re-enabled ${count} evaluation${count !== 1 ? 's' : ''}`
-                        : `Assigned key to ${count} evaluation${count !== 1 ? 's' : ''}`
-                )
-            } catch {
-                lemonToast.error('Failed to assign key to evaluations')
-            }
-            actions.setNewlyCreatedKey(null)
         },
     })),
 

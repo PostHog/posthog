@@ -57,10 +57,10 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             [
                 'byokModels',
                 'byokModelsLoading',
-                'trialModels',
-                'trialModelsLoading',
+                'playgroundModels',
+                'playgroundModelsLoading',
                 'hasByokKeys',
-                'trialProviderModelGroups',
+                'playgroundProviderModelGroups',
             ],
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading'],
@@ -69,7 +69,12 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             llmPlaygroundPromptsLogic,
             ['setupPlaygroundFromEvent', 'setModel', 'setPromptConfigs', 'clearPendingTargetModel'],
             modelPickerLogic,
-            ['loadByokModelsSuccess', 'loadByokModelsFailure', 'loadTrialModelsSuccess', 'loadTrialModelsFailure'],
+            [
+                'loadByokModelsSuccess',
+                'loadByokModelsFailure',
+                'loadPlaygroundModelsSuccess',
+                'loadPlaygroundModelsFailure',
+            ],
             llmProviderKeysLogic,
             ['loadProviderKeys', 'loadProviderKeysSuccess', 'loadProviderKeysFailure'],
         ],
@@ -80,11 +85,11 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     }),
 
     reducers({
-        trialModelsErrorStatus: [
+        playgroundModelsErrorStatus: [
             null as number | null,
             {
-                loadTrialModelsSuccess: () => null,
-                loadTrialModelsFailure: (_: number | null, { error }: { error: unknown }) => {
+                loadPlaygroundModelsSuccess: () => null,
+                loadPlaygroundModelsFailure: (_: number | null, { error }: { error: unknown }) => {
                     if (error instanceof ApiError) {
                         return error.status ?? null
                     }
@@ -116,11 +121,11 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 loadByokModelsFailure: () => true,
             },
         ],
-        trialModelsSettled: [
+        playgroundModelsSettled: [
             false as boolean,
             {
-                loadTrialModelsSuccess: () => true,
-                loadTrialModelsFailure: () => true,
+                loadPlaygroundModelsSuccess: () => true,
+                loadPlaygroundModelsFailure: () => true,
             },
         ],
     }),
@@ -148,13 +153,16 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
 
     selectors({
         effectiveModelOptions: [
-            (s) => [s.hasByokKeys, s.byokModels, s.trialModels],
-            (hasByokKeys: boolean, byokModels: ModelOption[], trialModels: ModelOption[]): ModelOption[] =>
-                hasByokKeys && byokModels.length > 0 ? byokModels : trialModels,
+            (s) => [s.hasByokKeys, s.byokModels, s.playgroundModels],
+            (hasByokKeys: boolean, byokModels: ModelOption[], playgroundModels: ModelOption[]): ModelOption[] =>
+                hasByokKeys && byokModels.length > 0 ? byokModels : playgroundModels,
         ],
         allModelOptions: [
-            (s) => [s.trialModels, s.byokModels],
-            (trialModels: ModelOption[], byokModels: ModelOption[]): ModelOption[] => [...trialModels, ...byokModels],
+            (s) => [s.playgroundModels, s.byokModels],
+            (playgroundModels: ModelOption[], byokModels: ModelOption[]): ModelOption[] => [
+                ...playgroundModels,
+                ...byokModels,
+            ],
         ],
         providerKeyForCurrentModel: [
             (s) => [s.activePromptConfig, s.effectiveModelOptions, s.providerKeys],
@@ -188,17 +196,17 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             actions.clearPendingTargetModel()
         }
 
-        // Resolve a pending target model once provider keys, BYOK models, and trial models have
+        // Resolve a pending target model once provider keys, BYOK models, and playground models have
         // all settled — whichever of those loads last drives the resolution. Previously this only
-        // ran from the trial/BYOK success handlers, so a pending model was silently dropped when
-        // trial models loaded before provider keys settled and there were no BYOK keys to fire
+        // ran from the playground/BYOK success handlers, so a pending model was silently dropped when
+        // playground models loaded before provider keys settled and there were no BYOK keys to fire
         // loadByokModelsSuccess (the resolution would bail on the settled-gate and never retry).
         const resolvePendingTarget = (): void => {
             const pendingTargetModel = values.pendingTargetModel
             if (!pendingTargetModel) {
                 return
             }
-            if (!values.providerKeysSettled || !values.byokModelsSettled || !values.trialModelsSettled) {
+            if (!values.providerKeysSettled || !values.byokModelsSettled || !values.playgroundModelsSettled) {
                 return
             }
             if (values.pendingTargetIsTrace) {
@@ -223,12 +231,12 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             }) => {
                 actions.setActiveProviderKeyId(evaluationConfig?.active_provider_key?.id ?? null)
             },
-            loadTrialModelsSuccess: ({ trialModels }: { trialModels: ModelOption[] }) => {
-                if (trialModels.length === 0) {
+            loadPlaygroundModelsSuccess: ({ playgroundModels }: { playgroundModels: ModelOption[] }) => {
+                if (playgroundModels.length === 0) {
                     return
                 }
 
-                // Normalize prompts to available trial models
+                // Normalize prompts to available playground models
                 const pendingTargetModel = values.pendingTargetModel
 
                 const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
@@ -239,7 +247,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                         return prompt
                     }
 
-                    const closestMatch = matchClosestModel(prompt.model, trialModels)
+                    const closestMatch = matchClosestModel(prompt.model, playgroundModels)
                     if (prompt.model === closestMatch) {
                         return prompt
                     }
@@ -258,12 +266,12 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 resolvePendingTarget()
             },
             loadProviderKeysSuccess: () => {
-                // If trial models loaded before provider keys settled, the trial handler couldn't
+                // If playground models loaded before provider keys settled, the playground handler couldn't
                 // resolve the pending target yet. Retry now that keys (and the BYOK-settled flag) are in.
                 resolvePendingTarget()
             },
             loadProviderKeysFailure: () => resolvePendingTarget(),
-            loadTrialModelsFailure: () => resolvePendingTarget(),
+            loadPlaygroundModelsFailure: () => resolvePendingTarget(),
             loadByokModelsFailure: () => resolvePendingTarget(),
             loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
                 if (byokModels.length === 0) {

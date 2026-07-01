@@ -29,7 +29,6 @@ from posthog.temporal.ai_observability.metrics import (
 from posthog.temporal.ai_observability.model_resolution import model_spec
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
-from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
@@ -269,7 +268,7 @@ def call_llm_judge(
     type_config = get_output_type_config(allows_na)
     response_format = type_config.response_format
 
-    config = get_eval_config(provider) if provider_key is None else None
+    config = None
 
     client = Client(
         provider_key=provider_key,

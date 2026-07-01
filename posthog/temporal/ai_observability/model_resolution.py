@@ -1,15 +1,12 @@
 """Resolves which provider, model and key an eval or tagger run should use.
 
 `model_configuration` is optional on both `Evaluation` and `Tagger`. A null value is not
-"unconfigured" — it means "defer to the team's active key, falling back to PostHog trial
-credits while the team is still grandfathered into the trial (see `is_trial_grandfathered`)".
-`model_spec()` turns the (possibly null) serialized config into a `ModelSpec` whose `resolve()`
-produces a concrete `ResolvedModel`, so judge and tagger share one definition of what null
-means instead of each re-deriving it.
+"unconfigured" — it means "defer to the team's active key". `model_spec()` turns the (possibly
+null) serialized config into a `ModelSpec` whose `resolve()` produces a concrete `ResolvedModel`,
+so judge and tagger share one definition of what null means instead of each re-deriving it.
 
-Trial evaluations are being deprecated: the PostHog-funded fallback is only offered to teams
-still grandfathered into the trial. Every other team (never started, exhausted, or past the
-deprecation cutoff) must bring its own key, so a keyless resolution raises `provider_key_required`.
+Evaluations and taggers require the team's own provider key: a keyless resolution (no pinned key
+and no team active key) raises `provider_key_required`.
 
 Lives in the temporal layer because `resolve()` raises Temporal `ApplicationError`s whose
 `error_type` details the workflows pattern-match on (disable, key-state updates, emails).
@@ -22,14 +19,9 @@ from django.utils import timezone
 
 from temporalio.exceptions import ApplicationError
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-# Provider PostHog funds when a team brought no key of its own. Its default model must stay
-# on the trial allowlist so the trial-quota path can never bill a model PostHog isn't paying for.
-TRIAL_DEFAULT_PROVIDER = "openai"
-assert DEFAULT_MODEL_BY_PROVIDER[TRIAL_DEFAULT_PROVIDER] in TRIAL_MODEL_IDS
 
 
 @dataclass(frozen=True)
@@ -56,31 +48,19 @@ class ExplicitModelSpec:
     provider_key_id: str | None
 
     def resolve(self, team_id: int) -> ResolvedModel:
-        if self.provider_key_id:
-            return ResolvedModel(self.provider, self.model, _resolve_key_by_id(team_id, self.provider_key_id))
-
-        config = _eval_config(team_id)
-        _assert_funded_inference_allowed(config)
-        if self.model not in TRIAL_MODEL_IDS:
-            raise ApplicationError(
-                f"Model '{self.model}' is not available on the trial plan. "
-                "Please add your own API key to use this model.",
-                {"error_type": "model_not_allowed", "model": self.model},
-                non_retryable=True,
-            )
-        return ResolvedModel(self.provider, self.model, None)
+        if not self.provider_key_id:
+            raise _provider_key_required()
+        return ResolvedModel(self.provider, self.model, _resolve_key_by_id(team_id, self.provider_key_id))
 
 
 @dataclass(frozen=True)
 class DefaultModelSpec:
-    """Null config: defer to the team's active BYOK key, else PostHog trial credits while grandfathered."""
+    """Null config: defer to the team's active BYOK key."""
 
     def resolve(self, team_id: int) -> ResolvedModel:
-        config = _eval_config(team_id)
-        key = config.active_provider_key
+        key = _eval_config(team_id).active_provider_key
         if key is None:
-            _assert_funded_inference_allowed(config)
-            return ResolvedModel(TRIAL_DEFAULT_PROVIDER, DEFAULT_MODEL_BY_PROVIDER[TRIAL_DEFAULT_PROVIDER], None)
+            raise _provider_key_required()
 
         model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider)
         if model is None:
@@ -107,17 +87,12 @@ def _eval_config(team_id: int) -> EvaluationConfig:
     return config
 
 
-def _assert_funded_inference_allowed(config: EvaluationConfig) -> None:
-    """Gate the PostHog-funded (keyless) path behind trial grandfathering. Teams that never started,
-    already exhausted the trial, or are past the deprecation cutoff must bring their own key. The
-    grandfathering check (0 < used < limit) also enforces the trial quota — a team that reaches the
-    limit is no longer grandfathered, so it lands here and is asked for a key."""
-    if not config.is_trial_grandfathered:
-        raise ApplicationError(
-            "Add a provider API key to run this evaluation.",
-            {"error_type": "provider_key_required"},
-            non_retryable=True,
-        )
+def _provider_key_required() -> ApplicationError:
+    return ApplicationError(
+        "Add a provider API key to run this evaluation.",
+        {"error_type": "provider_key_required"},
+        non_retryable=True,
+    )
 
 
 def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:

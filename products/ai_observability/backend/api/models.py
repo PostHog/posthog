@@ -10,8 +10,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import AccessControlPermission
 
-from ..llm import TRIAL_MODELS_BY_PROVIDER
-from ..models.evaluation_config import EvaluationConfig
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -20,9 +18,6 @@ from .metrics import llma_track_latency
 class LLMModelInfoSerializer(serializers.Serializer):
     id = serializers.CharField(
         help_text="Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022')."
-    )
-    posthog_available = serializers.BooleanField(
-        help_text="True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key."
     )
 
 
@@ -105,11 +100,4 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         available = config.get_available_models()
 
-        # PostHog-funded trial models are only selectable by teams still grandfathered into the
-        # deprecating trial; everyone else must bring their own key, so nothing is posthog_available.
-        eval_config, _ = EvaluationConfig.objects.get_or_create(team_id=self.team_id)
-        posthog_allowed = TRIAL_MODELS_BY_PROVIDER.get(provider, []) if eval_config.is_trial_grandfathered else []
-
-        return Response(
-            {"models": [{"id": model, "posthog_available": model in posthog_allowed} for model in available]}
-        )
+        return Response({"models": [{"id": model} for model in available]})

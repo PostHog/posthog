@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
 
-import { parseTrialProviderKeyId } from '../ModelPicker'
+import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
@@ -723,10 +723,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             if (!modelId) {
                 return
             }
-            const trialProvider = parseTrialProviderKeyId(providerKeyId)
-            if (trialProvider) {
+            const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
+            if (playgroundProvider) {
                 actions.setModelConfiguration({
-                    provider: trialProvider,
+                    provider: playgroundProvider,
                     model: modelId,
                     provider_key_id: null,
                 })

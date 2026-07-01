@@ -394,9 +394,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
         has_usable_byok = provider_key is not None and provider_key.state == LLMProviderKey.State.OK
         status_reason = getattr(self.instance, "status_reason", None)
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
-        # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
-        # The trial-limit / model-allowlist / provider-key-deleted gates below assume an
-        # LLM-judge call path, so skip them entirely.
+        # Non-model evals never call an LLM provider or need a BYOK key. The provider-key gates below
+        # assume an LLM-judge call path, so skip them entirely.
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
@@ -405,47 +404,17 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
             )
 
-        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
-        if status_reason == "trial_limit_reached" or not status_reason:
-            team = self.context["get_team"]()
-            config = EvaluationConfig.objects.filter(team=team).first()
-            if config and config.trial_limit_reached and not has_usable_byok:
-                raise serializers.ValidationError(
-                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
-                )
-
-        # Provider key required: a terminal team (no key, no longer grandfathered into the deprecating
-        # trial) had this eval auto-disabled. Re-enabling requires the eval's own usable key, a usable
-        # team active key, or the team still being grandfathered — mirroring the runtime funded gate.
-        if status_reason == "provider_key_required" and not has_usable_byok:
+        # LLM evals require a usable provider key. An eval with its own model configuration must carry
+        # its own usable key; a null-config eval defers to the team's active key. Block enabling
+        # otherwise — the run would immediately auto-disable with provider_key_required.
+        if not has_usable_byok and status_reason in (None, "provider_key_required"):
+            has_model_config = self._has_model_configuration_after_update(data)
             team = self.context["get_team"]()
             config = EvaluationConfig.objects.filter(team=team).first()
             active_key = config.active_provider_key if config else None
             has_usable_active_key = active_key is not None and active_key.state == LLMProviderKey.State.OK
-            if not has_usable_active_key and not (config and config.is_trial_grandfathered):
-                raise serializers.ValidationError({"enabled": "Add a provider API key to re-enable this evaluation."})
-
-        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
-        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
-        if status_reason == "model_not_allowed" and not has_usable_byok:
-            from products.ai_observability.backend.llm import TRIAL_MODEL_IDS
-
-            model_config_data = data.get("model_configuration")
-            if model_config_data is not None:
-                model = model_config_data.get("model")
-            elif self.instance and self.instance.model_configuration:
-                model = self.instance.model_configuration.model
-            else:
-                model = None
-            if model and model not in TRIAL_MODEL_IDS:
-                raise serializers.ValidationError(
-                    {
-                        "enabled": (
-                            f"Model '{model}' is not available on the trial plan. "
-                            "Either choose a supported trial model or add a provider API key."
-                        )
-                    }
-                )
+            if has_model_config or not has_usable_active_key:
+                raise serializers.ValidationError({"enabled": "Add a provider API key to run this evaluation."})
 
         # Provider key failures: the eval must now point at a usable provider key.
         if status_reason in PROVIDER_KEY_ERROR_STATUS_REASONS:

@@ -647,26 +647,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey } = useValues(llmEvaluationLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    // Terminal teams (no key and no longer grandfathered into the trial) must bring their own key —
-    // only offer funded trial models while the team is still grandfathered.
-    const showTrialModels = !hasByokKeys && !requiresProviderKey
-    const allModels = showTrialModels ? trialModels : byokModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
-    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
+    // Evals always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

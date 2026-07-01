@@ -1216,32 +1216,6 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
-/**
- * Assign this key to evaluations and optionally re-enable them.
- */
-export const llmAnalyticsProviderKeysAssignCreateBodyNameMax = 255
-
-export const llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
-
-export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
-    provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
-        .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
-        ),
-    name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
-    api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
-    api_version: zod
-        .string()
-        .max(llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax)
-        .optional()
-        .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault),
-})
-
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20

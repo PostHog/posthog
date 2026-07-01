@@ -104,11 +104,6 @@ describe('llmEvaluationsLogic', () => {
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    trial_eval_limit: 100,
-                    trial_evals_used: 0,
-                    trial_evals_remaining: 100,
-                    trial_grandfathered: false,
-                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -139,17 +134,12 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
-        it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
+        it('allows Hog and sentiment evaluations when a provider key is required', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT], {
                 [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
             })
-            // Terminal team: exhausted trial, no active key, not grandfathered → requiresProviderKey.
+            // Team with no active key → requiresProviderKey.
             keysLogic.actions.loadEvaluationConfigSuccess({
-                trial_eval_limit: 100,
-                trial_evals_used: 100,
-                trial_evals_remaining: 0,
-                trial_grandfathered: false,
-                trial_deprecation_date: '2026-07-15T00:00:00Z',
                 active_provider_key: null,
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
@@ -175,7 +165,7 @@ describe('llmEvaluationsLogic', () => {
             const errored = evaluationWithKey('eval-errored', 'key-ok')
             errored.enabled = false
             errored.status = 'error'
-            errored.status_reason = 'trial_limit_reached'
+            errored.status_reason = 'provider_key_required'
             logic.actions.loadEvaluationsSuccess([errored])
 
             logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
@@ -198,7 +188,7 @@ describe('llmEvaluationsLogic', () => {
                     '/api/environments/:teamId/evaluations/:id/': () => [
                         400,
                         {
-                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                            enabled: ['Add a provider API key to enable this evaluation.'],
                         },
                     ],
                 },

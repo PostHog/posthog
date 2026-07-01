@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
@@ -39,6 +40,12 @@ def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
         "distinct_id": "test-user",
     }
     return {**defaults, **overrides}
+
+
+def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
+    """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
+    key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
+    return MagicMock(active_provider_key=key)
 
 
 def make_tagger_config():
@@ -179,11 +186,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                # Grandfathered: keyless resolution takes the PostHog-funded trial path. is_trial_grandfathered
-                # is a real @property, but a MagicMock auto-returns a truthy child, so pin it explicitly.
-                mock_config.is_trial_grandfathered = True
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -222,9 +225,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                mock_config.is_trial_grandfathered = True
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -264,9 +265,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                mock_config.is_trial_grandfathered = True
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -276,10 +275,9 @@ class TestRunTaggerWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
-        # A team that is no longer grandfathered (exhausted / past cutoff / never started) has no
-        # PostHog-funded fallback: keyless resolution raises provider_key_required, not the removed
-        # trial_limit_reached. The workflow routes this error_type to disable without a trial-usage email.
+    async def test_execute_tagger_keyless_requires_provider_key(self, setup_data):
+        # A tagger with no BYOK key and no team active key has no PostHog-funded fallback: keyless
+        # resolution raises provider_key_required. The workflow routes this error_type to disable.
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -295,9 +293,6 @@ class TestRunTaggerWorkflow:
         with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
             mock_config = MagicMock()
             mock_config.active_provider_key = None
-            # Real @property returns False here, but a bare MagicMock would return a truthy child and
-            # silently pass the funded gate — pin it to exercise the terminal path.
-            mock_config.is_trial_grandfathered = False
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
             with pytest.raises(ApplicationError) as exc_info:

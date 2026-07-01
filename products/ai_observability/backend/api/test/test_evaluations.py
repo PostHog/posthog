@@ -8,7 +8,6 @@ from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
@@ -920,12 +919,12 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIsNone(results[0]["error"])
 
 
-class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
-    def _create_trial_eval(self, enabled=False):
+class TestEnableRequiresProviderKey(APIBaseTest):
+    def _create_keyless_llm_judge_eval(self, enabled=False):
         mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
         return Evaluation.objects.create(
             team=self.team,
-            name="Trial Eval",
+            name="Keyless Eval",
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "test"},
             output_type="boolean",
@@ -933,9 +932,8 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
             enabled=enabled,
         )
 
-    def test_blocks_enabling_trial_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
-        eval_obj = self._create_trial_eval(enabled=False)
+    def test_blocks_enabling_keyless_llm_judge_eval(self):
+        eval_obj = self._create_keyless_llm_judge_eval(enabled=False)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -943,23 +941,11 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Trial evaluation limit reached", str(response.data))
-
-    def test_allows_enabling_trial_eval_when_limit_not_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-        eval_obj = self._create_trial_eval(enabled=False)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("Add a provider API key to run this evaluation.", str(response.data))
         eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
+        self.assertFalse(eval_obj.enabled)
 
-    def test_allows_enabling_hog_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_allows_enabling_hog_eval_without_key(self):
         eval_obj = Evaluation.objects.create(
             team=self.team,
             name="Hog Eval",
@@ -981,8 +967,7 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_allows_enabling_byok_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_allows_enabling_byok_eval(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1016,8 +1001,7 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_rejects_enabling_trial_eval_with_unusable_byok_key_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_rejects_enabling_llm_judge_eval_with_unusable_byok_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1075,69 +1059,9 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         eval_obj.refresh_from_db()
         return eval_obj
 
-    def test_rejects_re_enable_when_model_still_not_allowed(self):
-        # The model-allowlist gate only applies while the team is grandfathered into the trial (a terminal
-        # team would fail earlier for lacking a key). Make the team grandfathered so this exercises the
-        # "model not on trial plan" message specifically. Pin the cutoff forward for determinism.
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
-
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-                {"enabled": True},
-                format="json",
-            )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not available on the trial plan", str(response.data))
-
-    def test_allows_re_enable_when_byok_key_attached_even_if_model_not_allowed(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-        self.assertEqual(eval_obj.status, "active")
-        self.assertIsNone(eval_obj.status_reason)
-
-    def test_rejects_re_enable_when_model_not_allowed_with_unusable_byok_key(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.INVALID,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("working provider API key", str(response.data))
-        eval_obj.refresh_from_db()
-        self.assertFalse(eval_obj.enabled)
-
     def test_rejects_re_enable_when_provider_key_required_and_no_key(self):
-        # A provider_key_required-disabled eval on a terminal team (no config → not grandfathered) cannot be
-        # re-enabled until a usable key is attached — otherwise the next run just re-disables it.
+        # A provider_key_required-disabled eval with no usable key cannot be re-enabled until one is
+        # attached — otherwise the next run just re-disables it.
         eval_obj = self._create_errored_eval(status_reason="provider_key_required")
 
         response = self.client.patch(

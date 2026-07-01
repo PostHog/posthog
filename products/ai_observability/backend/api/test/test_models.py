@@ -10,14 +10,14 @@ from products.ai_observability.backend.api.models import LLMModelInfoSerializer,
 
 class TestLLMModelInfoSerializer(SimpleTestCase):
     def test_serializes_expected_shape(self):
-        serializer = LLMModelInfoSerializer(data={"id": "gpt-4o-mini", "posthog_available": True})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data, {"id": "gpt-4o-mini", "posthog_available": True})
-
-    def test_rejects_missing_fields(self):
         serializer = LLMModelInfoSerializer(data={"id": "gpt-4o-mini"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data, {"id": "gpt-4o-mini"})
+
+    def test_rejects_missing_id(self):
+        serializer = LLMModelInfoSerializer(data={})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("posthog_available", serializer.errors)
+        self.assertIn("id", serializer.errors)
 
 
 class TestLLMModelsListResponseSerializer(SimpleTestCase):
@@ -25,8 +25,8 @@ class TestLLMModelsListResponseSerializer(SimpleTestCase):
         serializer = LLMModelsListResponseSerializer(
             data={
                 "models": [
-                    {"id": "gpt-4o-mini", "posthog_available": True},
-                    {"id": "gpt-4o", "posthog_available": False},
+                    {"id": "gpt-4o-mini"},
+                    {"id": "gpt-4o"},
                 ]
             }
         )
@@ -58,8 +58,6 @@ class TestLLMModelsViewSet(APIBaseTest):
         self.assertIn("models", response.data)
         returned_ids = [m["id"] for m in response.data["models"]]
         self.assertEqual(returned_ids, ["gpt-4o-mini", "gpt-4o"])
-        for entry in response.data["models"]:
-            self.assertIn("posthog_available", entry)
 
     def test_unauthenticated_user_cannot_list_models(self):
         self.client.logout()
