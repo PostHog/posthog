@@ -56,16 +56,20 @@ BACKFILL_CHUNK_FILES = Histogram(
 )
 
 
+def _record_phase(phase: str, kind: str, elapsed: float, acc: dict[str, float]) -> None:
+    """Observe a phase's wall time on the histogram and record it (ms) into ``acc`` for logging."""
+    APPLY_PHASE_DURATION_SECONDS.labels(phase=phase, kind=kind).observe(elapsed)
+    acc[phase] = round(elapsed * 1000, 1)
+
+
 @contextmanager
 def _timed(phase: str, kind: str, acc: dict[str, float]) -> Iterator[None]:
-    """Observe a phase's wall time on the histogram and record it (ms) into ``acc`` for logging."""
+    """Time a block and record the phase even if it raises (mirrors error-path capture)."""
     start = time.monotonic()
     try:
         yield
     finally:
-        elapsed = time.monotonic() - start
-        APPLY_PHASE_DURATION_SECONDS.labels(phase=phase, kind=kind).observe(elapsed)
-        acc[phase] = round(elapsed * 1000, 1)
+        _record_phase(phase, kind, time.monotonic() - start, acc)
 
 
 class DuckgresBatchAlreadyAppliedError(Exception):
@@ -109,35 +113,39 @@ def process_batch(batch: PendingBatch) -> None:
 
     kind = "backfill" if _is_backfill_batch(batch) else "live"
     timings: dict[str, float] = {}
+    # Fresh connect + session + secret is per-batch fixed cost; measured as one
+    # phase so the connection-reuse trade-off is visible against the apply itself.
+    # Recorded in a finally so a slow/failing connect (e.g. cold-tenant activation
+    # timeout) still lands in the phase metric, matching the _timed error-path capture.
     connect_start = time.monotonic()
-    with _connect_to_duckgres(batch.team_id) as conn:
-        # The sink only reads parquet over S3; httpfs is bundled in the duckgres
-        # worker image so INSTALL is a local no-op. Do NOT add extensions that are
-        # not bundled (e.g. delta): egress-restricted workers silently drop the
-        # CDN download and the statement hangs.
-        setup_duckgres_session(conn, extensions=("httpfs",))
-        _create_extract_read_secret(conn)
-        # Fresh connect + session + secret is per-batch fixed cost; measured as one
-        # phase so the connection-reuse trade-off is visible against the apply itself.
-        connect_elapsed = time.monotonic() - connect_start
-        APPLY_PHASE_DURATION_SECONDS.labels(phase="connect_setup", kind=kind).observe(connect_elapsed)
-        timings["connect_setup"] = round(connect_elapsed * 1000, 1)
-        try:
-            if _is_backfill_batch(batch):
-                _process_backfill_batch(conn, batch, schema, timings=timings)
-            else:
-                _process_batch(conn, batch, schema, timings=timings)
-        except DuckgresBatchAlreadyAppliedError:
-            # A concurrent processor (lost advisory-lock session + recovery sweep)
-            # won the marker insert; its committed write is the canonical one and
-            # ours rolled back. Treat as applied.
-            logger.info(
-                "duckgres_batch_applied_by_concurrent_processor",
-                team_id=batch.team_id,
-                schema_id=batch.schema_id,
-                run_uuid=batch.run_uuid,
-                batch_index=batch.batch_index,
-            )
+    try:
+        with _connect_to_duckgres(batch.team_id) as conn:
+            # The sink only reads parquet over S3; httpfs is bundled in the duckgres
+            # worker image so INSTALL is a local no-op. Do NOT add extensions that are
+            # not bundled (e.g. delta): egress-restricted workers silently drop the
+            # CDN download and the statement hangs.
+            setup_duckgres_session(conn, extensions=("httpfs",))
+            _create_extract_read_secret(conn)
+            _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
+            try:
+                if kind == "backfill":
+                    _process_backfill_batch(conn, batch, schema, timings=timings)
+                else:
+                    _process_batch(conn, batch, schema, timings=timings)
+            except DuckgresBatchAlreadyAppliedError:
+                # A concurrent processor (lost advisory-lock session + recovery sweep)
+                # won the marker insert; its committed write is the canonical one and
+                # ours rolled back. Treat as applied.
+                logger.info(
+                    "duckgres_batch_applied_by_concurrent_processor",
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    run_uuid=batch.run_uuid,
+                    batch_index=batch.batch_index,
+                )
+    finally:
+        if "connect_setup" not in timings:
+            _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
 
 
 def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
