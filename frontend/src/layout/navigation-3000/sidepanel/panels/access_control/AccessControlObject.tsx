@@ -118,7 +118,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
         addableMembers,
         accessControlMembers,
         accessControlsLoading,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
@@ -187,7 +187,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             size="small"
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled={true}
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={() => {}}
                         />
                     </div>
@@ -196,7 +196,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={ac.access_level}
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={(level) =>
                                 void updateAccessControlMembers([{ member: ac.organization_member as string, level }])
                             }
@@ -264,7 +264,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
         accessControlsLoading,
         addableRoles,
         rolesById,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
@@ -313,7 +313,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
@@ -392,7 +392,7 @@ function SimplLevelComponent(props: {
                     : false
                 return {
                     value: level,
-                    label: capitalizeFirstLetter(level ?? ''),
+                    label: level === 'none' ? 'No access' : capitalizeFirstLetter(level ?? ''),
                     disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
                 }
             })}
@@ -439,9 +439,10 @@ function AddItemsControlsModal(props: {
         label: string
     }[]
 }): JSX.Element | null {
-    const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
+    const { availableLevels, availableLevelsWithNone, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
+    // Default to the first real grant, not "No access" — but expose "none" as a selectable deny.
     const [level, setLevel] = useState<AccessControlLevel>(availableLevels[0] ?? null)
 
     useEffect(() => {
@@ -496,7 +497,7 @@ function AddItemsControlsModal(props: {
                         disabled={!canEditAccessControls}
                     />
                 </div>
-                <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
+                <SimplLevelComponent levels={availableLevelsWithNone} level={level} onChange={setLevel} />
             </div>
         </LemonModal>
     )
