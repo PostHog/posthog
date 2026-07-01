@@ -198,14 +198,15 @@ def _get_earliest_timestamp_from_node(
         # datetime values written after the fix and repairs the stale ones.
         return _coerce_to_datetime(cached_result, team.timezone_info)
 
-    is_warehouse_node = (
+    if (
         isinstance(node, DataWarehouseNode)
         or isinstance(node, FunnelsDataWarehouseNode)
         or isinstance(node, LifecycleDataWarehouseNode)
-    )
-    if is_warehouse_node:
+    ):
+        is_warehouse_node = True
         query = _get_data_warehouse_earliest_timestamp_query(node)
     else:
+        is_warehouse_node = False
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
