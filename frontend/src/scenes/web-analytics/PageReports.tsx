@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogXRay } from '@posthog/brand/hoggies'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { XRayHog2 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
@@ -15,7 +16,7 @@ function NoUrlSelectedMessage(): JSX.Element {
     return (
         <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
             <div className="flex-shrink-0">
-                <XRayHog2 alt="X-ray hedgehog" className="w-60" />
+                <HedgehogXRay title="X-ray hedgehog" className="w-60" />
             </div>
             <div className="flex-1 max-w-140">
                 <h2>Select a page to analyze</h2>

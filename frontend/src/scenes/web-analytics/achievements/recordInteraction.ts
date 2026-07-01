@@ -6,10 +6,12 @@ import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generate
 
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 export function recordWebAnalyticsInteraction(kind: InteractionKindEnumApi): void {
     const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
-    if (!featureFlags || !isWebAnalyticsAchievementsEnabled(featureFlags)) {
+    const optedOut = webAnalyticsAchievementsPreferencesLogic.findMounted()?.values.achievementsOptOut
+    if (!featureFlags || !isWebAnalyticsAchievementsEnabled(featureFlags, optedOut)) {
         return
     }
     const projectId = teamLogic.findMounted()?.values.currentProjectId

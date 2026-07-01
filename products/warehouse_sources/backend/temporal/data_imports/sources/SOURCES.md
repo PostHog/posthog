@@ -54,6 +54,7 @@ the row lists both.
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
+| appfigures              | HTTP                        | requests                                                        | ✅                          |
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
@@ -68,6 +69,7 @@ the row lists both.
 | bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | blogger                 | HTTP                        | requests                                                        | ✅                          |
+| bluetally               | HTTP                        | requests                                                        | ✅                          |
 | boldsign                | HTTP                        | requests                                                        | ✅                          |
 | braintree               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze                   | HTTP                        | requests                                                        | ✅                          |
@@ -85,6 +87,7 @@ the row lists both.
 | campayn                 | HTTP                        | requests                                                        | ✅                          |
 | canny                   | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission | HTTP                        | requests                                                        | ✅                          |
+| chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk              | HTTP                        | requests                                                        | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
@@ -116,6 +119,7 @@ the row lists both.
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
@@ -132,6 +136,7 @@ the row lists both.
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
+| exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
@@ -318,7 +323,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
-- appfigures
 - appfollow
 - apple_search_ads
 - appstack
@@ -332,7 +336,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- bluetally
 - box
 - braintrust
 - branch
@@ -343,7 +346,6 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chameleon
 - chargify
 - chatwoot
 - chift
@@ -372,7 +374,6 @@ doesn't conflict with concurrent PRs.
 - dbt
 - deputy
 - devin_ai
-- ding_connect
 - display_video_360
 - dockerhub
 - docusign
@@ -387,7 +388,6 @@ doesn't conflict with concurrent PRs.
 - employment_hero
 - encharge
 - eventzilla
-- exchange_rates_api
 - expensify
 - ezofficeinventory
 - facebook_pages
