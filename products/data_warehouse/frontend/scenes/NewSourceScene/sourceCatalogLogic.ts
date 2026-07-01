@@ -34,6 +34,16 @@ export const ALL_SOURCES_CATEGORY = 'all'
 // them in a sensible catalog bucket explicitly.
 const MANUAL_SOURCE_CATEGORY: DataWarehouseSourceCategory = 'File storage'
 
+// Self-managed connectors carry no SourceConfig keywords, and their labels alone ("S3",
+// "Google Cloud Storage") miss the terms users actually search ("amazon", "aws", "gcs").
+// Keys match ManualLinkSourceType.
+const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
+    aws: ['amazon', 'aws', 's3', 'amazon web services', 'amazon s3'],
+    'google-cloud': ['gcs', 'gcp', 'google cloud', 'google cloud storage'],
+    'cloudflare-r2': ['cloudflare', 'r2', 'object storage'],
+    azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
+}
+
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
 export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
@@ -163,7 +173,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         label: source.name,
                         iconType: source.type,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [],
+                        keywords: MANUAL_SOURCE_KEYWORDS[source.type] ?? [],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
                     })
@@ -220,7 +230,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         registerInterest: ({ item }) => {
             posthog.capture('notify_me_pipeline', {
                 name: item.label,
@@ -240,6 +250,12 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         },
         showSourceRequest: () => {
             posthog.capture('survey shown', { $survey_id: SOURCE_REQUEST_SURVEY_ID })
+            // Seed the request with whatever the user just searched, so a "searched for X →
+            // no results → request X" flow doesn't make them retype the same term.
+            const seed = values.search.trim()
+            if (seed) {
+                actions.setSourceRequestText(seed)
+            }
         },
         submitSourceRequest: () => {
             const response = values.sourceRequestText.trim()

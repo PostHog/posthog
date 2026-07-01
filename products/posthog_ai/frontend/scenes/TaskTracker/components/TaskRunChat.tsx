@@ -8,6 +8,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
@@ -24,9 +25,12 @@ export interface TaskRunChatProps {
  */
 export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
+    const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
+        currentModel: selectedRun?.state?.model,
+        currentEffort: selectedRun?.state?.reasoning_effort,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
@@ -41,20 +45,26 @@ export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
 }
 
 function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { draft, isSubmitting, queuedMessages, isTerminal } = useValues(runInteractionLogic(logicProps))
-    const { setDraft, submit, updateQueuedMessage, removeQueuedMessage } = useActions(runInteractionLogic(logicProps))
+    const { composerForm, isSubmitting, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
+        runInteractionLogic(logicProps)
+    )
+    const { setComposerFormValues, submitComposerForm, updateQueuedMessage, removeQueuedMessage, setModel, setEffort } =
+        useActions(runInteractionLogic(logicProps))
 
     return (
         // `RunSurface.Root` binds `runStreamLogic` keyed by `runId`; `runInteractionLogic` connects to the same
         // key, so the composer slot's gating reads the right stream. Don't introduce a diverging `streamKey`.
         <RunSurface.Root taskId={logicProps.taskId} runId={logicProps.runId} interaction="live">
-            <div className="@container/thread flex flex-col h-full overflow-hidden">
-                <div className="flex-1 min-h-0">
-                    <RunSurface.Thread listClassName="pt-4" rowClassName="pr-4" />
-                </div>
-                <RunSurface.Resources />
+            <div className="@container/thread flex flex-col h-full -mx-4">
+                <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 <RunSurface.Composer>
-                    <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
+                    <RunSurface.Resources />
+                    <Composer.Root
+                        value={composerForm.draft}
+                        onChange={(value) => setComposerFormValues({ draft: value })}
+                        onSubmit={submitComposerForm}
+                        loading={isSubmitting}
+                    >
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>
                                 <QueuedMessageList
@@ -71,11 +81,21 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 </Composer.Placeholder>
                                 <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                             </Composer.Field>
+                            <Composer.Footer>
+                                {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
+                                applied when the message is sent — synced to the running agent on a follow-up,
+                                or used to seed the next run once terminal. */}
+                                <ComposerModelEffortPickers
+                                    selectedModel={selectedModel}
+                                    selectedEffort={selectedEffort}
+                                    onModelChange={setModel}
+                                    onEffortChange={setEffort}
+                                />
+                            </Composer.Footer>
                         </Composer.Frame>
                         <Composer.Submit data-attr="sandbox-composer-send" />
                     </Composer.Root>
                 </RunSurface.Composer>
-                <RunSurface.ContextUsage />
             </div>
         </RunSurface.Root>
     )

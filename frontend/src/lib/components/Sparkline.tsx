@@ -2,6 +2,7 @@ import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
 
 import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
@@ -82,6 +83,42 @@ export interface SparklineProps {
      * clamped; pass `null`/`undefined` to clear.
      */
     highlightedRange?: { startIndex: number; endIndex: number } | null
+    /**
+     * Bar indices that are still being ingested (incomplete). Those bars render with a faded
+     * diagonal-hatch fill, and hovering one adds `tooltip` to the hover tooltip. Used to flag the
+     * most recent bucket(s) when ingestion hasn't caught up. Pass `null`/`undefined` or an empty
+     * `indices` array to clear.
+     */
+    incompleteBars?: { indices: number[]; tooltip?: string } | null
+}
+
+/**
+ * Build a faded diagonal-hatch CanvasPattern for an incomplete bar: a translucent fill of the series
+ * colour overlaid with hatch lines, so the bar reads as "still loading" while keeping its colour.
+ */
+function createHashedPattern(color: string): CanvasPattern | string {
+    const size = 6
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+        return color
+    }
+    ctx.fillStyle = hexToRGBA(color, 0.25)
+    ctx.fillRect(0, 0, size, size)
+    ctx.strokeStyle = hexToRGBA(color, 0.6)
+    ctx.lineWidth = 1
+    // Three offset diagonals so the hatch tiles seamlessly across the bar.
+    ctx.beginPath()
+    ctx.moveTo(0, size)
+    ctx.lineTo(size, 0)
+    ctx.moveTo(-1, 1)
+    ctx.lineTo(1, -1)
+    ctx.moveTo(size - 1, size + 1)
+    ctx.lineTo(size + 1, size - 1)
+    ctx.stroke()
+    return ctx.createPattern(canvas, 'repeat') ?? color
 }
 
 export function Sparkline({
@@ -105,12 +142,15 @@ export function Sparkline({
     referenceLines,
     renderTooltipValue,
     highlightedRange,
+    incompleteBars,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
     const [tooltip, setTooltip] = useState<TooltipModel<'bar'> | null>(null)
     const dragStartRef = useRef<{ index: number; x: number } | null>(null)
     const [isDragging, setIsDragging] = useState(false)
+
+    const incompleteBarSet = useMemo(() => new Set(incompleteBars?.indices ?? []), [incompleteBars])
 
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
         const arrayData = Array.isArray(data)
@@ -220,13 +260,22 @@ export function Sparkline({
                     datasets: adjustedData.map((timeseries) => {
                         const seriesColor = getColorVar(timeseries.color || 'muted')
                         const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
+                        // Incomplete (still-ingesting) bars get a faded hatch of the series colour so
+                        // they read as "not final" without losing which series they belong to.
+                        const hatched = incompleteBarSet.size > 0 ? createHashedPattern(seriesColor) : null
+                        const fillFor = (
+                            base: string
+                        ): typeof base | CanvasPattern | ((ctx: { dataIndex: number }) => string | CanvasPattern) =>
+                            hatched
+                                ? (ctx: { dataIndex: number }) => (incompleteBarSet.has(ctx.dataIndex) ? hatched : base)
+                                : base
                         return {
                             label: timeseries.name,
                             data: timeseries.values,
                             minBarLength: 0,
                             categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
-                            backgroundColor: seriesColor,
-                            hoverBackgroundColor: hoverColor,
+                            backgroundColor: fillFor(seriesColor),
+                            hoverBackgroundColor: fillFor(hoverColor),
                             borderColor: seriesColor,
                             borderWidth: type === 'line' ? 2 : 0,
                             pointRadius: 0,
@@ -335,11 +384,13 @@ export function Sparkline({
             type,
             referenceLines,
             highlightedRange,
+            incompleteBars,
         ],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
     const finalClassName = clsx(
+        'relative',
         dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
         className
     )
@@ -435,33 +486,41 @@ export function Sparkline({
                 <Popover
                     visible={tooltipVisible}
                     overlay={
-                        <InsightTooltip
-                            embedded
-                            hideInspectActorsSection
-                            showHeader={!!labels}
-                            altTitle={
-                                toolTipDataPoints.length > 0
-                                    ? renderLabel
-                                        ? renderLabel(toolTipDataPoints[0].label)
-                                        : toolTipDataPoints[0].label
-                                    : ''
-                            }
-                            seriesData={toolTipDataPoints
-                                .map((dp, i) => ({
-                                    id: i,
-                                    dataIndex: 0,
-                                    datasetIndex: 0,
-                                    order: i,
-                                    label: dp.dataset.label,
-                                    color: dp.dataset.borderColor as string,
-                                    count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
-                                }))
-                                .filter((item) => !hideZerosInTooltip || item.count > 0)
-                                .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
-                            renderSeries={(value) => value}
-                            renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
-                            rowCutoff={tooltipRowCutoff}
-                        />
+                        <>
+                            {incompleteBarSet.has(toolTipDataPoints[0]?.dataIndex) && (
+                                <div className="flex items-center gap-1 px-2 pt-1 text-xs text-warning">
+                                    <IconWarning className="shrink-0" />
+                                    {incompleteBars?.tooltip ?? 'Some logs are still processing'}
+                                </div>
+                            )}
+                            <InsightTooltip
+                                embedded
+                                hideInspectActorsSection
+                                showHeader={!!labels}
+                                altTitle={
+                                    toolTipDataPoints.length > 0
+                                        ? renderLabel
+                                            ? renderLabel(toolTipDataPoints[0].label)
+                                            : toolTipDataPoints[0].label
+                                        : ''
+                                }
+                                seriesData={toolTipDataPoints
+                                    .map((dp, i) => ({
+                                        id: i,
+                                        dataIndex: 0,
+                                        datasetIndex: 0,
+                                        order: i,
+                                        label: dp.dataset.label,
+                                        color: dp.dataset.borderColor as string,
+                                        count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                                    }))
+                                    .filter((item) => !hideZerosInTooltip || item.count > 0)
+                                    .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
+                                renderSeries={(value) => value}
+                                renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
+                                rowCutoff={tooltipRowCutoff}
+                            />
+                        </>
                     }
                     placement="bottom-start"
                     padded={false}

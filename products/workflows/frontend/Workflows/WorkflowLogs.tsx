@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
+import { HedgehogGreek } from '@posthog/brand/hoggies'
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -159,7 +159,7 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
             <div className="flex flex-col gap-4">
                 <UpcomingOccurrences />
                 <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                    <ListHog width="100" height="100" className="mb-4" />
+                    <HedgehogGreek width="100" height="100" className="mb-4" />
                     <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                     <p className="text-sm text-balance text-tertiary">
                         Once a batch workflow job is triggered, execution logs will appear here.

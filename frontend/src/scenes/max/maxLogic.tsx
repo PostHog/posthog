@@ -874,7 +874,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Create a survey to collect NPS responses from users',
             },
             {
-                content: 'Create a survey to CSAT responses from users',
+                content: 'Create a survey to collect CSAT responses from users',
             },
             {
                 content: 'Create a survey to measure product market fit',

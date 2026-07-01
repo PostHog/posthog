@@ -1,3 +1,4 @@
+import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
@@ -226,12 +227,17 @@ export const OAuthAuthorize = (): JSX.Element => {
         )
     }
 
+    // The name is HTML-escaped at ingestion (see posthog/api/oauth/client_name.py). Decode it
+    // back to plain text so React's own output-escaping renders it correctly instead of showing
+    // literal entities like "&amp;".
+    const appName = decode(oauthApplication.name)
+
     if (authorizationComplete) {
-        return <OAuthAuthorizeSuccess appName={oauthApplication.name} />
+        return <OAuthAuthorizeSuccess appName={appName} />
     }
 
     if (isRedirecting) {
-        return <OAuthAuthorizeRedirecting appName={oauthApplication.name} redirectUrl={redirectUrl} />
+        return <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
     }
 
     return (
@@ -242,7 +248,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
                             <img
                                 src={oauthApplication.logo_uri}
-                                alt={`${oauthApplication.name} logo`}
+                                alt={`${appName} logo`}
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
@@ -257,11 +263,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </div>
                     )}
                     <h2 className="text-xl sm:text-2xl font-semibold">
-                        Authorize <strong>{oauthApplication.name}</strong>
+                        Authorize <strong>{appName}</strong>
                     </h2>
-                    <p className="text-muted mt-2 text-sm sm:text-base">
-                        {oauthApplication.name} is requesting access to your data.
-                    </p>
+                    <p className="text-muted mt-2 text-sm sm:text-base">{appName} is requesting access to your data.</p>
                 </div>
 
                 {isImpersonated && (
@@ -424,9 +428,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                         }
                                                         label={row.description}
                                                         disabledReason={
-                                                            row.required
-                                                                ? `Required by ${oauthApplication.name}`
-                                                                : undefined
+                                                            row.required ? `Required by ${appName}` : undefined
                                                         }
                                                     />
                                                 ))}
@@ -442,8 +444,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
                                 </p>
                                 <p>
-                                    The developer of {oauthApplication.name}'s privacy policy and terms of service apply
-                                    to this application
+                                    The developer of {appName}'s privacy policy and terms of service apply to this
+                                    application
                                 </p>
                             </div>
                         )}
@@ -483,7 +485,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >
-                                Authorize {oauthApplication?.name}
+                                Authorize {appName}
                             </LemonButton>
                         </div>
                     </div>

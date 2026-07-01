@@ -1649,6 +1649,10 @@ export type ExperimentHoldoutsListParams = {
 
 export type ExperimentSavedMetricsListParams = {
     /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number

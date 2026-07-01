@@ -6,6 +6,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -152,6 +153,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
+                    // Findability signal for the dashboards-list-view experiment (flag: dashboards-list-view ·
+                    // experiment: 379125) — fires once per settled search (the 250ms breakpoint + the post-fetch
+                    // breakpoint() drop keystrokes and superseded queries). Remove with the experiment cleanup.
+                    eventUsageLogic.actions.reportDashboardListSearched(term.length, response.results?.length ?? 0)
                     return response.results ?? []
                 },
             },
