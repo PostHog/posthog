@@ -9,7 +9,9 @@ The callback token is a stateless signed token for the slice; hardening swaps it
 for the RS256 sandbox event-ingest JWT used by PostHog Code.
 """
 
+import hmac
 import time
+import hashlib
 
 from django.conf import settings
 from django.core import signing
@@ -39,8 +41,10 @@ _CONTAINER_PORT_BY_BACKEND = {
     KernelRuntime.Backend.MODAL: 8080,
 }
 _KERNEL_SERVER_PATH = "/tmp/nb_data_v2_kernel_server.py"
+_SECRET_PATH = "/tmp/nb_data_v2_secret"
 _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
+_COMMAND_TOKEN_TTL_SECONDS = 300
 
 
 class DataV2KernelNotRunning(Exception):
@@ -67,6 +71,41 @@ def verify_callback_token(token: str) -> tuple[str, int]:
     """Return (run_id, team_id) from a valid token, else raise signing.BadSignature."""
     data = signing.loads(token, salt=_CALLBACK_TOKEN_SALT, max_age=_CALLBACK_TOKEN_MAX_AGE_SECONDS)
     return str(data["run_id"]), int(data["team_id"])
+
+
+def kernel_server_secret(runtime_id: str) -> str:
+    """Per-kernel command-auth secret, derived from Django's signing key.
+
+    Only the backend can derive it (holds SECRET_KEY); a copy is written into the
+    sandbox at bootstrap so the kernel-server can verify command tokens. Nothing to
+    persist. This is the HMAC analogue of Code's RS256 connection-JWT keypair;
+    hardening to RS256 would let the sandbox hold only a public key.
+    """
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        f"nb-data-v2-kernel:{runtime_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def mint_command_token(secret: str, run_id: str, ttl_seconds: int = _COMMAND_TOKEN_TTL_SECONDS) -> str:
+    """Sign a short-lived, run-scoped command token the kernel-server verifies."""
+    exp = int(time.time()) + ttl_seconds
+    signature = hmac.new(secret.encode(), f"{run_id}.{exp}".encode(), hashlib.sha256).hexdigest()
+    return f"{run_id}.{exp}.{signature}"
+
+
+def verify_command_token(secret: str, run_id: str, token: str) -> bool:
+    """Mirror of the check the kernel-server runs — kept here so it can be tested."""
+    try:
+        token_run_id, exp_str, signature = token.rsplit(".", 2)
+        exp = int(exp_str)
+    except (ValueError, AttributeError):
+        return False
+    if token_run_id != run_id or exp < int(time.time()):
+        return False
+    expected = hmac.new(secret.encode(), f"{token_run_id}.{exp_str}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 def _backend_base_url() -> str:
@@ -114,28 +153,29 @@ def _wait_for_server_ready(server_url: str, connect_token: str | None) -> None:
     raise RuntimeError("DataV2 kernel-server did not become ready")
 
 
-def ensure_data_v2_server(notebook: Notebook, user: User | None) -> tuple[str, str | None]:
-    """Start the in-sandbox kernel-server once; return its (url, connect_token).
+def ensure_data_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime:
+    """Start the in-sandbox kernel-server once; return the runtime it runs in.
 
     Idempotent — reuses the URL persisted on the runtime after the first start.
     This is the only place the control plane (write_file/execute) is used, and only
-    to launch the server, exactly as Code bootstraps its agent-server. Per-run
-    dispatch is a plain HTTP POST.
+    to launch the server (+ drop its command-auth secret), exactly as Code
+    bootstraps its agent-server. Per-run dispatch is a plain authed HTTP POST.
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
         raise DataV2KernelNotRunning()
 
     if runtime.server_url:
-        return runtime.server_url, runtime.server_connect_token
+        return runtime
 
     sandbox_class = get_sandbox_class_for_backend(runtime.backend)
     sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
 
     port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
+    sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
     sandbox.write_file(_KERNEL_SERVER_PATH, KERNEL_SERVER_SOURCE.encode())
     sandbox.execute(
-        f"nohup python3 {_KERNEL_SERVER_PATH} {port} > /tmp/nb_data_v2_kernel_server.log 2>&1 &",
+        f"nohup python3 {_KERNEL_SERVER_PATH} {port} {_SECRET_PATH} > /tmp/nb_data_v2_kernel_server.log 2>&1 &",
         timeout_seconds=15,
     )
 
@@ -145,24 +185,26 @@ def ensure_data_v2_server(notebook: Notebook, user: User | None) -> tuple[str, s
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
     runtime.save(update_fields=["server_url", "server_connect_token"])
-    return credentials.url, credentials.token
+    return runtime
 
 
 def dispatch_data_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
-    """Dispatch a run to the in-sandbox kernel-server with a single HTTP POST.
+    """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback.
     """
-    server_url, connect_token = ensure_data_v2_server(notebook, user)
+    runtime = ensure_data_v2_server(notebook, user)
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     callback_token = mint_callback_token(str(run.id), notebook.team_id)
     response = requests.post(
-        _with_connect_token(f"{server_url.rstrip('/')}/run", connect_token),
+        _with_connect_token(f"{runtime.server_url.rstrip('/')}/run", runtime.server_connect_token),
         json={
             "run_id": str(run.id),
             "code": code,
             "callback_url": build_callback_url(str(run.id)),
             "callback_token": callback_token,
         },
+        headers={"Authorization": f"Bearer {command_token}"},
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()

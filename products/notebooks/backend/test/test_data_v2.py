@@ -3,11 +3,18 @@ import json
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.notebooks.backend.data_v2 import mint_callback_token
+from products.notebooks.backend.data_v2 import (
+    kernel_server_secret,
+    mint_callback_token,
+    mint_command_token,
+    verify_command_token,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 
 
@@ -135,6 +142,7 @@ class TestDataV2Run(APIBaseTest):
         mock_post.assert_called_once()
         self.assertIn("/run", mock_post.call_args.args[0])
         self.assertEqual(mock_post.call_args.kwargs["json"]["run_id"], run_id)
+        self.assertTrue(mock_post.call_args.kwargs["headers"]["Authorization"].startswith("Bearer "))
 
     @patch("products.notebooks.backend.data_v2.requests.post")
     @patch("products.notebooks.backend.data_v2.requests.get")
@@ -150,7 +158,27 @@ class TestDataV2Run(APIBaseTest):
         response = self.client.post(self.url, data={"node_id": "n1", "code": "x"}, format="json")
 
         self.assertEqual(response.status_code, 200)
-        fake_sandbox.write_file.assert_called_once()
+        # Two writes at bootstrap: the command-auth secret and the server script.
+        self.assertEqual(fake_sandbox.write_file.call_count, 2)
         fake_sandbox.execute.assert_called_once()
         self.assertEqual(KernelRuntime.objects.get(sandbox_id="sbx-1").server_url, "http://localhost:12345")
         mock_post.assert_called_once()
+
+
+class TestDataV2CommandToken(SimpleTestCase):
+    def test_valid_token_verifies(self):
+        secret = kernel_server_secret("rt-1")
+        self.assertTrue(verify_command_token(secret, "run-1", mint_command_token(secret, "run-1")))
+
+    @parameterized.expand(
+        [
+            ("wrong_run_id", lambda s: (s, "run-2", mint_command_token(s, "run-1"))),
+            ("wrong_secret", lambda s: (kernel_server_secret("rt-2"), "run-1", mint_command_token(s, "run-1"))),
+            ("tampered_signature", lambda s: (s, "run-1", mint_command_token(s, "run-1")[:-1] + "x")),
+            ("expired", lambda s: (s, "run-1", mint_command_token(s, "run-1", ttl_seconds=-1))),
+            ("garbage", lambda s: (s, "run-1", "not-a-token")),
+        ]
+    )
+    def test_invalid_tokens_rejected(self, _name, make_case):
+        verify_secret, run_id, token = make_case(kernel_server_secret("rt-1"))
+        self.assertFalse(verify_command_token(verify_secret, run_id, token))
