@@ -61,6 +61,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -1215,7 +1216,18 @@ class BigQueryStorageConsumer(Consumer):
         )
 
         try:
-            await self.send(data)
+            with ExecutionTimeRecorder(
+                "bigquery_storage_send_duration",
+                description="Duration to send a request to BigQuery's Storage API.",
+                log_message=(
+                    "Sent chunk with size %(nbytes)d. Process time:"
+                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                log_attributes={"nbytes": len(data)},
+            ) as recorder:
+                recorder.add_bytes_processed(len(data))
+
+                await self.send(data)
         except Exception:
             self.logger.exception("Send to stream failed")
             await self.close_stream()
