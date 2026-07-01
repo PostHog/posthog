@@ -391,9 +391,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "error": "invalid_token",
                 "error_description": "The access token is invalid.",
             }
-            mock_get.return_value.text = (
-                '{"error":"invalid_token","error_description":"The access token is invalid."}'
-            )
+            mock_get.return_value.text = '{"error":"invalid_token","error_description":"The access token is invalid."}'
 
             with pytest.raises(ValidationError) as e:
                 OauthIntegration.integration_from_oauth_response(
