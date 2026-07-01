@@ -18,6 +18,11 @@ import { WebhookBodySchema } from './webhook.schemas'
 
 async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
+    // A mislabeled urlencoded Content-Type still passes `WebhookBodySchema` (Express parses the raw JSON into a garbage form object), which would silently become the seed message. Reject explicitly.
+    if (req.is('application/json') === false) {
+        res.status(400).json({ error: 'invalid_content_type', expected: 'application/json' })
+        return
+    }
     const body = ctx.parsed
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null

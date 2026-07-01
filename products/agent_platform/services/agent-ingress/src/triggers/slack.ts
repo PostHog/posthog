@@ -40,7 +40,11 @@ export { verifySlackSignature }
 
 async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     const { req, res, deps, resolved } = ctx
-    // Signature already verified by the slack_signing guard.
+    // Signature guard hashes raw bytes, so a mislabeled Content-Type passes it; under urlencoded Express mis-parses the JSON and drops the event behind a bare 200. Reject explicitly.
+    if (req.is('application/json') === false) {
+        res.status(400).json({ error: 'invalid_content_type', expected: 'application/json' })
+        return
+    }
     const slackSpecTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
     const body = req.body as {
         type?: string
@@ -89,14 +93,15 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // message events lack event.team; fall back to the envelope team_id.
     const workspaceId = event.team ?? body.team_id ?? 'unknown'
     if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
-        // The rejected workspace id is otherwise only in the 403 body — surface
-        // it (plus the configured allowlist) so "why is Slack getting a 403?"
+        // The rejected workspace id is otherwise only in the log line — surface
+        // it (plus the configured allowlist) so "why did Slack get dropped?"
         // is answerable from the logs alone.
         log.warn(
             { slug: resolved.application.slug, workspace: workspaceId, trusted_workspaces: trusted ?? null },
             'slack_event_rejected_workspace_not_trusted'
         )
-        res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
+        // Ack-and-drop, not 4xx: an untrusted-workspace delivery is a routing decision, not a failure. Providers retry non-2xx, so ack like the other drop paths (dm_not_enabled, mention_only).
+        res.json({ ok: true, dropped: 'workspace_not_trusted', workspace: workspaceId })
         return
     }
 
