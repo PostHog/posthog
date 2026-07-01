@@ -73,16 +73,7 @@ def classify_task_needs_repo(
         "revenue",
         "marketing analytics",
     )
-    general_coworker_terms = (
-        "summarize",
-        "summary",
-        "takeaways",
-        "write up",
-        "report",
-        "analyze",
-        "investigate",
-        "explain",
-    )
+    general_coworker_terms = ("summarize", "summary", "takeaways", "write up")
     explicit_code_patterns = (
         r"\brepository\b",
         r"\brepo\b",
