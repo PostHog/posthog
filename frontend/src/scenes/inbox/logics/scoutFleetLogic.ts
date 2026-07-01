@@ -158,13 +158,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // Tracks whether any chat-task kickoff is mid-flight (CTA disabled state).
-        chatTaskRunning: [
-            false,
+        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its prompt, so only the
+        // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
+        runningChatPrompt: [
+            null as string | null,
             {
-                startScoutChatTask: () => true,
-                startScoutChatTaskSuccess: () => false,
-                startScoutChatTaskFailure: () => false,
+                startScoutChatTask: (_, { prompt }) => prompt,
+                startScoutChatTaskSuccess: () => null,
+                startScoutChatTaskFailure: () => null,
             },
         ],
         expanded: [
