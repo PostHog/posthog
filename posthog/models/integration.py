@@ -922,6 +922,12 @@ class OauthIntegration:
                     status_code=token_info_res.status_code,
                     response=token_info_res.text[:500],
                 )
+                # The integration ID is derived from this response, so a non-200 here can only
+                # dead-end at the generic "failed to extract integration ID" error below. Surface
+                # the provider's actual error instead, mirroring the token-exchange step — a bare
+                # Exception becomes a 500 with no detail, while ValidationError → 400 with `detail`
+                # set so the frontend toast shows why the connection failed.
+                _raise_oauth_validation_error(kind, token_info_res)
 
         integration_id = dot_get(config, oauth_config.id_path)
 

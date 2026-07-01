@@ -376,6 +376,38 @@ class TestOauthIntegrationModel(BaseTest):
             }
 
     @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.requests.get")
+    def test_token_info_failure_raises_validation_error(self, mock_get, mock_post):
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "expires_in": 3600,
+            }
+
+            mock_get.return_value.status_code = 401
+            mock_get.return_value.json.return_value = {
+                "error": "invalid_token",
+                "error_description": "The access token is invalid.",
+            }
+            mock_get.return_value.text = (
+                '{"error":"invalid_token","error_description":"The access token is invalid."}'
+            )
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "hubspot",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+            message = str(e.value).lower()
+            assert "invalid_token" in message
+            assert "the access token is invalid" in message
+
+    @patch("posthog.models.integration.requests.post")
     def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
         """
         LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
