@@ -72,6 +72,8 @@ export interface Task {
     origin_product: OriginProduct
     repository: string | null
     github_integration: number | null
+    /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */
+    signal_report: string | null
     json_schema: Record<string, any> | null
     internal: boolean
     latest_run: TaskRun | null

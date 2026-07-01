@@ -216,6 +216,8 @@ export interface SignalRun {
     title: string
     /** Latest run status, or null if unknown. Shares `TaskRunStatus` values. */
     status: SignalScoutRunStatus | null
+    /** Signal runs: the inbox report this run belongs to, for linking to it. Null for scouts. */
+    report_id: string | null
     created_at: string
 }
 

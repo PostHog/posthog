@@ -72,6 +72,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
                 kind: 'scout',
                 title: run.skill_name,
                 status: run.status,
+                report_id: null,
                 created_at: run.created_at,
             })
         )
@@ -82,6 +83,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
             kind: 'signal',
             title: task.title,
             status: latestStatus ? TASK_RUN_STATUS_TO_SCOUT_STATUS[latestStatus] : null,
+            report_id: task.signal_report,
             created_at: task.latest_run?.created_at ?? task.created_at,
         }
     })

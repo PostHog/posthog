@@ -19,6 +19,7 @@ const SAMPLE_RUNS: SignalRun[] = [
         kind: 'scout',
         title: 'signals-scout-error-tracking',
         status: 'in_progress',
+        report_id: null,
         created_at: '2026-06-11T10:30:00Z',
     },
     {
@@ -26,6 +27,7 @@ const SAMPLE_RUNS: SignalRun[] = [
         kind: 'signal',
         title: 'Users hitting a crash when submitting the login form',
         status: 'completed',
+        report_id: 'report-1',
         created_at: '2026-06-11T09:00:00Z',
     },
     {
@@ -33,6 +35,7 @@ const SAMPLE_RUNS: SignalRun[] = [
         kind: 'scout',
         title: 'signals-scout-surveys',
         status: 'failed',
+        report_id: null,
         created_at: '2026-06-10T18:00:00Z',
     },
 ]

@@ -20,36 +20,48 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
     const displayTitle = isScout ? stripScoutPrefix(run.title) : run.title
 
     return (
-        <Link
-            to={urls.taskDetail(run.task_id)}
-            className="group flex w-full items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 text-left text-inherit no-underline transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
-        >
-            <RunStatusOrb meta={meta} />
+        <div className="group flex w-full items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 transition-colors duration-150 hover:border-primary hover:bg-surface-secondary">
+            {/* The run's task (the agent transcript) is the primary click target; the report link
+                below is a separate link, so it can't be nested inside this one. */}
+            <Link
+                to={urls.taskDetail(run.task_id)}
+                className="flex items-center gap-3 min-w-0 flex-1 text-left text-inherit no-underline"
+            >
+                <RunStatusOrb meta={meta} />
 
-            <div className="flex flex-col gap-1 min-w-0 flex-1">
-                <div className="flex items-center gap-2 min-w-0">
-                    <LemonTag size="small" type={kindBadgeType} className="shrink-0 select-none">
-                        {isScout ? 'Scout' : 'Signal'}
-                    </LemonTag>
-                    <span
-                        className={clsx(
-                            'truncate min-w-0 text-sm leading-snug',
-                            isScout ? 'font-mono text-[13px]' : 'font-semibold tracking-tight'
-                        )}
-                    >
-                        {displayTitle || 'Untitled run'}
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <LemonTag size="small" type={kindBadgeType} className="shrink-0 select-none">
+                            {isScout ? 'Scout' : 'Signal'}
+                        </LemonTag>
+                        <span
+                            className={clsx(
+                                'truncate min-w-0 text-sm leading-snug',
+                                isScout ? 'font-mono text-[13px]' : 'font-semibold tracking-tight'
+                            )}
+                        >
+                            {displayTitle || 'Untitled run'}
+                        </span>
+                    </div>
+                    <span className="text-xs text-tertiary leading-none select-none">
+                        <TZLabel time={run.created_at} />
                     </span>
                 </div>
-                <span className="text-xs text-tertiary leading-none select-none">
-                    <TZLabel time={run.created_at} />
-                </span>
-            </div>
+            </Link>
 
             <div className="flex flex-col items-end justify-center gap-1.5 self-stretch shrink-0 border-l border-primary pl-3">
                 <LemonTag size="small" type={meta.badgeType} className="select-none">
                     {meta.label}
                 </LemonTag>
+                {run.report_id && (
+                    <Link
+                        to={urls.inboxReport('reports', run.report_id)}
+                        className="text-[11px] font-medium text-accent no-underline"
+                    >
+                        View report
+                    </Link>
+                )}
             </div>
-        </Link>
+        </div>
     )
 }

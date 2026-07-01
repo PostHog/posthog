@@ -32,6 +32,7 @@ function signalTask(overrides: Partial<Task> = {}): Task {
         origin_product: OriginProduct.SIGNAL_REPORT,
         repository: null,
         github_integration: null,
+        signal_report: 'report-1',
         json_schema: null,
         internal: false,
         latest_run: null,
@@ -61,8 +62,8 @@ describe('mergeSignalRuns', () => {
             [scoutRun({ task_id: 'scout', skill_name: 'signals-scout-surveys', created_at: '2026-06-11T11:00:00Z' })],
             [signalTask({ id: 'signal', title: 'Slow query', created_at: '2026-06-11T08:00:00Z' })]
         )
-        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys' })
-        expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query' })
+        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys', report_id: null })
+        expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })
 
     it('falls back to the task timestamp and a null status when a signal task has no run', () => {
