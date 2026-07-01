@@ -447,7 +447,8 @@ class BloggerSourceConfig(config.Config):
 
 @config.config
 class BluetallySourceConfig(config.Config):
-    pass
+    api_key: str
+    tenant_id: str | None = None
 
 
 @config.config
