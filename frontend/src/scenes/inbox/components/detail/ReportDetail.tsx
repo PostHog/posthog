@@ -262,12 +262,8 @@ export function InboxDetailFrame({
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
-    // Which scout authored this report — read off the backing signals (every scout-authored signal
-    // carries its `skill_name`). Null for pipeline reports; upgrades the header "Scout" chip once loaded.
-    const scoutSignal = signals.find(
-        (s) => s.source_product === 'signals_scout' && typeof s.extra?.skill_name === 'string'
-    )
-    const scoutName = scoutSignal ? scoutDisplayName(scoutSignal.extra.skill_name as string) : null
+    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
+    const scoutName = scoutDisplayName(report.scout_name)
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
