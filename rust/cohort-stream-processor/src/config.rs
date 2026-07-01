@@ -259,6 +259,11 @@ pub struct Config {
     #[envconfig(default = "300000")]
     pub sweep_safety_margin_ms: u64,
 
+    /// How often the store-stats publisher and Tokio runtime monitor sample and emit their gauges
+    /// (seconds).
+    #[envconfig(from = "COHORT_STATS_PUBLISH_INTERVAL_SECS", default = "15")]
+    pub stats_publish_interval_secs: u64,
+
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
     pub store_path: String,
@@ -267,6 +272,11 @@ pub struct Config {
     /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
+
+    /// Enable RocksDB statistics so the store-stats publisher can report cache tickers and per-CF
+    /// sizes. See [`StoreConfig::statistics_enabled`].
+    #[envconfig(from = "COHORT_STORE_STATISTICS_ENABLED", default = "true")]
+    pub store_statistics_enabled: bool,
 
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
@@ -422,6 +432,10 @@ impl Config {
         Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
+    pub fn stats_publish_interval(&self) -> Duration {
+        Duration::from_secs(self.stats_publish_interval_secs)
+    }
+
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
         TransferRetryPolicy {
             max_retries: self.merge_transfer_max_retries,
@@ -542,6 +556,7 @@ impl Config {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
+            statistics_enabled: self.store_statistics_enabled,
             ..StoreConfig::default()
         }
     }
@@ -725,8 +740,10 @@ mod tests {
             tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
             sweep_safety_margin_ms: 300000,
+            stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            store_statistics_enabled: true,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -858,6 +875,29 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn stats_knobs_default_on_and_thread_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(defaults.store_statistics_enabled);
+        assert!(defaults.store_config().statistics_enabled);
+        assert_eq!(defaults.stats_publish_interval(), Duration::from_secs(15));
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_STATISTICS_ENABLED", "false"),
+            ("COHORT_STATS_PUBLISH_INTERVAL_SECS", "30"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(!config.store_statistics_enabled);
+        assert!(
+            !config.store_config().statistics_enabled,
+            "the flag reaches StoreConfig",
+        );
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(30));
     }
 
     #[test]
