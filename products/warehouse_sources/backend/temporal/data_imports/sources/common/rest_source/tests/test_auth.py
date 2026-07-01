@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -20,7 +21,8 @@ AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.
 def _token_response(status_code: int = 200, payload: Optional[dict[str, Any]] = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
-    response.json.return_value = payload if payload is not None else {}
+    # The exchange reads a capped `response.raw.read(...)` then json.loads — seed the raw body to match.
+    response.raw.read.return_value = json.dumps(payload if payload is not None else {}).encode()
     return response
 
 
@@ -316,14 +318,29 @@ class TestOAuth2Auth(SimpleTestCase):
     def test_malformed_token_response_raises_permanent(self, _name, json_side_effect, json_return, mock_session):
         response = _token_response(status_code=200)
         if json_side_effect == "non_json":
-            response.json.side_effect = ValueError("Expecting value")
+            response.raw.read.return_value = b"<html>not json</html>"
         else:
-            response.json.return_value = json_return
+            response.raw.read.return_value = json.dumps(json_return).encode()
         mock_session.return_value.post.return_value = response
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         with self.assertRaises(OAuth2AuthRequestError) as ctx:
             auth._obtain_token()
         assert ctx.exception.is_permanent is True
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_oversized_token_response_raises_permanent(self, mock_session):
+        # A hostile token_url returning a huge 2xx body must not be buffered whole (worker OOM); the read is
+        # capped and an oversized body fails permanently.
+        response = _token_response(status_code=200)
+        response.raw.read.return_value = b"x" * (256 * 1024 + 1)
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+
+        assert ctx.exception.is_permanent is True
+        assert "oversized" in str(ctx.exception)
 
     def test_refresh_grant_without_refresh_token_raises(self):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs", grant_type="refresh_token")

@@ -2190,7 +2190,7 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_permanent_token_status_errors_classified_non_retryable(self, _name, status_code, payload, mock_session):
         response = MagicMock(status_code=status_code)
-        response.json.return_value = payload
+        response.raw.read.return_value = json.dumps(payload).encode()
         mock_session.return_value.post.return_value = response
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         with self.assertRaises(OAuth2AuthRequestError) as ctx:
@@ -2211,9 +2211,9 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
     def test_permanent_token_response_errors_classified_non_retryable(self, _name, body, mock_session):
         response = MagicMock(status_code=200)
         if body == "non_json":
-            response.json.side_effect = ValueError("not json")
+            response.raw.read.return_value = b"not json"
         else:
-            response.json.return_value = body
+            response.raw.read.return_value = json.dumps(body).encode()
         mock_session.return_value.post.return_value = response
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         with self.assertRaises(OAuth2AuthRequestError) as ctx:
@@ -2231,7 +2231,7 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_known_oauth_codes_still_classified_non_retryable(self, _name, status_code, payload, mock_session):
         response = MagicMock(status_code=status_code)
-        response.json.return_value = payload
+        response.raw.read.return_value = json.dumps(payload).encode()
         mock_session.return_value.post.return_value = response
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         with self.assertRaises(OAuth2AuthRequestError) as ctx:
@@ -2249,7 +2249,7 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_transient_token_errors_stay_retryable(self, _name, status_code, payload, mock_session):
         response = MagicMock(status_code=status_code)
-        response.json.return_value = payload
+        response.raw.read.return_value = json.dumps(payload).encode()
         mock_session.return_value.post.return_value = response
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
         with self.assertRaises(OAuth2AuthRequestError) as ctx:

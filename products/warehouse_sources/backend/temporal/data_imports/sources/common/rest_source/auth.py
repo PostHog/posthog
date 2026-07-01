@@ -1,10 +1,10 @@
+import json
 from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from requests import PreparedRequest, Response
 from requests.auth import AuthBase
-from requests.exceptions import JSONDecodeError
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -98,6 +98,10 @@ _DEFAULT_TOKEN_TTL = timedelta(hours=1)
 # probe), so keep them tightly bounded — a stalled token endpoint must not hang either.
 _TOKEN_CONNECT_TIMEOUT = 10
 _TOKEN_READ_TIMEOUT = 30
+# The customer configures token_url, so a hostile one could return an unbounded 2xx body; the exchange
+# runs on shared workers, so cap what we buffer before parsing. A token response is a few KB — 256 KiB is
+# generous headroom without risking a worker OOM.
+_MAX_TOKEN_RESPONSE_BYTES = 256 * 1024
 
 
 # Stable marker appended to every permanent OAuth2 token error message. At sync time the
@@ -252,17 +256,20 @@ class OAuth2Auth(BearerTokenAuth):
         # `timeout` lets the create-time pre-mint pass a tighter budget than the sync default:
         # the pre-mint runs inline on the API request thread, so it must stay within the same
         # bound as the data probe rather than blocking for the full sync-time read timeout.
+        # stream=True so the body isn't buffered until we read it under a cap (see _read_capped_token_payload).
         response = session.post(
             self.token_url,
             data=body,
             auth=basic_auth,
             headers=self.token_request_headers or None,
             timeout=timeout or (_TOKEN_CONNECT_TIMEOUT, _TOKEN_READ_TIMEOUT),
+            stream=True,
         )
+        payload = _read_capped_token_payload(response)
         if 200 <= response.status_code < 300:
-            self._apply_token_response(response)
+            self._apply_token_response(payload)
             return
-        error_code, description = _extract_token_error(response)
+        error_code, description = _extract_token_error(payload)
         message = _format_token_error(response.status_code, error_code, description)
         # A 4xx other than 429 (invalid_client / invalid_grant / unauthorized_client …) is a
         # permanent config error; a 3xx is too — the session pins allow_redirects=False, so an
@@ -271,14 +278,10 @@ class OAuth2Auth(BearerTokenAuth):
         is_permanent = 300 <= response.status_code < 500 and response.status_code != 429
         raise OAuth2AuthRequestError(message, error_code=error_code, is_permanent=is_permanent)
 
-    def _apply_token_response(self, response: Response) -> None:
-        try:
-            payload = response.json()
-        except (JSONDecodeError, ValueError):
-            raise OAuth2AuthRequestError("The OAuth2 token endpoint returned a non-JSON response", is_permanent=True)
-        if not isinstance(payload, dict):
+    def _apply_token_response(self, payload: Optional[dict[str, Any]]) -> None:
+        if payload is None:
             raise OAuth2AuthRequestError(
-                "The OAuth2 token endpoint returned an unexpected response shape", is_permanent=True
+                "The OAuth2 token endpoint returned a non-JSON or unexpected response", is_permanent=True
             )
         token = payload.get(self.access_token_name)
         if not isinstance(token, str) or not token:
@@ -312,17 +315,31 @@ class OAuth2Auth(BearerTokenAuth):
         return now + _DEFAULT_TOKEN_TTL
 
 
-def _extract_token_error(response: Response) -> tuple[Optional[str], str]:
+def _read_capped_token_payload(response: Response) -> Optional[dict[str, Any]]:
+    """Read the token response body under a size cap, then JSON-parse it.
+
+    The request is made with ``stream=True``, so the body isn't materialised until this read. We read one
+    byte past the cap to detect an oversized body without buffering the whole thing — a hostile ``token_url``
+    (the customer configures it) could otherwise return an unbounded 2xx body and OOM a shared worker.
+    Returns ``None`` for a body that isn't a JSON object; callers decide whether that's an error.
+    """
+    raw = response.raw.read(_MAX_TOKEN_RESPONSE_BYTES + 1, decode_content=True)
+    if len(raw) > _MAX_TOKEN_RESPONSE_BYTES:
+        raise OAuth2AuthRequestError("The OAuth2 token endpoint returned an oversized response", is_permanent=True)
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _extract_token_error(payload: Optional[dict[str, Any]]) -> tuple[Optional[str], str]:
     """Pull the standard OAuth2 ``error`` / ``error_description`` from a failed token response.
 
     Reads only those two fields — never the raw body, which could echo the posted
     ``client_secret`` back. Returns ``(None, "")`` for a non-JSON or unexpected body.
     """
-    try:
-        payload = response.json()
-    except (JSONDecodeError, ValueError):
-        return None, ""
-    if not isinstance(payload, dict):
+    if payload is None:
         return None, ""
     error_code = payload.get("error")
     description = payload.get("error_description")
