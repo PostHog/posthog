@@ -26,6 +26,7 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
     AgentFleetApprovalsListParams,
@@ -66,8 +67,8 @@ import type {
     PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
+    SetSkillRefsRequestApi,
     WriteAgentMdRequestApi,
-    WriteSkillRequestApi,
     WriteSpecRequestApi,
     WriteToolRequestApi,
     WriteTypedBundleRequestApi,
@@ -1082,107 +1083,31 @@ export const agentApplicationsRevisionsSetEnvCreate = async (
     })
 }
 
-export const getAgentApplicationsRevisionsSkillsUpdateUrl = (
+export const getAgentApplicationsRevisionsSkillRefsUpdateUrl = (
     projectId: string,
     applicationId: string,
-    id: string,
-    skillId: string
+    id: string
 ) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skill_refs/`
 }
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const agentApplicationsRevisionsSkillsUpdate = async (
+export const agentApplicationsRevisionsSkillRefsUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    skillId: string,
-    writeSkillRequestApi: WriteSkillRequestApi,
+    setSkillRefsRequestApi: SetSkillRefsRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(
-        getAgentApplicationsRevisionsSkillsUpdateUrl(projectId, applicationId, id, skillId),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(writeSkillRequestApi),
-        }
-    )
-}
-
-export const getAgentApplicationsRevisionsSkillsDestroyUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    skillId: string
-) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
-}
-
-/**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
- */
-export const agentApplicationsRevisionsSkillsDestroy = async (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    skillId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsRevisionsSkillsDestroyUrl(projectId, applicationId, id, skillId), {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSkillRefsUpdateUrl(projectId, applicationId, id), {
         ...options,
-        method: 'DELETE',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setSkillRefsRequestApi),
     })
 }
 
@@ -1401,7 +1326,7 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 }
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
  * secret has a value set in this revision's env block. Returns
@@ -2041,6 +1966,53 @@ export const agentApplicationsUsersConnectionDelete = async (
     return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsModelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_applications/models/`
+}
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const agentApplicationsModels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsSpecSchemaUrl = (projectId: string, params?: AgentApplicationsSpecSchemaParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/spec_schema/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/spec_schema/`
+}
+
+/**
+ * The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against (fields with a default are optional on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of guessing the shape. Pass `section` to fetch just one part.
+ */
+export const agentApplicationsSpecSchema = async (
+    projectId: string,
+    params?: AgentApplicationsSpecSchemaParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSpecSchemaUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

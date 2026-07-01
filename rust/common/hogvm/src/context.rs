@@ -1,5 +1,7 @@
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::{
     error::VmError,
@@ -8,6 +10,26 @@ use crate::{
     vm::HogVM,
     HogLiteral, HogValue,
 };
+
+/// Default native-function and symbol tables, built once from the process-static STL and shared via
+/// `Arc` by every [`ExecutionContext::with_defaults`] so the maps aren't rebuilt per context.
+static DEFAULT_NATIVE_FNS: Lazy<Arc<HashMap<String, NativeFunction>>> =
+    Lazy::new(|| Arc::new(stl_map()));
+static DEFAULT_SYMBOL_TABLE: Lazy<Arc<HashMap<Symbol, ExportedFunction>>> =
+    Lazy::new(|| Arc::new(flatten_modules(&hog_stl_map())));
+
+/// Flatten imported modules into the symbol table the VM looks up by `Symbol{module, name}`. The
+/// module name is the `module` half, matching the `Symbol::new("stl", …)` the VM builds at
+/// `CallGlobal` (see `vm.rs`).
+fn flatten_modules(modules: &HashMap<String, Module>) -> HashMap<Symbol, ExportedFunction> {
+    let mut table = HashMap::new();
+    for (name, module) in modules.iter() {
+        for (fn_name, function) in module.functions().iter() {
+            table.insert(Symbol::new(name, fn_name), function.clone());
+        }
+    }
+    table
+}
 
 /// The read-only context for the virtual machine.
 pub struct ExecutionContext {
@@ -18,8 +40,16 @@ pub struct ExecutionContext {
     pub max_stack_depth: usize,
     pub max_heap_size: usize,
     pub max_steps: usize,
-    native_fns: HashMap<String, NativeFunction>,
-    symbol_table: HashMap<Symbol, ExportedFunction>, // Flattened symbol table of all imported hog modules
+    /// Opt-in comparison semantics. `false` (the default) is the legacy/reference behavior shared by
+    /// every existing consumer (e.g. `cymbal`): ordering ops require numeric operands and `Eq`
+    /// compares temporals structurally. `true` makes ordering coerce across types and order temporals
+    /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
+    /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
+    pub(crate) coerce_comparisons: bool,
+    // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
+    // copy-on-write via `Arc::make_mut`.
+    native_fns: Arc<HashMap<String, NativeFunction>>,
+    symbol_table: Arc<HashMap<Symbol, ExportedFunction>>, // Flattened symbol table of all imported hog modules
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -44,42 +74,61 @@ impl ExecutionContext {
             max_stack_depth,
             max_heap_size,
             max_steps,
-            native_fns,
-            symbol_table: HashMap::new(),
+            coerce_comparisons: false,
+            native_fns: Arc::new(native_fns),
+            symbol_table: Arc::new(flatten_modules(&modules)),
         }
-        .with_modules(&modules)
     }
 
     pub fn with_defaults(bytecode: Program) -> Self {
-        // TODO - these values are basically randomly chosen
-        Self::new(
-            bytecode,
-            json!({}),
-            128,
-            1024 * 1024,
-            10_000,
-            stl_map(),
-            hog_stl_map(),
-        )
+        // TODO - these limits are basically randomly chosen
+        Self {
+            program: bytecode,
+            globals: json!({}),
+            max_stack_depth: 128,
+            max_heap_size: 1024 * 1024,
+            max_steps: 10_000,
+            coerce_comparisons: false,
+            native_fns: DEFAULT_NATIVE_FNS.clone(),
+            symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
+        }
     }
 
     pub fn with_ext_fn(mut self, name: String, func: NativeFunction) -> Self {
-        self.native_fns.insert(name, func);
+        Arc::make_mut(&mut self.native_fns).insert(name, func);
         self
     }
 
     pub fn with_ext_fns(mut self, fns: HashMap<String, NativeFunction>) -> Self {
-        self.native_fns.extend(fns);
+        Arc::make_mut(&mut self.native_fns).extend(fns);
         self
     }
 
     pub fn set_fns(mut self, fns: HashMap<String, NativeFunction>) -> Self {
-        self.native_fns = fns;
+        self.native_fns = Arc::new(fns);
         self
     }
 
     pub fn with_globals(mut self, globals: JsonValue) -> Self {
         self.globals = globals;
+        self
+    }
+
+    /// Swap globals in place (no clone) so one context can be reused across evaluations sharing them.
+    pub fn set_globals(&mut self, globals: JsonValue) {
+        self.globals = globals;
+    }
+
+    /// Swap the program in place to reuse one context across many programs (e.g. catalog conditions).
+    pub fn set_program(&mut self, program: Program) {
+        self.program = program;
+    }
+
+    /// Opt into coercing comparison semantics (cross-type ordering coercion + epoch ordering/equality
+    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so existing
+    /// consumers like `cymbal` keep the legacy strict behavior. See [`Self::coerce_comparisons`].
+    pub fn with_coercing_comparisons(mut self) -> Self {
+        self.coerce_comparisons = true;
         self
     }
 
@@ -99,17 +148,14 @@ impl ExecutionContext {
     }
 
     pub fn with_modules(mut self, modules: &HashMap<String, Module>) -> Self {
-        self.symbol_table.clear();
-        for (name, module) in modules.iter() {
-            self = self.add_module(name.clone(), module);
-        }
+        self.symbol_table = Arc::new(flatten_modules(modules));
         self
     }
 
     pub fn add_module(mut self, name: String, module: &Module) -> Self {
+        let table = Arc::make_mut(&mut self.symbol_table);
         for (fn_name, function) in module.functions().iter() {
-            self.symbol_table
-                .insert(Symbol::new(&name, fn_name), function.clone());
+            table.insert(Symbol::new(&name, fn_name), function.clone());
         }
         self
     }
@@ -193,9 +239,17 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
 
     match literal {
         HogLiteral::Array(arr) => {
-            let emplaced_arr: Result<Vec<HogValue>, _> =
-                arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
-            let emplaced_arr = HogLiteral::Array(emplaced_arr?);
+            // Fast path: when every element is a plain (non-container, non-reference) literal there
+            // is nothing to emplace, so skip the per-element walk + re-collect entirely. Native STL
+            // results are overwhelmingly flat numeric/string arrays, and this walk was the single
+            // hottest function in the interpreter (~25% of instructions) before this guard.
+            let emplaced_arr = if arr.iter().all(is_flat_literal) {
+                HogLiteral::Array(arr)
+            } else {
+                let walked: Result<Vec<HogValue>, _> =
+                    arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
+                HogLiteral::Array(walked?)
+            };
 
             if let Some(ptr) = existing_location {
                 // If this was already a heap-allocated array, replace it with the new one
@@ -228,4 +282,21 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             .map(|ptr| ptr.into())
             .unwrap_or(literal.into())),
     }
+}
+
+// A value that needs no emplacing: a literal that isn't itself a nested container (so it holds no
+// child values that must be hoisted onto the heap). References are excluded — they already point at
+// heap state, but the walk preserves the original conservative behavior for them.
+fn is_flat_literal(v: &HogValue) -> bool {
+    matches!(
+        v,
+        HogValue::Lit(
+            HogLiteral::Number(_)
+                | HogLiteral::Boolean(_)
+                | HogLiteral::String(_)
+                | HogLiteral::Null
+                | HogLiteral::Callable(_)
+                | HogLiteral::Closure(_)
+        )
+    )
 }

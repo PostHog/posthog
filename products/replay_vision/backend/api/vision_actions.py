@@ -1,12 +1,16 @@
+import uuid
 from typing import Any, NoReturn, cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -14,12 +18,19 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
+from products.replay_vision.backend.models.vision_action import (
+    ActionMode,
+    TriggerType,
+    VisionAction,
+    VisionActionRun,
+    VisionActionRunStatus,
+)
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 
 logger = structlog.get_logger(__name__)
@@ -277,6 +288,18 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="scanner",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Filter to the actions belonging to one scanner.",
+            )
+        ]
+    )
+)
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
 
@@ -305,4 +328,133 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
-        return queryset.filter(team_id=self.team_id).select_related("scanner", "created_by").order_by("name", "id")
+        queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
+        # The per-scanner "Actions" tab scopes the list to one scanner.
+        scanner_id = self.request.query_params.get("scanner")
+        if scanner_id:
+            try:
+                uuid.UUID(scanner_id)
+            except ValueError:
+                # A malformed ?scanner= would otherwise raise ValueError when the UUID column builds the
+                # query — uncaught by DRF, so a 500. Treat unparseable input as "matches nothing".
+                return queryset.none()
+            queryset = queryset.filter(scanner_id=scanner_id)
+        return queryset.order_by("name", "id")
+
+    def perform_create(self, serializer: BaseSerializer) -> None:
+        # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
+        # action that looks created but never delivers.
+        with transaction.atomic():
+            action = serializer.save()
+            provision_delivery(action, request=self.request, team=self.team)
+
+    def perform_update(self, serializer: BaseSerializer) -> None:
+        instance = cast(VisionAction, serializer.instance)
+        # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
+        # these must be read pre-save for the change comparison to be meaningful.
+        old_delivery = instance.delivery_config
+        old_enabled = instance.enabled
+        old_name = instance.name
+        # Atomic so a re-provision failure rolls the action edit back too (parity with perform_create).
+        with transaction.atomic():
+            action = serializer.save()
+            # Re-provision only when something the destinations reflect changed: delivery targets, the
+            # enabled flag, or the name (each destination is named after the action). Cadence/selection
+            # edits don't touch the destinations, so they must not churn them.
+            if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
+                provision_delivery(action, request=self.request, team=self.team)
+
+    def perform_destroy(self, instance: VisionAction) -> None:
+        archive_delivery(instance, team=self.team)
+        super().perform_destroy(instance)
+
+
+class VisionActionRunSerializer(serializers.ModelSerializer):
+    """Read-only history of one VisionAction execution, backing the per-action run list + summary view."""
+
+    status = serializers.ChoiceField(
+        choices=VisionActionRunStatus.choices,
+        read_only=True,
+        help_text="Run outcome: running, completed, failed, or skipped.",
+    )
+    scheduled_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="The scheduled fire time this run was claimed for.",
+    )
+    observation_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of observations that fed this run's summary.",
+    )
+    synthesized_markdown = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="The synthesized group-summary report in Markdown. Empty until a run completes successfully.",
+    )
+    error_reason = serializers.SerializerMethodField(
+        help_text="Short human-readable reason a run skipped or failed; null on success.",
+    )
+
+    class Meta:
+        model = VisionActionRun
+        fields = [
+            "id",
+            "status",
+            "scheduled_at",
+            "observation_count",
+            "synthesized_markdown",
+            "error_reason",
+            "created_at",
+            "updated_at",
+        ]
+
+    # allow_null so the generated TS/MCP type is `string | null` — get_error_reason returns null for
+    # successful runs, and a non-null hint would crash consumers that dereference it.
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_error_reason(self, run: VisionActionRun) -> str | None:
+        error = run.error if isinstance(run.error, dict) else {}
+        # Surface only the engine's controlled skip/abort reasons. Failed runs also stamp error["message"]
+        # with raw exception text (str(e)[:500]) — don't echo that to API consumers; show a generic reason.
+        for key in ("skip_reason", "aborted"):
+            value = error.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        if run.status == VisionActionRunStatus.FAILED:
+            return "Run failed"
+        return None
+
+
+class VisionActionRunViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/)."""
+
+    scope_object = "vision_action"
+    # Runs surface recording-derived summaries, so reading them requires session_recording read too.
+    required_scopes = ["vision_action:read", "session_recording:read"]
+    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
+    serializer_class = VisionActionRunSerializer
+    # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
+    queryset = VisionActionRun.objects.unscoped()
+
+    def _action_for_url(self) -> VisionAction:
+        try:
+            action_id = uuid.UUID(self.kwargs["parent_lookup_vision_action_id"])
+        except (KeyError, ValueError):
+            raise NotFound()
+        action = VisionAction.objects.for_team(self.team_id).filter(id=action_id).first()
+        if action is None:
+            raise NotFound()
+        # Runs expose recording-derived summaries, so reading them inherits the action's RBAC and also
+        # requires session_recording read (mirrors the observations endpoint).
+        self.check_object_permissions(self.request, action)
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading vision action runs requires session_recording read access.")
+        return action
+
+    def safely_get_queryset(self, queryset: QuerySet[VisionActionRun]) -> QuerySet[VisionActionRun]:
+        action = self._action_for_url()
+        return queryset.filter(team_id=self.team_id, vision_action_id=action.id).order_by("-created_at", "id")

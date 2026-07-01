@@ -93,6 +93,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
         snapshotSavedDisplayUrl: (displayUrl: string | null) => ({ displayUrl }),
+        setBlockConsentModals: (value: boolean) => ({ value }),
+        snapshotSavedBlockConsentModals: (value: boolean) => ({ value }),
         setPageUrlDraft: (value: string) => ({ value }),
         applyPageUrlDraft: true,
     }),
@@ -111,6 +113,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
         savedDisplayUrl: [null as string | null, { snapshotSavedDisplayUrl: (_, { displayUrl }) => displayUrl }],
+        blockConsentModals: [false as boolean, { setBlockConsentModals: (_, { value }) => value }],
+        savedBlockConsentModals: [false as boolean, { snapshotSavedBlockConsentModals: (_, { value }) => value }],
         pageUrlDraft: [
             '' as string,
             {
@@ -143,6 +147,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setDisplayUrl(item.url)
                 actions.setDataUrl(item.data_url)
                 actions.snapshotSavedDisplayUrl(item.url ?? null)
+                actions.setBlockConsentModals(item.block_consent_modals ?? false)
+                actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
                 actions.setType(item.type)
                 if (item.type === 'screenshot') {
                     const desiredWidth = values.widthOverride
@@ -246,6 +252,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
+                    block_consent_modals: values.blockConsentModals,
                 }
                 const created = await api.savedHeatmaps.create(data)
                 actions.loadSavedHeatmaps()
@@ -260,16 +267,22 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: async () => {
             actions.setLoading(true)
             const previousSavedUrl = values.savedDisplayUrl
+            const previousBlockConsentModals = values.savedBlockConsentModals
             try {
                 const data = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
+                    block_consent_modals: values.blockConsentModals,
                 }
                 const updated = await api.savedHeatmaps.update(props.id, data)
                 actions.snapshotSavedDisplayUrl(updated.url ?? null)
-                if (values.type === 'screenshot' && updated.url !== previousSavedUrl) {
+                actions.snapshotSavedBlockConsentModals(updated.block_consent_modals ?? false)
+                const renderInputChanged =
+                    updated.url !== previousSavedUrl ||
+                    (updated.block_consent_modals ?? false) !== previousBlockConsentModals
+                if (values.type === 'screenshot' && renderInputChanged) {
                     actions.setScreenshotUrl(null)
                     actions.setScreenshotLoaded(false)
                     actions.setScreenshotError(null)

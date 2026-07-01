@@ -157,6 +157,7 @@ class SandboxWarmer:
 
             run_state: dict[str, Any] = {
                 "await_user_message": True,
+                "prewarmed": True,
                 "initial_permission_mode": "default",
                 **(extra_state or {}),
             }

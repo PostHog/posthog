@@ -190,23 +190,23 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     SELECT
                                         trace_id,
                                         anyIf(
-                                            substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(input_state) > 0
                                         ) AS last_input,
                                         anyIf(
-                                            substring(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(output_state) > 0
                                         ) AS last_output,
                                         argMaxIf(
-                                            substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(input, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
                                                 AND length(input) > 0
                                         ) AS last_input_fallback,
                                         argMaxIf(
-                                            substring(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
                                                 AND length(output_choices) > 0

@@ -18,6 +18,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     buildTestBundleStore,
+    type CatalogModel,
     EMPTY_USAGE_TOTAL,
     INTERNAL_JWT_AUDIENCE,
     mintInternalJwt,
@@ -79,7 +80,6 @@ function session(label: string): AgentSession {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -99,6 +99,107 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).get('/healthz')
         expect(res.status).toBe(200)
+    })
+
+    it('GET /models returns per-Mtok pricing + levels resolved to canonical ids', async () => {
+        // haiku is dated-only with a dashed undated alias — the form the level
+        // list uses; resolution must map it to the catalog canonical.
+        const catalog: CatalogModel[] = [
+            {
+                canonical: 'anthropic/claude-haiku-4.5',
+                id: 'claude-haiku-4-5-20251001',
+                owned_by: 'anthropic',
+                context_window: 200_000,
+                aliases: ['claude-haiku-4-5'],
+                pricing: { prompt: 0.000001, completion: 0.000005, cache_read: 0.0000001 },
+            },
+            {
+                canonical: 'openai/gpt-5-mini',
+                id: 'gpt-5-mini',
+                owned_by: 'openai',
+                context_window: 400_000,
+                aliases: [],
+                pricing: { prompt: 0.00000025, completion: 0.000002 },
+            },
+            {
+                canonical: 'anthropic/claude-opus-4.7',
+                id: 'claude-opus-4-7',
+                owned_by: 'anthropic',
+                context_window: 1_000_000,
+                aliases: [],
+                pricing: { prompt: 0.000005, completion: 0.000025 },
+            },
+            {
+                canonical: 'openai/gpt-5-pro',
+                id: 'gpt-5-pro',
+                owned_by: 'openai',
+                context_window: 400_000,
+                aliases: [],
+                pricing: { prompt: 0.000015, completion: 0.00012 },
+            },
+        ]
+        const queue = new PgSessionQueue(pool)
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            gatewayCatalog: { list: async () => catalog },
+        })
+
+        const res = await request(app).get('/models')
+        expect(res.status).toBe(200)
+        const haiku = (res.body.models as Array<Record<string, unknown>>).find(
+            (m) => m.model === 'anthropic/claude-haiku-4.5'
+        )
+        // Per-token USD → per-Mtok; cache omitted when the model has none.
+        expect(haiku).toMatchObject({
+            provider: 'anthropic',
+            context_window: 200_000,
+            input: 1,
+            output: 5,
+            cache_read: 0.1,
+        })
+        expect(haiku).not.toHaveProperty('cache_write')
+        // Levels resolve the dashed-alias level entries to catalog canonicals.
+        expect(res.body.levels.low).toEqual(['anthropic/claude-haiku-4.5', 'openai/gpt-5-mini'])
+        expect(res.body.levels.high).toEqual(['anthropic/claude-opus-4.7', 'openai/gpt-5-pro'])
+    })
+
+    it('GET /models fails open with an empty catalog when no gateway is wired', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/models')
+        expect(res.status).toBe(200)
+        expect(res.body.models).toEqual([])
+        expect(Object.keys(res.body.levels)).toEqual(['low', 'medium', 'high'])
+    })
+
+    it('GET /spec-schema returns the full inlined agent-spec JSON Schema with descriptions', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema')
+        expect(res.status).toBe(200)
+        expect(res.body.section).toBeNull()
+        const schema = res.body.spec_json_schema
+        // Inlined (no $defs) so every slice is self-contained.
+        expect(schema.$defs).toBeUndefined()
+        expect(Object.keys(schema.properties)).toContain('models')
+        // Descriptions travel with the schema — the whole point of the tool.
+        expect(typeof schema.properties.models.description).toBe('string')
+    })
+
+    it('GET /spec-schema?section=models returns just the models slice', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema').query({ section: 'models' })
+        expect(res.status).toBe(200)
+        expect(res.body.section).toBe('models')
+        expect(res.body.spec_json_schema.$schema).toBeTruthy()
+        expect(res.body.spec_json_schema.oneOf).toHaveLength(2) // auto | manual
+    })
+
+    it('GET /spec-schema?section=bogus is a 400 listing the valid sections', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/spec-schema').query({ section: 'bogus' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('unknown_section')
+        expect(res.body.sections).toContain('models')
     })
 
     it('GET /sessions?application_id= returns summaries, newest first', async () => {
@@ -194,31 +295,47 @@ describe('janitor HTTP', () => {
         )
     })
 
-    it('GET /sessions?search matches external_key case-insensitively, not the transcript', async () => {
+    it('GET /sessions?search matches transcript text, external_key and id', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-deploy'),
             application_id: uuidFor('app-1'),
-            external_key: 'slack:CWIDGET',
-            conversation: [{ role: 'user', content: 'can you deploy the gadget service?', timestamp: 1 }],
+            external_key: 'slack:C123',
+            conversation: [
+                { role: 'user', content: 'can you deploy the WIDGET service?', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Deploying now.' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 1, output: 1, cost: { input: 0, output: 0, total: 0 } },
+                    timestamp: 2,
+                },
+            ],
         })
         await queue.enqueue({
             ...session('s-unrelated'),
             application_id: uuidFor('app-1'),
             external_key: 'slack:C999',
-            conversation: [{ role: 'user', content: 'mentions WIDGET in the transcript only', timestamp: 1 }],
+            conversation: [{ role: 'user', content: 'what is the weather', timestamp: 1 }],
         })
-        // external_key match, case-insensitive.
-        const byKey = await request(app)
+        // Transcript-text match via the persisted search_text digest, case-insensitive.
+        const byText = await request(app)
             .get('/sessions')
             .query({ application_id: uuidFor('app-1'), search: 'widget' })
-        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
-        expect(byKey.body.count).toBe(1)
+        expect((byText.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
+        expect(byText.body.count).toBe(1)
+        // external_key match.
+        const byKey = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'C999' })
+        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
         // id match.
         const byId = await request(app)
             .get('/sessions')
-            .query({ application_id: uuidFor('app-1'), search: uuidFor('s-unrelated') })
-        expect((byId.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
+            .query({ application_id: uuidFor('app-1'), search: uuidFor('s-deploy') })
+        expect((byId.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
         // No match → empty, not an error.
         const none = await request(app)
             .get('/sessions')
@@ -237,7 +354,7 @@ describe('janitor HTTP', () => {
         expect((res.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-pct')])
     })
 
-    it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
+    it('GET /sessions summaries derive preview from search_text + usage_total off the persisted columns', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-rich'),
@@ -259,7 +376,7 @@ describe('janitor HTTP', () => {
                     content: [{ type: 'text', text: 'hello back!' }],
                     api: 'anthropic-messages',
                     provider: 'anthropic',
-                    model: 'claude-haiku-4-5',
+                    model: 'anthropic/claude-haiku-4-5',
                     usage: { input: 50, output: 10, cost: { input: 0.0005, output: 0.0002, total: 0.0007 } },
                     timestamp: 2,
                 },
@@ -268,7 +385,9 @@ describe('janitor HTTP', () => {
         const res = await request(app)
             .get('/sessions')
             .query({ application_id: uuidFor('app-1') })
-        expect(res.body.results[0].preview).toBe('hello back!')
+        // Preview is the conversation digest (user + assistant text), not just
+        // the last assistant line — it comes off the persisted search_text.
+        expect(res.body.results[0].preview).toBe('hi hello back!')
         expect(res.body.results[0].usage_total).toMatchObject({
             tokens_in: 50,
             tokens_out: 10,
@@ -640,7 +759,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                models: { mode: 'manual', models: [{ model: 'test/x' }] },
                 triggers: [
                     {
                         type: 'chat',
@@ -692,7 +811,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                models: { mode: 'manual', models: [{ model: 'test/x' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -729,7 +848,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                models: { mode: 'manual', models: [{ model: 'test/x' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -771,6 +890,44 @@ describe('janitor HTTP', () => {
         expect(res.body.state).toBe('draft')
         const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
         expect(paths).toEqual(['agent.md', 'skills/research.md'])
+    })
+
+    it('PUT /revisions/:id/skills/:id writes SKILL.md + companion files', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({
+                description: 'triage inbound',
+                body: '---\nname: triage\n---\nthe body',
+                files: [{ path: 'references/api.md', content: '# API' }],
+            })
+        expect(res.status).toBe(200)
+        expect(res.body).toMatchObject({ ok: true, skill_id: 'triage', files_written: 1 })
+        expect(await bundles.readText(revisionId, 'skills/triage/SKILL.md')).toContain('the body')
+        expect(await bundles.readText(revisionId, 'skills/triage/references/api.md')).toBe('# API')
+    })
+
+    it('PUT /revisions/:id/skills/:id rejects a companion path escaping the skill folder', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b', files: [{ path: '../escape.md', content: 'x' }] })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_skill_file_path')
+        // Invalid input must not have cleared/written anything.
+        expect(await bundles.exists(revisionId, 'skills/triage/SKILL.md')).toBe(false)
+    })
+
+    it('PUT /revisions/:id/skills/:id re-PUT sweeps stale companions', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b', files: [{ path: 'old.md', content: '1' }] })
+        await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b2', files: [{ path: 'new.md', content: '2' }] })
+        expect(await bundles.exists(revisionId, 'skills/triage/old.md')).toBe(false)
+        expect(await bundles.readText(revisionId, 'skills/triage/new.md')).toBe('2')
     })
 
     // The single-file `/file` and bulk `/bundle` (with `mode`) endpoints
@@ -818,7 +975,7 @@ describe('janitor HTTP', () => {
             parent_revision_id: revisionId,
             created_by_id: null,
             bundle_uri: 'mem://b2',
-            spec: { model: 'x' } as never,
+            spec: { model: 'test/x' } as never,
         })
         const res = await request(app)
             .post(`/revisions/${draft.id}/clone_from`)
@@ -855,7 +1012,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    models: { mode: 'manual', models: [{ model: 'test/x' }] },
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -884,7 +1041,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    models: { mode: 'manual', models: [{ model: 'test/x' }] },
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -896,7 +1053,7 @@ describe('janitor HTTP', () => {
                 skills: [],
                 tools: [],
                 spec: {
-                    model: 'y',
+                    models: { mode: 'manual', models: [{ model: 'test/y' }] },
                     triggers: [
                         {
                             type: 'chat',
@@ -911,7 +1068,7 @@ describe('janitor HTTP', () => {
         // parse it strictly, so a successful read proves the merge wrote a
         // valid spec.
         const after = await revisions.getRevision(draftId)
-        expect(after?.spec.model).toBe('y')
+        expect(after?.spec.models).toEqual({ mode: 'manual', models: [{ model: 'test/y' }], optimize_for: 'cost' })
     })
 
     it('returns 503 when the revision/bundle stores are not configured', async () => {
@@ -996,7 +1153,7 @@ describe('janitor HTTP', () => {
                 created_by_id: null,
                 bundle_uri: 'mem://b',
                 spec: AgentSpecSchema.parse({
-                    model: 'x',
+                    models: { mode: 'manual', models: [{ model: 'test/x' }] },
                     triggers: [
                         {
                             type: 'chat',
@@ -1037,7 +1194,7 @@ describe('janitor HTTP', () => {
                 parent_revision_id: revisionId,
                 created_by_id: null,
                 bundle_uri: 'mem://b2',
-                spec: { model: 'x' } as never,
+                spec: { model: 'test/x' } as never,
             })
             // Reset the peak after the freeze step's own copies — clone_from
             // is the only call we want to measure here.

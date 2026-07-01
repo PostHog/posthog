@@ -145,7 +145,7 @@ export const LemonMenu = React.forwardRef<HTMLElement, LemonMenuProps>(function 
     )
 
     // LemonMenu renders no DOM itself — only the trigger child does. Forward an externally-provided
-    // ref (e.g. from AppShortcut) onto that child so it lands on a real DOM node, otherwise consumers
+    // ref (e.g. from <Shortcut />) onto that child so it lands on a real DOM node, otherwise consumers
     // attaching a ref to LemonMenu silently get nothing.
     const triggerRef = useMergeRefs([ref, (children as { ref?: React.Ref<HTMLElement> }).ref])
 

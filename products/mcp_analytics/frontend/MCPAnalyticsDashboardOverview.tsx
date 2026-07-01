@@ -18,6 +18,7 @@ import { KpiTiles } from './dashboard/KpiTiles'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -28,7 +29,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         notableSessions,
         sessionRowsLoading,
         harnessRows,
-        harnessRawRowsLoading,
+        harnessRowsLoading,
         dailyActivity,
         activityRowsLoading,
         toolDailySeries,
@@ -50,6 +51,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <MCPAnalyticsFirstLook />
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                     <McpDateFilter
@@ -95,7 +97,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 interval={interval}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
+                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

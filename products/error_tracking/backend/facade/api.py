@@ -341,9 +341,15 @@ def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAs
     return _to_assignment_rule(rule) if rule is not None else None
 
 
-def create_assignment_rule(team_id: int, *, filters: dict, assignee: dict) -> contracts.ErrorTrackingAssignmentRule:
+def create_assignment_rule(
+    team_id: int, *, filters: dict, assignee: dict, order_key: int = 0
+) -> contracts.ErrorTrackingAssignmentRule:
     rule = logic.create_assignment_rule(
-        team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
+        team_id,
+        filters=filters,
+        assignee_type=assignee["type"],
+        assignee_id=assignee["id"],
+        order_key=order_key,
     )
     return _to_assignment_rule(rule)
 

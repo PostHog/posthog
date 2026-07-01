@@ -7,18 +7,18 @@ query-time computation:
 
   1. Resolve a normalized token from the strongest available signal (the
      x-anthropic-client vendor header, then Claude Code's User-Agent surface,
-     then the session-pinned clientInfo.name, then the User-Agent product token,
-     then the OAuth client name) — `HARNESS_TOKEN_SQL`.
+     then the clientInfo.name — `$mcp_client_name` as reported by the posthog-node
+     MCP analytics SDK, or `mcp_session_client_name` as reported by PostHog's hosted
+     MCP server — then the User-Agent product token, then the OAuth client name) —
+     `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql`.
 
-This module is being established as the single source of truth. Today the same
-label logic still lives in two other places that must move in lockstep until they
-are consolidated onto this runner: the frontend's own `categorizeHarness` +
-`HARNESS_REGISTRY` in `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`
-(its category keys also drive logos/colours), and the documented query in the
-`querying-posthog-data` skill's `models-mcp.md`. Rewiring the dashboard onto this
-runner (and the registry down to logos-by-label) is a follow-up; a cross-language
-test pinning the registry keys to `HARNESS_LABELS` lands with that rewire.
+This module is the single source of truth for harness classification. The frontend no
+longer classifies — `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` keeps
+only a label-to-logo/colour map (`HARNESS_BY_LABEL`), keyed by the labels this module
+emits, and a cross-language test pins those keys to `HARNESS_LABELS`. The one remaining
+copy that must move in lockstep is the documented query in the `querying-posthog-data`
+skill's `models-mcp.md`.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute
 it once as a column (`{HARNESS_TOKEN_SQL} AS h`, or `argMax(..., timestamp)` for a
@@ -45,6 +45,7 @@ _RAW_TOKEN = f"""coalesce(
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
+    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     nullIf(toString(properties.$mcp_oauth_client_name), ''),

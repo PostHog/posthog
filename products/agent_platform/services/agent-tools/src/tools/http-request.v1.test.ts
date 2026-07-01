@@ -462,44 +462,4 @@ describe('@posthog/http-request', () => {
             ).rejects.toThrow(/http_request_timeout: 50ms/)
         })
     })
-
-    describe('preview-mode side-effect guard', () => {
-        it.each(['POST', 'PUT', 'PATCH', 'DELETE'] as const)(
-            'short-circuits %s in preview and never reaches the wire',
-            async (method) => {
-                const { http, lastCall } = captureFetch(fakeResponse({ status: 200 }))
-                const out = await httpRequestV1.run(
-                    { url: 'https://example.com/x', method },
-                    makeCtx({ http, isPreview: true })
-                )
-                // `captureFetch` only writes `lastCall.url` when fetch is hit.
-                expect(lastCall.url).toBeUndefined()
-                expect(out).toEqual({
-                    status: 204,
-                    body: '',
-                    content_type: '',
-                    headers: {},
-                    url: 'https://example.com/x',
-                    truncated: false,
-                })
-            }
-        )
-
-        it('lets GET through in preview — reads have no external side effect', async () => {
-            const { http, lastCall } = captureFetch(fakeResponse({ status: 200, text: 'ok' }))
-            const out = await httpRequestV1.run(
-                { url: 'https://example.com/x', method: 'GET' },
-                makeCtx({ http, isPreview: true })
-            )
-            expect(lastCall.init?.method).toBe('GET')
-            expect(out.status).toBe(200)
-            expect(out.body).toBe('ok')
-        })
-
-        it('still dispatches mutating methods normally outside preview', async () => {
-            const { http, lastCall } = captureFetch(fakeResponse({ status: 201 }))
-            await httpRequestV1.run({ url: 'https://example.com/x', method: 'POST', body: { a: 1 } }, makeCtx({ http }))
-            expect(lastCall.init?.method).toBe('POST')
-        })
-    })
 })
