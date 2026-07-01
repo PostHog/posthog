@@ -2,7 +2,6 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import { forms } from 'kea-forms'
 
 import { dayjs } from 'lib/dayjs'
-import { slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -55,7 +54,9 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                       {
                           type: DeliveryTargetTypeEnumApi.Slack,
                           integration_id: form.integration_id,
-                          channel: slackChannelId(form.channel),
+                          // Store the `${id}|#${name}` picker composite so the table can show the
+                          // channel name; delivery.py strips it to the bare id for the Slack destination.
+                          channel: form.channel,
                       },
                   ]
                 : [],
