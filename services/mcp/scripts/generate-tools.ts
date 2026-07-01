@@ -673,6 +673,14 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            // An `optional` override must also surface as optional in the agent-facing
+            // JSON Schema. When combined with `cast` the field is wrapped in
+            // `z.preprocess(...)`, which doesn't propagate inner `.optional()` (zod 4
+            // marks it required), so register it here for `wrapWithCast` to re-apply.
+            if (override.optional) {
+                optionalParamNames.add(paramName)
+            }
+
             const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
             if (castHelper) {
                 castHelperImports.add(castHelper)

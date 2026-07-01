@@ -5869,7 +5869,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
