@@ -146,6 +146,25 @@ class EgressObservability:
         self._metrics.request_counter.labels(scope or "", method.upper(), endpoint_label, "exception", source).inc()
 
 
+# Limiter admission decisions, domain-labeled like everything else here. Counter (not gauge) so the
+# grant/deny rate per domain+source+priority is visible — that's how you see deferrable BATCH traffic
+# being shed before CRITICAL as a shared budget fills. ``granted`` is "true"/"false"; prometheus_client
+# appends ``_total`` to the exposed series name.
+outbound_rate_limit_decisions = Counter(
+    "outbound_rate_limit_decisions",
+    "Outbound egress rate limiter admission decisions. Recorded per attempt, so a shed call that retries "
+    "(e.g. warehouse _fetch_page under tenacity) inflates granted=false by the retry count — alert on the "
+    "grant/deny ratio or rate, not raw denied totals.",
+    labelnames=["domain", "source", "priority", "granted"],
+)
+
+
+def record_outbound_decision(*, domain: str, source: str, priority: str, granted: bool) -> None:
+    """Record one limiter decision. ``priority`` is the lane string (e.g. ``"batch"``); the caller
+    derives ``domain`` from the limiter key's first segment so this stays limiter-library-agnostic."""
+    outbound_rate_limit_decisions.labels(domain, source, priority, "true" if granted else "false").inc()
+
+
 _REGISTRY: dict[str, EgressObservability] = {}
 
 
