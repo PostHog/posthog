@@ -86,7 +86,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         className="group"
                         menuItem={!iconOnly}
                         fullWidth={iconOnly}
-                        data-attr="more-menu-button"
+                        data-attr="help-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
                             <IconWithBadge
