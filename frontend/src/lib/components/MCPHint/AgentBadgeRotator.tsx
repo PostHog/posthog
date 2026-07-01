@@ -22,7 +22,10 @@ interface BadgeAgent {
 
 const POSTHOG_CODE_URL = 'https://posthog.com/code'
 const POSTHOG_SLACK_URL = 'https://posthog.com/slack'
-const POSTHOG_CODE_LOGO = <IconLogomark className="size-4 shrink-0 text-white" />
+// `IconLogomark` is monochrome (fill: currentColor) — inherit the toast's text color so it stays
+// visible on both light and dark themes. Forcing `text-white` made it invisible on the light toast,
+// which read as stray padding before the name.
+const POSTHOG_CODE_LOGO = <IconLogomark className="size-4 shrink-0" />
 const POSTHOG_SLACK_LOGO = <IconSlack className="size-4 shrink-0" />
 
 // Show PostHog Code + Slack more often to increase engagement
