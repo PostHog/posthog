@@ -312,7 +312,8 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # Self-check the warm actually did its job: the tile must resolve to a
             # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
-            # (`created_at + TTL >= now`, TTL = 2h today … 14d old), so True is a
+            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 2h for
+            # today's window up to 14d for the oldest windows), so True is a
             # guarantee the precomputed value is well within the current 2h TTL. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
