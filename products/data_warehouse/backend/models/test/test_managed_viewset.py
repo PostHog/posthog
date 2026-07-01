@@ -56,6 +56,24 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         ]
         self.team.revenue_analytics_config.save()
 
+    def test_sync_views_reconciles_dag_schedules_once(self):
+        # sync_views touches N views; reconciling per view would issue N redundant
+        # Temporal converges for the one managed DAG
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(SCHEDULE_MATERIALIZATION),
+            patch(
+                "products.data_modeling.backend.models.datawarehouse_managed_viewset.maybe_reconcile_dag"
+            ) as reconcile,
+        ):
+            managed_viewset.sync_views()
+
+        reconcile.assert_called_once()
+
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
