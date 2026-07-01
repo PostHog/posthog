@@ -97,7 +97,8 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
-    internal?: boolean
+    /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` is a staff-only internal-only view. */
+    internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
     /** Page size (LimitOffset pagination); the viewset caps it at 100. */

@@ -2520,8 +2520,13 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    # `internal` controls default visibility, not access — task visibility (applied above) is the real
+    # authorization boundary. `all` returns both and is open to any team member; `true` (only-internal)
+    # stays a staff/debug view; the default excludes internal tasks so the main task list stays clean.
     internal_param = filters.get("internal")
-    if internal_param is True and is_debug_or_staff:
+    if internal_param == "all":
+        pass
+    elif internal_param == "true" and is_debug_or_staff:
         qs = qs.filter(internal=True)
     else:
         qs = qs.filter(internal=False)

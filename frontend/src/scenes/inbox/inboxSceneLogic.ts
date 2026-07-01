@@ -228,7 +228,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 loadRuns: async (_payload: void, breakpoint) => {
                     const [scoutResult, signalResult] = await Promise.allSettled([
                         api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
-                        api.tasks.list({ origin_product: OriginProduct.SIGNAL_REPORT, limit: SIGNAL_TASKS_LIMIT }),
+                        // `internal: 'all'` so the pipeline's research runs (created internal) are included,
+                        // not just the non-internal implementation/PR runs.
+                        api.tasks.list({
+                            origin_product: OriginProduct.SIGNAL_REPORT,
+                            internal: 'all',
+                            limit: SIGNAL_TASKS_LIMIT,
+                        }),
                     ])
                     breakpoint()
                     // Degrade gracefully: surface whichever source resolved, matching the inbox's other
