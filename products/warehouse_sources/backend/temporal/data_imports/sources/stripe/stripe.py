@@ -64,6 +64,12 @@ DEFAULT_LIMIT = 100
 # response well within transferable size; _is_truncated_stripe_list_response stays as a backstop for
 # genuinely transient cuts.
 SUBSCRIPTION_PAGE_LIMIT = 20
+# Invoices carry inline line items plus expanded tax/discount data, so a full page of 100 objects
+# can likewise outgrow the size that reliably transfers and arrive truncated mid-stream. The SDK
+# only notices while JSON-decoding the body, after its retry loop, and re-fetching the identical
+# oversized page just truncates again — _is_truncated_stripe_list_response stays as a backstop for
+# genuinely transient cuts, but a smaller page keeps each response within transferable size.
+INVOICE_PAGE_LIMIT = 20
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -290,7 +296,10 @@ def _build_resources(
                 (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
                 if logger is not None
                 else client.invoices.list
-            )
+            ),
+            # Smaller page than DEFAULT_LIMIT because inline line items and expanded tax/discount data
+            # bloat each object; see INVOICE_PAGE_LIMIT. Overrides the default `limit` in merged params.
+            params={"limit": INVOICE_PAGE_LIMIT},
         ),
         PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
