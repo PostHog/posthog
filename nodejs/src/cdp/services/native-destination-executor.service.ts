@@ -128,7 +128,13 @@ export class NativeDestinationExecutorService {
                         method,
                         headers,
                         body,
-                        timeoutMs: resolveFetchTimeoutMs(endpoint, this.serverConfig.CDP_FETCH_TIMEOUT_MS_OVERRIDES),
+                    }
+                    const fetchTimeoutMs = resolveFetchTimeoutMs(
+                        endpoint,
+                        this.serverConfig.CDP_FETCH_TIMEOUT_MS_OVERRIDES
+                    )
+                    if (fetchTimeoutMs !== undefined) {
+                        fetchOptions.timeoutMs = fetchTimeoutMs
                     }
 
                     if (isTestFunction && options?.method?.toUpperCase() !== 'GET') {

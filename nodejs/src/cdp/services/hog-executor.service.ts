@@ -885,10 +885,11 @@ export class HogExecutorService {
             })
         }
 
-        const fetchParams: FetchOptions = {
-            method,
-            headers: signedHeaders,
-            timeoutMs: resolveFetchTimeoutMs(params.url, this.config.fetchTimeoutMsOverrides),
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
+
+        const fetchTimeoutMs = resolveFetchTimeoutMs(params.url, this.config.fetchTimeoutMsOverrides)
+        if (fetchTimeoutMs !== undefined) {
+            fetchParams.timeoutMs = fetchTimeoutMs
         }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
