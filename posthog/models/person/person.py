@@ -403,7 +403,25 @@ class Person(models.Model):
         ]
 
     def _publish_split_to_kafka(self, outcomes: list[SplitOutcome]) -> None:
-        """Publish Kafka messages for each split person and PDI reassignment."""
+        """Publish Kafka messages for each split person and PDI reassignment.
+
+        The PDI reassignment does double duty. ``create_person_distinct_id`` publishes
+        to KAFKA_PERSON_DISTINCT_ID, which feeds two ClickHouse materialized views off
+        the same topic: ``person_distinct_id2`` (the distinct_id -> person mapping) and
+        ``person_distinct_id_overrides`` (the persons-on-events re-attribution layer,
+        which only consumes rows with ``version > 0`` — see PERSON_DISTINCT_ID_OVERRIDES_MV_SQL
+        in posthog/models/person/sql.py). The split always publishes a bumped version
+        (``pdi_version = old + 101``, see ``_split_distinct_ids_batch``), so the override
+        row is written too: historical events whose person_id was baked in at ingestion
+        get re-attributed to the split-off person in persons-on-events mode, without any
+        explicit override write here.
+
+        Preserve the ``version > 0`` invariant. Dropping it, or moving this PDI
+        reassignment to a topic the overrides MV does not read, would silently stop PoE
+        re-attribution while the split still appeared to succeed. Note this re-parents
+        events onto a new person; it does not delete the distinct_id value or the events
+        themselves, so it is not sufficient on its own for erasing distinct_id-embedded PII.
+        """
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         for outcome in outcomes:
