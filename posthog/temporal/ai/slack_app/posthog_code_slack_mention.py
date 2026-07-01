@@ -28,6 +28,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+# Temporal patch ID — arbitrary string recorded in workflow history.
 _PATCH_ID_CONNECTOR_ROUTING_ACTIVITY = "slack-connector-routing-activity-v1"
 
 
@@ -145,6 +146,10 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
 
+            # workflow.patched() returns False for executions started before this
+            # deploy so replay still schedules the old activity; new starts get
+            # the routing activity (task kind + required connectors). Delete the else branch
+            # once history retention exceeds our longest possible run (nothing left to replay).
             if workflow.patched(_PATCH_ID_CONNECTOR_ROUTING_ACTIVITY):
                 routing = await _execute_posthog_code_activity(
                     classify_posthog_code_task_routing_activity,
