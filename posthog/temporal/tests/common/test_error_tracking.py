@@ -2,6 +2,7 @@
 
 import uuid
 import datetime as dt
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,9 +13,10 @@ from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _activity_failure_will_retry
 
 
 @dataclass
@@ -158,6 +160,33 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "attempt,retry_policy,exc,expected_will_retry",
+    [
+        # Bounded retries with attempts remaining: defer capture, Temporal will retry.
+        (1, RetryPolicy(maximum_attempts=3), ValueError("boom"), True),
+        (2, RetryPolicy(maximum_attempts=3), ValueError("boom"), True),
+        # Bounded retries on the final attempt: terminal, capture now.
+        (3, RetryPolicy(maximum_attempts=3), ValueError("boom"), False),
+        # Retries disabled: every failure is terminal.
+        (1, RetryPolicy(maximum_attempts=1), ValueError("boom"), False),
+        # Unlimited retries: no final attempt to wait for, so capture now.
+        (5, RetryPolicy(maximum_attempts=0), ValueError("boom"), False),
+        # Server didn't report a retry policy: can't defer, capture now.
+        (1, None, ValueError("boom"), False),
+        # Non-retryable application error is terminal even mid-retry.
+        (1, RetryPolicy(maximum_attempts=3), ApplicationError("boom", non_retryable=True), False),
+        # Error type excluded from retries is terminal even mid-retry.
+        (1, RetryPolicy(maximum_attempts=3, non_retryable_error_types=["ValueError"]), ValueError("boom"), False),
+    ],
+)
+def test_activity_failure_will_retry(
+    attempt: int, retry_policy: RetryPolicy | None, exc: Exception, expected_will_retry: bool
+):
+    info = dataclasses.replace(ActivityEnvironment.default_info(), attempt=attempt, retry_policy=retry_policy)
+    assert _activity_failure_will_retry(exc, info) is expected_will_retry
 
 
 @pytest.mark.asyncio

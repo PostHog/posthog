@@ -40,6 +40,32 @@ def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowIn
         pass
 
 
+def _activity_failure_will_retry(exc: BaseException, info: activity.Info) -> bool:
+    """Whether Temporal will retry this activity after the current failed attempt.
+
+    We defer error-tracking capture until retries are exhausted: transient failures
+    (dropped connections, TLS resets, upstream 5xxs) usually succeed on retry, so
+    capturing every attempt floods error tracking with issues for runs that self-heal.
+    A failure that won't be retried is terminal and gets captured immediately.
+
+    Errs toward capturing (returns False) whenever retry behavior can't be determined,
+    so genuinely terminal failures are never silently dropped."""
+    retry_policy = info.retry_policy
+    if retry_policy is None:
+        # Server didn't report the retry policy (e.g. old server); can't defer safely.
+        return False
+    # Non-retryable application errors are terminal regardless of attempt count.
+    if isinstance(exc, temporalio.exceptions.ApplicationError) and exc.non_retryable:
+        return False
+    if retry_policy.non_retryable_error_types and type(exc).__name__ in retry_policy.non_retryable_error_types:
+        return False
+    max_attempts = retry_policy.maximum_attempts
+    if max_attempts <= 0:
+        # 0 means unlimited retries: there is no final attempt to wait for, so capture now.
+        return False
+    return info.attempt < max_attempts
+
+
 async def _add_inputs_to_capture_kwargs(
     capture_kwargs: dict[str, Any],
     input: ExecuteActivityInput | ExecuteWorkflowInput,
@@ -66,6 +92,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
         except Exception as e:
             activity_info = activity.info()
+            if _activity_failure_will_retry(e, activity_info):
+                # Retryable failure — defer capture until retries are exhausted so
+                # transient errors that recover on retry don't create error-tracking noise.
+                raise
             capture_kwargs = {
                 "properties": {
                     "temporal.execution_type": "activity",
