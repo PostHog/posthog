@@ -977,12 +977,14 @@ export const AgentSpecSchema = z.object({
     models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z
         .array(TriggerSchema)
+        .max(50)
         .describe(
             'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
         )
         .default([]),
     tools: z
         .array(ToolRefSchema)
+        .max(200)
         .describe(
             'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
         )
@@ -999,18 +1001,21 @@ export const AgentSpecSchema = z.object({
         .default([]),
     skills: z
         .array(SkillRefSchema)
+        .max(50)
         .describe(
             'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
         )
         .default([]),
     identity_providers: z
         .array(IdentityProviderConfigSchema)
+        .max(50)
         .describe(
             'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
         )
         .default([]),
     secrets: z
         .array(SecretRefSchema)
+        .max(100)
         .describe(
             'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
         )
