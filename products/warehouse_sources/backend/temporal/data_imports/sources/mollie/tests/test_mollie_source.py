@@ -44,6 +44,8 @@ class TestMollieSource:
         [
             "401 Client Error: Unauthorized for url: https://api.mollie.com/v2/payments?limit=250",
             "403 Client Error: Forbidden for url: https://api.mollie.com/v2/settlements",
+            "400 Client Error: Bad Request for url: https://api.mollie.com/v2/subscriptions?limit=250",
+            "400 Client Error: Bad Request for url: https://api.mollie.com/v2/chargebacks?limit=250",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
