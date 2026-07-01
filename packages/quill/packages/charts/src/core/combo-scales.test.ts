@@ -1,7 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import { computeBarAtIndex } from './bar-layout'
 import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
-import { computeStackData } from './scales'
+import { computePercentStackData, computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -241,6 +241,30 @@ describe('combo-scales', () => {
             expect(bar!.y).toBeCloseTo(rightScale(3000), 0)
             // The left/primary scale (domain ~[0,10]) would place 3000 far off-plot — confirm it differs.
             expect(Math.abs(bar!.y - scales.y(3000))).toBeGreaterThan(1)
+        })
+    })
+
+    describe('createComboScales — percent-stack barLayout', () => {
+        it('clamps the y-scale domain to [0, 1] when barLayout is percent', () => {
+            const bar1 = makeSeries({ key: 'b1', data: [300], type: 'bar' })
+            const bar2 = makeSeries({ key: 'b2', data: [700], type: 'bar' })
+            const barStackedData = computePercentStackData([bar1, bar2], ['a'])
+            const scales = createComboScales([bar1, bar2], ['a'], dimensions, {
+                barLayout: 'percent',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData,
+            })
+            const [domainMin, domainMax] = scales.y.domain()
+            expect(domainMin).toBeCloseTo(0, 1)
+            expect(domainMax).toBeCloseTo(1, 1)
+        })
+
+        it('bar series percent tops sum to 1 across the stack', () => {
+            const bar1 = makeSeries({ key: 'b1', data: [300], type: 'bar' })
+            const bar2 = makeSeries({ key: 'b2', data: [700], type: 'bar' })
+            const barStackedData = computePercentStackData([bar1, bar2], ['a'])
+            // b2 is the topmost bar — its cumulative top should be 1.0
+            expect(barStackedData.get('b2')?.top[0]).toBeCloseTo(1, 5)
         })
     })
 
