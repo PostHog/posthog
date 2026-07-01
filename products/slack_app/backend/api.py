@@ -1208,7 +1208,7 @@ def _notify_missing_slack_scopes(
     if not channel or not thread_ts or not slack_user_id:
         return
 
-    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    settings_url = f"{settings.SITE_URL}/integrations/slack"
     text = (
         ":warning: PostHog can't reply because the Slack integration is missing required "
         f"permissions: `{', '.join(sorted(missing))}`.\n"

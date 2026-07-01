@@ -1,6 +1,9 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use crate::properties::property_models::{CompiledRegex, OperatorType, PropertyFilter};
+use crate::properties::property_models::{
+    CompiledRegex, OperatorType, PropertyFilter, PropertyType,
+};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
@@ -12,6 +15,33 @@ use serde_json::Value;
 /// Regex backtrack limit to prevent ReDoS attacks.
 /// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
 pub(crate) const REGEX_BACKTRACK_LIMIT: usize = 10_000;
+
+/// Prefix used when storing PersonMetadata field values (e.g. created_at) in the
+/// person properties map. Avoids collision with user-set properties of the same name.
+const PERSON_METADATA_KEY_PREFIX: &str = "__posthog_person_metadata__";
+
+/// Top-level persons-table columns exposed as PersonMetadata filters. Must stay in sync
+/// with `PERSON_METADATA_FIELDS` in `posthog/hogql/property.py` (the source of truth) and
+/// with the injection match arm in `flag_matching_utils::apply_person_cohort_to_state`.
+pub const PERSON_METADATA_FIELDS: &[&str] = &["created_at"];
+
+/// Build the lookup key for a PersonMetadata field (e.g. created_at).
+pub fn person_metadata_key(field: &str) -> String {
+    format!("{}{}", PERSON_METADATA_KEY_PREFIX, field)
+}
+
+/// Resolve the lookup key for a property filter, applying the PersonMetadata prefix when
+/// the filter targets a top-level persons-table column rather than the properties JSON.
+///
+/// Returns `Cow::Borrowed` for the common case (Person/Group/Event/Cohort/Flag) so the hot
+/// `match_property` path doesn't allocate; only PersonMetadata filters allocate the prefixed key.
+pub fn lookup_key_for(filter: &PropertyFilter) -> Cow<'_, str> {
+    if filter.prop_type == PropertyType::PersonMetadata {
+        Cow::Owned(person_metadata_key(&filter.key))
+    } else {
+        Cow::Borrowed(&filter.key)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -58,9 +88,12 @@ pub fn match_property(
     partial_props: bool,
     team_timezone: Tz,
 ) -> Result<bool, FlagMatchingError> {
+    let lookup_key = lookup_key_for(property);
+    let key: &str = lookup_key.as_ref();
+
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
-    if partial_props && !matching_property_values.contains_key(&property.key) {
+    if partial_props && !matching_property_values.contains_key(key) {
         tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
@@ -68,7 +101,6 @@ pub fn match_property(
         )));
     }
 
-    let key = &property.key;
     let operator = property.operator.unwrap_or(OperatorType::Exact);
     let match_value = matching_property_values.get(key);
 
@@ -3770,5 +3802,37 @@ mod test_match_properties {
             match_date(person.clone(), &before, PACIFIC),
             match_date(person, &before, Tz::UTC)
         );
+    }
+
+    #[test]
+    fn test_match_property_person_metadata_uses_sentinel_key() {
+        // PersonMetadata filters look up under a sentinel-prefixed key so they don't
+        // collide with user-set properties of the same name.
+        let filter = PropertyFilter {
+            key: "created_at".to_string(),
+            value: Some(json!("2024-01-01")),
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: PropertyType::PersonMetadata,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // A user-set "created_at" property must NOT satisfy a person_metadata filter:
+        // the metadata field is intentionally segregated so user-set values can't
+        // override the canonical persons-table value.
+        let user_set_only = HashMap::from([(
+            "created_at".to_string(),
+            json!("2099-01-01"), // Far-future user-set value
+        )]);
+        assert!(match_property(&filter, &user_set_only, false).is_ok());
+        assert!(!match_property(&filter, &user_set_only, false).expect("filter evaluated"));
+
+        // The sentinel-prefixed key (which the matcher injects from Person.created_at)
+        // is what actually resolves the filter.
+        let metadata_only =
+            HashMap::from([(person_metadata_key("created_at"), json!("2025-06-01"))]);
+        assert!(match_property(&filter, &metadata_only, false).expect("filter evaluated"));
     }
 }
