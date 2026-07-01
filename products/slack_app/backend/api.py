@@ -60,6 +60,12 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
+from products.slack_app.backend.services.agent_permissions import (
+    SLACK_PERMISSION_ACTION_APPROVE,
+    SLACK_PERMISSION_ACTION_DENY,
+    SLACK_PERMISSION_ACTION_SELECT,
+    SLACK_PERMISSION_CONTEXT_KIND,
+)
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -116,6 +122,7 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
+LOCAL_DEV_SLACK_EMAIL = "test@posthog.com"
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -349,7 +356,7 @@ def resolve_slack_user(
             # other callers (e.g. `resolve_posthog_user_from_event` from the
             # channel-approval path) can still drive the helper with stubbed
             # Slack responses in tests.
-            slack_email = "test@posthog.com"
+            slack_email = LOCAL_DEV_SLACK_EMAIL
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -1886,6 +1893,7 @@ def route_posthog_code_event_to_relevant_region(
             event_id,
             posthog_user=posthog_user,
             untagged_followup=untagged_followup_mapping is not None,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
 
     if event_type == "member_joined_channel":
@@ -2394,6 +2402,7 @@ def _start_mention_workflow(
     *,
     posthog_user: User | None,
     untagged_followup: bool = False,
+    is_ext_shared_channel: bool = False,
 ) -> str:
     """Start the mention workflow for either an explicit ``app_mention`` or an
     untagged thread reply.
@@ -2422,6 +2431,7 @@ def _start_mention_workflow(
         slack_event_id=event_id,
         user_id=posthog_user.id if posthog_user else None,
         untagged_followup=untagged_followup,
+        is_ext_shared_channel=is_ext_shared_channel,
     )
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
@@ -2553,6 +2563,12 @@ def _extract_context_token(payload: dict) -> str:
         token = token_from_block_id(action_block_id)
         if token:
             return token
+
+    for action in payload.get("actions", []):
+        if action.get("action_id") in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}:
+            action_value = action.get("value")
+            if isinstance(action_value, str) and action_value:
+                return action_value
 
     # fallback: message metadata
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
@@ -3157,6 +3173,271 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _permission_options_by_id(context: dict[str, Any]) -> dict[str, dict[str, str]]:
+    options = context.get("options")
+    if not isinstance(options, list):
+        return {}
+
+    by_id: dict[str, dict[str, str]] = {}
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        option_id = option.get("optionId")
+        if not isinstance(option_id, str) or not option_id:
+            continue
+        by_id[option_id] = {
+            "kind": option.get("kind") if isinstance(option.get("kind"), str) else "",
+            "label": option.get("label") if isinstance(option.get("label"), str) else option_id,
+        }
+    return by_id
+
+
+def _default_permission_option_id(context: dict[str, Any], options_by_id: dict[str, dict[str, str]]) -> str:
+    default_option_id = context.get("default_option_id")
+    if (
+        isinstance(default_option_id, str)
+        and default_option_id in options_by_id
+        and not options_by_id[default_option_id]["kind"].startswith("reject")
+    ):
+        return default_option_id
+
+    for option_id, option in options_by_id.items():
+        if not option["kind"].startswith("reject"):
+            return option_id
+
+    return next(iter(options_by_id))
+
+
+def _post_permission_ephemeral_feedback(payload: dict, text: str) -> None:
+    response_url = payload.get("response_url", "")
+    if not response_url:
+        return
+    try:
+        requests.post(
+            response_url, json={"response_type": "ephemeral", "replace_original": False, "text": text}, timeout=3
+        )
+    except Exception:
+        logger.warning("slack_app_permission_feedback_failed", exc_info=True)
+
+
+def _resolve_permission_interaction(payload: dict) -> tuple[str, dict[str, Any], Integration, str] | None:
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != SLACK_PERMISSION_CONTEXT_KIND:
+        return None
+
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+    expected_slack_user_id = context.get("expected_slack_user_id")
+    if not isinstance(expected_slack_user_id, str) or clicker_slack_user_id != expected_slack_user_id:
+        _post_permission_ephemeral_feedback(
+            payload,
+            "Only the person this approval was sent to can respond to it.",
+        )
+        return None
+
+    integration_id = context.get("integration_id")
+    slack_team_id = payload.get("team", {}).get("id", "")
+    if not integration_id or not slack_team_id:
+        return None
+
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team")
+        .first()
+    )
+    if integration is None:
+        return None
+
+    return context_token, context, integration, clicker_slack_user_id
+
+
+def _replace_permission_prompt(payload: dict, text: str) -> None:
+    response_url = payload.get("response_url", "")
+    if not response_url:
+        return
+    try:
+        requests.post(
+            response_url,
+            json={
+                "replace_original": True,
+                "text": text,
+                "blocks": [
+                    {
+                        "type": "card",
+                        "slack_icon": {"type": "icon", "name": "rocket"},
+                        "title": {
+                            "type": "mrkdwn",
+                            "text": "Approval recorded",
+                            "verbatim": False,
+                        },
+                        "subtitle": {
+                            "type": "mrkdwn",
+                            "text": "No further action is needed.",
+                            "verbatim": False,
+                        },
+                        "body": {"type": "mrkdwn", "text": text, "verbatim": False},
+                    }
+                ],
+            },
+            timeout=3,
+        )
+    except Exception:
+        logger.warning("slack_app_permission_replace_failed", exc_info=True)
+
+
+def _selected_autonomy_tier(payload: dict) -> str | None:
+    action = next(
+        (a for a in payload.get("actions", []) if a.get("action_id") == SLACK_PERMISSION_ACTION_SELECT),
+        None,
+    )
+    if not action:
+        return None
+
+    selected_option = action.get("selected_option")
+    if not isinstance(selected_option, dict):
+        return None
+
+    value = selected_option.get("value")
+    return value if isinstance(value, str) else None
+
+
+def _handle_permission_config_select(payload: dict) -> HttpResponse:
+    resolved = _resolve_permission_interaction(payload)
+    if resolved is None:
+        return HttpResponse(status=200)
+
+    _context_token, context, integration, clicker_slack_user_id = resolved
+    selected_tier = _selected_autonomy_tier(payload)
+
+    from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
+
+    if selected_tier not in SlackAutonomyTier.values:
+        return HttpResponse(status=200)
+
+    slack_workspace_id = context.get("slack_workspace_id") or integration.integration_id
+    if not isinstance(slack_workspace_id, str) or not slack_workspace_id:
+        return HttpResponse(status=200)
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=clicker_slack_user_id,
+        defaults={
+            "default_integration": integration,
+            "autonomy_tier": selected_tier,
+        },
+    )
+
+    selected_label = SlackAutonomyTier(selected_tier).label
+    _post_permission_ephemeral_feedback(payload, f"Approval config saved: `{selected_label}`.")
+    logger.info(
+        "slack_app_permission_config_saved",
+        integration_id=integration.id,
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=clicker_slack_user_id,
+        autonomy_tier=selected_tier,
+    )
+    return HttpResponse(status=200)
+
+
+def _handle_permission_submit(payload: dict) -> HttpResponse:
+    action = next(
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}
+        ),
+        None,
+    )
+    if action is None:
+        return HttpResponse(status=200)
+
+    resolved = _resolve_permission_interaction(payload)
+    if resolved is None:
+        return HttpResponse(status=200)
+    context_token, context, integration, _clicker_slack_user_id = resolved
+
+    options_by_id = _permission_options_by_id(context)
+    if not options_by_id:
+        return HttpResponse(status=200)
+
+    request_id = context.get("request_id")
+    run_id = context.get("run_id")
+    task_id = context.get("task_id")
+    if not isinstance(request_id, str) or not isinstance(run_id, str) or not isinstance(task_id, str):
+        return HttpResponse(status=200)
+
+    if action.get("action_id") == SLACK_PERMISSION_ACTION_DENY:
+        option_id = context.get("reject_option_id")
+        action_label = "Denied"
+    else:
+        option_id = _default_permission_option_id(context, options_by_id)
+        action_label = "Approved"
+
+    if not isinstance(option_id, str) or option_id not in options_by_id:
+        return HttpResponse(status=200)
+
+    from products.tasks.backend.logic.services.agent_command import send_agent_command
+    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        task_run = TaskRun.objects.select_related("task", "task__created_by").get(
+            id=run_id,
+            task_id=task_id,
+            team_id=integration.team_id,
+        )
+    except TaskRun.DoesNotExist:
+        return HttpResponse(status=200)
+
+    if task_run.is_terminal:
+        _replace_permission_prompt(payload, f"This run is already `{task_run.status}`. There is nothing to approve.")
+        cache.delete(_picker_context_cache_key(context_token))
+        return HttpResponse(status=200)
+
+    auth_token = None
+    created_by = task_run.task.created_by
+    if created_by and created_by.id:
+        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+
+    result = send_agent_command(
+        task_run,
+        method="permission_response",
+        params={"requestId": request_id, "optionId": option_id},
+        auth_token=auth_token,
+    )
+    if not result.success:
+        logger.warning(
+            "slack_app_permission_response_failed",
+            run_id=run_id,
+            request_id=request_id,
+            option_id=option_id,
+            status_code=result.status_code,
+            error=result.error,
+        )
+        _post_permission_ephemeral_feedback(
+            payload,
+            "I couldn't deliver that response to the agent. Please try again from the Task UI.",
+        )
+        return HttpResponse(status=200)
+
+    cache.delete(_picker_context_cache_key(context_token))
+    option_label = options_by_id[option_id]["label"]
+    _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
+    logger.info(
+        "slack_app_permission_response_sent",
+        run_id=run_id,
+        request_id=request_id,
+        option_id=option_id,
+        action=action.get("action_id"),
+    )
+    return HttpResponse(status=200)
+
+
 # Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
@@ -3472,6 +3753,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_DENY:
                 return _handle_channel_approval_deny(payload)
+            if action_id in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}:
+                return _handle_permission_submit(payload)
+            if action_id == SLACK_PERMISSION_ACTION_SELECT:
+                return _handle_permission_config_select(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:

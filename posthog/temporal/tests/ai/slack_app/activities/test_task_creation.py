@@ -13,6 +13,7 @@ to wording in the wrapper text show up as a diff in
 
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
+    _SLACK_DELIVERY_CONSTRAINTS,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
     _build_posthog_code_task_description,
@@ -49,7 +50,7 @@ def test_indent_body_preserves_blank_lines_without_trailing_whitespace():
     assert _indent_body("a\n\nb") == "  a\n\n  b"
 
 
-def test_build_description_returns_just_prompt_when_thread_has_only_initiator():
+def test_build_description_includes_delivery_constraints_when_thread_has_only_initiator():
     # Single-message threads don't need a context block — the initiator's text
     # *is* the entire context, and we already keep it as the prompt below the
     # divider. Wrapping it would just add noise.
@@ -59,12 +60,14 @@ def test_build_description_returns_just_prompt_when_thread_has_only_initiator():
         "1234.5678",
         mentioner_slack_user_id="U_GEORGIY",
     )
-    assert out == "do something"
+    assert _SLACK_DELIVERY_CONSTRAINTS in out
+    assert out.endswith("do something")
 
 
 def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_blank():
     out = _build_posthog_code_task_description("   ", [], None)
-    assert out == "Task from Slack"
+    assert _SLACK_DELIVERY_CONSTRAINTS in out
+    assert out.endswith("Task from Slack")
 
 
 def test_build_description_renders_labeled_mention_for_each_author():

@@ -73,10 +73,17 @@ class SlackUserProfileCache(UUIDModel):
         ]
 
 
+class SlackAutonomyTier(models.TextChoices):
+    READ_ONLY = "read_only", "Read-only"
+    ASK_BEFORE_WRITE = "ask_before_write", "Ask before write"
+    FULL_AUTO = "full_auto", "Full auto"
+
+
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
     Currently stores the routing default — which PostHog integration a mention
-    from this Slack user should route to.
+    from this Slack user should route to — and the autonomy tier for Slack-started
+    agent runs.
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.
@@ -103,6 +110,13 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    autonomy_tier = models.CharField(
+        max_length=32,
+        choices=SlackAutonomyTier.choices,
+        default=SlackAutonomyTier.ASK_BEFORE_WRITE,
+        db_default=SlackAutonomyTier.ASK_BEFORE_WRITE,
+        help_text="Controls how Slack-started agent runs handle tool calls that can write.",
+    )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
