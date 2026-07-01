@@ -217,6 +217,17 @@ class TestFetchPageRetries:
         assert result == {"data": []}
         assert session.get.call_count == 2
 
+    def test_transient_error_reraised_after_exhausting_attempts(self) -> None:
+        # After the 5-attempt cap the last transient error must surface (reraise=True), not be swallowed.
+        session = MagicMock()
+        session.get.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength")
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(requests.exceptions.ChunkedEncodingError):
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert session.get.call_count == 5
+
 
 def _response_with_status(status_code: int) -> requests.Response:
     response = requests.Response()
