@@ -128,6 +128,65 @@ class TestExperimentValueBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertEqual(result.baseline.number_of_samples, len(self.CONTROL_EXPOSED))
 
     @freeze_time("2020-01-01T12:00:00Z")
+    def test_value_breakdown_full_denominator_when_variant_missing_value(self):
+        # "premium" occurs only for control; no test user has it. The test arm's premium split must
+        # still cover ALL exposed test users (sum 0), not collapse to 0 samples — otherwise the
+        # decomposition silently drops one variant for any value that appears in just one arm.
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        exposed = {"control": ["c0", "c1", "c2"], "test": ["t0", "t1", "t2"]}
+        purchases = [
+            ("control", "c0", 10, "free"),
+            ("control", "c1", 5, "premium"),  # premium: control only
+            ("test", "t0", 8, "free"),
+        ]
+        for variant, distinct_ids in exposed.items():
+            for distinct_id in distinct_ids:
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+        for variant, distinct_id, amount, plan in purchases:
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_id,
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: variant, "amount": amount, "plan": plan},
+            )
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            value_breakdown_property="plan",
+        )
+        result = self._run(experiment, metric)
+
+        assert result.breakdown_results is not None
+        premium = next(br for br in result.breakdown_results if br.breakdown_value == ["premium"])
+
+        # Control hit premium: full denominator and the real sum.
+        self.assertEqual(premium.baseline.number_of_samples, 3)
+        self.assertAlmostEqual(premium.baseline.sum, 5.0, places=6)
+
+        # Test had zero premium events, but its split still covers all 3 exposed users with sum 0.
+        test_variant = next(variant for variant in premium.variants if variant.key == "test")
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertAlmostEqual(test_variant.sum, 0.0, places=6)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_value_breakdown_headline_matches_unsplit_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)

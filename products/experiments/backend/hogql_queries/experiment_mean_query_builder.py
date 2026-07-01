@@ -482,10 +482,9 @@ class MeanQueryBuilder:
                 WHERE {metric_predicate}
             ),
 
-            -- One row per (user, property value): the user's accumulated metric value for that
-            -- value. INNER JOIN is intentional — a user with no events for a value contributes 0
-            -- to both its sum and its sum-of-squares, so it needs no row here. The full
-            -- denominator is restored from variant_exposures below.
+            -- One row per (user, variant, property value): the user's accumulated metric value for
+            -- that value. The INNER JOIN is fine here — a user with no events for a value just
+            -- contributes no row, and the full denominator is restored by the cross join below.
             entity_value_metrics AS (
                 SELECT
                     exposures.entity_id AS entity_id,
@@ -498,25 +497,46 @@ class MeanQueryBuilder:
                 GROUP BY exposures.entity_id, exposures.variant, metric_events.breakdown_value
             ),
 
-            -- Full exposure denominator per variant — the same count the un-split metric uses, so
-            -- each split is measured over every exposed user, not just those who hit the value.
+            -- Per (variant, value): the summed contribution and sum-of-squares, over users who hit
+            -- the value. Missing (variant, value) pairs are filled back in by the cross join below.
+            value_aggregates AS (
+                SELECT
+                    variant,
+                    breakdown_value,
+                    sum(value) AS total_sum,
+                    sum(power(value, 2)) AS total_sum_of_squares
+                FROM entity_value_metrics
+                GROUP BY variant, breakdown_value
+            ),
+
+            -- Full exposure denominator per variant — the same count the un-split metric uses.
             variant_exposures AS (
                 SELECT
                     variant,
                     count(entity_id) AS num_users
                 FROM exposures
                 GROUP BY variant
+            ),
+
+            -- Every value seen for ANY variant. Crossing this with variant_exposures emits a row for
+            -- every (variant, value) pair — including pairs where a variant had zero events — so each
+            -- split reports the full denominator with a 0 sum rather than going missing (which would
+            -- otherwise pad that variant with 0 samples, breaking the full-denominator guarantee).
+            breakdown_values AS (
+                SELECT DISTINCT breakdown_value FROM value_aggregates
             )
 
             SELECT
-                entity_value_metrics.variant AS variant,
-                entity_value_metrics.breakdown_value AS breakdown_value_1,
-                any(variant_exposures.num_users) AS num_users,
-                sum(entity_value_metrics.value) AS total_sum,
-                sum(power(entity_value_metrics.value, 2)) AS total_sum_of_squares
-            FROM entity_value_metrics
-            INNER JOIN variant_exposures ON entity_value_metrics.variant = variant_exposures.variant
-            GROUP BY entity_value_metrics.variant, entity_value_metrics.breakdown_value
+                variant_exposures.variant AS variant,
+                breakdown_values.breakdown_value AS breakdown_value_1,
+                variant_exposures.num_users AS num_users,
+                coalesce(value_aggregates.total_sum, 0) AS total_sum,
+                coalesce(value_aggregates.total_sum_of_squares, 0) AS total_sum_of_squares
+            FROM variant_exposures
+            CROSS JOIN breakdown_values
+            LEFT JOIN value_aggregates
+                ON value_aggregates.variant = variant_exposures.variant
+                AND value_aggregates.breakdown_value = breakdown_values.breakdown_value
             """,
             placeholders=placeholders,
         )
