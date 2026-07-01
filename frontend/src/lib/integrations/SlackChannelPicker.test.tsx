@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -236,6 +236,38 @@ describe('SlackChannelPicker', () => {
                 expect(channelsRequestSearchQueries.filter((q) => q === '').length).toBeGreaterThanOrEqual(2)
             },
             { timeout: 2000 }
+        )
+    })
+
+    // A channel-ID-shaped input that resolves to nothing (e.g. a private channel whose access is
+    // scoped to the connecting Slack user) must explain the membership requirement rather than the
+    // misleading generic "install the app" copy — that silent dead end is what the fix addresses.
+    it.each<[string, string, string]>([
+        [
+            'channel-ID-shaped input that resolves to nothing',
+            'C0BEB1MUCCC',
+            'only appears once the Slack user who connected PostHog is a member',
+        ],
+        ['free-text that matches no channel', 'zzznomatch', 'Make sure the PostHog Slack App is installed'],
+    ])('shows the right empty-state message for %s', async (_label, typed, expectedText) => {
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, typed)
+
+        await waitFor(
+            () => {
+                expect(screen.getByText(expectedText, { exact: false })).toBeInTheDocument()
+            },
+            { timeout: 3000 }
         )
     })
 

@@ -103,6 +103,13 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
     usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
+    // When the typed text is channel-ID-shaped, the picker fires a direct by-id lookup. A private
+    // channel only resolves if the Slack user who connected PostHog is a member of it (private
+    // channels are listed via that user's memberships, not the bot's) — so a valid ID can come back
+    // empty. Detect that case to explain it instead of showing a bare "No channels found".
+    const typedChannelIdCandidate = localValue?.trim().toUpperCase()
+    const typedLooksLikeChannelId = !!typedChannelIdCandidate && SLACK_CHANNEL_ID_PATTERN.test(typedChannelIdCandidate)
+
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(
         () => getSlackChannelOptions(slackChannelsForPicker),
@@ -211,7 +218,15 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     // not max-width — without a cap the popover can grow to fit a long single line
                     // and spill past the modal edge.
                     <p className="text-secondary italic p-1 max-w-sm">
-                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                        {typedLooksLikeChannelId ? (
+                            <>
+                                We couldn't find that channel. If it's a private channel, it only appears once the Slack
+                                user who connected PostHog is a member of it — adding the PostHog Slack App to the
+                                channel isn't enough on its own.{' '}
+                            </>
+                        ) : (
+                            <>Make sure the PostHog Slack App is installed in the channel. </>
+                        )}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
                         </Link>
@@ -236,6 +251,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     Only the first page of channels is shown — type to search for a specific channel.
                 </p>
             ) : null}
+
+            <p className="text-secondary text-xs mt-1 mb-0">
+                Private channels only appear if the Slack user who connected PostHog is a member of them — adding the
+                PostHog Slack App to a private channel isn't enough on its own.
+            </p>
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
