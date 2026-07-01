@@ -67,6 +67,9 @@ pub struct ProcessingConfig {
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
+    #[envconfig(default = "error_tracking_ingestion_notifications")]
+    pub ingestion_notifications_topic: String,
+
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
 
@@ -159,10 +162,6 @@ pub struct ProcessingConfig {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
-
-    // Internal API for signal emission
-    #[envconfig(default = "")]
-    pub signals_api_base_url: String,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
