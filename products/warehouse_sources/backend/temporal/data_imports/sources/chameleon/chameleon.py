@@ -70,14 +70,26 @@ def _fetch_page(
     return response.json()
 
 
-def validate_credentials(account_secret: str) -> bool:
+def validate_credentials(account_secret: str) -> tuple[bool, str | None]:
+    # The root probe echoes back the account/user ids on success (200). A bad or revoked secret is
+    # rejected with 401/403 — those are the only conclusive "invalid" signals. Transport failures and
+    # unexpected statuses (429, 5xx) are inconclusive: reporting them as an invalid secret would push
+    # users to needlessly rotate a working credential, so they get a generic retry message instead.
+    # `redact_values` masks the secret from any captured sample.
     try:
         response = make_tracked_session(redact_values=(account_secret,)).get(
             CHAMELEON_ROOT_URL, headers=_get_headers(account_secret), timeout=10
         )
-        return response.status_code == 200
-    except Exception:
-        return False
+    except requests.RequestException:
+        return False, "Could not reach Chameleon to validate the account secret. Please try again."
+    if response.status_code == 200:
+        return True, None
+    if response.status_code in (401, 403):
+        return False, "Invalid Chameleon account secret"
+    return (
+        False,
+        f"Chameleon could not validate the account secret right now (status {response.status_code}). Please try again.",
+    )
 
 
 def _iter_pages(

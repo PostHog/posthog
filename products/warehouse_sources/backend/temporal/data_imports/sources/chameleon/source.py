@@ -121,10 +121,7 @@ You can generate an account-specific API secret in your [Chameleon account setti
     def validate_credentials(
         self, config: ChameleonSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_chameleon_credentials(config.account_secret):
-            return True, None
-
-        return False, "Invalid Chameleon account secret"
+        return validate_chameleon_credentials(config.account_secret)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ChameleonResumeConfig]:
         return ResumableSourceManager[ChameleonResumeConfig](inputs, ChameleonResumeConfig)

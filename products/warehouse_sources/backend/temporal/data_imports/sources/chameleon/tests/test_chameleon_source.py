@@ -74,12 +74,19 @@ class TestChameleonCredentials:
     def setup_method(self) -> None:
         self.source = ChameleonSource()
 
-    @parameterized.expand([("valid", True, True), ("invalid", False, False)])
-    def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
+    @parameterized.expand(
+        [
+            ("valid", (True, None)),
+            ("invalid", (False, "Invalid Chameleon account secret")),
+            ("unreachable", (False, "Could not reach Chameleon to validate the account secret. Please try again.")),
+        ]
+    )
+    def test_validate_credentials_propagates_probe_result(
+        self, _name: str, probe_result: tuple[bool, str | None]
+    ) -> None:
         with patch.object(source_module, "validate_chameleon_credentials", return_value=probe_result):
-            ok, error = self.source.validate_credentials(_config(), team_id=1)
-        assert ok is expected_ok
-        assert (error is None) is expected_ok
+            result = self.source.validate_credentials(_config(), team_id=1)
+        assert result == probe_result
 
     def test_403_is_non_retryable(self) -> None:
         observed = "403 Client Error: Forbidden for url: https://api.chameleon.io/v3/edit/segments?limit=500"

@@ -72,20 +72,37 @@ class TestBuildUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
-    def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Chameleon account secret"),
+            ("forbidden", 403, False, "Invalid Chameleon account secret"),
+            ("rate_limited", 429, False, "status 429"),
+            ("server_error", 500, False, "status 500"),
+        ]
+    )
+    def test_status_maps_to_result(
+        self, _name: str, status_code: int, expected_ok: bool, expected_fragment: str | None
+    ) -> None:
         with patch.object(chameleon, "make_tracked_session") as make_session:
             session = MagicMock()
             session.get.return_value = MagicMock(status_code=status_code)
             make_session.return_value = session
-            assert validate_credentials("secret") is expected
+            ok, error = validate_credentials("secret")
+            assert ok is expected_ok
+            if expected_fragment is None:
+                assert error is None
+            else:
+                assert error is not None and expected_fragment in error
 
-    def test_network_error_is_false(self) -> None:
+    def test_network_error_is_inconclusive(self) -> None:
         with patch.object(chameleon, "make_tracked_session") as make_session:
             session = MagicMock()
             session.get.side_effect = requests.ConnectionError("boom")
             make_session.return_value = session
-            assert validate_credentials("secret") is False
+            ok, error = validate_credentials("secret")
+            assert ok is False
+            assert error is not None and "Could not reach Chameleon" in error
 
 
 class TestStandardEndpointPagination:
