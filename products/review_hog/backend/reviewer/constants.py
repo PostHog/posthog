@@ -2,13 +2,12 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 # REVIEW MODEL
-REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-5.5"
+REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+REVIEW_MODEL = "claude-opus-4-8"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Codex's "allow everything" mode (the equivalent of Claude's bypassPermissions). The review is
-# headless and pulls its perspective skills over MCP; Codex's default "auto" does NOT auto-approve
-# MCP tool calls, so without this every fresh review sandbox stalls on an approval prompt.
-REVIEW_INITIAL_PERMISSION_MODE = "full-access"
+# Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
+# extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
+REVIEW_INITIAL_PERMISSION_MODE = None
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent

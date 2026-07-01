@@ -25,10 +25,10 @@ def _review_input() -> ReviewChunkInput:
 
 
 @pytest.mark.asyncio
-async def test_review_chunk_activity_pins_codex_for_the_perspective_review() -> None:
-    # The change's core contract: the perspective-review sandbox turn runs on Codex gpt-5.5 @ xhigh. The
-    # pin kwargs default to None, so dropping them at this one call site is a silent revert to the Claude
-    # default that every plumbing-level test still passes — this activity is the only guard on the routing.
+async def test_review_chunk_activity_pins_the_review_model_for_the_perspective_review() -> None:
+    # The change's core contract: the perspective-review sandbox turn runs on the pinned REVIEW_* model.
+    # The pin kwargs default to None, so dropping them at this one call site would silently fall back to
+    # the sandbox default with every plumbing-level test still passing — this activity is the only guard.
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     with (
         patch(f"{_MODULE}.Heartbeater"),
