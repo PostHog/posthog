@@ -96,6 +96,24 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
 
+    def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
+        # The report must always state which scanner it's for, how many recordings it covers, and the
+        # window start — prepended in code so it's present regardless of what the LLM returns.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="# Summary\nThemes.")
+
+        run.refresh_from_db()
+        self.assertTrue(
+            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown,
+        )
+        # The header rides into the Slack payload too (bold header → *bold*).
+        self.assertIn("*Summary for summarizer*", run.output["slack"])
+
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
         # skipped by _fetch_observations, so its id must not land in the persisted list.
