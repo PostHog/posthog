@@ -1,8 +1,10 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
+import diagnosticsChannel from 'node:diagnostics_channel'
 import net from 'node:net'
-import { Counter, Gauge } from 'prom-client'
+import { performance } from 'node:perf_hooks'
+import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
@@ -41,6 +43,92 @@ const inflightExternalRequests = new Gauge({
     name: 'cdp_http_inflight_requests',
     help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
 })
+
+// Phase-level timing for external HTTP requests, so a request's latency can be split into
+// "our side" (waiting for a pooled connection + establishing it) vs "the endpoint" (time to
+// respond once the request is on the wire). This is what tells us whether a longer fetch timeout
+// would actually help (slow endpoint) or would just mask connection-pool saturation (our side).
+const HTTP_PHASE_BUCKETS_MS = [0, 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000]
+
+const cdpHttpAcquireMs = new Histogram({
+    name: 'cdp_http_acquire_ms',
+    help: 'Time from undici request creation to request sent (pool-acquire + connect + send start). High values point at our-side connection-pool saturation or connection setup, not a slow endpoint.',
+    buckets: HTTP_PHASE_BUCKETS_MS,
+})
+
+const cdpHttpTtfbMs = new Histogram({
+    name: 'cdp_http_ttfb_ms',
+    help: 'Time from request sent to response headers received (endpoint response latency). High values point at a genuinely slow endpoint.',
+    buckets: HTTP_PHASE_BUCKETS_MS,
+})
+
+const cdpHttpConnectMs = new Histogram({
+    name: 'cdp_http_connect_ms',
+    help: 'Time to establish a new undici connection (DNS + TCP + TLS). Only recorded when a new socket is opened, not on keep-alive reuse.',
+    buckets: HTTP_PHASE_BUCKETS_MS,
+})
+
+const cdpHttpRequestErrorPhase = new Counter({
+    name: 'cdp_http_request_error_phase',
+    help: 'External HTTP request errors split by the phase reached when they failed. before_send = failed before any bytes left the process (pool wait / connect); awaiting_response = failed after the request was sent while waiting for the endpoint.',
+    labelNames: ['phase', 'timeout'],
+})
+
+// undici publishes per-request and per-connection lifecycle events on these diagnostics channels.
+// We correlate them via the objects undici hands us (the request object is stable across a
+// request's events; connectParams across a connection's), so no tie-back to our own call sites is
+// needed. Timings are best-effort: a missing start simply skips the observation (fail-safe).
+type RequestPhaseTiming = { created: number; sent?: number }
+const requestPhaseTimings = new WeakMap<object, RequestPhaseTiming>()
+const connectStartTimes = new WeakMap<object, number>()
+
+function isTimeoutError(error: any): boolean {
+    return (
+        !!error &&
+        (error.name === 'TimeoutError' ||
+            error.name === 'AbortError' ||
+            error.code === 'UND_ERR_ABORTED' ||
+            /timeout|aborted/i.test(error.message ?? ''))
+    )
+}
+
+function subscribeToUndiciTimingChannels(): void {
+    diagnosticsChannel.subscribe('undici:request:create', (message: any) => {
+        if (message?.request) {
+            requestPhaseTimings.set(message.request, { created: performance.now() })
+        }
+    })
+    diagnosticsChannel.subscribe('undici:request:bodySent', (message: any) => {
+        const timing = message?.request && requestPhaseTimings.get(message.request)
+        if (timing) {
+            timing.sent = performance.now()
+            cdpHttpAcquireMs.observe(timing.sent - timing.created)
+        }
+    })
+    diagnosticsChannel.subscribe('undici:request:headers', (message: any) => {
+        const timing = message?.request && requestPhaseTimings.get(message.request)
+        if (timing?.sent !== undefined) {
+            cdpHttpTtfbMs.observe(performance.now() - timing.sent)
+        }
+    })
+    diagnosticsChannel.subscribe('undici:request:error', (message: any) => {
+        const timing = message?.request && requestPhaseTimings.get(message.request)
+        const phase = timing?.sent !== undefined ? 'awaiting_response' : 'before_send'
+        cdpHttpRequestErrorPhase.inc({ phase, timeout: String(isTimeoutError(message?.error)) })
+    })
+    diagnosticsChannel.subscribe('undici:client:beforeConnect', (message: any) => {
+        if (message?.connectParams) {
+            connectStartTimes.set(message.connectParams, performance.now())
+        }
+    })
+    diagnosticsChannel.subscribe('undici:client:connected', (message: any) => {
+        const start = message?.connectParams && connectStartTimes.get(message.connectParams)
+        if (start !== undefined) {
+            cdpHttpConnectMs.observe(performance.now() - start)
+        }
+    })
+}
+subscribeToUndiciTimingChannels()
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
 export type FetchOptions = {

@@ -2,6 +2,7 @@ import dns from 'dns/promises'
 import { range } from 'lodash'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
+import { register } from 'prom-client'
 
 import { parseJSON } from './json-parse'
 import { SecureRequestError, fetch, internalFetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
@@ -27,6 +28,11 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/slow') {
+            setTimeout(() => {
+                res.writeHead(200, { 'content-type': 'text/plain' })
+                res.end('ok')
+            }, 1000)
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -366,5 +372,59 @@ describe('_fetch response body handling', () => {
         for (const line of lines) {
             expect(() => parseJSON(line)).not.toThrow()
         }
+    })
+})
+
+describe('external request phase metrics', () => {
+    beforeEach(() => {
+        jest.setTimeout(3000)
+        jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
+        process.env.NODE_ENV = 'production'
+    })
+
+    const histogramCount = async (name: string): Promise<number> => {
+        const metric = register.getSingleMetric(name) as any
+        if (!metric) {
+            return 0
+        }
+        const data = await metric.get()
+        return data.values
+            .filter((v: any) => v.metricName === `${name}_count`)
+            .reduce((sum: number, v: any) => sum + v.value, 0)
+    }
+
+    const counterValue = async (name: string, labels: Record<string, string>): Promise<number> => {
+        const metric = register.getSingleMetric(name) as any
+        if (!metric) {
+            return 0
+        }
+        const data = await metric.get()
+        return data.values
+            .filter((v: any) => Object.entries(labels).every(([k, val]) => v.labels[k] === val))
+            .reduce((sum: number, v: any) => sum + v.value, 0)
+    }
+
+    it('records acquire and TTFB timing on a successful request', async () => {
+        const acquireBefore = await histogramCount('cdp_http_acquire_ms')
+        const ttfbBefore = await histogramCount('cdp_http_ttfb_ms')
+
+        await internalFetch(baseUrl)
+
+        expect(await histogramCount('cdp_http_acquire_ms')).toBeGreaterThan(acquireBefore)
+        expect(await histogramCount('cdp_http_ttfb_ms')).toBeGreaterThan(ttfbBefore)
+    })
+
+    it('attributes a timeout to the awaiting_response phase when the endpoint is slow', async () => {
+        const before = await counterValue('cdp_http_request_error_phase', {
+            phase: 'awaiting_response',
+            timeout: 'true',
+        })
+
+        // Server delays 1s; abort well after the request is on the wire but before it responds.
+        await expect(internalFetch(`${baseUrl}/slow`, { method: 'POST', body: 'x', timeoutMs: 300 })).rejects.toThrow()
+
+        expect(
+            await counterValue('cdp_http_request_error_phase', { phase: 'awaiting_response', timeout: 'true' })
+        ).toBeGreaterThan(before)
     })
 })
