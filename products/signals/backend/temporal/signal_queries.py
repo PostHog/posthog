@@ -604,6 +604,57 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
 
 
 # ---------------------------------------------------------------------------
+# fetch_report_ids_for_source_records — synchronous, for the viewset list filter
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_source_records(team: Team, source_products: list[str], source_ids: list[str]) -> set[str]:
+    """Return report IDs with at least one non-deleted signal matching the given source products AND source ids.
+
+    Reverse lookup from a source record (e.g. an error tracking issue) to every report its signals
+    grouped into — one record can feed several reports over time (created / reopened / spiking
+    signals may match different reports). Unlike `fetch_report_ids_for_source_ids`, which resolves
+    the single latest report per scout finding, this keeps every report the record contributed to.
+
+    Uses argMax deduplication for stable results regardless of ReplacingMergeTree merge state.
+    """
+    if not source_products or not source_ids:
+        return set()
+
+    # Push the source_id filter into the document_embeddings scan so we only dedup the handful of
+    # signals for these records, not the team's entire signal history. `source_id` is stable across
+    # a document's versions, so `extra_where` is safe here (see `_deduped_signals_subquery`).
+    source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
+    ch_query = f"""
+        SELECT DISTINCT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_product') as source_product
+            FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND source_product IN ({{source_products}})
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterBySourceRecord",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
+            "source_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in source_ids]),
+        },
+    )
+
+    return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
 # fetch_source_products_for_reports — synchronous, for the serializer list view
 # ---------------------------------------------------------------------------
 

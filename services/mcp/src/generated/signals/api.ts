@@ -38,6 +38,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of source record IDs (e.g. error tracking issue UUIDs). Reports are kept if at least one of their contributing signals comes from one of these records. Requires source_product to be set.'
+        ),
     source_product: zod
         .string()
         .optional()

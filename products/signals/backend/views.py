@@ -108,6 +108,7 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_source_products,
+    fetch_report_ids_for_source_records,
     fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
 )
@@ -680,14 +681,20 @@ class SignalReportViewSet(
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
-        if not source_product_filter:
-            return queryset
+        source_id_filter = self.request.query_params.get("source_id")
+        source_products = [s.strip() for s in (source_product_filter or "").split(",") if s.strip()]
+        source_ids = [s.strip() for s in (source_id_filter or "").split(",") if s.strip()]
 
-        source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
+        # A bare source_id is ambiguous across products and would force an unbounded metadata scan.
+        if source_ids and not source_products:
+            raise serializers.ValidationError({"source_id": "source_id requires source_product to be set."})
         if not source_products:
             return queryset
 
-        report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
+        if source_ids:
+            report_ids_with_source = fetch_report_ids_for_source_records(self.team, source_products, source_ids)
+        else:
+            report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
 
     def _latest_suggested_reviewers_qs(self):
@@ -1116,6 +1123,17 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of source products to include. Reports are kept if at least one of "
                     "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+                ),
+            ),
+            OpenApiParameter(
+                name="source_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of source record IDs (e.g. error tracking issue UUIDs). Reports are "
+                    "kept if at least one of their contributing signals comes from one of these records. "
+                    "Requires source_product to be set."
                 ),
             ),
             OpenApiParameter(

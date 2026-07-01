@@ -1852,6 +1852,10 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
+     * Comma-separated list of source record IDs (e.g. error tracking issue UUIDs). Reports are kept if at least one of their contributing signals comes from one of these records. Requires source_product to be set.
+     */
+    source_id?: string
+    /**
      * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
      */
     source_product?: string

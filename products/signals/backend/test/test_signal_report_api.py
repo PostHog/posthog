@@ -23,7 +23,7 @@ from posthog.models.team.team import Team
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
-from products.signals.backend.temporal.signal_queries import ReportSignalMeta
+from products.signals.backend.temporal.signal_queries import ReportSignalMeta, fetch_report_ids_for_source_records
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -852,6 +852,38 @@ class TestSignalReportListAPI(APIBaseTest):
         body = response.json()
         assert body["attr"] == "actionability"
         assert body["code"] == "invalid_input"
+
+    # --- source_id ---
+
+    def test_list_filters_by_source_record(self):
+        matched = self._create_report(title="Matched")
+        self._create_report(title="Unmatched")
+
+        with patch(
+            "products.signals.backend.views.fetch_report_ids_for_source_records",
+            return_value={str(matched.id)},
+        ) as mock_fetch:
+            response = self.client.get(self._list_url(source_product="error_tracking", source_id="issue-1,issue-2"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(matched.id)]
+        mock_fetch.assert_called_once_with(self.team, ["error_tracking"], ["issue-1", "issue-2"])
+
+    def test_list_source_id_without_source_product_returns_400(self):
+        response = self.client.get(self._list_url(source_id="issue-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "source_id"
+
+    def test_fetch_report_ids_for_source_records_query_compiles(self):
+        # The lookup pushes the source_id filter into the shared dedup subquery, which exposes
+        # `metadata` as an argMax alias — a naive pushed-down WHERE binds to the aggregate alias
+        # and HogQL rejects the whole query. Mocked view tests never exercise the query, so run
+        # the real one against an empty ClickHouse: it must compile and return an empty set.
+        result = fetch_report_ids_for_source_records(
+            self.team, ["error_tracking"], ["00000000-0000-0000-0000-000000000000"]
+        )
+        assert result == set()
 
     # --- source_products ---
 
