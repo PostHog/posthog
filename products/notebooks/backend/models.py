@@ -6,9 +6,11 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
+    UUIDModel,
     UUIDTModel,
     build_partial_uniqueness_constraint,
     build_unique_relationship_check,
@@ -174,4 +176,34 @@ class KernelRuntime(UUIDTModel):
         db_table = "posthog_kernelruntime"
         indexes = [
             models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]
+
+
+class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
+    """A single execution of a revamped-notebooks (DataV2) node.
+
+    The callback endpoint upserts this row with the result envelope; the SSE
+    endpoint polls it until terminal. Also serves as the node's last-result store.
+    The primary key is the run_id referenced by the run/callback/stream endpoints.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    node_id = models.CharField(max_length=128)
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    envelope: JSONField = JSONField(default=None, null=True, blank=True)
+    result_id = models.UUIDField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_notebooknoderun"
+        indexes = [
+            models.Index(fields=["team", "notebook", "node_id"]),
         ]
