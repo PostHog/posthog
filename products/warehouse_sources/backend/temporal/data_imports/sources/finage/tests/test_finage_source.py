@@ -1,7 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import source as finage_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
@@ -28,7 +33,7 @@ class TestFinageSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finage"
 
     def test_source_config_fields(self):
-        fields = {f.name: f for f in self.source.get_source_config.fields}
+        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "symbols", "start_date"}
 
         assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD

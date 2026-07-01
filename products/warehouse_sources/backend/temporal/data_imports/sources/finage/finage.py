@@ -90,12 +90,21 @@ def validate_credentials(api_key: str) -> int | None:
     `/last/stock/AAPL` needs only a stocks subscription, so it's the cheapest genuine token check.
     """
     try:
-        response = make_tracked_session().get(
+        # Redact the key so the probe URL is never persisted raw in tracked logs / sample capture.
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{FINAGE_BASE_URL}/last/stock/AAPL", params={"apikey": api_key}, timeout=10
         )
         return response.status_code
     except Exception:
         return None
+
+
+def _handle_symbol_http_error(exc: requests.HTTPError, logger: FilteringBoundLogger, what: str) -> None:
+    """Re-raise auth/plan failures (401/403) to stop the whole sync; warn-and-skip any other per-symbol error."""
+    status = exc.response.status_code if exc.response is not None else None
+    if status in (401, 403):
+        raise exc
+    logger.warning(f"Finage: {what} failed (status={status}), skipping")
 
 
 def _iter_point_in_time_rows(
@@ -115,10 +124,7 @@ def _iter_point_in_time_rows(
         try:
             data = _fetch_json(session, path, api_key, logger)
         except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status in (401, 403):
-                raise
-            logger.warning(f"Finage: {config.name} request failed for {symbol} (status={status}), skipping")
+            _handle_symbol_http_error(exc, logger, f"{config.name} request for {symbol}")
             continue
 
         if not isinstance(data, dict) or not data or data.get("error"):
@@ -155,10 +161,7 @@ def _iter_aggregate_rows(
         try:
             data = _fetch_json(session, path, api_key, logger, params={"limit": AGG_LIMIT, "sort": "asc"})
         except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status in (401, 403):
-                raise
-            logger.warning(f"Finage: aggregates request failed for {symbol} (status={status}), skipping")
+            _handle_symbol_http_error(exc, logger, f"aggregates request for {symbol}")
             continue
 
         results = data.get("results") if isinstance(data, dict) else None
@@ -169,7 +172,9 @@ def _iter_aggregate_rows(
             logger.warning(f"Finage: aggregates for {symbol} hit the {AGG_LIMIT}-row limit; older bars truncated")
 
         response_symbol = data.get("symbol", symbol)
-        rows = [{**bar, "symbol": response_symbol, "date": _ms_to_date(bar.get("t"))} for bar in results]
+        # `t` is a primary key: access it directly so a bar missing it raises KeyError and fails fast
+        # rather than silently landing a row with no key and a None partition date.
+        rows = [{**bar, "symbol": response_symbol, "date": _ms_to_date(bar["t"])} for bar in results]
         yield rows
 
 
@@ -181,8 +186,9 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINAGE_ENDPOINTS[endpoint]
-    # One session reused across every symbol so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every symbol so urllib3 keeps the connection alive. Redact the key
+    # so the `apikey` query value is never persisted raw in tracked logs / sample capture.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.is_aggregate:
         yield from _iter_aggregate_rows(session, api_key, symbols, config, start_date, logger)

@@ -41,7 +41,7 @@ def _http_error(status: int) -> requests.HTTPError:
 @pytest.fixture(autouse=True)
 def _no_retry_sleep():
     # tenacity sleeps between retries; zero it so the retry tests don't actually wait.
-    finage._fetch_json.retry.sleep = lambda *args, **kwargs: None
+    finage._fetch_json.retry.sleep = lambda *args, **kwargs: None  # type: ignore[attr-defined]
     yield
 
 
