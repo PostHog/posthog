@@ -38,6 +38,7 @@ import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisp
 import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls as sceneUrls } from 'scenes/urls'
 
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
@@ -136,6 +137,8 @@ export function PersonsModal({
 
     const hasGroups = actors.some((actor) => isGroupType(actor))
     const hasSessions = actors.some((actor) => isSessionType(actor))
+
+    const recordingsDisabled = !!currentTeam && !currentTeam.session_recording_opt_in
 
     return (
         <>
@@ -247,9 +250,20 @@ export function PersonsModal({
                             size="small"
                             type="secondary"
                             tooltip={
-                                <>
-                                    View all recordings for <strong>{getTitle()}</strong>
-                                </>
+                                recordingsDisabled ? undefined : (
+                                    <>
+                                        View all recordings for <strong>{getTitle()}</strong>
+                                    </>
+                                )
+                            }
+                            disabled={recordingsDisabled}
+                            disabledReason={
+                                recordingsDisabled ? (
+                                    <>
+                                        Session recordings are not enabled for this project.{' '}
+                                        <Link to={sceneUrls.replaySettings('replay')}>Enable them in settings</Link>
+                                    </>
+                                ) : undefined
                             }
                             onClick={() => {}}
                         />
