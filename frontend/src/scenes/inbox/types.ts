@@ -136,10 +136,10 @@ export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
 
 /**
- * Tabs only visible to staff users (internal). Non-staff see Pull requests + Reports.
- * Not-actionable reports and the project-wide Runs debug view are internal.
+ * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
+ * triage surface; everything else (including Runs) is public to any team member.
  */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const

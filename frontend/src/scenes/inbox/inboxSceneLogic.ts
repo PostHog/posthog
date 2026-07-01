@@ -97,8 +97,8 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
 }
 
 /**
- * Find a report already loaded in one of the mounted per-tab lists (or the staff Runs list),
- * so opening it can render the detail instantly from the list row instead of waiting on a fresh
+ * Find a report already loaded in one of the mounted per-tab lists, so opening it can render the
+ * detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
 // The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
@@ -176,7 +176,7 @@ interface InboxOpenTracking {
 
 /**
  * Inbox scene orchestrator. Owns the active tab, the selected report (loaded by id),
- * the staff-only project-wide Runs list, and session-analysis. The per-tab report
+ * the project-wide Runs list, and session-analysis. The per-tab report
  * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab),
  * so this logic no longer holds a shared report list.
  */
@@ -216,10 +216,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     loaders(() => ({
-        // Staff-only Runs tab: a newest-first list of scout + signals-pipeline runs, composed from
-        // two existing endpoints — scout runs (clean `skill_name`) and signal-pipeline tasks (whose
-        // title is the originating report's title). Merged client-side; there is no unified backend
-        // "runs" resource by design.
+        // Runs tab: a newest-first list of scout + signals-pipeline runs, composed from two existing
+        // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
+        // originating report's title). Merged client-side; there is no unified backend "runs" resource
+        // by design. Both endpoints are team-scoped and readable by any member, so the tab is public.
         signalRunsResponse: [
             null as SignalRun[] | null,
             {
@@ -353,8 +353,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         setActiveTab: ({ tab }) => {
-            // Refresh the project-wide runs list each time the (staff-only) Runs tab opens.
-            if (tab === 'runs' && values.isStaff) {
+            // Refresh the project-wide runs list each time the Runs tab opens.
+            if (tab === 'runs') {
                 actions.loadRuns()
             }
         },
@@ -465,13 +465,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 
-    events(({ actions, values, cache }) => ({
-        afterMount: () => {
-            // Runs is a staff-only (internal) tab; only fetch its list for staff users.
-            if (values.isStaff) {
-                actions.loadRuns()
-            }
-        },
+    events(({ cache }) => ({
+        // The Runs list loads lazily when its tab opens (via the `setActiveTab` listener). There is no
+        // mount pre-fetch, so an inbox visit that never opens Runs doesn't pay for its two requests.
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
@@ -563,7 +559,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             cache.inboxListVisited = true
-            // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
+            // Staff-only tabs (Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
                 return
