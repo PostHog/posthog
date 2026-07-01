@@ -78,12 +78,13 @@ export interface SparklineProps {
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
     /**
-     * Inclusive label-index range to highlight as a translucent box behind the bars.
-     * Used to mirror an external selection (e.g. the rows currently visible in a
-     * paired virtualized list) onto the chart. Out-of-range or inverted ranges are
-     * clamped; pass `null`/`undefined` to clear.
+     * X-axis value range to highlight as a translucent box behind the bars, in the
+     * same units as the x-axis (e.g. epoch ms for a time scale). Positioned with
+     * sub-bar precision rather than snapped to bar edges. Used to mirror an external
+     * selection (e.g. the rows currently visible in a paired virtualized list) onto
+     * the chart. Inverted ranges are flipped; pass `null`/`undefined` to clear.
      */
-    highlightedRange?: { startIndex: number; endIndex: number } | null
+    highlightedRange?: { xMin: number; xMax: number } | null
 }
 
 export function Sparkline({
@@ -286,18 +287,13 @@ export function Sparkline({
                             }
 
                             if (highlightedRange && labels && labels.length > 0) {
-                                const lastIdx = labels.length - 1
-                                const lo = Math.max(0, Math.min(highlightedRange.startIndex, highlightedRange.endIndex))
-                                const hi = Math.min(
-                                    lastIdx,
-                                    Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
-                                )
-                                if (lo <= hi) {
+                                const xMin = Math.min(highlightedRange.xMin, highlightedRange.xMax)
+                                const xMax = Math.max(highlightedRange.xMin, highlightedRange.xMax)
+                                if (xMax > xMin) {
                                     annotations.highlightedRange = {
                                         type: 'box',
-                                        xMin: labels[lo],
-                                        // Extend to the next bucket's start so the last bar is fully enclosed.
-                                        xMax: labels[hi + 1] ?? labels[hi],
+                                        xMin,
+                                        xMax,
                                         // Drawn under the bars so the data stays legible.
                                         drawTime: 'beforeDatasetsDraw',
                                         // Faint fill with a stronger border to mark the window edges.
