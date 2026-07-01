@@ -21,7 +21,10 @@ import structlog
 from psycopg import sql
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    MAX_CHUNK_CELLS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -75,6 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     XminBounds,
     _build_count_query,
     _build_query,
+    _cap_chunk_size_for_width,
     _capture_xmin_ceiling,
     _connect_to_postgres,
     _connect_with_dropped_retry,
@@ -3957,6 +3961,25 @@ class TestGetTableChunkSize:
             # Savepoint rollback leaves the connection usable for the rest of setup.
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+    @pytest.mark.parametrize(
+        "chunk_size,num_columns,expected",
+        [
+            # A wide table's byte-based estimate produces a giant row chunk (the OOM regression):
+            # it must be clamped so rows × columns stays under MAX_CHUNK_CELLS.
+            (275_000, 83, MAX_CHUNK_CELLS // 83),
+            # Even at Postgres's 1600-column limit the cap still yields a workable row count.
+            (275_000, 1_600, MAX_CHUNK_CELLS // 1_600),
+            # A narrow table already lands under the ceiling and is left untouched.
+            (150_000, 5, 150_000),
+            # Missing/zero column counts disable the cap rather than dividing by zero.
+            (275_000, None, 275_000),
+            (275_000, 0, 275_000),
+        ],
+    )
+    def test_cap_chunk_size_for_width(self, chunk_size, num_columns, expected):
+        logger = structlog.get_logger()
+        assert _cap_chunk_size_for_width(chunk_size, num_columns, logger) == expected
 
 
 class TestGetRowsToSync:

@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
+    MAX_CHUNK_CELLS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -115,6 +116,10 @@ _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
 _MAX_READ_RECOVERY_CONFLICT_RETRIES = 10
 # A shorter query holds its snapshot for less time, lowering the odds the replica cancels it.
 _MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
+
+# Floor for the width cap so a very wide table (Postgres allows up to 1600 columns) still reads
+# a workable number of rows per chunk rather than collapsing toward single-row chunks.
+_MIN_WIDTH_CAPPED_CHUNK_SIZE = 1_000
 
 # Bounded in-process retries for a transient connection drop hit *during* the setup metadata
 # probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
@@ -2064,7 +2069,29 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _cap_chunk_size_for_width(chunk_size: int, num_columns: int | None, logger: FilteringBoundLogger) -> int:
+    # Peak read memory scales with rows × columns (a Python dict per row plus the PyArrow table),
+    # while the byte estimate only sees the Postgres text wire size. Clamp wide tables so a chunk's
+    # working set stays bounded; narrow tables stay under the ceiling and are unaffected.
+    if not num_columns or num_columns <= 0:
+        return chunk_size
+    capped = max(MAX_CHUNK_CELLS // num_columns, _MIN_WIDTH_CAPPED_CHUNK_SIZE)
+    if capped < chunk_size:
+        logger.debug(
+            f"_get_table_chunk_size: capping chunk size {chunk_size} -> {capped} for {num_columns} columns "
+            f"(MAX_CHUNK_CELLS={MAX_CHUNK_CELLS})"
+        )
+        return capped
+    return chunk_size
+
+
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor,
+    inner_query: sql.Composed,
+    logger: FilteringBoundLogger,
+    *,
+    num_columns: int | None = None,
+) -> int:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
@@ -2102,7 +2129,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
                 f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
             )
 
-        return chunk_size
+        return _cap_chunk_size_for_width(chunk_size, num_columns, logger)
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
         # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
@@ -2121,7 +2148,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
                 logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
-        return DEFAULT_CHUNK_SIZE
+        return _cap_chunk_size_for_width(DEFAULT_CHUNK_SIZE, num_columns, logger)
 
 
 def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> bool:
@@ -2867,7 +2894,12 @@ def postgres_source(
                                 chunk_size = chunk_size_override
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunk_size = _get_table_chunk_size(
+                                    cursor,
+                                    inner_query_with_limit,
+                                    logger,
+                                    num_columns=len(table.columns),
+                                )
 
                             logger.debug("Getting rows to sync...")
                             # For partitioned tables without an incremental cursor (initial
