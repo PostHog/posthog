@@ -83,6 +83,12 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select("select count() from persons")
         assert printed == self.snapshot
 
+    def test_sample_on_lazy_table_is_stripped(self):
+        # A lazy table expands into an aggregating subquery; ClickHouse rejects a SAMPLE modifier on
+        # a subquery, so it must be dropped rather than left to produce invalid SQL.
+        printed = self._print_select("select session_id, $channel_type from sessions SAMPLE 10")
+        assert "SAMPLE" not in printed
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
