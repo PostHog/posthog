@@ -565,6 +565,37 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
 
+        it('flips to the terminal error when snapshot loading stalls while buffering on missing data', () => {
+            // Source 0 never loaded and source 1 has no FullSnapshot, so the seek buffers
+            // waiting for the earlier data. Once loading permanently gives up that data
+            // will never arrive — the player must surface the terminal error rather than
+            // buffering on "Buffering…" forever.
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.setPause()
+            logic.actions.seekToTimestamp(START + 61500)
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+
+            snapshotDataLogic({ sessionRecordingId: '2' }).actions.setSnapshotLoadingStalled()
+
+            expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+            expect(logic.values.isBuffering).toBe(false)
+        })
+
+        it('clamps forward instead of erroring when loading stalls but a later full snapshot can recover', () => {
+            // Source 0 never loaded, but source 1 carries a FullSnapshot after the seek.
+            // Even though the earlier data will never arrive, playback can still recover by
+            // clamping forward — a stalled load must clamp, not surface the terminal error.
+            seedRecording(null, [inc(START + 61000), inc(START + 62000), fs(LATE_FS_TS)])
+            snapshotDataLogic({ sessionRecordingId: '2' }).actions.setSnapshotLoadingStalled()
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 61500)
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.currentTimestamp).toBe(LATE_FS_TS)
+        })
+
         // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
         // case above. Both sides of the ingestion grace boundary: while within it the missing
         // FullSnapshot may still arrive, so the seek buffers (and keeps loading sources) instead

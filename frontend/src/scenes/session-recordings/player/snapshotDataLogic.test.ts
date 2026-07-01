@@ -72,6 +72,28 @@ describe('snapshotDataLogic', () => {
         })
     })
 
+    describe('stalled loading', () => {
+        it('flags a stall only once source-loading retries are exhausted', () => {
+            expect(logic.values.snapshotLoadingStalled).toBe(false)
+            // the retry budget is 3 — the first three failures keep retrying, not stalled
+            for (let i = 0; i < 3; i++) {
+                logic.actions.loadSnapshotsForSourceFailure('boom', new Error('boom'))
+            }
+            expect(logic.values.snapshotLoadingStalled).toBe(false)
+            // the fourth failure exhausts the budget and flags the stall
+            logic.actions.loadSnapshotsForSourceFailure('boom', new Error('boom'))
+            expect(logic.values.snapshotLoadingStalled).toBe(true)
+        })
+
+        it('clears the stall when a fresh load attempt begins', () => {
+            logic.actions.setSnapshotLoadingStalled()
+            expect(logic.values.snapshotLoadingStalled).toBe(true)
+
+            logic.actions.loadSnapshotSources()
+            expect(logic.values.snapshotLoadingStalled).toBe(false)
+        })
+    })
+
     describe('snapshot parsing', () => {
         const sessionId = '12345'
         const numberOfParsedLinesInData = 8

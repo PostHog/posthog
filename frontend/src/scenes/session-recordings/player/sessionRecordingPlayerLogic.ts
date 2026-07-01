@@ -533,6 +533,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'isWaitingForPlayableFullSnapshot',
                 'snapshotStore',
                 'allSourcesLoaded',
+                'snapshotLoadingStalled',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1119,12 +1120,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // how playback can recover (e.g. when the initial full snapshot was lost at
         // capture time, the recording is only playable from a later FullSnapshot).
         seekRenderability: [
-            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData],
+            (s) => [
+                s.segmentForTimestamp,
+                s.snapshotStore,
+                s.allSourcesLoaded,
+                s.sessionPlayerData,
+                s.snapshotLoadingStalled,
+            ],
             (
                 segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
                 snapshotStore: SnapshotStore,
                 allSourcesLoaded: boolean,
-                sessionPlayerData: SessionPlayerData
+                sessionPlayerData: SessionPlayerData,
+                snapshotLoadingStalled: boolean
             ) => {
                 return (timestamp: number): SeekRenderability => {
                     const segment = segmentForTimestamp(timestamp)
@@ -1137,13 +1145,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     // The window has no FullSnapshot at or before this position. That is
                     // only definitive once everything before the position has loaded — an
-                    // earlier unloaded source could still contain one.
+                    // earlier unloaded source could still contain one. Once loading has
+                    // permanently stalled that data will never arrive, so don't keep
+                    // waiting on it: fall through to the recovery / terminal verdicts.
                     const targetIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
                     if (targetIndex === null) {
                         // no sources yet — initial load paths handle this
                         return { kind: 'renderable' }
                     }
-                    if (snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
+                    if (!snapshotLoadingStalled && snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
                         return { kind: 'waitingForData' }
                     }
                     // Recover at the first later FullSnapshot that can render the segment
@@ -1157,10 +1167,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             ? { kind: 'renderable' }
                             : { kind: 'clampToFullSnapshot', timestamp: recoveryTarget.timestamp }
                     }
-                    if (!allSourcesLoaded) {
+                    if (!allSourcesLoaded && !snapshotLoadingStalled) {
                         return { kind: 'waitingForData' }
                     }
-                    // No FullSnapshot anywhere, everything loaded. Only definitive once the
+                    // No renderable FullSnapshot, and no more data is coming (everything
+                    // loaded, or loading has permanently stalled). Only definitive once the
                     // ingestion grace period has passed — until then a late FullSnapshot may
                     // still arrive, so keep buffering rather than showing a terminal error.
                     return isWithinIngestionGracePeriod(sessionPlayerData.start)
@@ -2461,6 +2472,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // seek → buffer_ahead transition delivers none, so the player
             // would stay stuck in BUFFER without this listener (#53893).
             if (wasWaiting && !isWaiting) {
+                actions.checkBufferingCompleted()
+            }
+        },
+        snapshotLoadingStalled: (stalled: boolean) => {
+            // Loading just gave up — re-evaluate buffering now so a seek waiting on data
+            // that will never arrive flips to the terminal error immediately, rather than
+            // waiting for the next event or the safety-net re-evaluation tick.
+            if (stalled) {
                 actions.checkBufferingCompleted()
             }
         },

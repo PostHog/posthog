@@ -10,6 +10,7 @@ import {
     IconEye,
     IconFilter,
     IconHide,
+    IconMessage,
     IconPencil,
     IconPlus,
     IconRefresh,
@@ -885,9 +886,10 @@ export const ReplayFiltersTab = ({
                             <LemonButton
                                 id="replay-filters-feedback-button"
                                 type="tertiary"
-                                status="danger"
+                                icon={<IconMessage />}
                                 size="small"
                                 data-attr="replay-filters-feedback-button"
+                                tooltip="Share feedback if these results look off"
                             >
                                 Unexpected filter results?
                             </LemonButton>

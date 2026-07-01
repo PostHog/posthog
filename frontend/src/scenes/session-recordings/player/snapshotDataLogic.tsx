@@ -71,6 +71,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number, windowId?: number) => ({ timestamp, windowId }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
+        // Snapshot source loading has exhausted its retries and will fetch no more data
+        // until a fresh load attempt is triggered (e.g. a new seek). Lets the player
+        // resolve buffering to a terminal error instead of waiting for data forever.
+        setSnapshotLoadingStalled: true,
         // dispatch after any mutation to cache.store or cache.scheduler —
         // these live outside Kea's reactivity and need explicit invalidation
         storeUpdated: true,
@@ -95,6 +99,17 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 setPollingInterval: (_, { intervalMs }) => intervalMs,
                 resetPollingInterval: () => DEFAULT_V2_POLLING_INTERVAL_MS,
+            },
+        ],
+        // Cleared whenever a fresh load attempt begins or succeeds, so a later seek
+        // that triggers a new load gets a clean shot before stalling again.
+        snapshotLoadingStalled: [
+            false,
+            {
+                setSnapshotLoadingStalled: () => true,
+                loadSnapshotsForSource: () => false,
+                loadSnapshotsForSourceSuccess: () => false,
+                loadSnapshotSources: () => false,
             },
         ],
         isPolling: [
@@ -401,6 +416,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
+                // Give up retrying this source. The affected source stays unloaded, so
+                // flag the stall — otherwise a seek into it buffers forever waiting for
+                // data that will never arrive.
+                actions.setSnapshotLoadingStalled()
                 return
             }
             await breakpoint(cache.loadFailureCount * 2000)
