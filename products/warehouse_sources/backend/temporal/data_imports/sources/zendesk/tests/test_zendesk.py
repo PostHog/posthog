@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
     ZendeskCursorIncrementalPaginator,
     ZendeskIncrementalEndpointPaginator,
-    flatten_ticket_comments,
     get_resource,
     normalize_subdomain,
     to_zendesk_start_time,
@@ -275,16 +274,8 @@ class TestIncrementalResourceWiring:
                 "/api/v2/incremental/ticket_events",
                 ZendeskIncrementalEndpointPaginator,
                 "created_at",
-                None,
-                id="ticket_events",
-            ),
-            pytest.param(
-                "ticket_comments",
-                "/api/v2/incremental/ticket_events",
-                ZendeskIncrementalEndpointPaginator,
-                "created_at",
                 "comment_events",
-                id="ticket_comments",
+                id="ticket_events",
             ),
             pytest.param(
                 "ticket_metric_events",
@@ -309,8 +300,8 @@ class TestIncrementalResourceWiring:
 
         assert endpoint_config["path"] == expected_path
         assert isinstance(endpoint_config["paginator"], expected_paginator)
-        # Without include=comment_events the export strips comment bodies, so ticket_comments
-        # would sync empty-bodied rows — assert the sideload stays wired.
+        # Without include=comment_events the ticket_events export strips comment bodies from
+        # child_events — assert the sideload stays wired.
         assert endpoint_config["params"].get("include") == expected_include
 
         start_time = endpoint_config["params"]["start_time"]
@@ -334,83 +325,3 @@ class TestIncrementalResourceWiring:
             assert INCREMENTAL_FIELDS.get(endpoint), (
                 f"{endpoint} is in INCREMENTAL_ENDPOINTS but has no incremental field"
             )
-
-
-class TestFlattenTicketComments:
-    def test_flattens_to_one_row_per_comment_with_parent_fields(self) -> None:
-        page = [
-            {
-                "id": 900,
-                "ticket_id": 100,
-                "created_at": "2024-01-01T00:00:00Z",
-                "timestamp": 1704067200,
-                "child_events": [
-                    {"id": 11, "event_type": "Comment", "public": True, "body": "public reply", "author_id": 5},
-                    {"id": 12, "event_type": "Comment", "public": False, "body": "internal note", "author_id": 6},
-                    {"id": 13, "event_type": "Change", "field_name": "status", "value": "open"},
-                ],
-            },
-            {
-                "id": 901,
-                "ticket_id": 101,
-                "created_at": "2024-01-02T00:00:00Z",
-                "timestamp": 1704153600,
-                "child_events": [
-                    {"id": 21, "event_type": "Notification", "recipients": [1]},
-                    {"id": 22, "event_type": "Comment", "public": True, "body": "another reply", "author_id": 7},
-                ],
-            },
-        ]
-
-        pages = list(flatten_ticket_comments([page]))
-
-        assert len(pages) == 1
-        rows = pages[0]
-        # Only the three Comment child events survive; Change/Notification are dropped.
-        assert [r["id"] for r in rows] == [11, 12, 22]
-        # Each comment carries its parent's ticket_id, created_at, and timestamp.
-        assert rows[0] == {
-            "id": 11,
-            "event_type": "Comment",
-            "public": True,
-            "body": "public reply",
-            "author_id": 5,
-            "ticket_id": 100,
-            "created_at": "2024-01-01T00:00:00Z",
-            "timestamp": 1704067200,
-        }
-        # The internal/public distinction — the reason this table exists — is preserved.
-        assert [r["public"] for r in rows] == [True, False, True]
-        assert rows[2]["ticket_id"] == 101
-
-    @pytest.mark.parametrize(
-        "page",
-        [
-            pytest.param([], id="empty_page"),
-            pytest.param([{"id": 1, "ticket_id": 1, "child_events": []}], id="no_child_events"),
-            pytest.param([{"id": 1, "ticket_id": 1, "child_events": None}], id="null_child_events"),
-            pytest.param([{"id": 1, "ticket_id": 1}], id="missing_child_events_key"),
-            pytest.param(
-                [{"id": 1, "ticket_id": 1, "child_events": [{"id": 2, "event_type": "Change"}]}],
-                id="only_non_comment_children",
-            ),
-        ],
-    )
-    def test_pages_without_comments_are_not_yielded(self, page: list[dict[str, Any]]) -> None:
-        # Empty pages must not reach the pipeline, and a missing/null child_events key must not crash.
-        assert list(flatten_ticket_comments([page])) == []
-
-    @pytest.mark.parametrize("missing_field", ["ticket_id", "created_at"])
-    def test_comment_on_event_missing_critical_field_fails_loud(self, missing_field: str) -> None:
-        # ticket_id (parent linkage) and created_at (incremental cursor) must never be silently
-        # stamped as None — flattening an event missing either raises instead of emitting an orphan row.
-        event = {
-            "id": 1,
-            "ticket_id": 100,
-            "created_at": "2024-01-01T00:00:00Z",
-            "child_events": [{"id": 2, "event_type": "Comment"}],
-        }
-        del event[missing_field]
-
-        with pytest.raises(KeyError):
-            list(flatten_ticket_comments([[event]]))

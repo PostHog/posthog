@@ -12,20 +12,13 @@ INCREMENTAL_PAGE_SIZE = 1000
 CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 
 # Resources that will always get pulled
-BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "ticket_comments", "tickets", "ticket_metric_events"]
+BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
 
 # Endpoints backed by a Zendesk Incremental Export API, so incremental sync actually
 # reduces the data fetched (the `start_time` cursor is filtered server-side) rather than
 # only changing the write disposition. Endpoints without an incremental export
 # (brands, groups, sla_policies, ticket_fields) stay full-refresh on purpose.
-INCREMENTAL_ENDPOINTS = [
-    "tickets",
-    "users",
-    "organizations",
-    "ticket_events",
-    "ticket_comments",
-    "ticket_metric_events",
-]
+INCREMENTAL_ENDPOINTS = ["tickets", "users", "organizations", "ticket_events", "ticket_metric_events"]
 
 
 def _datetime_incremental_field(field: str) -> IncrementalField:
@@ -53,9 +46,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "users": [_datetime_incremental_field("updated_at")],
     "organizations": [_datetime_incremental_field("updated_at")],
     "ticket_events": [_datetime_incremental_field("created_at")],
-    # Comments are flattened from the ticket-events export and stamped with the parent
-    # event's created_at, so they share ticket_events' server-side start_time cursor.
-    "ticket_comments": [_datetime_incremental_field("created_at")],
     "ticket_metric_events": [_datetime_incremental_field("time")],
 }
 
@@ -66,7 +56,6 @@ PARTITION_FIELDS: dict[str, str] = {
     "organizations": "created_at",
     "sla_policies": "created_at",
     "ticket_events": "created_at",
-    "ticket_comments": "created_at",
     "ticket_fields": "created_at",
     "ticket_metric_events": "time",
     "tickets": "created_at",
