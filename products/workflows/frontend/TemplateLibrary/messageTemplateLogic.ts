@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -108,9 +108,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
-            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+            // Clear the unsaved-changes state before navigating so the beforeUnload guard
+            // does not intercept the post-save redirect.
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
+            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
         },
         loadMessageSuccess: async ({ message }) => {
             if (!message) {
@@ -173,4 +175,20 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.resetTemplate(NEW_TEMPLATE)
         }
     }),
+    beforeUnload(({ values, actions }) => ({
+        // Guards both new and existing templates - a brand-new template only exists in form
+        // state until "Create" is pressed, so leaving without saving would discard it entirely.
+        enabled: (newLocation) => {
+            if (!values.templateChanged) {
+                return false
+            }
+            // Allow same-path changes (e.g. query params) through without warning.
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave template?\nChanges you made will be discarded.',
+        onConfirm: () => actions.resetTemplate(values.originalTemplate),
+    })),
 ])
