@@ -143,7 +143,7 @@ function reportMissingDashboardWidgetRegistryEntry(
 }
 
 /** A widget slot reachable eagerly or via a lazy chunk — both render identically inside a <Suspense>. */
-type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<ComponentType<P>>
+export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<ComponentType<P>>
 
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
