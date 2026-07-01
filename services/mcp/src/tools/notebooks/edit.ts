@@ -208,6 +208,13 @@ async function editMarkdownNotebook(
         )
     }
 
+    if (getMarkdownNotebookNode(notebook.content) === null) {
+        throw new Error(
+            `Notebook ${params.short_id} content is not a markdown notebook document. ` +
+                'Use `old_value`/`new_value` JSON subtree replacement for legacy rich-text notebooks.'
+        )
+    }
+
     const nextMarkdown = replaceMarkdown(currentMarkdown, params)
     const nextContent = buildMarkdownNotebookContent(notebook.content, nextMarkdown)
 

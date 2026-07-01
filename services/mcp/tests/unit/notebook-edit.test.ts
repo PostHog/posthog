@@ -210,6 +210,28 @@ describe('editHandler', () => {
         expect(state.saveCalls).toHaveLength(0)
     })
 
+    it('fails closed when markdown endpoint returns text but notebook content is not a markdown document', async () => {
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            markdownResponse: sampleMarkdown,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [],
+        }
+        const context = createMockContext(state)
+
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_markdown: 'Original paragraph.',
+                new_markdown: 'Edited markdown paragraph.',
+            })
+        ).rejects.toThrow(/content is not a markdown notebook document/)
+        expect(state.markdownGetCalls).toBe(1)
+        expect(state.saveCalls).toHaveLength(0)
+    })
+
     it('throws not-found markdown error without including the current markdown body', async () => {
         const state: MockState = {
             notebookContent: sampleMarkdownDoc,
