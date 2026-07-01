@@ -48,16 +48,19 @@ function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
 }
 
 // delivery_config stores only the bare Slack channel ID (it feeds Slack delivery, see api/delivery.py),
-// so resolve the friendly name at render time via slackIntegrationLogic — the same lookup SlackChannelPicker
-// uses. Falls back to "Slack" while the lookup is in flight or if the channel can't be resolved.
+// so resolve the friendly name at render time via slackIntegrationLogic. Use loadAllSlackChannels (an
+// array) rather than the single-value by-id path: slackIntegrationLogic is keyed by integration_id, so
+// targets sharing an integration share one instance — the by-id reducer holds only one channel and would
+// leave the others showing "Slack". A valid delivery channel is always in the listing (the bot must be a
+// member to post there). Falls back to "Slack" while loading or if the channel can't be resolved.
 function DeliveryTargetLabel({ target }: { target: DeliveryTargetApi }): JSX.Element {
     const logic = slackIntegrationLogic({ id: target.integration_id })
     const { slackChannels } = useValues(logic)
-    const { loadSlackChannelById } = useActions(logic)
+    const { loadAllSlackChannels } = useActions(logic)
 
     useEffect(() => {
-        loadSlackChannelById(target.channel)
-    }, [target.channel]) // eslint-disable-line react-hooks/exhaustive-deps
+        loadAllSlackChannels()
+    }, [loadAllSlackChannels])
 
     const channel = slackChannels.find((c) => c.id === target.channel)
     return <span>{channel ? `#${channel.name}` : 'Slack'}</span>
@@ -129,8 +132,8 @@ function VisionActionsTable(): JSX.Element {
                 }
                 return (
                     <div className="flex flex-col gap-0.5 text-sm">
-                        {targets.map((t, i) => (
-                            <DeliveryTargetLabel key={i} target={t} />
+                        {targets.map((t) => (
+                            <DeliveryTargetLabel key={`${t.integration_id}-${t.channel}`} target={t} />
                         ))}
                     </div>
                 )
