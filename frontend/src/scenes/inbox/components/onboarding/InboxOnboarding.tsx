@@ -24,6 +24,7 @@ const WIZARD_SETS_UP: { icon: JSX.Element; label: string }[] = [
 interface Beat {
     label: string
     description: JSX.Element
+    subtext: string | JSX.Element
     preview: JSX.Element
 }
 
@@ -58,8 +59,12 @@ const BEATS: Beat[] = [
         description: (
             <>
                 Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and
-                reviewers already lined up. Your first 3 PRs each month are free, then it's $15 per PR after that{' '}
-                <PrPricingInfo />.
+                reviewers already lined up.
+            </>
+        ),
+        subtext: (
+            <>
+                Your first 3 PRs each month are free, then it's $15 per PR after that. <PrPricingInfo />
             </>
         ),
         preview: <PullRequestPreview />,
@@ -69,9 +74,10 @@ const BEATS: Beat[] = [
         description: (
             <>
                 Not everything is a clean code change. When something needs your judgment, agents file a report with the
-                context and what they'd do – you decide. Reports without PRs are free.
+                context and what they'd do – you decide.
             </>
         ),
+        subtext: 'Reports without PRs are free.',
         preview: <ReportPreview />,
     },
 ]
@@ -139,8 +145,8 @@ function CommandCard(): JSX.Element {
 
 function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
     return (
-        <div className="flex flex-col gap-3">
-            <div className="flex items-baseline gap-3">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-mono text-xs text-muted tabular-nums">0{index + 1}</span>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[15px] font-semibold leading-snug">{beat.label}</span>
@@ -150,6 +156,9 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
             {/* Real inbox cards, kept inert by the preview's click interception (it meeps instead).
                 Full-width on mobile; indented to align under the beat text from sm up. */}
             <div className="select-none pl-0 sm:pl-8">{beat.preview}</div>
+            {beat.subtext ? (
+                <span className="text-[13px] text-secondary leading-snug text-right">{beat.subtext}</span>
+            ) : null}
         </div>
     )
 }
