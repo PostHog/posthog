@@ -208,7 +208,8 @@ export function ContextBillingStep({ onContinue }: { onContinue: () => void }): 
         return <SubscribedState onContinue={onContinue} />
     }
 
-    const platformProduct = billing.products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT) ?? null
+    const platformProduct =
+        billing.products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT) ?? null
 
     return <PlanChoice platformProduct={platformProduct} onContinue={onContinue} />
 }

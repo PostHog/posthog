@@ -4,21 +4,21 @@ import { ComponentType, ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import androidImage from '../logos/android.svg'
-import angularImage from '../logos/angular.svg'
-import { AstroLogo } from '../logos/AstroLogo'
-import djangoImage from '../logos/django.svg'
-import flaskImage from '../logos/flask.svg'
-import { IOSLogo } from '../logos/IOSLogo'
-import laravelImage from '../logos/laravel.svg'
-import nextjsImage from '../logos/nextjs.svg'
-import nuxtImage from '../logos/nuxt.svg'
-import pythonImage from '../logos/python.svg'
-import railsImage from '../logos/rails.svg'
-import reactImage from '../logos/react.svg'
-import { ReactRouterLogo } from '../logos/ReactRouterLogo'
-import svelteImage from '../logos/svelte.svg'
-import vueImage from '../logos/vue.svg'
+import androidImage from '../../../legacy/sdks/logos/android.svg'
+import angularImage from '../../../legacy/sdks/logos/angular.svg'
+import { AstroLogo } from '../../../legacy/sdks/logos/AstroLogo'
+import djangoImage from '../../../legacy/sdks/logos/django.svg'
+import flaskImage from '../../../legacy/sdks/logos/flask.svg'
+import { IOSLogo } from '../../../legacy/sdks/logos/IOSLogo'
+import laravelImage from '../../../legacy/sdks/logos/laravel.svg'
+import nextjsImage from '../../../legacy/sdks/logos/nextjs.svg'
+import nuxtImage from '../../../legacy/sdks/logos/nuxt.svg'
+import pythonImage from '../../../legacy/sdks/logos/python.svg'
+import railsImage from '../../../legacy/sdks/logos/rails.svg'
+import reactImage from '../../../legacy/sdks/logos/react.svg'
+import { ReactRouterLogo } from '../../../legacy/sdks/logos/ReactRouterLogo'
+import svelteImage from '../../../legacy/sdks/logos/svelte.svg'
+import vueImage from '../../../legacy/sdks/logos/vue.svg'
 
 export const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
 
@@ -101,12 +101,7 @@ export function WizardModeShell({
             {/* With the hog hidden (compact context-first card), center the content at its natural
                 width instead of stretching it full-bleed — so the command block and the GitHub-connect
                 block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
-            <div
-                className={cn(
-                    'flex-1 flex flex-col justify-center gap-3',
-                    hideHog && 'items-center text-center'
-                )}
-            >
+            <div className={cn('flex-1 flex flex-col justify-center gap-3', hideHog && 'items-center text-center')}>
                 {children}
             </div>
         </div>

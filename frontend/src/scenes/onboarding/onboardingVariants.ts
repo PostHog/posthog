@@ -1,8 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-/** Shipped onboarding variants. `legacy` is the existing experience; `redesign` is the new (stubbed) one. */
-export type OnboardingFlowVariant = 'legacy' | 'redesign'
+/** Shipped onboarding variants. `legacy` is the existing experience; `self-driving` is the redesigned one. */
+export type OnboardingFlowVariant = 'legacy' | 'self-driving'
 
 /**
  * Chrome rendered around an onboarding variant.
@@ -25,8 +25,8 @@ const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
  * `onboardingVariantRegistry.tsx` — add a variant in both places to ship a new onboarding.
  */
 export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingVariantConfig> = {
-    legacy: { chrome: 'none' },
-    redesign: { chrome: 'minimal' },
+    legacy: { chrome: 'minimal' },
+    'self-driving': { chrome: 'none' },
 }
 
 /**

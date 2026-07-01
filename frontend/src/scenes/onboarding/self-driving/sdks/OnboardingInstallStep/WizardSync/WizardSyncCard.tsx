@@ -1,4 +1,12 @@
-import { IconCheckCircle, IconCloud, IconExpand45, IconLaptop, IconPullRequest, IconWarning, IconX } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconCloud,
+    IconExpand45,
+    IconLaptop,
+    IconPullRequest,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'

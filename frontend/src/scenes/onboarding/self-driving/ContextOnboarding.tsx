@@ -17,19 +17,22 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
+import { onboardingLogic } from '../legacy/onboardingLogic'
+import {
+    useWizardTakeoverActive,
+    WizardProgressTracker,
+} from '../legacy/sdks/OnboardingInstallStep/WizardProgressTracker'
 import { useWizardCommand } from '../shared/SetupWizardBanner'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
-import { onboardingLogic } from './onboardingLogic'
 import { activeCloudRunLogic, type CloudRunHandle } from './sdks/OnboardingInstallStep/activeCloudRunLogic'
 import { installationProgressLogic } from './sdks/OnboardingInstallStep/installationProgressLogic'
 import { WizardCloudRunBlock } from './sdks/OnboardingInstallStep/WizardCloudRunBlock'
 import { wizardCloudRunLogic } from './sdks/OnboardingInstallStep/wizardCloudRunLogic'
 import { WizardCommandBlock } from './sdks/OnboardingInstallStep/WizardCommandBlock'
 import { WizardFrameworkBadges } from './sdks/OnboardingInstallStep/WizardModeShell'
-import { useWizardTakeoverActive, WizardProgressTracker } from './sdks/OnboardingInstallStep/WizardProgressTracker'
 
 /**
  * Context-first onboarding (prototype, legacy variant). A fixed linear flow, one thing per step,

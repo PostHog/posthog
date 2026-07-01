@@ -21,10 +21,12 @@ describe('onboardingVariants', () => {
             ).toBe('legacy')
         })
 
-        it('returns redesign when the flag selects it', () => {
+        it('returns self-driving when the flag selects it', () => {
             expect(
-                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'redesign' } as FeatureFlagsSet)
-            ).toBe('redesign')
+                resolveOnboardingFlowVariant({
+                    [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'self-driving',
+                } as FeatureFlagsSet)
+            ).toBe('self-driving')
         })
 
         it('falls back to legacy for an unregistered variant', () => {
@@ -41,8 +43,8 @@ describe('onboardingVariants', () => {
             expect(onboardingVariantChrome('legacy')).toBe('minimal')
         })
 
-        it('redesign keeps the minimal top bar', () => {
-            expect(onboardingVariantChrome('redesign')).toBe('minimal')
+        it('self-driving owns the whole viewport (no chrome)', () => {
+            expect(onboardingVariantChrome('self-driving')).toBe('none')
         })
     })
 })

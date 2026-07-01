@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand/Logomark'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -40,28 +41,31 @@ function ChoosePathStep(): JSX.Element {
         | { heading?: string; subheading?: string }
         | undefined
     const heading = headingCopy?.heading ?? 'What do you want to do with PostHog?'
-    const subheading = headingCopy?.subheading ?? 'Pick a goal to get started with the right tools'
+    const subheading = headingCopy?.subheading ?? 'Pick a goal to get started with the right products'
 
     return (
         <div className="max-w-6xl w-full">
-            <h1 className="text-2xl font-bold text-center mb-2">{heading}</h1>
-            <p className="text-center text-muted mb-6">{subheading}</p>
+            <div className="flex justify-center mb-4">
+                <Logomark />
+            </div>
+            <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
+            <p className="text-center text-muted mb-8">{subheading}</p>
 
-            {/* Use cases grid - responsive: 1 col on mobile, 2 on small, 3 on medium+ */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+            {/* Use cases grid - 2 rows x 3 columns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {useCases.map((useCase: UseCaseDefinition) => (
                     <LemonCard
                         key={useCase.key}
-                        className="OnboardingProductCard p-3 cursor-pointer"
+                        className="p-4 cursor-pointer"
                         onClick={() => selectUseCase(useCase.key)}
                         hoverEffect
                         data-attr={`use-case-${useCase.key}`}
                     >
-                        <div className="flex flex-col items-center text-center gap-2">
-                            <div className="text-2xl">
+                        <div className="flex flex-col items-center text-center gap-3">
+                            <div className="text-3xl">
                                 {getProductIcon(useCase.iconKey, {
                                     iconColor: useCase.iconColor,
-                                    className: 'text-2xl',
+                                    className: 'text-3xl',
                                 })}
                             </div>
                             <div>
@@ -74,18 +78,18 @@ function ChoosePathStep(): JSX.Element {
 
                 {/* Pick myself option */}
                 <LemonCard
-                    className="OnboardingProductCard p-3 cursor-pointer"
+                    className="p-4 cursor-pointer"
                     onClick={() => selectPickMyself()}
                     hoverEffect
                     data-attr="pick-myself-card"
                 >
-                    <div className="flex flex-col items-center text-center gap-2">
-                        <div className="text-2xl">
-                            <IconCursor className="text-2xl" color="rgb(100, 116, 139)" />
+                    <div className="flex flex-col items-center text-center gap-3">
+                        <div className="text-3xl">
+                            <IconCursor className="text-3xl" color="rgb(100, 116, 139)" />
                         </div>
                         <div>
                             <div className="font-semibold mb-1">I'll pick myself</div>
-                            <p className="text-muted text-sm mb-0">I know exactly which tools I need</p>
+                            <p className="text-muted text-sm mb-0">I know exactly which products I need</p>
                         </div>
                     </div>
                 </LemonCard>
@@ -108,16 +112,16 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="OnboardingProductCard relative cursor-pointer hover:transform-none p-4"
+            className="relative cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
         >
             <div className="flex flex-col items-center text-center gap-2">
-                <div className="text-2xl">
+                <div className="text-3xl">
                     {getProductIcon(product.icon, {
                         iconColor: product.iconColor,
-                        className: 'text-2xl',
+                        className: 'text-3xl',
                     })}
                 </div>
                 <div>
@@ -140,7 +144,7 @@ function ProductSelectionStep(): JSX.Element {
         recommendationSourceLabel,
         recommendationSource,
     } = useValues(productSelectionLogic)
-    const { toggleProduct, setFirstProductOnboarding, handleStartOnboarding, setShowAllProducts } =
+    const { toggleProduct, setFirstProductOnboarding, handleStartOnboarding, setShowAllProducts, setStep } =
         useActions(productSelectionLogic)
 
     const availableRecommendedProducts = recommendedProducts.filter(isAvailableOnboardingProductKey)
@@ -148,19 +152,22 @@ function ProductSelectionStep(): JSX.Element {
 
     return (
         <div className="max-w-6xl w-full">
-            <h1 className="text-2xl font-bold text-center mb-2">Which tools would you like to use?</h1>
+            <div className="flex justify-center mb-4">
+                <Logomark />
+            </div>
+            <h1 className="text-4xl font-bold text-center mb-2">Which products would you like to use?</h1>
             <p className="text-center text-muted mb-8">
                 {recommendationSourceLabel ? (
-                    <>We've pre-selected some tools {recommendationSourceLabel}. Feel free to change or add more.</>
+                    <>We've pre-selected some products {recommendationSourceLabel}. Feel free to change or add more.</>
                 ) : (
-                    <>Select all that apply, you can pick more than one!</>
+                    <>Select all that apply — you can pick more than one!</>
                 )}
             </p>
 
             {/* Browsing history banner */}
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
-            {/* Tools list */}
+            {/* Products list */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 justify-center w-full">
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard
@@ -196,7 +203,7 @@ function ProductSelectionStep(): JSX.Element {
 
             <div className="flex flex-col items-center gap-4 mt-8">
                 {selectedProducts.length > 1 ? (
-                    <div className="flex flex-col sm:flex-row gap-2 items-center justify-center w-full">
+                    <div className="flex gap-2 items-center justify-center">
                         <LemonLabel>Start with</LemonLabel>
                         <LemonSelect
                             value={firstProductOnboarding}
@@ -230,6 +237,12 @@ function ProductSelectionStep(): JSX.Element {
                         Get started
                     </LemonButton>
                 )}
+                <button
+                    className="text-muted hover:text-default text-sm cursor-pointer"
+                    onClick={() => setStep('choose_path')}
+                >
+                    ← Go back
+                </button>
             </div>
         </div>
     )
@@ -239,12 +252,15 @@ export function ProductSelection(): JSX.Element {
     const { currentStep } = useValues(productSelectionLogic)
 
     return (
-        // The onboarding card (LegacyOnboarding) owns the background, padding, and centering; this
-        // wrapper stays transparent so its gray shows through and just lays out the step content.
-        <div className="flex flex-col items-center w-full overflow-x-hidden">
-            {currentStep === 'choose_path' && <ChoosePathStep />}
-            {currentStep === 'product_selection' && <ProductSelectionStep />}
-            {currentStep === 'choose_path' && <OnboardingExitAction />}
+        // On mobile, top-align so the scroll container grows with the content (centering inside min-h-full hides the
+        // Continue button behind the browser chrome and prevents scrolling to it). The bottom padding clears the chrome
+        // / device notch, mirroring the --scene-padding-bottom formula in Navigation.scss. Desktop (sm+) is unchanged.
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-4 items-center justify-start sm:justify-center bg-primary overflow-x-hidden">
+            <div className="flex flex-col items-center justify-start sm:justify-center flex-grow w-full">
+                {currentStep === 'choose_path' && <ChoosePathStep />}
+                {currentStep === 'product_selection' && <ProductSelectionStep />}
+                {currentStep === 'choose_path' && <OnboardingExitAction />}
+            </div>
         </div>
     )
 }

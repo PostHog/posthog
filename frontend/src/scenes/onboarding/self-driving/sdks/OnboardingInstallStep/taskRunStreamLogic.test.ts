@@ -1,7 +1,14 @@
 import { mergeProgressStep, parseTaskRunStreamMessage, TaskRunProgressStep } from './taskRunStreamLogic'
 
 function step(overrides: Partial<TaskRunProgressStep> = {}): TaskRunProgressStep {
-    return { step: 'clone', status: 'in_progress', label: 'Cloning repository', group: 'setup', detail: null, ...overrides }
+    return {
+        step: 'clone',
+        status: 'in_progress',
+        label: 'Cloning repository',
+        group: 'setup',
+        detail: null,
+        ...overrides,
+    }
 }
 
 describe('taskRunStreamLogic helpers', () => {
@@ -51,7 +58,11 @@ describe('taskRunStreamLogic helpers', () => {
         })
 
         it('defaults missing optional task_run_state fields to null', () => {
-            const raw = JSON.stringify({ type: 'task_run_state', status: 'in_progress', updated_at: '2026-01-01T00:00:00Z' })
+            const raw = JSON.stringify({
+                type: 'task_run_state',
+                status: 'in_progress',
+                updated_at: '2026-01-01T00:00:00Z',
+            })
             expect(parseTaskRunStreamMessage(raw)).toEqual({
                 kind: 'state',
                 state: {
@@ -71,7 +82,13 @@ describe('taskRunStreamLogic helpers', () => {
                 type: 'notification',
                 notification: {
                     method: '_posthog/progress',
-                    params: { step: 'clone', status: 'in_progress', label: 'Cloning', group: 'setup', detail: 'shallow' },
+                    params: {
+                        step: 'clone',
+                        status: 'in_progress',
+                        label: 'Cloning',
+                        group: 'setup',
+                        detail: 'shallow',
+                    },
                 },
             })
             expect(parseTaskRunStreamMessage(raw)).toEqual({
@@ -95,8 +112,14 @@ describe('taskRunStreamLogic helpers', () => {
         })
 
         it.each([
-            ['a non-progress notification', { type: 'notification', notification: { method: 'other', params: { step: 'x' } } }],
-            ['a progress notification without params', { type: 'notification', notification: { method: '_posthog/progress' } }],
+            [
+                'a non-progress notification',
+                { type: 'notification', notification: { method: 'other', params: { step: 'x' } } },
+            ],
+            [
+                'a progress notification without params',
+                { type: 'notification', notification: { method: '_posthog/progress' } },
+            ],
             ['a notification without a notification field', { type: 'notification' }],
             ['a keepalive', { type: 'keepalive' }],
             ['an unknown type', { type: 'whatever' }],

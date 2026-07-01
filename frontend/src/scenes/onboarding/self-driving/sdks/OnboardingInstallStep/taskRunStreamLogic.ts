@@ -35,7 +35,9 @@ export interface TaskRunStreamLogicProps {
     runId: string
 }
 
-export type TaskRunStreamMessage = { kind: 'state'; state: TaskRunStreamState } | { kind: 'step'; step: TaskRunProgressStep }
+export type TaskRunStreamMessage =
+    | { kind: 'state'; state: TaskRunStreamState }
+    | { kind: 'step'; step: TaskRunProgressStep }
 
 // Merge a progress step into the list: last-write-wins per (group, step), preserving arrival order.
 export function mergeProgressStep(steps: TaskRunProgressStep[], step: TaskRunProgressStep): TaskRunProgressStep[] {

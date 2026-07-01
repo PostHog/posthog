@@ -14,7 +14,7 @@ export function OnboardingExitAction(): JSX.Element {
     // multiple OnboardingExitAction renders in a single tree share the same kea state without
     // spawning competing LemonModal instances.
     return (
-        <div className="mt-6 mx-auto max-w-md w-full">
+        <div className="mt-8 mx-auto max-w-md w-full">
             <div className="flex items-center gap-3 p-3 rounded-lg border border-primary bg-surface-primary">
                 <MailHog className="w-16 h-11 object-contain shrink-0" />
                 <div className="flex-1 text-left min-w-0">

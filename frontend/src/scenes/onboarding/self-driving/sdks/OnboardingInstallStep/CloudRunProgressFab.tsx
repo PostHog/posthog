@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
-import { InstallationProgressView } from './InstallationProgressView'
 import { installationProgressLogic } from './installationProgressLogic'
+import { InstallationProgressView } from './InstallationProgressView'
 
 /**
  * Floating progress widget for a cloud installation run, mounted app-wide (AuthenticatedShell) so the

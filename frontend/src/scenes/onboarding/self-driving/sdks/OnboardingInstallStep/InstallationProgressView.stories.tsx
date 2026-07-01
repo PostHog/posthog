@@ -201,7 +201,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
             phase: args.phase,
             steps: steps(statuses, args.currentTask ? { at: args.completedSteps, text: args.currentTask } : undefined),
             prUrl: args.prReady || args.phase === 'completed' ? 'https://github.com/acme-co/web/pull/42' : null,
-            error: args.phase === 'error' ? { title: 'Installation failed', detail: 'Something stopped the run.' } : null,
+            error:
+                args.phase === 'error' ? { title: 'Installation failed', detail: 'Something stopped the run.' } : null,
         })
         return <InstallationProgressContent progress={built} onRetryLocally={() => {}} />
     },

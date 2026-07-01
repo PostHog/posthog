@@ -14,7 +14,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { IntegrationType } from '~/types'
 
-import { onboardingLogic } from '../../onboardingLogic'
+import { onboardingLogic } from '../../../legacy/onboardingLogic'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 
 /**

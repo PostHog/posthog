@@ -26,8 +26,18 @@ export default meta
 type Story = StoryObj<typeof WizardSyncCard>
 
 // Cloud pipeline steps with a status per stage, plus an optional live detail on one stage.
-function cloudSteps(statuses: InstallationStepStatus[], detail?: { at: number; text: string }): InstallationProgress['steps'] {
-    const labels = ['Set up sandbox', 'Cloned repository', 'Ran PostHog setup wizard', 'Started agent', 'Opened pull request', 'Keeping CI green']
+function cloudSteps(
+    statuses: InstallationStepStatus[],
+    detail?: { at: number; text: string }
+): InstallationProgress['steps'] {
+    const labels = [
+        'Set up sandbox',
+        'Cloned repository',
+        'Ran PostHog setup wizard',
+        'Started agent',
+        'Opened pull request',
+        'Keeping CI green',
+    ]
     return labels.map((label, i) => ({
         id: `setup:${i}`,
         label,

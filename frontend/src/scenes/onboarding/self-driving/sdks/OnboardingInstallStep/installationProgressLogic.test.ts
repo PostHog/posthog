@@ -17,7 +17,14 @@ function taskState(overrides: Partial<TaskRunStreamState> = {}): TaskRunStreamSt
 }
 
 function step(overrides: Partial<TaskRunProgressStep> = {}): TaskRunProgressStep {
-    return { step: 'clone', status: 'in_progress', label: 'Cloning repository', group: 'setup', detail: null, ...overrides }
+    return {
+        step: 'clone',
+        status: 'in_progress',
+        label: 'Cloning repository',
+        group: 'setup',
+        detail: null,
+        ...overrides,
+    }
 }
 
 function session(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessionDTOApi {
@@ -73,7 +80,12 @@ describe('installationProgressLogic merge', () => {
                 'open',
                 null
             )
-            expect(result.steps[0]).toEqual({ id: 'setup:clone', label: 'Cloning', status: 'in_progress', detail: 'shallow' })
+            expect(result.steps[0]).toEqual({
+                id: 'setup:clone',
+                label: 'Cloning',
+                status: 'in_progress',
+                detail: 'shallow',
+            })
         })
 
         it('enriches an in-progress wizard step with the session in-progress task title', () => {
@@ -127,7 +139,9 @@ describe('installationProgressLogic merge', () => {
         })
 
         it('uses the task run error message on failure', () => {
-            expect(cloudProgress(taskState({ status: 'failed', error_message: 'boom' }), [], 'open', null).error).toEqual({
+            expect(
+                cloudProgress(taskState({ status: 'failed', error_message: 'boom' }), [], 'open', null).error
+            ).toEqual({
                 title: 'Installation failed',
                 detail: 'boom',
             })
@@ -145,10 +159,12 @@ describe('installationProgressLogic merge', () => {
         })
 
         it('error detail is null when neither source has a message', () => {
-            expect(cloudProgress(taskState({ status: 'failed', error_message: null }), [], 'open', null).error).toEqual({
-                title: 'Installation failed',
-                detail: null,
-            })
+            expect(cloudProgress(taskState({ status: 'failed', error_message: null }), [], 'open', null).error).toEqual(
+                {
+                    title: 'Installation failed',
+                    detail: null,
+                }
+            )
         })
 
         it('has no error outside an error phase', () => {
@@ -156,7 +172,11 @@ describe('installationProgressLogic merge', () => {
         })
 
         it.each([
-            ['output with pr_url', taskState({ status: 'completed', output: { pr_url: 'https://x/pull/1' } }), 'https://x/pull/1'],
+            [
+                'output with pr_url',
+                taskState({ status: 'completed', output: { pr_url: 'https://x/pull/1' } }),
+                'https://x/pull/1',
+            ],
             ['output without pr_url', taskState({ status: 'completed', output: {} }), null],
             ['null output', taskState({ status: 'completed', output: null }), null],
             ['no task state', null, null],
@@ -204,7 +224,9 @@ describe('installationProgressLogic merge', () => {
         })
 
         it('surfaces the wizard error on the error phase', () => {
-            expect(localProgress(session({ run_phase: 'error', error: { message: 'wizard boom' } }), 'open').error).toEqual({
+            expect(
+                localProgress(session({ run_phase: 'error', error: { message: 'wizard boom' } }), 'open').error
+            ).toEqual({
                 title: 'Wizard hit an error',
                 detail: 'wizard boom',
             })

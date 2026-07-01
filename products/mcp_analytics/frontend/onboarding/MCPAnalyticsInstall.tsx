@@ -5,7 +5,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { cn } from 'lib/utils/css-classes'
-import { WIZARD_HOG_URL } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/WizardModeShell'
+import { WIZARD_HOG_URL } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/WizardCommandBlock'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 

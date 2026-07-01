@@ -9,8 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType, OnboardingStepKey } from '~/types'
 
-import { onboardingLogic } from '../../onboardingLogic'
-import { sdksLogic } from '../sdksLogic'
+import { onboardingLogic } from '../../../legacy/onboardingLogic'
+import { sdksLogic } from '../../../legacy/sdks/sdksLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { wizardCloudRunLogicType } from './wizardCloudRunLogicType'
 
