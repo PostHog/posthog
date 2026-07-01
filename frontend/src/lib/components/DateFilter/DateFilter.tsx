@@ -1,412 +1,52 @@
-import { Placement } from '@floating-ui/react'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { forwardRef, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
-import { IconCalendar, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs, isDayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import {
-    CUSTOM_OPTION_DESCRIPTION,
-    CUSTOM_OPTION_KEY,
-    DateFilterLogicProps,
-    DateFilterView,
-    NO_OVERRIDE_RANGE_PLACEHOLDER,
-} from 'lib/components/DateFilter/types'
-import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
-import { formatResolvedDateRange } from 'lib/utils/datetime'
-import { uuid } from 'lib/utils/dom'
-import { teamLogic } from 'scenes/teamLogic'
+import { LemonDatePicker } from './LemonDatePicker'
+import { QuillDateFilter } from './QuillDateFilter'
 
-import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
-import { DateMappingOption, PropertyOperator } from '~/types'
+export type { LemonDatePickerProps } from './LemonDatePicker'
 
-import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
-import { dateFilterLogic } from './dateFilterLogic'
-import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
-import { JumpToTimestampPicker } from './JumpToTimestampPicker'
-import { RelativeDateRangeSelector } from './RelativeDateRangeSelector'
-import { RollingDateRangeFilter } from './RollingDateRangeFilter'
-import { DateOption } from './rollingDateRangeFilterLogic'
-
-export interface DateFilterProps {
-    showCustom?: boolean
-    showRollingRangePicker?: boolean
-    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode, endOfRange?: React.ReactNode) => React.ReactNode
-    className?: string
-    onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
-    disabled?: boolean
-    disabledReason?: string | null
-    dateOptions?: DateMappingOption[]
-    isDateFormatted?: boolean
-    size?: LemonButtonProps['size']
-    type?: LemonButtonProps['type']
-    dropdownPlacement?: Placement
-    /* True when we're not dealing with ranges, but a single date / relative date */
-    isFixedDateMode?: boolean
-    placeholder?: string
-    fullWidth?: boolean
-    resolvedDateRange?: ResolvedDateRangeResponse
-    showJumpToTimestamp?: boolean
-    showCustomRelativeRange?: boolean
-    /**
-     * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
-     * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
-     * in to let the user freely pick either a single value or a range. `isFixedDateMode` and
-     * `showCustomRelativeRange` are ignored when this is set.
-     */
-    allowSingleAndRange?: boolean
+export interface DateFilterProps extends ComponentPropsWithoutRef<typeof LemonDatePicker> {
+    /** `data-attr` for the Quill variant's trigger button. */
+    dataAttr?: string
 }
 
-interface RawDateFilterProps extends DateFilterProps {
-    dateFrom?: string | null | dayjs.Dayjs
-    dateTo?: string | null | dayjs.Dayjs
-    max?: number | null
-    allowedRollingDateOptions?: DateOption[]
-    allowTimePrecision?: boolean
-    allowFixedRangeWithTime?: boolean
-    /**
-     * Granularity is picked based on the dateFrom value
-     * but can be overridden to force a specific granularity.
-     * For example, set to 'day' to never show the time picker.
-     */
-    forceGranularity?: LemonCalendarSelectProps['granularity']
-    /** Use 24-hour format instead of 12-hour with AM/PM */
-    use24HourFormat?: boolean
-    explicitDate?: boolean
-    showExplicitDateToggle?: boolean
+function toDateString(date: string | null | dayjs.Dayjs | undefined): string | null {
+    if (date == null) {
+        return null
+    }
+    return isDayjs(date) ? date.toISOString() : date
 }
 
-export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(function DateFilter(
-    {
-        showCustom,
-        showRollingRangePicker = true,
-        className,
-        disabledReason,
-        makeLabel,
-        onChange,
-        dateFrom,
-        dateTo,
-        dateOptions = dateMapping,
-        isDateFormatted = true,
-        size,
-        type,
-        dropdownPlacement = 'bottom-start',
-        max,
-        isFixedDateMode = false,
-        allowedRollingDateOptions,
-        allowTimePrecision = false,
-        allowFixedRangeWithTime = false,
-        placeholder,
-        fullWidth = false,
-        forceGranularity,
-        use24HourFormat = false,
-        explicitDate,
-        showExplicitDateToggle = false,
-        resolvedDateRange,
-        showJumpToTimestamp = false,
-        showCustomRelativeRange = false,
-        allowSingleAndRange = false,
-    },
+/**
+ * The date filter used across the app. Reads the `DATEPICKER_COMPONENT`
+ * multivariate flag and renders either the LemonUI `LemonDatePicker` (control /
+ * unset — the default everywhere today) or the Quill `QuillDateFilter` (quill).
+ *
+ * Same props as `LemonDatePicker`, so it's a drop-in. The Quill variant only
+ * understands the shared `dateFrom`/`dateTo`/`onChange` contract, so the
+ * LemonUI-only options (and the forwarded ref) are ignored when it is active.
+ */
+export const DateFilter = forwardRef<HTMLButtonElement, DateFilterProps>(function DateFilter(
+    { dataAttr, ...props },
     ref
 ) {
-    const effectiveShowCustomRelativeRange = allowSingleAndRange ? true : showCustomRelativeRange
-    const key = useRef(uuid()).current
-    const logicProps: DateFilterLogicProps = {
-        key,
-        dateFrom,
-        dateTo,
-        onChange,
-        dateOptions,
-        isDateFormatted,
-        isFixedDateMode,
-        placeholder,
-        allowTimePrecision,
-        explicitDate,
-        showCustomRelativeRange: effectiveShowCustomRelativeRange,
-        allowSingleAndRange,
-    }
-    const {
-        open,
-        openFixedRange,
-        openDateToNow,
-        openFixedDate,
-        openJumpToTimestamp,
-        openCustomRelativeRange,
-        close,
-        setRangeDateFrom,
-        setExplicitDate,
-        setRangeDateTo,
-        setDate,
-        applyRange,
-        setFixedRangeGranularity,
-    } = useActions(dateFilterLogic(logicProps))
-    const {
-        isVisible,
-        view,
-        rangeDateFrom,
-        rangeDateTo,
-        label,
-        isFixedRange,
-        isDateToNow,
-        isFixedDate,
-        isRollingDateRange,
-        isCustomRelativeRange,
-        dateFromHasTimePrecision,
-        fixedRangeGranularity,
-    } = useValues(dateFilterLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const { weekStartDay } = useValues(teamLogic)
-    const optionsRef = useRef<HTMLDivElement | null>(null)
-    const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
-    const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
-        forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
-    )
-
-    const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime
-
-    const popoverOverlay =
-        view === DateFilterView.FixedRange ? (
-            showFixedRangeTimeToggle && fixedRangeGranularity === 'minute' ? (
-                <FixedRangeWithTimePicker
-                    rangeDateFrom={rangeDateFrom}
-                    rangeDateTo={rangeDateTo}
-                    setDate={setDate}
-                    onClose={open}
-                    use24HourFormat={use24HourFormat}
-                    showTimeToggle={showFixedRangeTimeToggle}
-                    onToggleTime={(includeTime) => setFixedRangeGranularity(includeTime ? 'minute' : 'day')}
-                />
-            ) : (
-                <LemonCalendarRange
-                    value={[rangeDateFrom ?? dayjs(), rangeDateTo ?? dayjs()]}
-                    onChange={([from, to]) => {
-                        setRangeDateFrom(from)
-                        setRangeDateTo(to)
-                        setExplicitDate(false)
-                        applyRange()
-                    }}
-                    onClose={open}
-                    months={2}
-                    showTimeToggle={showFixedRangeTimeToggle}
-                    onToggleTime={(includeTime) => setFixedRangeGranularity(includeTime ? 'minute' : 'day')}
-                />
-            )
-        ) : view === DateFilterView.FixedRangeWithTime ? (
-            <FixedRangeWithTimePicker
-                rangeDateFrom={rangeDateFrom}
-                rangeDateTo={rangeDateTo}
-                setDate={setDate}
-                onClose={open}
-                use24HourFormat={use24HourFormat}
+    if (featureFlags[FEATURE_FLAGS.DATEPICKER_COMPONENT] === 'quill') {
+        return (
+            <QuillDateFilter
+                dateFrom={toDateString(props.dateFrom)}
+                dateTo={toDateString(props.dateTo)}
+                onChange={(dateFrom, dateTo) => props.onChange?.(dateFrom, dateTo)}
+                dataAttr={dataAttr}
             />
-        ) : view === DateFilterView.DateToNow ? (
-            <LemonCalendarSelect
-                value={rangeDateFrom ?? dayjs()}
-                onChange={(date) => {
-                    setRangeDateFrom(date)
-                    setRangeDateTo(null)
-                    setExplicitDate(granularity === 'minute')
-                    applyRange()
-                }}
-                onClose={open}
-                granularity={forceGranularity ?? granularity}
-                showTimeToggle={forceGranularity ? false : allowTimePrecision}
-                onToggleTime={
-                    forceGranularity ? undefined : () => setGranularity(granularity === 'minute' ? 'day' : 'minute')
-                }
-                use24HourFormat={use24HourFormat}
-            />
-        ) : view === DateFilterView.FixedDate ? (
-            <PropertyFilterDatePicker
-                autoFocus
-                // IsDateExact (rather than Exact) so PropertyFilterDatePicker's auto-open gate
-                // — `operator && isOperatorDate(operator) && autoFocus` — opens the calendar
-                // immediately instead of waiting for a click on the input.
-                operator={PropertyOperator.IsDateExact}
-                value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
-                setValue={(date) => {
-                    setDate(String(date), null)
-                }}
-            />
-        ) : view === DateFilterView.JumpToTimestamp ? (
-            <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
-        ) : view === DateFilterView.CustomRelativeRange ? (
-            <RelativeDateRangeSelector
-                onApply={(from, to) => setDate(from, to)}
-                onClose={open}
-                initialFrom={typeof dateFrom === 'string' ? dateFrom : null}
-                initialTo={typeof dateTo === 'string' ? dateTo : null}
-            />
-        ) : (
-            <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
-                {dateOptions.map(({ key, values, inactive }) => {
-                    if (key === CUSTOM_OPTION_KEY && !showCustom) {
-                        return null
-                    }
-
-                    if (inactive && label !== key) {
-                        return null
-                    }
-
-                    const isActive =
-                        (dateFrom ?? null) === (values[0] ?? null) && (dateTo ?? null) === (values[1] ?? null)
-                    const dateValue = dateFilterToText(
-                        values[0],
-                        values[1],
-                        CUSTOM_OPTION_DESCRIPTION,
-                        dateOptions,
-                        isDateFormatted,
-                        undefined,
-                        undefined,
-                        weekStartDay
-                    )
-                    const startOfRangeDateValue = dateFilterToText(
-                        values[0],
-                        undefined,
-                        '',
-                        [],
-                        false,
-                        'MMMM D, YYYY',
-                        true
-                    )
-                    const endOfRangeDateValue = values[1]
-                        ? dateFilterToText(values[1], undefined, '', [], false, 'MMMM D, YYYY', true)
-                        : undefined
-
-                    return (
-                        <Tooltip
-                            key={key}
-                            title={
-                                makeLabel ? makeLabel(dateValue, startOfRangeDateValue, endOfRangeDateValue) : undefined
-                            }
-                        >
-                            <LemonButton
-                                key={key}
-                                data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
-                                onClick={() => setDate(values[0] || null, values[1] || null, false, explicitDate)}
-                                active={isActive}
-                                fullWidth
-                            >
-                                {key === CUSTOM_OPTION_KEY ? NO_OVERRIDE_RANGE_PLACEHOLDER : key}
-                            </LemonButton>
-                        </Tooltip>
-                    )
-                })}
-                {showRollingRangePicker && (
-                    <RollingDateRangeFilter
-                        pageKey={key}
-                        dateFrom={dateFrom}
-                        dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
-                        selected={isRollingDateRange}
-                        onChange={(fromDate) => {
-                            setDate(fromDate, '', true, explicitDate)
-                        }}
-                        makeLabel={makeLabel}
-                        popover={{
-                            ref: rollingDateRangeRef,
-                        }}
-                        max={max}
-                        allowedDateOptions={
-                            isFixedDateMode && !allowedRollingDateOptions
-                                ? ['hours', 'days', 'weeks', 'months', 'years']
-                                : allowedRollingDateOptions
-                        }
-                        fullWidth
-                    />
-                )}
-                <LemonDivider />
-                {(isFixedDateMode || allowSingleAndRange) && (
-                    <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
-                        Custom date...
-                    </LemonButton>
-                )}
-                {(!isFixedDateMode || allowSingleAndRange) && (
-                    <>
-                        {!allowSingleAndRange && (
-                            <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
-                                From custom date until now…
-                            </LemonButton>
-                        )}
-                        <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
-                            Custom fixed date range…
-                        </LemonButton>
-                        {effectiveShowCustomRelativeRange && (
-                            <LemonButton onClick={openCustomRelativeRange} active={isCustomRelativeRange} fullWidth>
-                                Custom relative range…
-                            </LemonButton>
-                        )}
-                    </>
-                )}
-                {showExplicitDateToggle && (
-                    <>
-                        <LemonDivider />
-                        <div className="LemonSwitch pb-2 pt-2 LemonSwitch--medium LemonSwitch--full-width">
-                            <label className="flex items-center gap-1">
-                                <span>Exact time range</span>
-                                <Tooltip
-                                    title={
-                                        <>
-                                            <div className="font-semibold mb-1">When enabled:</div>
-                                            <div className="mb-2">
-                                                Uses the current time for period boundaries instead of full days.
-                                            </div>
-                                            <div className="font-semibold mb-1">When disabled:</div>
-                                            <div>Dates are rounded to full day periods (start and end of day).</div>
-                                        </>
-                                    }
-                                >
-                                    <IconInfo className="text-muted-alt w-4 h-4" />
-                                </Tooltip>
-                            </label>
-                            <LemonSwitch
-                                checked={explicitDate ?? false}
-                                onChange={(checked) => {
-                                    setExplicitDate(checked)
-                                }}
-                            />
-                        </div>
-                    </>
-                )}
-                {showJumpToTimestamp && (
-                    <>
-                        <LemonDivider />
-                        <LemonButton onClick={openJumpToTimestamp} fullWidth data-attr="jump-to-timestamp-option">
-                            Jump to timestamp…
-                        </LemonButton>
-                    </>
-                )}
-            </div>
         )
+    }
 
-    return (
-        <Popover
-            visible={isVisible}
-            overlay={popoverOverlay}
-            placement={dropdownPlacement}
-            actionable
-            additionalRefs={[rollingDateRangeRef]}
-            onClickOutside={close}
-            closeParentPopoverOnClickInside={false}
-        >
-            <LemonButton
-                ref={ref}
-                id="daterange_selector"
-                size={size ?? 'small'}
-                type={type ?? 'secondary'}
-                disabledReason={disabledReason}
-                data-attr="date-filter"
-                icon={<IconCalendar />}
-                onClick={isVisible ? close : open}
-                fullWidth={fullWidth}
-                tooltip={formatResolvedDateRange(resolvedDateRange)}
-            >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
-            </LemonButton>
-        </Popover>
-    )
+    return <LemonDatePicker ref={ref} {...props} />
 })

@@ -17,6 +17,7 @@ import {
     Spinner,
 } from '@posthog/quill-primitives'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -25,7 +26,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { McpDateFilter } from '../components/McpDateFilter'
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
@@ -167,11 +167,10 @@ function SessionsListPanel(): JSX.Element {
                         </Button>
                     </div>
                     <div className="flex items-center justify-between gap-1">
-                        <McpDateFilter
+                        <DateFilter
                             dateFrom={dateFilter.dateFrom}
                             dateTo={dateFilter.dateTo}
                             onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-sessions-date-filter"
                         />
                         <Select
                             value={sortingToValue(sorting)}

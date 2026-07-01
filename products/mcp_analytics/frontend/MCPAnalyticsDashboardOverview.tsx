@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -11,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
 import { HarnessDonut } from './dashboard/HarnessDonut'
 import { KpiTiles } from './dashboard/KpiTiles'
@@ -54,11 +54,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <MCPAnalyticsFirstLook />
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                    <McpDateFilter
+                    <DateFilter
                         dateFrom={dateFilter.dateFrom}
                         dateTo={dateFilter.dateTo}
                         onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                        dataAttr="mcp-dashboard-date-filter"
                     />
                     <div data-attr="mcp-dashboard-property-filter">
                         <PropertyFilters

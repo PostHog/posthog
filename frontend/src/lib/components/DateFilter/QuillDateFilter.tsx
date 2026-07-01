@@ -56,14 +56,31 @@ function formatTriggerLabel(value: DateTimeValue): string {
     return `${dayjs(value.start).format('MMM D, HH:mm')} – ${dayjs(value.end).format('MMM D, HH:mm')}`
 }
 
-interface McpDateFilterProps {
+export interface QuillDateFilterProps {
     dateFrom: string | null
     dateTo: string | null
     onChange: (dateFrom: string | null, dateTo: string | null) => void
-    dataAttr: string
+    dataAttr?: string
 }
 
-export function McpDateFilter({ dateFrom, dateTo, onChange, dataAttr }: McpDateFilterProps): JSX.Element {
+/**
+ * Quill-based date filter. Mirrors the LemonUI `DateFilter` contract (relative
+ * strings like "-7d", or an absolute ISO start/end pair) so the two can be
+ * swapped behind the `DateFilter` entrypoint.
+ *
+ * WARNING: incomplete. It only honors `dateFrom`/`dateTo`/`onChange`/`dataAttr` —
+ * every other `DateFilter` prop (and the forwarded ref) is silently dropped, and
+ * it can't represent single-date mode or relative ranges outside its fixed quick
+ * list. Don't use it directly; the flag-aware `DateFilter` entrypoint routes here
+ * only when the `DATEPICKER_COMPONENT` flag is `quill`, so enable that flag only
+ * for surfaces that pass just `dateFrom`/`dateTo`/`onChange`.
+ */
+export function QuillDateFilter({
+    dateFrom,
+    dateTo,
+    onChange,
+    dataAttr = 'date-filter',
+}: QuillDateFilterProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const value = toPickerValue(dateFrom, dateTo)
 

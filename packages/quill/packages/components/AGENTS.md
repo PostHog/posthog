@@ -44,6 +44,8 @@ Rules:
 
 ## DateTimePicker
 
+> **Incomplete — not a replacement for the main app's date filter.** `DateTimePicker` only does a quick-range/custom-range calendar. In the PostHog app, date filtering belongs to the LemonUI `DateFilter` (`frontend/src/lib/components/DateFilter/DateFilter.tsx`), which additionally supports single-date / fixed-date mode, rolling & custom relative ranges beyond the fixed quick list, `disabledReason`, custom `dateOptions`, jump-to-timestamp, sizing/`type` styling, and ref forwarding — none of which `DateTimePicker` has. There's a thin `QuillDateFilter` wrapper around it, but it's only wired behind the `DATEPICKER_COMPONENT` feature flag and silently drops every prop except `dateFrom`/`dateTo`/`onChange`/`dataAttr`. For any product scene or dashboard, use `DateFilter`. Reach for `DateTimePicker` directly only for a standalone Quill surface that genuinely needs nothing more than a range.
+
 ```tsx
 import { CUSTOM_RANGE, DateTimePicker, quickRanges } from '@posthog/quill-components'
 ;<DateTimePicker
