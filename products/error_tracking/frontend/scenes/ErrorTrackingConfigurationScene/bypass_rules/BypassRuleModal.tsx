@@ -20,8 +20,7 @@ export function BypassRuleModal(): JSX.Element {
                     across {issuesLink} would have bypassed rate limiting in the last {dateRangeLabel}
                 </>
             )}
-            filtersOptional
-            emptyFilterWarning="This rule has no filters, so it matches every exception and bypasses all rate limiting for this project."
+            showTestButton={false}
         />
     )
 }

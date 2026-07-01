@@ -26,7 +26,7 @@ interface RuleModalProps {
     footerExtra?: ReactNode
     samplingRate?: number
     filtersOptional?: boolean
-    emptyFilterWarning?: ReactNode
+    showTestButton?: boolean
 }
 
 export function RuleModal({
@@ -43,7 +43,7 @@ export function RuleModal({
     footerExtra,
     samplingRate,
     filtersOptional = false,
-    emptyFilterWarning,
+    showTestButton = true,
 }: RuleModalProps): JSX.Element {
     const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(logic)
@@ -118,17 +118,19 @@ export function RuleModal({
                         {footerExtra}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
-                            disabledReason={
-                                !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
-                            }
-                            onClick={loadMatchCount}
-                        >
-                            Test rule
-                        </LemonButton>
+                        {showTestButton && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
+                                disabledReason={
+                                    !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
+                                }
+                                onClick={loadMatchCount}
+                            >
+                                Test rule
+                            </LemonButton>
+                        )}
                         <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>
@@ -146,9 +148,6 @@ export function RuleModal({
         >
             <div className="space-y-4 py-2">
                 {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
-                {filtersOptional && !hasFilters && emptyFilterWarning && (
-                    <LemonBanner type="warning">{emptyFilterWarning}</LemonBanner>
-                )}
                 <div>
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
