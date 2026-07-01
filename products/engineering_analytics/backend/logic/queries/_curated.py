@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
@@ -167,6 +168,7 @@ class CuratedGitHubSource:
         *,
         query_type: str,
         placeholders: dict[str, ast.Expr] | None = None,
+        workload: Workload = Workload.DEFAULT,
     ) -> HogQLQueryResponse:
         """Parse + execute a curated HogQL query for this team.
 
@@ -179,6 +181,10 @@ class CuratedGitHubSource:
         for system / Temporal / CLI contexts; that build has no user to honor the ACL with and would fail
         closed (strip every warehouse table), so those reads bypass it — the warehouse team's sanctioned
         escape hatch for userless callers.
+
+        ``workload`` routes the read to a non-default ClickHouse cluster (e.g. ``Workload.LOGS`` for the
+        ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
+        for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
@@ -186,6 +192,9 @@ class CuratedGitHubSource:
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
+                # The logs table lives on a separate ClickHouse cluster (Workload.LOGS); warehouse
+                # reads use the default. Callers pass the workload that matches the tables they query.
+                workload=workload,
                 # Forward the real user, not just the access control: a userless build drops the access
                 # control and fails closed (see _compute_system_table_access_decision), so the user is what
                 # lets HogQL honor the per-table warehouse ACL.

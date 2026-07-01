@@ -33,7 +33,8 @@ pub struct ProcessArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// Whether to delete the source map files after uploading them [default: false]
+    /// Whether to delete the source map files and strip sourceMappingURL comments after uploading them
+    /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
