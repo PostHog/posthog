@@ -1,6 +1,7 @@
 import { cleanup } from '@testing-library/react'
 import React from 'react'
 
+import type { Series } from '../core/types'
 import { makeOverlayContext, renderOverlayInChart } from '../testing'
 import { TrendLineOverlay } from './TrendLineOverlay'
 
@@ -31,7 +32,7 @@ const horizontalContext = makeOverlayContext(
     { dimensions: DIMENSIONS, labels: ['A', 'B', 'C'], axisOrientation: 'horizontal' }
 )
 
-const makeSeries = (key: string, data: number[], excluded = false) => ({
+const makeSeries = (key: string, data: number[], excluded = false): Series => ({
     key,
     label: key,
     data,
