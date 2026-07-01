@@ -5539,6 +5539,21 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
+    "mcp-analytics-sessions-list": {
+        "description": "List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions are: \"which clients are most active this week?\", \"which sessions called tool X?\", \"how long do sessions usually run?\", \"which person's sessions made the most calls?\". Each row has session_id, tool_calls, session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email / person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated), newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not returned as a field; an unrecognised key silently falls back to newest-first. Also supports a case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with mcp-analytics-sessions-generate-intent.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "List MCP sessions",
+        "title": "List MCP sessions",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
     "mcp-connection-tools-list": {
         "description": "Load a connected MCP server's live tool catalog by connection `id` (from mcp-connections-list). Returns each tool's `tool_name`, `description`, `input_schema`, and `approval_state`. ALWAYS call this to load a connection's REAL tool names before curating per-agent MCP tool permissions (an agent's `spec.mcps[].tools[]` with `level` / `default_tool_approval`) — never invent or guess tool names from past sessions or skill prose.",
         "category": "MCP Store",
