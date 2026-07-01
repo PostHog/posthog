@@ -17,7 +17,7 @@ an uncommitted transaction.
 
 import uuid
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from unittest.mock import patch
@@ -44,7 +44,7 @@ WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizat
 _STUBBED_ACTIVITY_NAMES = {"queue_recording_deletions_activity"}
 
 
-def _temporal_activity_name(fn: object) -> str | None:
+def _temporal_activity_name(fn: Callable[..., object]) -> str | None:
     """Resolve the name Temporal registers ``fn`` under, matching the Worker's own resolution.
 
     Filtering on this (rather than ``fn.__name__``) keeps the stub swap correct even if a future
