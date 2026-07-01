@@ -662,6 +662,9 @@ class TestHogQLTypeSystem:
                 [ast.IntegerType(nullable=False), ast.BooleanType(nullable=False)],
                 ast.IntegerType(nullable=True),
             ),
+            # -Distinct leaves the base result type unchanged. countDistinct resolves via this path now
+            # that it's no longer enumerated in the base set.
+            ("countDistinct", [ast.IntegerType(nullable=False)], ast.IntegerType(nullable=False)),
         ],
     )
     def test_resolver_infers_aggregate_combinator_types(

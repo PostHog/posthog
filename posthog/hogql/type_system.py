@@ -1438,7 +1438,7 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
     if state_or_merge_type is not None:
         return state_or_merge_type
 
-    if normalized_name in {"count", "countdistinct", "uniq", "uniqexact", "uniqhll12", "uniqtheta"}:
+    if normalized_name in {"count", "uniq", "uniqexact", "uniqhll12", "uniqtheta"}:
         return ast.IntegerType(nullable=False)
 
     if normalized_name == "sum" and arg_types:
