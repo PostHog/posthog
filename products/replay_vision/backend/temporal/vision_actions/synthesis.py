@@ -181,21 +181,23 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     )
 
     # Cap how many observations feed the summary (bounds context size + LLM cost). Per-action, tunable
-    # via Django admin; falls back to the module default. When the window holds more than the cap, sample
-    # evenly across it by recency rank rather than just taking the newest, so a busy weekly action still
-    # reflects the whole period instead of only its last few hours.
+    # via Django admin; falls back to the module default. Fast path: one query fetches the newest `cap`
+    # rows. If it returns exactly `cap`, the window may hold more — only then scan all ids and sample
+    # evenly across it by recency rank, so a busy window reflects the whole period, not just its newest
+    # slice. Under the cap (the common case) this stays a single query.
     cap = action.max_observations or MAX_OBSERVATIONS
-    ids = list(observations_qs.order_by("-created_at").values_list("id", flat=True))
-    if len(ids) > cap:
-        step = len(ids) / cap
-        selected = {ids[int(i * step)] for i in range(cap)}
-    else:
-        selected = set(ids)
-    rows = (
-        observations_qs.filter(id__in=selected)
-        .order_by("-created_at")
-        .values_list("id", "scanner_result", "created_at")
-    )
+    ordered = observations_qs.order_by("-created_at")
+    rows = list(ordered.values_list("id", "scanner_result", "created_at")[:cap])
+    if len(rows) == cap:
+        ids = list(ordered.values_list("id", flat=True))
+        if len(ids) > cap:
+            step = len(ids) / cap
+            selected = {ids[int(i * step)] for i in range(cap)}
+            rows = list(
+                observations_qs.filter(id__in=selected)
+                .order_by("-created_at")
+                .values_list("id", "scanner_result", "created_at")
+            )
 
     lines: list[str] = []
     observation_ids: list[str] = []
