@@ -178,6 +178,10 @@ class OAuth2Auth(BearerTokenAuth):
         self.extra_token_request_params = extra_token_request_params
         self.token_request_headers = token_request_headers
         self.client_auth_method = client_auth_method
+        # A rotating provider returns a fresh single-use refresh token alongside each access token;
+        # captured here (never overwriting self.refresh_token, which must keep minting this run) so a
+        # caller holding a DB row can persist it for the next sync. None until a rotation is seen.
+        self.rotated_refresh_token: Optional[str] = None
         # None => mint on the first request. A pre-supplied access_token (rare; never
         # set for custom sources today) has no known expiry, so it too re-mints first.
         self.token_expiry: Optional[datetime] = None
@@ -292,6 +296,12 @@ class OAuth2Auth(BearerTokenAuth):
         self.token = token
         self._minted_at = datetime.now(UTC)
         self.token_expiry = self._parse_token_expiry(payload)
+        # Capture a rotated refresh token without mutating self.refresh_token: a single-use grant
+        # must keep using the original token to mint within this run, while a caller with a DB row
+        # persists the rotated one for the next sync. Only a non-empty string counts as a rotation.
+        rotated = payload.get("refresh_token")
+        if isinstance(rotated, str) and rotated:
+            self.rotated_refresh_token = rotated
 
     def _parse_token_expiry(self, payload: dict[str, Any]) -> datetime:
         now = datetime.now(UTC)

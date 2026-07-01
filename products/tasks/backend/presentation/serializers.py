@@ -530,7 +530,17 @@ class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
 
 
 class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=10000)
+    text = serializers.CharField(
+        max_length=10000,
+        help_text="Joined message body. Used when text_parts is absent.",
+    )
+    # Kept optional for forward/backward compatibility during rollout; will be aligned once deployed.
+    text_parts = serializers.ListField(
+        child=serializers.CharField(max_length=10000, allow_blank=True),
+        required=False,
+        allow_empty=True,
+        help_text="Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.",
+    )
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
