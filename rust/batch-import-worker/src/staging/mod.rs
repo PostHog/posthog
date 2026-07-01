@@ -4,8 +4,10 @@ use anyhow::{Context, Error};
 use tracing::{debug, info, warn};
 
 pub mod backend;
+pub mod pipeline;
 
 pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+pub use pipeline::open_plaintext_stream;
 
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {
