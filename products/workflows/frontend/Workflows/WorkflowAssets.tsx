@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { HedgehogGreek } from '@posthog/brand/hoggies'
 import { LemonCollapse, LemonInput, LemonModal, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -16,7 +16,7 @@ import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 function EmptyAssets(): JSX.Element {
     return (
         <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-            <ListHog width="100" height="100" className="mb-4" />
+            <HedgehogGreek width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">No emails sent yet</h2>
             <p className="text-sm text-balance text-tertiary">
                 Every email this workflow sends is captured here, so you can see exactly what each person received.
