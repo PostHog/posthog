@@ -48,6 +48,40 @@ export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
 ]
 
+interface PanelAvailability {
+    isJourneysEnabled: boolean
+    isSupportEnabled: boolean
+    hasZendeskSource: boolean
+    dataWarehouseSourcesLoading: boolean
+}
+
+// Panels backed by a product or warehouse source that may not be set up must be filtered out of
+// *every* content path — defaults and saved configs alike — so we never render a live query
+// against tables that don't exist (e.g. the Zendesk panel with no Zendesk warehouse source).
+// Keeping this in one helper means any future entry point that builds profile content stays safe.
+function filterAvailablePanels(
+    nodes: JSONContent[],
+    { isJourneysEnabled, isSupportEnabled, hasZendeskSource, dataWarehouseSourcesLoading }: PanelAvailability
+): JSONContent[] {
+    return (
+        nodes
+            .filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
+            // Hide the Zendesk panel unless a Zendesk warehouse source exists — without one its
+            // query targets non-existent zendesk_* tables.
+            .filter((node) => node.type !== NotebookNodeType.ZendeskTickets || hasZendeskSource)
+            // Support panel: show the table when support is on; when it's off, show the "set up
+            // support" prompt only if there's no Zendesk either (don't nag teams that already use
+            // Zendesk). Wait for sources to load before deciding, so we never flash the prompt at
+            // a Zendesk team.
+            .filter(
+                (node) =>
+                    node.type !== NotebookNodeType.SupportTickets ||
+                    isSupportEnabled ||
+                    (!hasZendeskSource && !dataWarehouseSourcesLoading)
+            )
+    )
+}
+
 export type CustomerProfileAttrs = {
     personId?: string | undefined
     distinctIds?: string[]
@@ -165,27 +199,17 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 scope,
                 attrs
             ) => {
-                const isJourneysEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
-                const isSupportEnabled = !!currentTeam?.conversations_enabled
-                const scopedDefaultContent = (
+                const scopedDefaultContent = filterAvailablePanels(
                     scope === CustomerProfileScope.PERSON
                         ? DEFAULT_PERSON_PROFILE_CONTENT
-                        : DEFAULT_GROUP_PROFILE_CONTENT
+                        : DEFAULT_GROUP_PROFILE_CONTENT,
+                    {
+                        isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
+                        isSupportEnabled: !!currentTeam?.conversations_enabled,
+                        hasZendeskSource,
+                        dataWarehouseSourcesLoading,
+                    }
                 )
-                    .filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
-                    // Hide the Zendesk panel entirely unless a Zendesk warehouse source exists —
-                    // without one its query targets non-existent zendesk_* tables.
-                    .filter((node) => node.type !== NotebookNodeType.ZendeskTickets || hasZendeskSource)
-                    // Support panel: show the table when support is on; when it's off, show the
-                    // "set up support" prompt only if there's no Zendesk either (don't nag teams
-                    // that already use Zendesk). Wait for sources to load before deciding, so we
-                    // never flash the prompt at a Zendesk team.
-                    .filter(
-                        (node) =>
-                            node.type !== NotebookNodeType.SupportTickets ||
-                            isSupportEnabled ||
-                            (!hasZendeskSource && !dataWarehouseSourcesLoading)
-                    )
 
                 const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
                 return scopedDefaultContent.map((node, index) => {
@@ -200,18 +224,41 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             (s) => [
                 s.customerProfileConfig,
                 s.scopedAddAttrFunction,
+                s.featureFlags,
+                s.hasZendeskSource,
+                s.dataWarehouseSourcesLoading,
+                s.currentTeam,
                 (_, props) => props.attrs,
-                (_, props) => props.scope,
             ],
-            (customerProfileConfig, scopedAddAttrFunction, attrs): JSONContent[] | null => {
+            (
+                customerProfileConfig,
+                scopedAddAttrFunction,
+                featureFlags,
+                hasZendeskSource,
+                dataWarehouseSourcesLoading,
+                currentTeam,
+                attrs
+            ): JSONContent[] | null => {
                 if (!customerProfileConfig) {
                     return null
                 }
 
+                // Saved configs bypass defaultContent, so apply the same availability filter here —
+                // otherwise a previously-saved Zendesk/support panel would render against a product
+                // or source that is no longer set up.
+                // `content` is declared as Record<string, any> on the config type but is stored as a
+                // node array; cast to its real shape for the shared filter.
+                const availableContent = filterAvailablePanels(customerProfileConfig.content as JSONContent[], {
+                    isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
+                    isSupportEnabled: !!currentTeam?.conversations_enabled,
+                    hasZendeskSource,
+                    dataWarehouseSourcesLoading,
+                })
+
                 const sidebar = customerProfileConfig.sidebar.map((node: JSONContent) =>
                     scopedAddAttrFunction({ attrs, node })
                 )
-                return customerProfileConfig.content.map((node: JSONContent, index: number) => {
+                return availableContent.map((node: JSONContent, index: number) => {
                     if (index === 0) {
                         return scopedAddAttrFunction({ attrs, node, children: sidebar })
                     }
