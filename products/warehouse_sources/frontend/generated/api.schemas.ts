@@ -207,7 +207,7 @@ export interface ExternalDataSchemaApi {
      */
     enabled_columns?: string[] | null
     /**
-     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Applied on the next sync — existing already-synced rows are not retroactively masked; trigger a resync to mask historical data.
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source.
      * @nullable
      */
     masked_columns?: string[] | null
@@ -352,7 +352,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     enabled_columns?: string[] | null
     /**
-     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Applied on the next sync — existing already-synced rows are not retroactively masked; trigger a resync to mask historical data.
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source.
      * @nullable
      */
     masked_columns?: string[] | null

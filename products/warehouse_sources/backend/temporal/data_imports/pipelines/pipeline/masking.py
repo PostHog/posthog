@@ -1,32 +1,43 @@
 """Deterministic one-way masking of sensitive warehouse-source columns.
 
-Masked values are replaced with a SHA-256 digest salted by `team_id`, so equal values mask
-identically within a team (joinable downstream) but diverge across teams. The digest depends
-only on `team_id` and the value's text form — nothing that rotates — so it is stable across
-resyncs and secret-key rotation. The value is hashed via `str(value)`, so the "same value →
-same digest" property holds for a stable textual representation; a value whose rendering differs
-between read paths (e.g. `Decimal("1.10")` vs `1.1`, or a datetime at different precision/tz)
-digests differently. Primary-key merges and incremental cursors stay stable as long as those
-columns themselves are never masked (enforced by `resolve_masked_columns`).
+Masked values are replaced with an HMAC-SHA256 digest keyed by the server secret
+(`ENCRYPTION_SALT_KEYS`) and salted by `team_id`. The secret keeps low-entropy values
+(passwords, card numbers) from being brute-forced by anyone who can query the column; `team_id`
+makes equal values mask identically within a team (joinable downstream) but diverge across
+teams. Same value → same digest across resyncs, so PK merges and incremental cursors stay stable
+as long as those columns are never masked (enforced by `resolve_masked_columns`).
 
-Tradeoff: `team_id` is not secret, so low-entropy values (passwords, card numbers) remain
-brute-forceable by anyone who can query the masked column. Stability was chosen over
-brute-force resistance — a keyed digest would resist brute force but break the moment the key
-rotated.
+The value is hashed via `str(value)`, so that stability holds for a stable textual
+representation; a value rendered differently between read paths (e.g. `Decimal("1.10")` vs `1.1`,
+or a datetime at different precision/tz) digests differently. Rotating `ENCRYPTION_SALT_KEYS`
+changes every digest, so a rotation requires re-masking the affected columns.
 """
 
+import hmac
 import hashlib
+
+from django.conf import settings
 
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 
-def mask_value(team_id: int, value: object) -> str | None:
-    """Deterministic, one-way digest of a single column value, salted by team_id. Null stays null."""
+def _masking_key() -> bytes:
+    keys = settings.ENCRYPTION_SALT_KEYS
+    if not keys:
+        raise ValueError("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
+    return keys[0].encode()
+
+
+def mask_value(team_id: int, value: object, *, key: bytes | None = None) -> str | None:
+    """Deterministic, one-way digest of a single column value, keyed by the server secret and
+    salted by team_id. Null stays null. Pass `key` to reuse one `_masking_key()` across a batch."""
     if value is None:
         return None
-    return hashlib.sha256(f"{team_id}:{value}".encode()).hexdigest()
+    return hmac.new(
+        key if key is not None else _masking_key(), f"{team_id}:{value}".encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def fold_column_name(name: str) -> str:
@@ -66,9 +77,10 @@ def mask_table_columns(
     masked = resolve_masked_columns(masked_columns, primary_keys, incremental_field)
     if not masked:
         return table
+    key = _masking_key()  # derive once; the per-cell loop below reuses it
     for index, name in enumerate(list(table.column_names)):
         if fold_column_name(name) not in masked:
             continue
-        digests = [mask_value(team_id, value) for value in table.column(index).to_pylist()]
+        digests = [mask_value(team_id, value, key=key) for value in table.column(index).to_pylist()]
         table = table.set_column(index, name, pa.array(digests, type=pa.string()))
     return table
