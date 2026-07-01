@@ -164,13 +164,24 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
+function responseHasResults(response: any): boolean {
+    if (Array.isArray(response)) {
+        return response.length > 0
+    }
+    return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
+}
+
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
     if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
+        return apiCache[url]
+    }
+    const response = await api.get(url)
+    // Never cache an empty response. A transient empty result (a backend blip, a race) would
+    // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
+    // "No results" for up to a minute — retrying the same query just re-reads the cached blank.
+    // Only successful, non-empty responses are safe to reuse.
+    if (responseHasResults(response)) {
         apiCache[url] = response
         apiCacheTimers[url] = window.setTimeout(() => {
             delete apiCache[url]
@@ -527,6 +538,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        remoteResultsAreFresh: [
+            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery],
+            (hasRemoteDataSource: boolean, remoteItems: ListStorage, searchQuery: string): boolean =>
+                // Local-only groups resolve synchronously, so they're always "fresh". For remote
+                // groups the debounced fetch lags the typed query — treat results as fresh only once
+                // the response for the *current* query has landed. This keeps a stale (or transiently
+                // empty) list from being rendered as "No results" before the real response arrives.
+                !hasRemoteDataSource || (remoteItems.searchQuery ?? '') === searchQuery,
+        ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
             (
@@ -564,6 +584,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
+                s.remoteResultsAreFresh,
             ],
             (
                 totalListCount: number,
@@ -573,25 +594,44 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
-                needsMoreSearchCharacters: boolean
+                needsMoreSearchCharacters: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
+                    // Don't declare "No results" until the fetch for the *current* query has landed —
+                    // otherwise a stale/empty list from the previous query masquerades as no matches.
+                    remoteResultsAreFresh &&
                     !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
-            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results, s.searchQuery],
+            (s) => [
+                s.isLoading,
+                s.isSuggestedFilters,
+                s.anyGroupLoading,
+                s.results,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.remoteResultsAreFresh,
+            ],
             (
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
-                searchQuery: string
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
-                (isLoading || (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0)) &&
+                (isLoading ||
+                    (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) ||
+                    // The current-query remote fetch hasn't landed yet: keep the spinner up rather
+                    // than flash a premature "No results". Gated on there being nothing to show
+                    // (below) so still-valid rows aren't replaced by a spinner on every keystroke.
+                    (hasRemoteDataSource && !remoteResultsAreFresh && searchQuery.trim().length > 0)) &&
                 (!results || results.length === 0),
         ],
         rawLocalItems: [

@@ -390,6 +390,62 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('transient empty responses are not pinned in the module cache', () => {
+        let flakyLogic: ReturnType<typeof infiniteListLogic.build>
+        let requestCounts: Record<string, number>
+
+        beforeEach(() => {
+            requestCounts = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        requestCounts[search] = (requestCounts[search] ?? 0) + 1
+                        // Simulate a backend blip: the first fetch for this term comes back empty,
+                        // later fetches surface the event that actually exists.
+                        const results =
+                            search === 'flaky_event'
+                                ? requestCounts[search] === 1
+                                    ? []
+                                    : [{ ...mockEventDefinitions[0], name: 'flaky_event' }]
+                                : mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            flakyLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flakyList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            flakyLogic.mount()
+        })
+
+        it('re-fetches the same query after an empty blip instead of serving a pinned blank', async () => {
+            await expectLogic(flakyLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial mount
+
+            // First search hits the blip and comes back empty.
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.setSearchQuery('flaky_event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({ remoteItems: partial({ count: 0 }) })
+
+            // Retrying the identical query must re-hit the backend (the empty was not cached) and
+            // surface the event that exists — otherwise it would keep reading as "No results".
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.loadRemoteItems({ offset: 0, limit: 100 })
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ results: partial([partial({ name: 'flaky_event' })]) }),
+                })
+        })
+    })
+
     describe('internal events local options filtering', () => {
         // The Internal Events group has multiple local options ("All internal events" plus
         // product filter options), so substring matching needs to cover both the meta option
