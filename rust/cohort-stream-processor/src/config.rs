@@ -73,7 +73,7 @@ pub struct Config {
 
     /// Bounded buffer (in sub-batches) per per-partition worker channel.
     /// Routing to a partition this far behind blocks rather than growing memory unbounded.
-    #[envconfig(default = "1024")]
+    #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
 
     #[envconfig(default = "localhost:9092")]
@@ -267,6 +267,26 @@ pub struct Config {
     /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
+
+    /// RocksDB block-cache size in bytes, shared across all column families.
+    #[envconfig(from = "COHORT_BLOCK_CACHE_BYTES", default = "134217728")]
+    pub cohort_block_cache_bytes: usize,
+
+    /// Cache and partition RocksDB index/filter blocks for faster point lookups.
+    #[envconfig(from = "COHORT_TUNED_BLOCK_OPTIONS_ENABLED", default = "true")]
+    pub cohort_tuned_block_options_enabled: bool,
+
+    /// Mark tombstone-heavy SSTs for compaction so deletions reclaim disk.
+    #[envconfig(from = "COHORT_COMPACT_ON_DELETION_ENABLED", default = "true")]
+    pub cohort_compact_on_deletion_enabled: bool,
+
+    /// Compact SSTs older than this many seconds. `0` disables it.
+    #[envconfig(from = "COHORT_PERIODIC_COMPACTION_SECONDS", default = "86400")]
+    pub cohort_periodic_compaction_seconds: u64,
+
+    /// Cap on RocksDB background compaction/flush jobs. `0` leaves RocksDB's default.
+    #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
+    pub cohort_max_background_jobs: i32,
 
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
@@ -542,6 +562,11 @@ impl Config {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
+            block_cache_bytes: self.cohort_block_cache_bytes,
+            tuned_block_options: self.cohort_tuned_block_options_enabled,
+            compact_on_deletion: self.cohort_compact_on_deletion_enabled,
+            periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
+            max_background_jobs: self.cohort_max_background_jobs,
             ..StoreConfig::default()
         }
     }
@@ -685,7 +710,7 @@ mod tests {
             cohort_person_memo_enabled: true,
             cohort_person_memo_capacity: 20000,
             cohort_event_name_gating_enabled: true,
-            partition_channel_buffer: 1024,
+            partition_channel_buffer: 128,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -727,6 +752,11 @@ mod tests {
             sweep_safety_margin_ms: 300000,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            cohort_block_cache_bytes: 134_217_728,
+            cohort_tuned_block_options_enabled: true,
+            cohort_compact_on_deletion_enabled: true,
+            cohort_periodic_compaction_seconds: 86_400,
+            cohort_max_background_jobs: 0,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -1453,6 +1483,53 @@ mod tests {
             .collect();
         let config = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(config.cohort_partition_count, 8);
+    }
+
+    #[test]
+    fn store_tuning_config_defaults_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.cohort_block_cache_bytes, 134_217_728);
+        assert!(defaults.cohort_tuned_block_options_enabled);
+        assert!(defaults.cohort_compact_on_deletion_enabled);
+        assert_eq!(defaults.cohort_periodic_compaction_seconds, 86_400);
+        assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.partition_channel_buffer, 128);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_BLOCK_CACHE_BYTES", "3221225472"),
+            ("COHORT_TUNED_BLOCK_OPTIONS_ENABLED", "false"),
+            ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
+            ("COHORT_PERIODIC_COMPACTION_SECONDS", "0"),
+            ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("PARTITION_CHANNEL_BUFFER", "256"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.cohort_block_cache_bytes, 3_221_225_472);
+        assert!(!config.cohort_tuned_block_options_enabled);
+        assert!(!config.cohort_compact_on_deletion_enabled);
+        assert_eq!(config.cohort_periodic_compaction_seconds, 0);
+        assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.partition_channel_buffer, 256);
+    }
+
+    #[test]
+    fn store_config_threads_the_rocksdb_tuning_knobs() {
+        let mut config = test_config();
+        config.cohort_block_cache_bytes = 3_221_225_472;
+        config.cohort_tuned_block_options_enabled = false;
+        config.cohort_compact_on_deletion_enabled = false;
+        config.cohort_periodic_compaction_seconds = 0;
+        config.cohort_max_background_jobs = 2;
+
+        let store = config.store_config();
+        assert_eq!(store.block_cache_bytes, 3_221_225_472);
+        assert!(!store.tuned_block_options);
+        assert!(!store.compact_on_deletion);
+        assert_eq!(store.periodic_compaction_seconds, 0);
+        assert_eq!(store.max_background_jobs, 2);
     }
 
     #[test]
