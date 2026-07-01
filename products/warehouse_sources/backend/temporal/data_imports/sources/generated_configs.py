@@ -724,7 +724,8 @@ class ClockifySourceConfig(config.Config):
 
 @config.config
 class ClockodoSourceConfig(config.Config):
-    pass
+    api_user: str
+    api_key: str
 
 
 @config.config
@@ -878,6 +879,8 @@ class CustomSourceConfig(config.Config):
     auth_token: str | None = None
     auth_api_key: str | None = None
     auth_password: str | None = None
+    auth_oauth2_client_secret: str | None = None
+    auth_oauth2_refresh_token: str | None = None
 
 
 @config.config
@@ -1030,7 +1033,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1175,7 +1179,8 @@ class FinnworldsSourceConfig(config.Config):
 
 @config.config
 class FireHydrantSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

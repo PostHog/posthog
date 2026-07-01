@@ -313,10 +313,12 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _get_image(config: SandboxConfig) -> str:
         """Get the image to use, checking for snapshots first."""
+        config.snapshot_restored = False
         if config.snapshot_external_id:
             snapshot_image = f"posthog-sandbox-snapshot:{config.snapshot_external_id}"
             result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
             if result.stdout.strip():
+                config.snapshot_restored = True
                 return snapshot_image
             logger.warning(f"Resume snapshot image {snapshot_image} not found locally, using base image")
 
@@ -327,6 +329,7 @@ class DockerSandbox(SandboxBase):
                     snapshot_image = f"posthog-sandbox-snapshot:{snapshot.external_id}"
                     result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
                     if result.stdout.strip():
+                        config.snapshot_restored = True
                         return snapshot_image
                     logger.warning(f"Snapshot image {snapshot_image} not found locally, using base image")
             except SandboxSnapshot.DoesNotExist:
@@ -1012,6 +1015,9 @@ class DockerSandbox(SandboxBase):
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
             )
+
+    def create_directory_snapshot(self, path: str) -> str:
+        return self.create_snapshot()
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

@@ -59,9 +59,7 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
-Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
-Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
 
 ### Rules
 
@@ -72,7 +70,6 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 ### Pushing to remote
 
 Don't open GitHub issues or pull requests without human instruction.
-When you do open a PR (with human instruction), open it in Draft by default (`gh pr create --draft`). Draft PRs run only a narrow subset of CI, which saves a large amount of runner credits. Fix CI failures and run affected tests locally before marking the PR ready for review.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
