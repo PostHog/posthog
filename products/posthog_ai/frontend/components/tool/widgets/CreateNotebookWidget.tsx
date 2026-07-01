@@ -4,7 +4,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
+import { DataToolRow } from '../DataToolRow'
+import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
+import type { ToolRendererProps } from '../toolRegistry'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
 export interface NotebookExtraction {

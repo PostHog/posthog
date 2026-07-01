@@ -24,9 +24,8 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
-
-import { visualizationTypeToQuery } from '../utils'
+import { MessageTemplate } from '../../../messages/MessageTemplate'
+import { visualizationTypeToQuery } from '../../../utils/visualizationQuery'
 
 const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 

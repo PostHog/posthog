@@ -12,7 +12,7 @@ import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schem
 import { isInsightQueryNode } from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
-import type { ToolCallMessage } from '../../maxTypes'
+import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened

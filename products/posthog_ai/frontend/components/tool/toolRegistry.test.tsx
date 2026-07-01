@@ -21,10 +21,10 @@ function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage 
 }
 
 describe('toolRegistry', () => {
-    // Product-specific data-tool renderers (insight/dashboard/recordings/error-tracking/query/notebook)
-    // are NOT registered by this shared registry — they're contributed by scenes/max via
-    // `registerMaxToolRenderers` and covered by that module's own test. Here we assert only what the
-    // shared, Max-free registry registers: built-ins, exec verbs, the question card, and the fallback.
+    // The base registry module registers only built-ins, exec verbs, the question card, and the fallback.
+    // The PostHog product data-tools self-register via `widgets/registerDataToolRenderers`, which
+    // `ToolCallCard` side-effect-imports — and this file imports `ToolCallCard`, so those keys resolve here
+    // too. Genuinely unmapped keys still fall through to the wrench card.
 
     it('bulk-registers every entry it is handed', () => {
         const Renderer = (() => null) as unknown as ToolRegistryEntry['Renderer']
@@ -37,16 +37,21 @@ describe('toolRegistry', () => {
         expect(toolRegistry.lookup('__test_beta__')?.displayName).toEqual('Beta')
     })
 
-    it('leaves product-specific and unknown tool names unregistered, resolving to the key as displayName', () => {
+    it('resolves product data-tools because importing ToolCallCard self-registers them', () => {
+        // Guards the fix: if the `registerDataToolRenderers` side-effect import is dropped from ToolCallCard,
+        // these keys fall through to the generic JSON card instead of their widgets.
+        expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
+        expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
+    })
+
+    it('falls back to the key as displayName for unknown and unmapped tool names', () => {
         expect(toolRegistry.lookup('mcp__user-installed__something')).toBeNull()
         // The synthesized fallback uses the resolved key as its displayName.
         expect(lookupToolRenderer('mcp__user-installed__something').displayName).toEqual(
             'mcp__user-installed__something'
         )
         expect(lookupToolRenderer('experiment-create').displayName).toEqual('experiment-create')
-        // Product adapters live in scenes/max now, so the bare registry resolves them to the fallback.
-        expect(toolRegistry.lookup('insight-create')).toBeNull()
-        expect(toolRegistry.lookup('query-trends')).toBeNull()
+        // Never-registered keys (not built-ins, not any product data-tool) resolve to the fallback.
         expect(toolRegistry.lookup('insight-query')).toBeNull()
         expect(toolRegistry.lookup('read_insight')).toBeNull()
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()

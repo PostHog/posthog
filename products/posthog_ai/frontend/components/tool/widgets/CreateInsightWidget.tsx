@@ -1,7 +1,8 @@
-import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
-
-import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
+import { DataToolRow } from '../DataToolRow'
+import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
+import type { ToolRendererProps } from '../toolRegistry'
 import { extractVisualizationArtifact } from './extractors'
+import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidget'
 
 /**
  * Renders insight create / update / read tool calls through `VisualizationWidget`. Until the

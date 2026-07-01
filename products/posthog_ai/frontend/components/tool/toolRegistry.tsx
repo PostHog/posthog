@@ -98,8 +98,8 @@ export const toolRegistry: ToolRegistry = new MapBackedRegistry()
 
 /**
  * Bulk-register tool renderers into the shared registry. The generic per-product seam: a product
- * registers its tool cards from its own scene's entrypoint (as Max does via `registerMaxToolRenderers`).
- * `toolRegistry.register` stays available for single-entry use.
+ * registers its tool cards from its own entrypoint (the surface itself does this for the PostHog data
+ * tools via `widgets/registerDataToolRenderers`). `toolRegistry.register` stays available for single-entry use.
  */
 export function registerToolRenderers(entries: ToolRegistryEntry[]): void {
     for (const entry of entries) {
@@ -108,9 +108,9 @@ export function registerToolRenderers(entries: ToolRegistryEntry[]): void {
 }
 
 // Product-specific data-tool renderers (insight, dashboard, session recordings, error tracking,
-// notebooks, query wrappers) are NOT registered here — they live in scenes/max and register themselves
-// into this registry via `registerMaxToolRenderers` so this surface stays free of any scenes/max import.
-// Surfaces without those adapters (tasks, signals inbox) fall through to the generic MCP card.
+// notebooks, query wrappers) are NOT registered in this module — that keeps the base registry a light
+// string+lazy side effect. They live in `./widgets` and self-register via `registerDataToolRenderers`,
+// which `ToolCallCard` side-effect-imports, so every surface that renders a tool card gets them.
 
 // --- Claude built-in tools ---
 // Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). Bash/Read/Search/Web
