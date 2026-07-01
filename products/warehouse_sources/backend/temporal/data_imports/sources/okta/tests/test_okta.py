@@ -155,14 +155,19 @@ class TestBuildInitialParams:
         )
         assert "since" not in params
 
-    def test_non_incremental_endpoint_only_limit(self):
+    @pytest.mark.parametrize("endpoint", ["group_rules", "user_types", "applications"])
+    def test_non_incremental_endpoint_only_limit(self, endpoint):
+        # These endpoints have no server-side time filter — Okta's List Applications API in
+        # particular rejects `filter=lastUpdated ...` with a 400 — so even with a watermark the
+        # params must carry only `limit`, never a `filter`.
         params = _build_initial_params(
-            OKTA_ENDPOINTS["group_rules"],
+            OKTA_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
+            incremental_field="lastUpdated",
         )
-        assert params == {"limit": 200}
+        assert "filter" not in params
+        assert params["limit"] == OKTA_ENDPOINTS[endpoint].page_size
 
 
 class TestBuildInitialUrl:
