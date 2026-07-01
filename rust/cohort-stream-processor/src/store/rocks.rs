@@ -181,6 +181,10 @@ impl CohortStore {
 
     /// Batch-read several `cf_stage1` values in one call, preserving input order.
     pub fn multi_get_stage1(&self, keys: &[Stage1Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
         let handle = self.cf(Cf::Stage1)?;
         let encoded: Vec<_> = keys.iter().map(Stage1Key::encode).collect();
         let started = Instant::now();
@@ -208,6 +212,10 @@ impl CohortStore {
 
     /// Batch-read several `cf_stage2` values in one call, preserving input order.
     pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
         let handle = self.cf(Cf::Stage2)?;
         let encoded: Vec<_> = keys.iter().map(Stage2Key::encode).collect();
         let started = Instant::now();
