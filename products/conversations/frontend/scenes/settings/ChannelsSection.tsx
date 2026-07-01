@@ -15,8 +15,9 @@ import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { TeamsSection } from './TeamsSection'
 import { WidgetSection } from './WidgetSection'
+import { ZendeskImportSection } from './ZendeskImportSection'
 
-type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api'
+type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api' | 'zendesk'
 
 const DEFAULT_CHANNEL_TAB: ChannelTabKey = 'widget'
 
@@ -106,6 +107,11 @@ export function ChannelsSection(): JSX.Element {
                         </span>
                     ),
                     content: <ApiSection />,
+                },
+                {
+                    key: 'zendesk' as const,
+                    label: 'Zendesk import',
+                    content: <ZendeskImportSection />,
                 },
             ]}
         />

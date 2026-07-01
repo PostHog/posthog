@@ -27,6 +27,7 @@ from .teams_channels import TeamsChannelsView, TeamsInstallAppView, TeamsSelectC
 from .teams_events import teams_event_handler
 from .teams_oauth import TeamsAuthorizeView, TeamsDisconnectView, teams_oauth_callback
 from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
+from .zendesk_import import ZendeskImportStartView, ZendeskImportStatusView
 
 urlpatterns = [
     path("v1/widget/message", WidgetMessageView.as_view(), name="widget-message-v1"),
@@ -65,4 +66,6 @@ urlpatterns = [
     re_path(r"^v1/github/select-repos/?$", GithubSelectReposView.as_view(), name="github-select-repos"),
     re_path(r"^v1/github/create-issue/?$", GithubCreateIssueView.as_view(), name="github-create-issue"),
     path("external/ticket/<uuid:ticket_id>", ExternalTicketView.as_view(), name="external-ticket"),
+    re_path(r"^v1/zendesk/import/?$", ZendeskImportStartView.as_view(), name="zendesk-import-start"),
+    re_path(r"^v1/zendesk/import/status/?$", ZendeskImportStatusView.as_view(), name="zendesk-import-status"),
 ]

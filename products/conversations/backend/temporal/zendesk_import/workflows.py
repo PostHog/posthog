@@ -1,0 +1,236 @@
+"""Temporal workflows for Zendesk historical ticket import."""
+
+from __future__ import annotations
+
+import json
+import asyncio
+from dataclasses import dataclass
+from datetime import timedelta
+
+from django.conf import settings
+
+from temporalio import workflow
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+with workflow.unsafe.imports_passed_through():
+    from products.conversations.backend.models.zendesk_import_job import ZendeskImportJob
+    from products.conversations.backend.temporal.zendesk_import.activities import (
+        EnumerateTicketsInput,
+        ImportBatchInput,
+        UpdateJobProgressInput,
+        UpdateJobStatusInput,
+        zendesk_import_batch_activity,
+        zendesk_import_enumerate_tickets_activity,
+        zendesk_import_update_job_progress_activity,
+        zendesk_import_update_job_status_activity,
+    )
+    from products.conversations.backend.temporal.zendesk_import.constants import (
+        BATCH_SIZE,
+        BATCH_WORKFLOW_ID_PREFIX,
+        CONTINUE_AS_NEW_AFTER_PAGES,
+        MAX_CONCURRENT_BATCH_WORKFLOWS,
+        WORKFLOW_ID_PREFIX,
+    )
+
+
+@dataclass
+class ZendeskImportCoordinatorInput:
+    job_id: str
+    team_id: int
+    cursor: str | None = None
+    pages_processed: int = 0
+    dry_run: bool = False
+
+
+@dataclass
+class ZendeskImportCoordinatorOutput:
+    imported: int
+    skipped: int
+    failed: int
+
+
+@dataclass
+class ZendeskImportBatchWorkflowInput:
+    job_id: str
+    team_id: int
+    ticket_ids: list[int]
+    dry_run: bool = False
+
+
+RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
+
+
+@workflow.defn(name="zendesk-import-coordinator")
+class ZendeskImportCoordinatorWorkflow:
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ZendeskImportCoordinatorInput:
+        if not inputs:
+            raise ValueError("ZendeskImportCoordinatorWorkflow requires input")
+        loaded = json.loads(inputs[0])
+        return ZendeskImportCoordinatorInput(**loaded)
+
+    async def _run_batch_child(
+        self, *, child_id: str, wf_input: ZendeskImportBatchWorkflowInput
+    ) -> ZendeskImportCoordinatorOutput:
+        try:
+            return await workflow.execute_child_workflow(
+                ZendeskImportBatchWorkflow.run,
+                wf_input,
+                id=child_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            )
+        except WorkflowAlreadyStartedError:
+            workflow.logger.info("zendesk_import_batch_already_running", child_id=child_id)
+            return ZendeskImportCoordinatorOutput(imported=0, skipped=0, failed=0)
+
+    @workflow.run
+    async def run(self, input: ZendeskImportCoordinatorInput) -> ZendeskImportCoordinatorOutput:
+        if input.pages_processed == 0:
+            await workflow.execute_activity(
+                zendesk_import_update_job_status_activity,
+                UpdateJobStatusInput(job_id=input.job_id, status=ZendeskImportJob.Status.RUNNING),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RETRY_POLICY,
+            )
+
+        total_imported = 0
+        total_skipped = 0
+        total_failed = 0
+        cursor = input.cursor
+        pages_processed = input.pages_processed
+
+        try:
+            while True:
+                page = await workflow.execute_activity(
+                    zendesk_import_enumerate_tickets_activity,
+                    EnumerateTicketsInput(job_id=input.job_id, cursor=cursor),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RETRY_POLICY,
+                )
+                cursor = page.next_cursor
+                pages_processed += 1
+
+                # Publish a running total as tickets are enumerated (cursor export has no
+                # upfront count) so the UI can render "processed / total".
+                if page.ticket_ids:
+                    await workflow.execute_activity(
+                        zendesk_import_update_job_progress_activity,
+                        UpdateJobProgressInput(
+                            job_id=input.job_id,
+                            total_delta=len(page.ticket_ids),
+                            export_cursor=cursor,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RETRY_POLICY,
+                    )
+
+                batches = [page.ticket_ids[i : i + BATCH_SIZE] for i in range(0, len(page.ticket_ids), BATCH_SIZE)]
+
+                # Fan out batches with bounded concurrency, checkpointing progress per window.
+                for window_start in range(0, len(batches), MAX_CONCURRENT_BATCH_WORKFLOWS):
+                    window = batches[window_start : window_start + MAX_CONCURRENT_BATCH_WORKFLOWS]
+                    results = await asyncio.gather(
+                        *[
+                            self._run_batch_child(
+                                child_id=(
+                                    f"{BATCH_WORKFLOW_ID_PREFIX}-{input.job_id}"
+                                    f"-{pages_processed}-{window_start + offset}"
+                                ),
+                                wf_input=ZendeskImportBatchWorkflowInput(
+                                    job_id=input.job_id,
+                                    team_id=input.team_id,
+                                    ticket_ids=batch,
+                                    dry_run=input.dry_run,
+                                ),
+                            )
+                            for offset, batch in enumerate(window)
+                        ]
+                    )
+
+                    window_imported = sum(r.imported for r in results)
+                    window_skipped = sum(r.skipped for r in results)
+                    window_failed = sum(r.failed for r in results)
+                    window_processed = sum(len(batch) for batch in window)
+                    total_imported += window_imported
+                    total_skipped += window_skipped
+                    total_failed += window_failed
+
+                    await workflow.execute_activity(
+                        zendesk_import_update_job_progress_activity,
+                        UpdateJobProgressInput(
+                            job_id=input.job_id,
+                            processed_delta=window_processed,
+                            imported_delta=window_imported,
+                            skipped_delta=window_skipped,
+                            failed_delta=window_failed,
+                            export_cursor=cursor,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RETRY_POLICY,
+                    )
+
+                if page.end_of_stream:
+                    break
+
+                if pages_processed >= CONTINUE_AS_NEW_AFTER_PAGES:
+                    workflow.continue_as_new(
+                        ZendeskImportCoordinatorInput(
+                            job_id=input.job_id,
+                            team_id=input.team_id,
+                            cursor=cursor,
+                            pages_processed=0,
+                            dry_run=input.dry_run,
+                        )
+                    )
+
+            await workflow.execute_activity(
+                zendesk_import_update_job_status_activity,
+                UpdateJobStatusInput(job_id=input.job_id, status=ZendeskImportJob.Status.COMPLETED),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RETRY_POLICY,
+            )
+            return ZendeskImportCoordinatorOutput(
+                imported=total_imported,
+                skipped=total_skipped,
+                failed=total_failed,
+            )
+        except Exception as exc:
+            await workflow.execute_activity(
+                zendesk_import_update_job_status_activity,
+                UpdateJobStatusInput(
+                    job_id=input.job_id,
+                    status=ZendeskImportJob.Status.FAILED,
+                    latest_error=str(exc),
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RETRY_POLICY,
+            )
+            raise
+
+
+@workflow.defn(name="zendesk-import-batch")
+class ZendeskImportBatchWorkflow:
+    @workflow.run
+    async def run(self, input: ZendeskImportBatchWorkflowInput) -> ZendeskImportCoordinatorOutput:
+        result = await workflow.execute_activity(
+            zendesk_import_batch_activity,
+            ImportBatchInput(
+                job_id=input.job_id,
+                team_id=input.team_id,
+                ticket_ids=input.ticket_ids,
+                dry_run=input.dry_run,
+            ),
+            start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RETRY_POLICY,
+        )
+        return ZendeskImportCoordinatorOutput(
+            imported=result.imported,
+            skipped=result.skipped,
+            failed=result.failed,
+        )
+
+
+def coordinator_workflow_id(team_id: int) -> str:
+    return f"{WORKFLOW_ID_PREFIX}-{team_id}"

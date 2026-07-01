@@ -1,0 +1,84 @@
+"""Start a Zendesk historical import for a team (internal/ops)."""
+
+from __future__ import annotations
+
+import asyncio
+
+from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
+
+from posthog.models import Team
+
+from products.conversations.backend.models import ZendeskImportJob
+from products.conversations.backend.temporal.zendesk_import.client import (
+    ZendeskCredentials,
+    validate_zendesk_credentials,
+)
+from products.conversations.backend.temporal.zendesk_import.starter import start_zendesk_import_workflow
+
+
+class Command(BaseCommand):
+    help = "Import historical Zendesk tickets into Conversations for a team."
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--team-id", type=int, required=True)
+        parser.add_argument("--subdomain", type=str, required=True)
+        parser.add_argument("--email", type=str, required=True)
+        parser.add_argument("--api-token", type=str, required=True)
+        parser.add_argument("--dry-run", action="store_true", default=False)
+
+    def handle(self, *args, **options) -> None:
+        team_id: int = options["team_id"]
+        team = Team.objects.filter(id=team_id).first()
+        if team is None:
+            raise CommandError(f"Team {team_id} not found")
+        if not team.conversations_enabled:
+            raise CommandError(f"Conversations is not enabled for team {team_id}")
+
+        credentials = ZendeskCredentials(
+            subdomain=options["subdomain"],
+            email_address=options["email"],
+            api_token=options["api_token"],
+        )
+        if not validate_zendesk_credentials(credentials):
+            raise CommandError("Zendesk rejected the credentials")
+
+        running = (
+            ZendeskImportJob.objects.unscoped()
+            .filter(
+                team_id=team_id,
+                status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
+            )
+            .exists()
+        )
+        if running:
+            raise CommandError("A Zendesk import is already running for this team")
+
+        job = ZendeskImportJob.objects.unscoped().create(
+            team_id=team_id,
+            status=ZendeskImportJob.Status.PENDING,
+            job_inputs={
+                "subdomain": credentials.subdomain,
+                "email_address": credentials.email_address,
+                "api_token": credentials.api_token,
+            },
+        )
+
+        workflow_id, workflow_run_id = asyncio.run(
+            start_zendesk_import_workflow(
+                job_id=str(job.id),
+                team_id=team_id,
+                dry_run=options["dry_run"],
+            )
+        )
+        job.workflow_id = workflow_id
+        job.workflow_run_id = workflow_run_id
+        job.status = ZendeskImportJob.Status.RUNNING
+        job.started_at = timezone.now()
+        job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Started Zendesk import job {job.id} (workflow {workflow_id}, dry_run={options['dry_run']})"
+            )
+        )
