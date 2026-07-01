@@ -284,7 +284,7 @@ pub struct Config {
     #[envconfig(from = "COHORT_PERIODIC_COMPACTION_SECONDS", default = "86400")]
     pub cohort_periodic_compaction_seconds: u64,
 
-    /// Cap on RocksDB background compaction/flush jobs. `0` leaves RocksDB's default.
+    /// Cap on RocksDB background compaction/flush jobs. Non-positive leaves RocksDB's default.
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 

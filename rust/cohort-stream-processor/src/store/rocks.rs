@@ -69,7 +69,7 @@ pub struct StoreConfig {
     pub compact_on_deletion_ratio: f64,
     /// `0` disables it.
     pub periodic_compaction_seconds: u64,
-    /// `0` leaves RocksDB's default untouched.
+    /// Non-positive leaves RocksDB's default untouched.
     pub max_background_jobs: i32,
 }
 
@@ -628,7 +628,7 @@ fn db_options(config: &StoreConfig) -> Options {
     opts.set_max_open_files(config.max_open_files);
     opts.set_allow_mmap_reads(false);
     opts.set_allow_mmap_writes(false);
-    if config.max_background_jobs != 0 {
+    if config.max_background_jobs > 0 {
         opts.set_max_background_jobs(config.max_background_jobs);
     }
     opts
