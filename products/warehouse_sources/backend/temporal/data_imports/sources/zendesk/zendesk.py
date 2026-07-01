@@ -389,7 +389,11 @@ def zendesk_source(
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
-    res = make_tracked_session().get(
+    # The Basic auth header carries a reusable Zendesk API token. Mask the token,
+    # api_key, and email in logged URLs/samples, and disable sample capture so the
+    # Authorization header can't leak into HTTP telemetry.
+    session = make_tracked_session(redact_values=(basic_token, api_key, email_address), capture=False)
+    res = session.get(
         f"https://{normalize_subdomain(subdomain)}.zendesk.com/api/v2/tickets/count",
         headers={"Authorization": f"Basic {basic_token}"},
     )

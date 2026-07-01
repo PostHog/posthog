@@ -34,6 +34,9 @@ with workflow.unsafe.imports_passed_through():
     )
 
 
+IMPORT_FAILED_MESSAGE = "The import failed. Please try again or contact support if it persists."
+
+
 @dataclass
 class ZendeskImportCoordinatorInput:
     job_id: str
@@ -196,13 +199,17 @@ class ZendeskImportCoordinatorWorkflow:
                 skipped=total_skipped,
                 failed=total_failed,
             )
-        except Exception as exc:
+        except Exception:
+            # Raw exception strings can carry internal hostnames, query details, or
+            # secrets from failing requests. Log the full error server-side and persist
+            # only a generic message for the admin-facing UI.
+            workflow.logger.exception("zendesk_import_coordinator_failed", job_id=input.job_id, team_id=input.team_id)
             await workflow.execute_activity(
                 zendesk_import_update_job_status_activity,
                 UpdateJobStatusInput(
                     job_id=input.job_id,
                     status=ZendeskImportJob.Status.FAILED,
-                    latest_error=str(exc),
+                    latest_error=IMPORT_FAILED_MESSAGE,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RETRY_POLICY,

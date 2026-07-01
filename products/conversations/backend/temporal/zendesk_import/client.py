@@ -34,7 +34,14 @@ class ZendeskImportClient:
         token = base64.b64encode(f"{credentials.email_address}/token:{credentials.api_token}".encode("ascii")).decode(
             "ascii"
         )
-        self._session = make_tracked_session()
+        # The Basic auth header carries a reusable Zendesk API token. Mask the token,
+        # api_token, and email everywhere they might surface in logged URLs/samples, and
+        # disable sample capture entirely since the name-based scrubbers can't guarantee
+        # the Authorization header is stripped from captured request samples.
+        self._session = make_tracked_session(
+            redact_values=(token, credentials.api_token, credentials.email_address),
+            capture=False,
+        )
         self._headers = {"Authorization": f"Basic {token}"}
 
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import asyncio
 
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -22,6 +23,13 @@ from products.conversations.backend.temporal.zendesk_import.client import (
     validate_zendesk_credentials,
 )
 from products.conversations.backend.temporal.zendesk_import.starter import start_zendesk_import_workflow
+
+logger = structlog.get_logger(__name__)
+
+# Generic, user-safe message stored in `latest_error` and returned to admins. Raw
+# exception strings can carry internal hostnames, query details, or secrets from
+# failing requests, so the real error is logged server-side instead.
+WORKFLOW_START_FAILED_MESSAGE = "Failed to start the import. Please try again or contact support if it persists."
 
 
 class ZendeskImportStartSerializer(serializers.Serializer):
@@ -122,14 +130,13 @@ class ZendeskImportStartView(APIView):
             job.status = ZendeskImportJob.Status.RUNNING
             job.started_at = timezone.now()
             job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
-        except Exception as exc:
+        except Exception:
+            logger.exception("zendesk_import_workflow_start_failed", job_id=str(job.id), team_id=team.id)
             job.status = ZendeskImportJob.Status.FAILED
-            job.latest_error = str(exc)
+            job.latest_error = WORKFLOW_START_FAILED_MESSAGE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
-            return Response(
-                {"detail": f"Failed to start import workflow: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(ZendeskImportJobSerializer(job).data, status=status.HTTP_201_CREATED)
 
