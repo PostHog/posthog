@@ -1103,13 +1103,12 @@ describe('dashboardLogic', () => {
                     })
             })
 
-            it('keeps refreshMetrics.total fixed while tiles drip to ready one at a time', async () => {
+            it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
                 const insight2 = dashboard.tiles[1].insight!
 
-                // Gate each insight fetch on its own barrier so tiles finish one at a time,
-                // mirroring the streaming load where tiles slowly become ready.
+                // Hold both insight fetches in flight so we can observe a mid-cycle abort while the batch is live.
                 const gates: Record<string, { barrier: Promise<void>; release: () => void }> = {}
                 for (const shortId of [insight1.short_id, insight2.short_id]) {
                     let release!: () => void
@@ -1132,6 +1131,7 @@ describe('dashboardLogic', () => {
                             return realGetInsightWithRetry(...args)
                         }
                     )
+                const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
 
                 const poll = async (cond: () => boolean, message: string): Promise<void> => {
                     const deadline = Date.now() + 5000
@@ -1143,39 +1143,35 @@ describe('dashboardLogic', () => {
                     }
                 }
 
-                // Y stays pinned at the up-front count for the whole drip; only X may move.
-                const waitForCompleted = async (expected: number): Promise<void> => {
-                    await poll(() => {
-                        expect(logic.values.refreshMetrics.total).toBe(2)
-                        return logic.values.refreshMetrics.completed >= expected
-                    }, `Timed out waiting for completed to reach ${expected}`)
-                    expect(logic.values.refreshMetrics).toEqual({ completed: expected, total: 2 })
-                }
-
                 try {
                     // forceRefresh: true so both tiles enter the refresh loop
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
 
-                    // Both tiles are enrolled up front before any finishes
+                    // Both tiles enrolled up front and in flight: Y is the fixed batch size, X is 0.
                     await poll(
                         () => getInsightWithRetrySpy.mock.calls.length >= 2,
                         'Timed out waiting for insight fetches to start'
                     )
                     expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
 
-                    // First tile becomes ready — X climbs to 1, Y unchanged
-                    gates[insight1.short_id].release()
-                    await waitForCompleted(1)
+                    // One tile's query aborts mid-cycle (e.g. a 504). Y must stay pinned at 2 — the pre-fix
+                    // selector derived Y from the live map, so it collapsed as the map shrank — and only the
+                    // aborted tile leaves the status map, so the sibling still in flight keeps being counted
+                    // (a whole-map wipe would drop it and overstate X as "done").
+                    logic.actions.abortQuery({ queryId: 'q1', queryStartTime: 0, shortId: insight1.short_id })
+                    expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
+                    expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
 
-                    // Second tile becomes ready — X reaches Y, which never grew past the up-front count
+                    gates[insight1.short_id].release()
                     gates[insight2.short_id].release()
                     await refreshDone
-                    expect(logic.values.refreshMetrics).toEqual({ completed: 2, total: 2 })
                 } finally {
                     Object.values(gates).forEach(({ release }) => release())
                     getInsightWithRetrySpy.mockRestore()
+                    cancelQuerySpy.mockRestore()
                 }
             })
 

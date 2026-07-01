@@ -308,7 +308,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
+        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -1062,16 +1062,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
-                abortQuery: () => ({}),
+                // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
+                // whole map here would make them count as completed and overstate "X out of Y".
+                abortQuery: (state, { shortId }) => {
+                    const { [shortId]: _aborted, ...rest } = state
+                    return rest
+                },
                 cancelDashboardRefresh: () => ({}),
             },
         ],
-        // The number of insights enrolled in the current refresh cycle, captured up front by the
-        // refresh listener. Pinning the "X out of Y" denominator to this keeps Y constant for the
-        // whole cycle instead of letting it track the live, still-populating refreshStatus map.
-        // null means "no batch pinned" — the selector then falls back to the live map size.
-        // Reset only on cycle boundaries (start / cancel), never on the per-query abortQuery, which
-        // fires for individual tile cancellations mid-cycle and would otherwise unpin the denominator.
+        // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
+        // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
+        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
         refreshTilesTotal: [
             null as number | null,
             {
@@ -1848,9 +1850,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.refreshStatus, s.refreshTilesTotal],
             (refreshStatus, refreshTilesTotal) => {
                 const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
-                // Pin the denominator to the count captured when the batch was enrolled so Y stays
-                // fixed for the cycle. Fall back to the live map size only when no batch is pinned
-                // (null) — e.g. one-off single-insight refreshes. A pinned 0 stays 0, not the map size.
+                // Pinned batch size keeps Y fixed for the cycle; fall back to the live map for single-insight refreshes.
                 const total = refreshTilesTotal ?? Object.keys(refreshStatus).length
                 return {
                     completed: total - inFlight,
@@ -2488,7 +2488,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (e: any) {
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime })
+                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
