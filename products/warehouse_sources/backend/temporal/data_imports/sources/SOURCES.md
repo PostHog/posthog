@@ -143,6 +143,7 @@ the row lists both.
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finage                  | HTTP                        | requests                                                        | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
@@ -397,7 +398,6 @@ doesn't conflict with concurrent PRs.
 - fastly
 - fauna
 - feishu
-- finage
 - firebase
 - firebolt
 - flexmail
