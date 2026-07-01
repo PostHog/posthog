@@ -421,8 +421,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     // up any traces that are still unloaded here.
                     const hasUnloadedTrace = values.traces.some(
                         (t) =>
-                            !values.fullTraces[t.id] ||
-                            values.fullTraceDateRangeCacheKeys[t.id] !== dateRangeCacheKey
+                            !values.fullTraces[t.id] || values.fullTraceDateRangeCacheKeys[t.id] !== dateRangeCacheKey
                     )
                     if (hasUnloadedTrace) {
                         actions.loadAllSessionEvents()

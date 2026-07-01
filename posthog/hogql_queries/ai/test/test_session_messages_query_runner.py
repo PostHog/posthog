@@ -421,7 +421,9 @@ class TestSessionMessagesEventsFallbackIndex(ClickhouseTestMixin, BaseTest):
         events_query = rewrite_query_for_events_table(runner._build_query())
         assert isinstance(events_query, ast.SelectQuery)
         fallback_conditions = [rewrite_expr_for_events_table(c) for c in runner._events_fallback_conditions()]
-        events_query.where = ast.And(exprs=[events_query.where, *fallback_conditions])
+        base_where = events_query.where
+        assert base_where is not None
+        events_query.where = ast.And(exprs=[base_where, *fallback_conditions])
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in runner._build_placeholders().items()}
         prepared = replace_placeholders(events_query, events_placeholders)
 
