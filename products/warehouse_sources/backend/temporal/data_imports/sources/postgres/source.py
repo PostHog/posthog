@@ -442,6 +442,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # A physical standby / read replica started with `hot_standby = off` refuses every
+            # connection while in recovery, raising SQLSTATE 57P03 "FATAL: the database system is not
+            # accepting connections / DETAIL: Hot standby mode is disabled". It will never serve read
+            # queries until hot_standby is enabled (a config change + restart) or the replica is
+            # promoted to primary, so a whole-activity retry re-hits the same wall every time. Match
+            # the stable DETAIL, NOT the broad "the database system is not accepting connections" — that
+            # message also fires transiently while a server is starting up, shutting down, or failing
+            # over and must stay retryable (see the "the database system is starting up" mapping above).
+            "Hot standby mode is disabled": (
+                "PostHog connected to a PostgreSQL standby (read replica) that isn't accepting "
+                'connections because hot standby is turned off ("Hot standby mode is disabled"). '
+                "Enable hot_standby on the replica and restart it, or point this source at the primary "
+                "database, then re-enable the sync."
+            ),
             # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
             # so it stays retryable. This abort is only raised once those retries are exhausted — by then
             # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the

@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { memo } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 
@@ -25,7 +26,15 @@ function compactTimeAgo(iso: string): string {
     return humanFriendlyDuration(seconds, { maxUnits: 1 })
 }
 
-export function TaskListItem({ task, isActive }: { task: Task; isActive: boolean }): JSX.Element {
+// Memoized: the parent re-renders the whole list on every task projection, but a row only changes
+// when its task or active state does.
+export const TaskListItem = memo(function TaskListItem({
+    task,
+    isActive,
+}: {
+    task: Task
+    isActive: boolean
+}): JSX.Element {
     const { deleteTask } = useActions(tasksLogic)
 
     const displayTitle = task.title || task.slug
@@ -76,4 +85,4 @@ export function TaskListItem({ task, isActive }: { task: Task; isActive: boolean
             </LinkListItem.Actions>
         </LinkListItem.Root>
     )
-}
+})

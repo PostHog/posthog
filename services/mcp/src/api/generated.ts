@@ -48168,6 +48168,22 @@ export namespace Schemas {
     }
 
     /**
+     * Response for an on-demand (`run now`) scout dispatch.
+     *
+     * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+     * row yet at response time — the bridge row is created once the run's first turn starts.
+     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     */
+    export interface SignalScoutManualRun {
+      /** The `signals-scout-*` skill that was dispatched. */
+      skill_name: string;
+      /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+      workflow_id: string;
+      /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+      started: boolean;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
      * today; kept distinct so future detail-only extensions (linked Signal rows,
      * LLMA token-cost join) can land here without bloating the list response.
@@ -51938,8 +51954,16 @@ export namespace Schemas {
     }
 
     export interface TaskRunRelayMessageRequest {
-      /** @maxLength 10000 */
+      /**
+         * Joined message body. Used when text_parts is absent.
+         * @maxLength 10000
+         */
       text: string;
+      /**
+         * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+         * @items.maxLength 10000
+         */
+      text_parts?: string[];
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -58082,11 +58106,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -62107,6 +62134,10 @@ export namespace Schemas {
 
     export type ExperimentSavedMetricsListParams = {
     /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -64713,11 +64744,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**

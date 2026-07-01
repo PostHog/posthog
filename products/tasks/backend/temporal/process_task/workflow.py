@@ -692,10 +692,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # When `use_modal_resume_snapshots` is off, resume relies on the
-                # agent server's git-checkpoint mechanism instead. Read from
-                # context (captured at workflow start) so replay is deterministic
-                # against env-var flips.
                 if self._context and self._context.mode == "interactive" and self._context.use_modal_resume_snapshots:
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
@@ -730,7 +726,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
-        if prepared.used_snapshot:
+        used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
+        if used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -744,7 +741,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
         # them before any sandbox command (diagnostics, fetch, checkout) runs.
-        if prepared.snapshot_external_id:
+        if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
                 inject_fresh_tokens_on_resume,
                 InjectFreshTokensOnResumeInput(
@@ -759,7 +756,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
@@ -798,7 +795,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
-                    used_snapshot=prepared.used_snapshot,
+                    used_snapshot=used_snapshot,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -812,8 +809,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
-            used_snapshot=prepared.used_snapshot,
-            should_create_snapshot=prepared.should_create_snapshot,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
             agent_server_launched=overlap,
         )
 
@@ -1075,11 +1072,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             pass
 
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
-        """Create a filesystem snapshot for interactive sandbox resume."""
+        """Create a snapshot for interactive sandbox resume."""
         try:
             result = await workflow.execute_activity(
                 create_resume_snapshot,
-                CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                CreateResumeSnapshotInput(
+                    sandbox_id=sandbox_id,
+                    run_id=self.context.run_id,
+                    use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+                ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

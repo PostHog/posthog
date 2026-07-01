@@ -93,6 +93,50 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "juheapi" not in markdown
         assert "hideFilters" in markdown
 
+    def test_converts_v1_widget_nodes_with_filters_closed_by_default(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "ZcWG6625"},
+                        "title": "Activation",
+                    },
+                },
+                {
+                    "type": "ph-recording",
+                    "attrs": {
+                        "id": "018b4205-f670-7fa8-928a-040abaaf596d",
+                        "title": "Session replay",
+                    },
+                },
+                {
+                    "type": "ph-insight",
+                    "attrs": {
+                        "id": "legacyInsight",
+                    },
+                },
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "open"},
+                        "edit": True,
+                    },
+                },
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert (
+            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />'
+            in markdown
+        )
+        assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
+        assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
+
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {
             "type": "doc",

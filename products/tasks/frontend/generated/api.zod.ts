@@ -1448,8 +1448,17 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
  */
 export const tasksRunsRelayMessageCreateBodyTextMax = 10000
 
+export const tasksRunsRelayMessageCreateBodyTextPartsItemMax = 10000
+
 export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(tasksRunsRelayMessageCreateBodyTextMax),
+    text: zod
+        .string()
+        .max(tasksRunsRelayMessageCreateBodyTextMax)
+        .describe('Joined message body. Used when text_parts is absent.'),
+    text_parts: zod
+        .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
+        .optional()
+        .describe('Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.'),
 })
 
 /**
