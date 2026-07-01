@@ -14,7 +14,11 @@ from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
-from products.mcp_analytics.backend.presentation.serializers import MCPSessionListQuerySerializer
+from products.mcp_analytics.backend.presentation.serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
+    MCPSessionListQuerySerializer,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -382,13 +386,13 @@ class TestMCPSessionListQuerySerializer(SimpleTestCase):
     def test_defaults_when_pagination_params_omitted(self) -> None:
         serializer = MCPSessionListQuerySerializer(data={})
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["limit"] == 100
+        assert serializer.validated_data["limit"] == MCP_SESSION_LIST_DEFAULT_LIMIT
         assert serializer.validated_data["offset"] == 0
 
     @parameterized.expand(
         [
-            ("limit_at_cap", {"limit": 500}, True, None),
-            ("limit_over_cap", {"limit": 501}, False, "limit"),
+            ("limit_at_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT + 1}, False, "limit"),
             ("limit_below_min", {"limit": 0}, False, "limit"),
             ("offset_at_min", {"offset": 0}, True, None),
             ("offset_negative", {"offset": -1}, False, "offset"),
