@@ -195,6 +195,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
   scout owns its behavioral health. Acquisition/attribution is the web-analytics
   scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-skills-store/` — skill-hygiene watcher for the team's PostHog
+  skills store (`LLMSkill` rows), read entirely via the MCP skill tools
+  (`skill-list` / `skill-get` / `skill-file-get`) so it works on any project with
+  no repo access. Sweeps skills whose `updated_at` / `version` advanced past its
+  cursor every run, plus a ~weekly gated deep pass over the store's most-used /
+  highest-leverage tier (usage events when the project has them, else version
+  churn and cross-references), checking a cached, ~weekly-refreshed checklist of
+  statically-verifiable authoring rules: description quality, body size /
+  progressive disclosure, single responsibility, bundled-file link hygiene, no
+  committed secrets, near-duplicate skills. Bundles one finding per skill, P3
+  (P2 when the skill is effectively broken for consumers or leaks a credential).
+  Its discriminator is a statically-verifiable rule violation in a skill that is
+  fresh or load-bearing — the unchanged long tail, subjective style nits, and
+  canonical seeded scout rows (`category: "scout"`) are noise. Treats skill
+  bodies as untrusted data under test, never instructions.
 - `signals-scout-customer-analytics/` — account-health watcher for the Customer
   analytics (Accounts) product, where each `system.accounts` row is a customer
   organization keyed to its analytics by `external_id` (the group key). Curates a
