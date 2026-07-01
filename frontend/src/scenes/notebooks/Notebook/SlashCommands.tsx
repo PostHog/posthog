@@ -338,6 +338,19 @@ order by count() desc
                 featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
             },
             {
+                title: 'Data (v2)',
+                search: 'data v2 sql events',
+                icon: NODE_ICONS[NotebookNodeType.DataV2],
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: NotebookNodeType.DataV2,
+                        attrs: {
+                            code: '',
+                        },
+                    }),
+                featureFlag: FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS,
+            },
+            {
                 title: 'Python',
                 search: 'python',
                 icon: NODE_ICONS[NotebookNodeType.Python],
