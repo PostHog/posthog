@@ -28,11 +28,13 @@ def fake_redis():
 
 
 @contextmanager
-def _rebuilds(error=None):
+def _rebuilds(error=None, skip_write=False):
     """Patch the batch DB-load + cache-write seam so rebuilds succeed (error=None) or
-    fail with the given exception, without touching the DB or the real caches."""
+    fail with the given exception, without touching the DB or the real caches.
+    `skip_write=True` makes the group-mapping-emptied guard veto every write."""
     with (
         patch.object(rebuild_queue, "Team") as team,
+        patch.object(rebuild_queue, "_skip_write_if_group_mapping_emptied", return_value=skip_write),
         patch.object(
             rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=lambda teams: {t.id: {} for t in teams}
         ),
@@ -41,11 +43,11 @@ def _rebuilds(error=None):
             "batch_load_fn",
             new=lambda teams: {t.id: {} for t in teams},
         ),
-        patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error),
+        patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error) as set_cache,
         patch.object(rebuild_queue.flag_definitions_without_cohorts_hypercache, "set_cache_value", side_effect=error),
     ):
         team.objects.filter.side_effect = lambda id__in: [SimpleNamespace(id=int(t)) for t in id__in]
-        yield
+        yield set_cache
 
 
 def _enqueue(client, team_id, score=0):
@@ -134,6 +136,18 @@ def test_rebuild_exception_is_caught_and_counts_as_failure(fake_redis):
     # that advances the streak.
     assert stats["failure"] == 1
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=5)) == b"1"
+
+
+def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
+    _enqueue(fake_redis, 8)
+    with _rebuilds(skip_write=True) as set_cache:
+        stats = drain_rebuild_requests()
+
+    # The guard vetoed the write (e.g. personhog lag would empty group_type_mapping):
+    # no cache write, and neither success nor failure — so it can't trip the circuit.
+    set_cache.assert_not_called()
+    assert stats["success"] == 0 and stats["failure"] == 0
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=8)) is None
 
 
 def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):

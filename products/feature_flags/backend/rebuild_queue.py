@@ -29,6 +29,7 @@ from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.feature_flags.backend.local_evaluation import (
+    _skip_write_if_group_mapping_emptied,
     flag_definitions_hypercache,
     flag_definitions_without_cohorts_hypercache,
 )
@@ -199,8 +200,14 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
         if team is None:
             results[team_id] = _record_result(redis, team_id, ok=False)
             continue
+        payload = with_cohorts[team_id]
+        if _skip_write_if_group_mapping_emptied(team, payload):
+            # personhog lag would cache an emptied group_type_mapping; skip both writes
+            # without counting a failure (that would wrongly advance the circuit breaker).
+            # The team stays missing and re-enqueues on its next miss.
+            continue
         try:
-            flag_definitions_hypercache.set_cache_value(team, with_cohorts[team_id])
+            flag_definitions_hypercache.set_cache_value(team, payload)
             flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts[team_id])
             ok = True
         except SoftTimeLimitExceeded:

@@ -314,6 +314,11 @@ def _fix_and_record(
     try:
         # Use preloaded db_data if available to avoid redundant DB query
         if "db_data" in verification:
+            # The direct write bypasses update_fn's internal guards, so apply the
+            # config's write guard here too (e.g. refuse to cache an emptied
+            # group_type_mapping over populated data). A veto is neither fix nor failure.
+            if config.should_skip_write is not None and config.should_skip_write(team, verification["db_data"]):
+                return
             config.hypercache.set_cache_value(team, verification["db_data"])
             success = True
         else:

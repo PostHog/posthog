@@ -209,6 +209,12 @@ class HyperCacheManagementConfig:
     # skip as an optimization and leave this False.
     repair_miss_during_grace_period: bool = False
 
+    # Optional write guard: given (key, payload), returns True to skip the write. Used
+    # to veto caching an emptied group_type_mapping over populated data when personhog
+    # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
+    # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
+    should_skip_write: Callable[[Any, dict], bool] | None = None
+
     # Derived properties (computed from required properties using conventions)
     @property
     def namespace(self) -> str:
