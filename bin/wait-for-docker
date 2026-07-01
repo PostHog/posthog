@@ -39,16 +39,11 @@ else
     SERVICES+=("$@")
 fi
 
+declare -A seen=()
 unique_services=()
 for svc in "${SERVICES[@]}"; do
-    already_present=0
-    for existing_svc in "${unique_services[@]:-}"; do
-        if [ "$existing_svc" = "$svc" ]; then
-            already_present=1
-            break
-        fi
-    done
-    if [ "$already_present" -eq 0 ]; then
+    if [[ -z "${seen[$svc]+x}" ]]; then
+        seen[$svc]=1
         unique_services+=("$svc")
     fi
 done
@@ -74,22 +69,17 @@ compose() {
     fi
 }
 
-get_container_id() {
-    compose ps -q "$1" 2>/dev/null || true
-}
+readiness_status() {
+    local health="${1:-}"
+    local state="${2:-}"
 
-get_service_state() {
-    local svc="$1"
-    local container_id status
-
-    container_id=$(get_container_id "$svc")
-    if [ -z "$container_id" ]; then
+    if [ -n "$health" ]; then
+        echo "$health"
+    elif [ -n "$state" ]; then
+        echo "$state"
+    else
         echo "missing"
-        return
     fi
-
-    status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || echo "unknown")
-    echo "$status $container_id"
 }
 
 service_is_ready() {
@@ -126,54 +116,50 @@ print_service_diagnostics() {
 
 SECONDS=0
 last_progress_log=-5
-timed_out_services=()
-timed_out_elapsed=()
-timed_out_statuses=()
-timed_out_container_ids=()
-service_done=()
+pending=("${SERVICES[@]}")
+timed_out=()
+declare -A last_status=()
+declare -A last_container_id=()
 
-for idx in "${!SERVICES[@]}"; do
-    service_done[idx]=0
-done
+while [ ${#pending[@]} -gt 0 ]; do
+    declare -A ps_health=()
+    declare -A ps_state=()
+    declare -A ps_id=()
 
-while true; do
-    pending_count=0
+    while IFS='|' read -r svc health state container_id; do
+        [ -z "$svc" ] && continue
+        ps_health[$svc]="$health"
+        ps_state[$svc]="$state"
+        ps_id[$svc]="$container_id"
+    done < <(compose ps --format '{{.Service}}|{{.Health}}|{{.State}}|{{.ID}}' "${pending[@]}" 2>/dev/null || true)
+
+    still_pending=()
     pending_summary=()
+    elapsed=$SECONDS
 
-    for idx in "${!SERVICES[@]}"; do
-        if [ "${service_done[idx]}" -eq 1 ]; then
-            continue
-        fi
-
-        svc="${SERVICES[$idx]}"
-        elapsed=$SECONDS
-        service_state=$(get_service_state "$svc")
-        status=${service_state%% *}
-        container_id=""
-        if [ "$service_state" != "$status" ]; then
-            container_id=${service_state#* }
-        fi
+    for svc in "${pending[@]}"; do
+        status=$(readiness_status "${ps_health[$svc]:-}" "${ps_state[$svc]:-}")
+        container_id="${ps_id[$svc]:-}"
+        last_status[$svc]="$status"
+        last_container_id[$svc]="$container_id"
 
         if service_is_ready "$status"; then
             echo "$svc is ready after ${elapsed}s."
-            service_done[idx]=1
             continue
         fi
 
         if [ "$elapsed" -ge "$TIMEOUT" ]; then
-            timed_out_services+=("$svc")
-            timed_out_elapsed+=("$elapsed")
-            timed_out_statuses+=("$status")
-            timed_out_container_ids+=("$container_id")
-            service_done[idx]=1
+            timed_out+=("$svc")
             continue
         fi
 
-        pending_count=$(( pending_count + 1 ))
+        still_pending+=("$svc")
         pending_summary+=("$svc=${status}(${elapsed}s)")
     done
 
-    if [ "$pending_count" -eq 0 ]; then
+    pending=("${still_pending[@]}")
+
+    if [ ${#pending[@]} -eq 0 ]; then
         break
     fi
 
@@ -184,20 +170,13 @@ while true; do
 
     # Poll faster than 1 Hz so the convergence cost summed across the
     # ~10 phrocs procs that all block on this script is bounded by docker
-    # daemon health-check cadence, not the polling cadence. Five times
-    # the poll rate trims ~3-5s off the slowest proc's ready-pattern wait
-    # without measurably loading dockerd (each iteration is a handful of
-    # cheap docker compose ps + docker inspect calls).
+    # daemon health-check cadence, not the polling cadence.
     sleep 0.2
 done
 
-if [ "${#timed_out_services[@]}" -gt 0 ]; then
-    for idx in "${!timed_out_services[@]}"; do
-        print_service_diagnostics \
-            "${timed_out_services[$idx]}" \
-            "${timed_out_elapsed[$idx]}" \
-            "${timed_out_statuses[$idx]}" \
-            "${timed_out_container_ids[$idx]}"
+if [ ${#timed_out[@]} -gt 0 ]; then
+    for svc in "${timed_out[@]}"; do
+        print_service_diagnostics "$svc" "$SECONDS" "${last_status[$svc]}" "${last_container_id[$svc]:-}"
     done
     exit 1
 fi
