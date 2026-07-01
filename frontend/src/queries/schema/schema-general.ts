@@ -4247,8 +4247,8 @@ export interface ExperimentApiExposureConfig {
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: integer
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilter[]
+    /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+    properties: AnyPropertyFilter[]
 }
 
 /** Exposure criteria for experiment API payloads. */
