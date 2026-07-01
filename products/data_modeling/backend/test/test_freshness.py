@@ -121,6 +121,8 @@ class TestValidateFrequencyTarget(TestCase):
             ("above_descendant_ceiling", "a", DAY, [("a", "ep")], {"ep": M15}, {}, False),
             # exactly on an imported floor -> ok
             ("on_imported_floor_ok", "a", H6, [("src", "a")], {}, {"src": H6}, True),
+            # exactly on a descendant ceiling -> ok (bounds are inclusive at both ends)
+            ("on_descendant_ceiling_ok", "a", M15, [("a", "ep")], {"ep": M15}, {}, True),
         ]
     )
     def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok):

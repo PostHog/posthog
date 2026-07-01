@@ -137,10 +137,10 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
-    At go-live no node has a declared target yet, so reconciling raw would unschedule
-    everything. Seeding reproduces today's behaviour: a node inherits its saved query's
-    `sync_frequency_interval` (v1 remnant) if set, else the DAG's `sync_frequency_interval`.
-    Nodes with neither are omitted (genuinely unscheduled today). This is read-only; PR B
+    A node inherits its saved query's `sync_frequency_interval` if set, else the DAG's
+    `sync_frequency_interval`; nodes with neither are omitted. This deliberately preserves the
+    distinct per-query frequencies of teams still on v1 (whose DAG runs several schedules at
+    different cadences) rather than flattening everything to a single DAG cadence. Read-only; PR B
     reuses it as the actual backfill, and the preview overlays it in memory.
     """
     seeds: dict[str, timedelta] = {}

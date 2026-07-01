@@ -41,7 +41,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     tier_schedule_id,
 )
 from products.data_modeling.backend.logic.freshness import compute_effective_cadences, frequency_target_bounds
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, seed_targets
+from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, build_frequency_graph, seed_targets
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
 
@@ -106,7 +106,9 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     )
 
 
-def _find_unsatisfiable(graph, effective, targets) -> list[UnsatisfiableTier]:
+def _find_unsatisfiable(
+    graph: FrequencyGraph, effective: dict[str, timedelta | None], targets: dict[str, timedelta]
+) -> list[UnsatisfiableTier]:
     """Flag nodes whose scheduled cadence is finer than their ancestor sources can deliver."""
     flagged: list[UnsatisfiableTier] = []
     for node_id, node_effective in effective.items():
@@ -147,12 +149,23 @@ async def _apply_reconciliation(
         ]
     )
 
-    for schedule_id, (interval, node_ids) in plan.to_create.items():
-        schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
-        await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
-    for schedule_id, (interval, node_ids) in plan.to_update.items():
-        schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
-        await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+    # Create/update every desired tier before deleting any stale schedule, so nodes are never left
+    # uncovered; on failure, roll back the tiers we created and keep the existing schedules, returning
+    # the DAG to its current state (a re-run then reconciles cleanly). A coverage gap is worse.
+    created: list[str] = []
+    try:
+        for schedule_id, (interval, node_ids) in plan.to_create.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            created.append(schedule_id)
+        for schedule_id, (interval, node_ids) in plan.to_update.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+    except Exception:
+        for schedule_id in created:
+            await a_delete_schedule(temporal, schedule_id=schedule_id)
+        raise
+
     for schedule_id in plan.to_delete:
         await a_delete_schedule(temporal, schedule_id=schedule_id)
 

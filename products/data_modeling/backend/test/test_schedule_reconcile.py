@@ -79,6 +79,85 @@ class TestReconcileDagSchedules(BaseTest):
         update.assert_not_called()
         delete.assert_called_once_with(temporal, schedule_id=stale_id)
 
+    def test_rewrites_persisting_tier_without_create_or_delete(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+        Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
+        set_frequency_target(endpoint, M15)
+
+        dag_id = str(dag.id)
+        existing_id = tier_schedule_id(dag_id, M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(existing_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        # the 15min tier already exists, so it is rewritten in place — no create, no delete
+        update.assert_called_once()
+        self.assertEqual(update.call_args.kwargs["id"], existing_id)
+        create.assert_not_called()
+        delete.assert_not_called()
+
+    def test_rolls_back_created_tiers_and_keeps_legacy_schedule_on_failure(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        ep_fast = _saved_query_node(self.team, dag, "fast", NodeType.ENDPOINT)
+        ep_slow = _saved_query_node(self.team, dag, "slow", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=ep_fast)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=ep_slow)
+        set_frequency_target(ep_fast, M15)
+        set_frequency_target(ep_slow, H6)
+
+        legacy_id = str(dag.id)  # migration-era single schedule, slated for deletion once tiers exist
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(legacy_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        created_ids: list[str] = []
+
+        async def failing_create(*_args, **kwargs):
+            created_ids.append(kwargs["id"])
+            if len(created_ids) >= 2:  # second tier creation fails partway through the migration
+                raise RuntimeError("temporal unavailable")
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock(side_effect=failing_create)),
+            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            with self.assertRaises(RuntimeError):
+                reconcile_dag_schedules(dag)
+
+        # the one successfully-created tier is rolled back; the legacy schedule is never deleted,
+        # so the DAG stays fully covered at its current cadence rather than opening a gap
+        delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
+        self.assertNotEqual(created_ids[0], legacy_id)
+
 
 class TestFindUnsatisfiable(TestCase):
     @parameterized.expand(

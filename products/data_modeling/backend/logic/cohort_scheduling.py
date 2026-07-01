@@ -66,9 +66,7 @@ def plan_schedule_reconciliation(
     node_ids. `to_delete` is every existing schedule not backing a desired tier — which
     sweeps both removed tiers and the migration-era single `dag_id` schedule.
     """
-    desired = {
-        tier_schedule_id(dag_id, interval): (interval, node_ids) for interval, node_ids in desired_tiers.items()
-    }
+    desired = {tier_schedule_id(dag_id, interval): (interval, node_ids) for interval, node_ids in desired_tiers.items()}
     return ScheduleReconcilePlan(
         to_create={sid: value for sid, value in desired.items() if sid not in existing_schedule_ids},
         to_update={sid: value for sid, value in desired.items() if sid in existing_schedule_ids},
