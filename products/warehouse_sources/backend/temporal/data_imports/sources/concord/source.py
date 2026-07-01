@@ -41,6 +41,14 @@ class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `environment` selects which Concord host the stored API key is sent to, and
+        # `organization_id` scopes which organization's data that key reads. Retargeting either
+        # without re-entering the key would let an editor exfiltrate the preserved credential or
+        # pull another organization's data, so both must force secret re-entry on update.
+        return ["environment", "organization_id"]
+
+    @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONCORD
 

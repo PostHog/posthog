@@ -94,7 +94,9 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
         raise ConcordRetryableError(f"Concord API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Concord API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log the response body: Concord error payloads can echo contract/member/audit data
+        # back, and these logs are readable internally. Status + URL is enough to triage.
+        logger.error(f"Concord API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -122,7 +124,9 @@ def resolve_organization_id(
 def validate_credentials(api_key: str, environment: str | None) -> bool:
     base_url = base_url_for_environment(environment)
     try:
-        response = make_tracked_session().get(
+        # Concord auth is a custom `X-API-KEY` header the name-based scrubber can't recognise, so
+        # redact the key by value from logged URLs and captured HTTP samples.
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{base_url}/user/me/organizations", headers=_headers(api_key), timeout=10
         )
         return response.status_code == 200
@@ -130,14 +134,23 @@ def validate_credentials(api_key: str, environment: str | None) -> bool:
         return False
 
 
-def _select_rows(payload: Any, selector: str | None) -> list[dict[str, Any]]:
+def _select_rows(
+    payload: Any, selector: str | None, logger: FilteringBoundLogger | None = None
+) -> list[dict[str, Any]]:
     if selector is None:
         return []
-    rows = payload.get(selector) if isinstance(payload, dict) else None
+    if isinstance(payload, dict):
+        # A non-empty body that lacks the expected key usually means Concord changed its response
+        # shape — surface it so the sync doesn't silently complete with zero rows.
+        if selector not in payload and payload and logger is not None:
+            logger.warning(f"Concord response missing expected key '{selector}'; got keys={list(payload.keys())}")
+        rows = payload.get(selector)
+    else:
+        rows = None
     return rows or []
 
 
-def _flatten_folder_tree(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def _flatten_folder_tree(node: Any) -> Iterator[dict[str, Any]]:
     """Flatten Concord's nested folder tree into one row per folder.
 
     Each row keeps the folder's own fields (id, name, parentId, …) but drops the nested `children`
@@ -181,12 +194,15 @@ def _iter_page(
     while True:
         params = {**base_params, "page": page, "numberOfItemsByPage": config.page_size}
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
-        rows = _select_rows(payload, config.data_selector)
+        rows = _select_rows(payload, config.data_selector, logger)
         for row in rows:
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-                manager.save_state(ConcordResumeConfig(page=page + 1))
+                # Checkpoint the page we're still walking, not the next one: a byte-limit flush can
+                # fire mid-page, leaving this page's tail rows un-yielded in the batcher. Resuming
+                # re-fetches this page (merge dedupes on the primary key) so no rows are skipped.
+                manager.save_state(ConcordResumeConfig(page=page))
         if len(rows) < config.page_size:
             break
         page += 1
@@ -208,12 +224,15 @@ def _iter_offset(
     while True:
         params = {**base_params, config.offset_param: offset, "limit": config.page_size}
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
-        rows = _select_rows(payload, config.data_selector)
+        rows = _select_rows(payload, config.data_selector, logger)
         for row in rows:
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-                manager.save_state(ConcordResumeConfig(offset=offset + config.page_size))
+                # Checkpoint the current offset, not the next page: a byte-limit flush can fire
+                # mid-page, leaving this page's tail rows un-yielded. Resuming re-fetches from this
+                # offset (merge dedupes on the primary key) so no rows are skipped.
+                manager.save_state(ConcordResumeConfig(offset=offset))
         if len(rows) < config.page_size:
             break
         offset += config.page_size
@@ -236,14 +255,16 @@ def _iter_events_windows(
         window_end = min(window_start + timedelta(days=EVENTS_WINDOW_DAYS), today)
         params = {"start": window_start.isoformat(), "end": window_end.isoformat()}
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
-        for row in _select_rows(payload, config.data_selector):
+        for row in _select_rows(payload, config.data_selector, logger):
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-        # Advance past the window we just finished and checkpoint, so a crash resumes at the next
-        # window rather than re-walking from the start. Windows overlap by one day on the boundary;
-        # merge dedupes on the event id primary key.
-        next_start = window_end + timedelta(days=1)
+        if window_end >= today:
+            break
+        # Start the next window on the boundary day we just queried, so the windows overlap by one
+        # day. We don't know whether Concord's `end` is inclusive or exclusive, and the overlap is
+        # free: merge dedupes on the event id primary key, so no event can fall through the seam.
+        next_start = window_end
         manager.save_state(
             ConcordResumeConfig(
                 window_start_ms=int(datetime.combine(next_start, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
@@ -266,7 +287,9 @@ def get_rows(
     config = CONCORD_ENDPOINTS[endpoint]
     base_url = base_url_for_environment(environment)
     headers = _headers(api_key)
-    session = make_tracked_session()
+    # Concord auth is a custom `X-API-KEY` header the name-based scrubber can't recognise, so redact
+    # the key by value from logged URLs and captured HTTP samples.
+    session = make_tracked_session(redact_values=(api_key,))
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     org_id = resolve_organization_id(session, base_url, api_key, organization_id, logger) if config.org_scoped else None
@@ -280,7 +303,7 @@ def get_rows(
 
     if config.pagination == "single":
         payload = _fetch(session, _build_url(base_url, path, base_params), headers, logger)
-        for row in _select_rows(payload, config.data_selector):
+        for row in _select_rows(payload, config.data_selector, logger):
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()

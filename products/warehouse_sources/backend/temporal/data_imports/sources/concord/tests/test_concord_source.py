@@ -1,7 +1,11 @@
+from typing import cast
+
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
+
+from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import ConcordResumeConfig
@@ -21,11 +25,13 @@ class TestConcordSourceClass:
     def test_source_config_fields(self):
         fields = {f.name: f for f in self.source.get_source_config.fields}
         assert set(fields) == {"api_key", "environment", "organization_id"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["organization_id"].required is False
+        api_key_field = cast(SourceFieldInputConfig, fields["api_key"])
+        assert api_key_field.required is True
+        assert api_key_field.secret is True
+        assert cast(SourceFieldInputConfig, fields["organization_id"]).required is False
         # environment is a select offering both Concord hosts
-        assert {o.value for o in fields["environment"].options} == {"production", "sandbox"}
+        environment_field = cast(SourceFieldSelectConfig, fields["environment"])
+        assert {o.value for o in environment_field.options} == {"production", "sandbox"}
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog, so the public docs can render the table list

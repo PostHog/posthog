@@ -7,6 +7,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
     ConcordResumeConfig,
@@ -22,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.co
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.settings import CONCORD_ENDPOINTS
 
 
-class FakeManager:
+class FakeManager(ResumableSourceManager[ConcordResumeConfig]):
     """In-memory stand-in for ResumableSourceManager so transport tests stay off Redis."""
 
     def __init__(self, state: ConcordResumeConfig | None = None):
