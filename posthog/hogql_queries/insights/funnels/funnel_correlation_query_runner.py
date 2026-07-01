@@ -898,8 +898,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             # holds that value rather than a person UUID, so joining persons.id (UUID) against
             # it mismatches types and fails with "no supertype for types UUID, String". Coerce
             # both sides to string so the join runs — it simply won't match persons, which is
-            # expected for a non-person aggregation. (commit 0aac75f6 fixed the events join
-            # but not this one.)
+            # expected for a non-person aggregation (the events-side join is coerced the same
+            # way in _get_aggregation_target_join_query).
             if self._hogql_aggregation_expr() is not None:
                 return "JOIN (SELECT id, properties as person_props FROM persons) persons ON toString(persons.id) = toString(funnel_actors.actor_id)"
             return f"JOIN (SELECT id, properties as person_props FROM persons) persons ON persons.id = funnel_actors.actor_id"

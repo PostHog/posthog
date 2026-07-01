@@ -13,6 +13,7 @@ from posthog.test.base import (
 )
 from unittest import skip
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -177,8 +178,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Property correlation joins funnel_actors onto the persons table on actor_id. When
         # the funnel aggregates by a HogQL expression, actor_id holds that value (a string)
         # rather than a person UUID, so the join used to fail with "no supertype for types
-        # UUID, String" (commit 0aac75f6 fixed the events join but not this one). It must
-        # now run without raising rather than crashing the correlation panel.
+        # UUID, String". It must now run without raising rather than crashing the panel.
+        # Every actor converts here, so failure_total is 0 and the runner short-circuits to [].
         query = FunnelsQuery(
             series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
             dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
@@ -208,9 +209,19 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationNames=["$browser"],
         )
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
-    def test_correlation_on_empty_funnel_returns_empty(self):
+    @parameterized.expand(
+        [
+            ("properties", FunnelCorrelationResultsType.PROPERTIES, {"funnelCorrelationNames": ["$browser"]}),
+            (
+                "event_with_properties",
+                FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+                {"funnelCorrelationEventNames": ["rick"]},
+            ),
+        ]
+    )
+    def test_correlation_on_empty_funnel_returns_empty(self, _name, correlation_type, kwargs):
         # A funnel matching no actors produces zero rows for the property and event-property
         # correlation queries (they arrayJoin over the actors CTE), so there's no totals row.
         # This used to raise StopIteration / AssertionError; it should return empty instead.
@@ -220,12 +231,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        for correlation_type, kwargs in [
-            (FunnelCorrelationResultsType.PROPERTIES, {"funnelCorrelationNames": ["$browser"]}),
-            (FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES, {"funnelCorrelationEventNames": ["rick"]}),
-        ]:
-            result, _ = self._get_events_for_query(query, funnelCorrelationType=correlation_type, **kwargs)
-            self.assertEqual(result, [])
+        result, _ = self._get_events_for_query(query, funnelCorrelationType=correlation_type, **kwargs)
+        self.assertEqual(result, [])
 
     def test_correlation_on_data_warehouse_funnel_returns_empty(self):
         # Correlation joins the events table onto the funnel actors on person_id, but a
