@@ -62,6 +62,15 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+    definition: zod.uuid().describe('UUID of the custom property definition whose value to set for this account.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean()])
+        .describe(
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, or text for text properties."
+        ),
+})
+
 export const accountsNotebooksCreateBodyTitleMax = 256
 
 export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({

@@ -85,6 +85,34 @@ export interface PaginatedAccountListApi {
 }
 
 /**
+ * An account's current value for a custom property (read shape).
+ */
+export interface CustomPropertyValueApi {
+    /** Unique id of this value record. */
+    readonly id: string
+    /** Account the value belongs to. */
+    readonly account_id: string
+    /** Custom property definition the value is for. */
+    readonly definition_id: string
+    /** The stored value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When this value was set. */
+    readonly created_at: string
+    /**
+     * Id of the user who set this value, if known.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+}
+
+export interface CustomPropertyValueWriteApi {
+    /** UUID of the custom property definition whose value to set for this account. */
+    definition: string
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+    value: string | number | boolean
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -261,6 +289,20 @@ export const CustomPropertyDisplayTypeEnumApi = {
 } as const
 
 /**
+ * A place that uses a custom property definition (read-only).
+ */
+export interface CustomPropertyReferenceApi {
+    /** Id of the referring entity (e.g. the workflow id). */
+    readonly id: string
+    /** Display name of the referring entity. */
+    readonly name: string
+    /** Status of the referring entity (e.g. workflow status). */
+    readonly status: string
+    /** Kind of reference. Currently always 'workflow'. */
+    readonly type: string
+}
+
+/**
  * A team-scoped definition of a custom account property — the attribute side of the model.
  *
  * Holds only the property's shape (name, display type, big-number flag). Per-account values are
@@ -296,6 +338,8 @@ export interface CustomPropertyDefinitionApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references: readonly CustomPropertyReferenceApi[]
 }
 
 export interface PaginatedCustomPropertyDefinitionListApi {
@@ -343,6 +387,8 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references?: readonly CustomPropertyReferenceApi[]
 }
 
 export interface CustomerJourneyApi {
@@ -617,6 +663,14 @@ export type AccountsNotebooksListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string
 }
 
 export type CustomPropertyDefinitionsListParams = {

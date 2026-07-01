@@ -31,6 +31,8 @@ export type MarkdownNotebookV2Node = {
     }
 }
 
+export type NotebookContentForMarkdownConversion = JSONContent | JSONContent[] | string | null | undefined
+
 const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
@@ -67,15 +69,25 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.SupportTickets]: 'SupportTickets',
 }
 
-export function isMarkdownNotebookContent(content: JSONContent | null | undefined): boolean {
+const RICH_CONTENT_NODE_TYPE_ALIASES: Record<string, string> = {
+    bullet_list: 'bulletList',
+    ordered_list: 'orderedList',
+    list_item: 'listItem',
+    code_block: 'codeBlock',
+    table_row: 'tableRow',
+    table_cell: 'tableCell',
+    table_header: 'tableHeader',
+}
+
+export function isMarkdownNotebookContent(content: NotebookContentForMarkdownConversion): boolean {
     return !!getMarkdownNotebookNode(content)
 }
 
-export function getMarkdownNotebookMarkdown(content: JSONContent | null | undefined): string {
+export function getMarkdownNotebookMarkdown(content: NotebookContentForMarkdownConversion): string {
     return getMarkdownNotebookNode(content)?.attrs?.markdown ?? ''
 }
 
-export function getMarkdownNotebookNodeId(content: JSONContent | null | undefined): string {
+export function getMarkdownNotebookNodeId(content: NotebookContentForMarkdownConversion): string {
     return getMarkdownNotebookNode(content)?.attrs?.nodeId ?? MARKDOWN_NOTEBOOK_NODE_ID
 }
 
@@ -169,16 +181,22 @@ export type NotebookMarkdownConversionOptions = {
 }
 
 export function convertNotebookContentToMarkdown(
-    content: JSONContent | null | undefined,
+    content: NotebookContentForMarkdownConversion,
     options: NotebookMarkdownConversionOptions = {}
 ): string {
-    if (isMarkdownNotebookContent(content)) {
-        return getMarkdownNotebookMarkdown(content)
+    const normalizedContent = normalizeNotebookContentForMarkdownConversion(content)
+
+    if (typeof normalizedContent === 'string') {
+        return normalizedContent
+    }
+
+    if (isMarkdownNotebookContent(normalizedContent)) {
+        return getMarkdownNotebookMarkdown(normalizedContent)
     }
 
     const blocks: string[] = []
     const emittedCommentMarkIds = new Set<string>()
-    for (const node of content?.content ?? []) {
+    for (const node of normalizedContent?.content ?? []) {
         // Each comment-marked range gets its thread right above the block holding the
         // highlight, so the margin-anchored thread aligns with the text it is about.
         for (const markId of collectCommentMarkIds(node)) {
@@ -203,6 +221,48 @@ export function convertNotebookContentToMarkdown(
     }
 
     return blocks.join('\n\n')
+}
+
+function normalizeNotebookContentForMarkdownConversion(
+    content: NotebookContentForMarkdownConversion
+): JSONContent | string | null | undefined {
+    if (typeof content === 'string') {
+        const parsedContent = parseJsonEncodedNotebookContent(content)
+        return parsedContent ?? content
+    }
+
+    if (Array.isArray(content)) {
+        return { type: 'doc', content }
+    }
+
+    return content
+}
+
+function parseJsonEncodedNotebookContent(content: string): JSONContent | string | null {
+    const trimmedContent = content.trim()
+    if (
+        !trimmedContent ||
+        (!trimmedContent.startsWith('{') && !trimmedContent.startsWith('[') && !trimmedContent.startsWith('"'))
+    ) {
+        return null
+    }
+
+    try {
+        const parsedContent = JSON.parse(trimmedContent) as unknown
+        if (typeof parsedContent === 'string') {
+            return parseJsonEncodedNotebookContent(parsedContent) ?? parsedContent
+        }
+        if (Array.isArray(parsedContent)) {
+            return { type: 'doc', content: parsedContent as JSONContent[] }
+        }
+        if (parsedContent && typeof parsedContent === 'object') {
+            return parsedContent as JSONContent
+        }
+    } catch {
+        return null
+    }
+
+    return null
 }
 
 function collectCommentMarkIds(node: JSONContent): string[] {
@@ -246,7 +306,10 @@ export function getMarkdownNotebookTitle(content: JSONContent | null | undefined
     return getInlineText(firstHeading.children).trim() || null
 }
 
-function getMarkdownNotebookNode(content: JSONContent | null | undefined): MarkdownNotebookV2Node | null {
+function getMarkdownNotebookNode(content: NotebookContentForMarkdownConversion): MarkdownNotebookV2Node | null {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
+        return null
+    }
     const nodes = content?.content ?? []
     if (nodes.length !== 1 || nodes[0]?.type !== NotebookNodeType.MarkdownNotebook) {
         return null
@@ -271,6 +334,7 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
                 type: 'component',
                 tagName: 'Query',
                 props: {
+                    hideFilters: true,
                     query,
                     ...getOptionalTitleProp(block.title),
                 },
@@ -346,16 +410,22 @@ function serializeRichContentNode(
     listDepth = 0,
     options: NotebookMarkdownConversionOptions = {}
 ): string {
-    if (node.type === 'heading') {
+    const nodeType = getRichContentNodeType(node)
+
+    if (nodeType === 'text') {
+        return escapeMarkdownBlockLines(serializeInlineNode(node, options))
+    }
+
+    if (nodeType === 'heading') {
         const level = typeof node.attrs?.level === 'number' ? Math.min(Math.max(node.attrs.level, 1), 6) : 1
         return `${'#'.repeat(level)} ${serializeInlineContent(node.content, options)}`
     }
 
-    if (node.type === 'paragraph') {
+    if (nodeType === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineContent(node.content, options))
     }
 
-    if (node.type === 'blockquote') {
+    if (nodeType === 'blockquote') {
         return (node.content ?? [])
             .map((child) => serializeRichContentNode(child, listDepth, options))
             .join('\n')
@@ -364,35 +434,59 @@ function serializeRichContentNode(
             .join('\n')
     }
 
-    if (node.type === 'bulletList' || node.type === 'orderedList' || node.type === 'taskList') {
-        return serializeList(node, node.type === 'orderedList', listDepth, options)
+    if (nodeType === 'bulletList' || nodeType === 'orderedList' || nodeType === 'taskList') {
+        return serializeList(node, nodeType === 'orderedList', listDepth, options)
     }
 
-    if (node.type === 'horizontalRule') {
+    if (nodeType === 'horizontalRule') {
         return '---'
     }
 
-    if (node.type === 'codeBlock') {
+    if (nodeType === 'codeBlock') {
         const language = typeof node.attrs?.language === 'string' ? node.attrs.language : ''
         // Code text must stay verbatim (no inline escaping), and serializeNode picks a fence
         // longer than any backtick run in the content
         const text = (node.content ?? [])
-            .map((child) => (child.type === 'hardBreak' ? '\n' : (child.text ?? '')))
+            .map((child) => (getRichContentNodeType(child) === 'hardBreak' ? '\n' : (child.text ?? '')))
             .join('')
         return serializeNode({ id: '', type: 'code', language: language || undefined, text })
     }
 
-    if (node.type === 'table') {
+    if (nodeType === 'table') {
         return serializeTable(node, options)
     }
 
-    const markdownTagName = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node.type as NotebookNodeType]
+    if (nodeType === 'ph-text') {
+        return serializeLegacyTextNode(node)
+    }
+
+    if (nodeType === 'ph-insight') {
+        return serializeLegacyInsightNode(node)
+    }
+
+    if (nodeType === 'ph-dashboard') {
+        return serializeLegacyDashboardNode(node)
+    }
+
+    if (nodeType === 'query') {
+        return serializeLegacyQueryNode(node)
+    }
+
+    if (nodeType === 'ph-link') {
+        return serializeLegacyLinkNode(node, options)
+    }
+
+    if (nodeType === 'callout') {
+        return serializeCalloutNode(node, options)
+    }
+
+    const markdownTagName = nodeType ? NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType as NotebookNodeType] : undefined
     if (markdownTagName) {
         return serializeNode({
             id: '',
             type: 'component',
             tagName: markdownTagName,
-            props: getSerializableAttrs(node.attrs),
+            props: withDefaultHiddenFilters(getSerializableAttrs(node.attrs)),
         })
     }
 
@@ -400,17 +494,118 @@ function serializeRichContentNode(
         .map((child) => serializeRichContentNode(child, listDepth, options))
         .filter(Boolean)
         .join('\n\n')
-    if (childMarkdown || !node.type) {
+    if (childMarkdown || !nodeType) {
         return childMarkdown
     }
 
+    return serializeUnknownRichContentNode(node)
+}
+
+function serializeLegacyTextNode(node: JSONContent): string {
+    const body = node.attrs?.body
+    return typeof body === 'string' ? body : serializeUnknownRichContentNode(node)
+}
+
+function serializeLegacyInsightNode(node: JSONContent): string {
+    const insightShortId = typeof node.attrs?.short_id === 'string' ? node.attrs.short_id : node.attrs?.id
+    if (typeof insightShortId !== 'string' || !insightShortId) {
+        return serializeUnknownRichContentNode(node)
+    }
+
+    return serializeNode({
+        id: '',
+        type: 'component',
+        tagName: 'Query',
+        props: withDefaultHiddenFilters({
+            query: { kind: NodeKind.SavedInsightNode, shortId: insightShortId },
+        }),
+    })
+}
+
+function serializeLegacyDashboardNode(node: JSONContent): string {
+    const dashboardId = node.attrs?.id
+    if (typeof dashboardId !== 'string' && typeof dashboardId !== 'number') {
+        return serializeUnknownRichContentNode(node)
+    }
+
+    return escapeMarkdownBlockLines(escapeInlineMarkdownText(`Dashboard ${String(dashboardId)}`))
+}
+
+function serializeLegacyQueryNode(node: JSONContent): string {
+    const props = getSerializableAttrs(node.attrs)
+    const query = props.query
+    if (isNotebookObjectProp(query) && query.kind === NodeKind.HogQLQuery) {
+        props.query = { kind: NodeKind.DataVisualizationNode, source: query }
+    }
+
+    return serializeNode({
+        id: '',
+        type: 'component',
+        tagName: 'Query',
+        props: withDefaultHiddenFilters(props),
+    })
+}
+
+function serializeLegacyLinkNode(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
+    const href = typeof node.attrs?.href === 'string' ? node.attrs.href : null
+    const sanitizedHref = href ? sanitizeNotebookLinkHref(href) : null
+    const label = serializeInlineContent(node.content, options).trim()
+
+    if (sanitizedHref) {
+        return `[${label || escapeInlineMarkdownText(sanitizedHref)}](${sanitizedHref})`
+    }
+
+    if (label) {
+        return label
+    }
+
+    if (href?.trim()) {
+        return escapeMarkdownBlockLines(escapeInlineMarkdownText(href.trim()))
+    }
+
+    return serializeUnknownRichContentNode(node)
+}
+
+function serializeCalloutNode(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
+    const body = (node.content ?? [])
+        .map((child) => serializeRichContentNode(child, 0, options))
+        .filter((block) => block.trim().length > 0)
+        .join('\n\n')
+        .trim()
+    const emoji =
+        typeof node.attrs?.emoji === 'string' && node.attrs.emoji.trim()
+            ? escapeInlineMarkdownText(node.attrs.emoji.trim())
+            : ''
+    const blockquoteBody = `${emoji}${emoji && body ? ' ' : ''}${body}`.trim()
+
+    if (!blockquoteBody) {
+        return serializeUnknownRichContentNode(node)
+    }
+
+    return blockquoteBody
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n')
+}
+
+function isNotebookObjectProp(value: NotebookPropValue | undefined): value is Record<string, NotebookPropValue> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function serializeUnknownRichContentNode(node: JSONContent): string {
     // An unmapped leaf node must not vanish on upgrade — preserve it as a component the
     // editor renders with its unknown-tag fallback
+    const attrs = getSerializableAttrs(node.attrs)
+    const props: NotebookComponentProps = node.type ? { nodeType: node.type, ...attrs } : attrs
+    if (node.type) {
+        props.nodeType = node.type
+    }
+
     return serializeNode({
         id: '',
         type: 'component',
         tagName: 'UnknownNode',
-        props: { nodeType: node.type, ...getSerializableAttrs(node.attrs) },
+        props,
     })
 }
 
@@ -422,16 +617,18 @@ function serializeInlineContent(
 }
 
 function serializeInlineNode(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
-    if (node.type === 'text') {
+    const nodeType = getRichContentNodeType(node)
+
+    if (nodeType === 'text') {
         const isCodeText = (node.marks ?? []).some((mark) => mark.type === 'code')
         // Literal `*`/`` ` ``/`[` in legacy text must not become formatting after the upgrade
         const escapedText = isCodeText ? escapeCodeSpanText(node.text ?? '') : escapeInlineMarkdownText(node.text ?? '')
         return applyMarks(escapedText, node.marks)
     }
-    if (node.type === 'hardBreak') {
+    if (nodeType === 'hardBreak') {
         return '\n'
     }
-    if (node.type === NotebookNodeType.Mention) {
+    if (nodeType === NotebookNodeType.Mention) {
         return serializeMentionNode(node, options)
     }
     return serializeInlineContent(node.content, options)
@@ -465,10 +662,10 @@ function applyMarks(text: string, marks: JSONContent['marks']): string {
 
 function applyFormattingMarks(text: string, marks: JSONContent['marks']): string {
     return (marks ?? []).reduce((markedText, mark) => {
-        if (mark.type === 'bold') {
+        if (mark.type === 'bold' || mark.type === 'strong') {
             return `**${markedText}**`
         }
-        if (mark.type === 'italic') {
+        if (mark.type === 'italic' || mark.type === 'em') {
             return `*${markedText}*`
         }
         if (mark.type === 'underline') {
@@ -491,6 +688,10 @@ function applyFormattingMarks(text: string, marks: JSONContent['marks']): string
 const LIST_NODE_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
 const LIST_ITEM_NODE_TYPES = new Set(['listItem', 'taskItem'])
 
+function getRichContentNodeType(node: JSONContent): string | undefined {
+    return node.type ? (RICH_CONTENT_NODE_TYPE_ALIASES[node.type] ?? node.type) : undefined
+}
+
 function serializeList(
     node: JSONContent,
     ordered: boolean,
@@ -509,7 +710,7 @@ function serializeList(
         }
     }
 
-    const items = (node.content ?? []).filter((child) => LIST_ITEM_NODE_TYPES.has(child.type ?? ''))
+    const items = (node.content ?? []).filter((child) => LIST_ITEM_NODE_TYPES.has(getRichContentNodeType(child) ?? ''))
     items.forEach((item, index) => {
         const { listLines, trailingBlocks } = serializeListItem(item, ordered, depth, index, options)
         pendingListLines.push(...listLines)
@@ -532,10 +733,13 @@ function serializeListItem(
 ): { listLines: string[]; trailingBlocks: string[] } {
     const marker = ordered ? `${index + 1}.` : '-'
     const children = item.content ?? []
-    const firstParagraph = children.find((child) => child.type === 'paragraph')
-    const nestedLists = children.filter((child) => LIST_NODE_TYPES.has(child.type ?? ''))
-    const extraBlocks = children.filter((child) => child !== firstParagraph && !LIST_NODE_TYPES.has(child.type ?? ''))
-    const checkbox = item.type === 'taskItem' ? (item.attrs?.checked ? '[x] ' : '[ ] ') : ''
+    const itemType = getRichContentNodeType(item)
+    const firstParagraph = children.find((child) => getRichContentNodeType(child) === 'paragraph')
+    const nestedLists = children.filter((child) => LIST_NODE_TYPES.has(getRichContentNodeType(child) ?? ''))
+    const extraBlocks = children.filter(
+        (child) => child !== firstParagraph && !LIST_NODE_TYPES.has(getRichContentNodeType(child) ?? '')
+    )
+    const checkbox = itemType === 'taskItem' ? (item.attrs?.checked ? '[x] ' : '[ ] ') : ''
     // List lines cannot contain raw newlines in the markdown notebook model
     const itemText = (firstParagraph ? serializeInlineContent(firstParagraph.content, options) : '').replace(
         /\s*\n\s*/g,
@@ -558,14 +762,16 @@ function serializeListItem(
 }
 
 function serializeTable(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
-    const rows = (node.content ?? []).filter((child) => child.type === 'tableRow')
+    const rows = (node.content ?? []).filter((child) => getRichContentNodeType(child) === 'tableRow')
     if (!rows.length) {
         return ''
     }
 
     const serializedRows = rows.map((row) =>
         (row.content ?? [])
-            .filter((cell) => cell.type === 'tableCell' || cell.type === 'tableHeader')
+            .filter(
+                (cell) => getRichContentNodeType(cell) === 'tableCell' || getRichContentNodeType(cell) === 'tableHeader'
+            )
             .map((cell) =>
                 (cell.content ?? [])
                     .map((child) => serializeRichContentNode(child, 0, options))
@@ -597,6 +803,13 @@ function getSerializableAttrs(attrs: Record<string, unknown> | undefined): Noteb
         }
         return props
     }, {})
+}
+
+function withDefaultHiddenFilters(props: NotebookComponentProps): NotebookComponentProps {
+    if (typeof props.hideFilters === 'boolean' || typeof props.edit === 'boolean') {
+        return props
+    }
+    return { ...props, hideFilters: true }
 }
 
 // Widget node attributes round-trip through HTML as JSON strings (NodeWrapper's jsonAttr), so a

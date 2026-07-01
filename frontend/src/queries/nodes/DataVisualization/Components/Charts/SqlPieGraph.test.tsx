@@ -48,26 +48,105 @@ const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): LineG
     chartSettings,
 })
 
-// On-slice value labels are static overlay nodes (not pointer-driven), so they steer clear of the
-// quill PieChart's flaky hover/click interaction tests.
-function sliceLabels(): string[] {
-    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) => el.textContent!)
+// On-slice labels are static overlay nodes (not pointer-driven), so they steer clear of the
+// quill PieChart's flaky hover/click interaction tests. Each slice renders one <div> per line
+// (label and/or value), so we read the lines per slice rather than the concatenated text.
+function sliceLabelLines(): string[][] {
+    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) =>
+        Array.from(el.querySelectorAll('div')).map((line) => line.textContent!)
+    )
+}
+
+async function waitForSlices(): Promise<void> {
+    await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+    await waitFor(
+        () => {
+            if (sliceLabelLines().length === 0) {
+                throw new Error('slice labels not rendered yet')
+            }
+        },
+        { timeout: 5000 }
+    )
 }
 
 describe('SqlPieGraph', () => {
-    it('renders a value label per positive slice and the aggregation total', async () => {
-        render(<SqlPieGraph {...baseProps({ showPieTotal: true }, [40, 30, 20, 10])} />)
+    it('defaults to values and the total when slice content is unset (existing chart)', async () => {
+        render(<SqlPieGraph {...baseProps({}, [40, 30, 20, 10])} />)
 
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
-        await waitFor(
-            () => {
-                expect(sliceLabels().length).toBeGreaterThan(0)
-            },
-            { timeout: 5000 }
+        await waitForSlices()
+
+        // Unset slice content means a pre-existing chart, which keeps the legacy value-on-slice + total
+        expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.getByText('100')).toBeInTheDocument()
+    })
+
+    it('shows slice labels and hides the total when slice content is labels', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'labels' } }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['alpha'], ['beta'], ['gamma'], ['delta']])
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('respects an explicit showTotal override that hides the total in values mode', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'values', showTotal: false } }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('honors the legacy top-level showPieTotal toggle on charts saved before `pie`', async () => {
+        // Pre-PR insights stored the toggle as `chartSettings.showPieTotal`. It must still parse and
+        // drive the total, otherwise those saved insights regress (validation + missing total).
+        render(<SqlPieGraph {...baseProps({ showPieTotal: false }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('lets the legacy showPieTotal turn the total on even when slice content hides it by default', async () => {
+        // sliceContent 'labels' defaults the total off, so this only shows if the legacy true is honored.
+        render(
+            <SqlPieGraph {...baseProps({ showPieTotal: true, pie: { sliceContent: 'labels' } }, [40, 30, 20, 10])} />
         )
 
-        expect([...sliceLabels()].sort()).toEqual(['10', '20', '30', '40'])
+        await waitForSlices()
+
         expect(screen.getByText('100')).toBeInTheDocument()
+    })
+
+    it('prefers pie.showTotal over the legacy showPieTotal when both are set', async () => {
+        // A chart re-saved with the new `pie` block must win over the stale top-level toggle, otherwise
+        // toggling the total off in the new UI would silently regress to the legacy value.
+        render(<SqlPieGraph {...baseProps({ showPieTotal: true, pie: { showTotal: false } }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('shows slice values as shares of the total when displaying percentages', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps({ pie: { sliceContent: 'values', valueDisplay: 'percentage' } }, [40, 30, 20, 10])}
+            />
+        )
+
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['40%'], ['30%'], ['20%'], ['10%']])
+    })
+
+    it('renders nothing on slices when slice content is none', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'none' } }, [40, 30, 20, 10])} />)
+
+        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+
+        expect(sliceLabelLines()).toEqual([])
     })
 
     it('renders the side legend with per-slice values and shares', () => {

@@ -20,6 +20,7 @@ from posthog.schema import (
     AlertCondition,
     AlertState,
     DetectorConfig,
+    FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
     NodeKind,
@@ -51,12 +52,10 @@ from products.product_analytics.backend.models.insight import Insight
 def _validate_every_15_minutes_interval(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
-    request,
     organization,
 ) -> None:
     if error := AlertConfiguration.every_15_minutes_interval_validation_error(
         calculation_interval=calculation_interval,
-        user_distinct_id=str(request.user.distinct_id),
         organization=organization,
     ):
         raise ValidationError({"calculation_interval": [error]})
@@ -83,7 +82,7 @@ class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
 
-    root: Annotated[TrendsAlertConfig | HogQLAlertConfig, PydanticField(discriminator="type")]
+    root: Annotated[TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig, PydanticField(discriminator="type")]
 
 
 @extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
@@ -226,7 +225,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
             "the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, "
             "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
-            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode)."
+            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode). "
+            "FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall "
+            "last step), metric ('conversion_from_start' or 'conversion_from_previous'), and "
+            "check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). "
+            "Steps funnels support only absolute_value conditions; historical-trend funnels also support "
+            "relative_increase/relative_decrease (compared against the prior period)."
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
@@ -544,18 +548,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError("Alerts are not supported for this insight.")
         if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
             raise ValidationError("SQL insight alerts are not enabled for your account.")
+        if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
+            raise ValidationError("Funnel insight alerts are not enabled for your account.")
 
     def _hogql_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("hogql-insight-alerts")
+
+    def _funnel_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("funnel-insight-alerts")
+
+    def _insight_alert_flag_enabled(self, flag: str) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
         # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create a SQL alert in a team where the flag is disabled. get_organization
-        # is always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
         # invariant can't silently degrade to an unscoped check.
         user = self.context["request"].user
         org = self.context["get_organization"]()
         return bool(
             posthoganalytics.feature_enabled(
-                "hogql-insight-alerts",
+                flag,
                 str(user.distinct_id),
                 groups={"organization": str(org.id)},
             )
@@ -628,7 +640,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         organization = self.context["get_organization"]()
         _validate_every_15_minutes_interval(
             calculation_interval=calculation_interval,
-            request=self.context["request"],
             organization=organization,
         )
 

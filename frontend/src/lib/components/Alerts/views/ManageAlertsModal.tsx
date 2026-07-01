@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
+import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
@@ -94,6 +95,8 @@ interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
     insightShortId: InsightShortId
     canCreateAlertForInsight: boolean
+    /** The insight's query, so the unsupported-reason copy can be specific (e.g. time-to-convert funnels). */
+    insightQuery?: Record<string, any> | null
     onClose?: () => void
 }
 
@@ -102,6 +105,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const logic = insightAlertsLogic(props)
 
     const { alerts, alertsLoading } = useValues(logic)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
 
@@ -153,7 +158,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
                     disabledReason={
                         !props.canCreateAlertForInsight
-                            ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
+                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, props.insightQuery)
                             : undefined
                     }
                 >

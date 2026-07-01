@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
@@ -72,7 +72,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             },
         },
         materializationJobs: {
-            __default: null as PaginatedResponse<DataModelingJob> | null,
+            __default: null as CountedPaginatedResponse<DataModelingJob> | null,
             loadMaterializationJobs: async () => {
                 const savedQuery = values.savedQuery
                 if (!savedQuery) {
@@ -120,7 +120,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         ],
         effectiveLastRunAt: [
             (s) => [s.node, s.materializationJobs],
-            (node: DataModelingNode | null, jobs: PaginatedResponse<DataModelingJob> | null): string | null => {
+            (node: DataModelingNode | null, jobs: CountedPaginatedResponse<DataModelingJob> | null): string | null => {
                 if (node?.last_run_at) {
                     return node.last_run_at
                 }
@@ -131,7 +131,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         ],
         effectiveLastRunStatus: [
             (s) => [s.node, s.materializationJobs],
-            (node: DataModelingNode | null, jobs: PaginatedResponse<DataModelingJob> | null): string | null =>
+            (node: DataModelingNode | null, jobs: CountedPaginatedResponse<DataModelingJob> | null): string | null =>
                 node?.last_run_status || jobs?.results?.[0]?.status || null,
         ],
     }),

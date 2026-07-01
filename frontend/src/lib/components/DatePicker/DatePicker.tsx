@@ -15,8 +15,10 @@ import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lem
  * The swap is gated by the `QUILL_DATE_PICKER` feature flag so LemonUI and Quill run side
  * by side and roll back without a revert. The Quill panel does not yet cover the whole
  * feature surface, so `quillCanRender` falls back to LemonUI whenever a request needs a
- * capability Quill is missing (time, selection windows, multi-month, controlled
- * visibility). Each Quill panel increment removes one fallback condition.
+ * capability Quill is missing: hour-only granularity, 12-hour time entry, selection
+ * windows, multi-month, or controlled visibility. Day/minute granularity (with an optional
+ * include-time toggle) is handled; minute entry renders in 24-hour time. Each Quill panel
+ * increment removes one fallback condition.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
@@ -70,13 +72,13 @@ export interface DatePickerProps {
 }
 
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
+const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
 
 function quillCanRender(props: DatePickerProps): boolean {
     return (
-        props.granularity === undefined &&
+        props.granularity !== 'hour' &&
+        props.use24HourFormat !== false &&
         props.selectionPeriod === undefined &&
-        props.showTimeToggle === undefined &&
-        props.use24HourFormat === undefined &&
         props.months === undefined &&
         props.visible === undefined &&
         props.onOpen === undefined &&
@@ -96,6 +98,9 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
 function DatePickerQuill({
     value,
     onChange,
+    granularity,
+    showTimeToggle,
+    onToggleTime,
     placeholder,
     clearable,
     format,
@@ -105,7 +110,14 @@ function DatePickerQuill({
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
     const [open, setOpen] = useState(false)
-    const label = value ? value.format(format ?? QUILL_TRIGGER_FORMAT) : (placeholder ?? 'Select date')
+    const [includeTime, setIncludeTime] = useState(granularity === 'minute')
+    const labelFormat = format ?? (includeTime ? QUILL_TRIGGER_DATETIME_FORMAT : QUILL_TRIGGER_FORMAT)
+    const label = value ? value.format(labelFormat) : (placeholder ?? 'Select date')
+
+    const handleIncludeTimeChange = (next: boolean): void => {
+        setIncludeTime(next)
+        onToggleTime?.(next)
+    }
 
     const applyDate = (next: Date): void => {
         onChange(dayjs(next))
@@ -134,6 +146,9 @@ function DatePickerQuill({
                     <QuillDatePicker
                         value={value ? value.toDate() : new Date()}
                         maxDate={maxDate?.toDate()}
+                        showTime={includeTime}
+                        showTimeToggle={!!showTimeToggle}
+                        onIncludeTimeChange={handleIncludeTimeChange}
                         onApply={applyDate}
                         onCancel={() => setOpen(false)}
                     />

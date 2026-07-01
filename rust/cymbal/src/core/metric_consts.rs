@@ -113,6 +113,10 @@ pub const RESOLUTION_STAGE: &str = "cymbal_stack_processing_time";
 pub const LINKING_STAGE: &str = "cymbal_issue_processing_time";
 pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
+pub const RATE_LIMITING_STAGE: &str = "cymbal_rate_limiting_stage";
+pub const RATE_LIMIT_OUTCOMES: &str = "cymbal_error_tracking_rate_limiter_outcomes";
+pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
+pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
@@ -126,6 +130,8 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+pub const BYPASS_RULES_TRIED: &str = "cymbal_bypass_rules_tried";
+pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 
 // Remote resolution observability. Keep labels bounded: endpoint labels are
 // limited to the discovered pod set, and protocol failures are classified by

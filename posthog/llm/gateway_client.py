@@ -10,6 +10,7 @@ Product = Literal[
     "llm_gateway",
     "posthog_code",
     "background_agents",
+    "slack_app",
     "slack_app_routing",
     "wizard",
     "django",
@@ -24,6 +25,7 @@ Product = Literal[
     "signals",
     "conversations",
     "warehouse_semantic_enrichment",
+    "warehouse_custom_source_builder",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 

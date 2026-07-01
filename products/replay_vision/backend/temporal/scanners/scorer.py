@@ -5,7 +5,12 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, create_model, model_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
+from products.replay_vision.backend.temporal.scanners.base import (
+    BaseScanner,
+    BaseScannerOutput,
+    Segment,
+    confidence_field,
+)
 
 
 class ScoreScale(BaseModel, frozen=True):
@@ -32,7 +37,7 @@ class ScorerOutput(BaseScannerOutput, frozen=True):
 
 class ScorerScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
-    prompt_template: ClassVar[str] = "scorer.jinja"
+    core_step_template: ClassVar[str] = "scorer_step.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ScorerOutput
     scale: ScoreScale
@@ -41,11 +46,12 @@ class ScorerScanner(BaseScanner, frozen=True):
     def llm_response_schema(self) -> type[BaseModel]:
         # Dynamic per instance: range + scale-label description steer Gemini at the schema level.
         score_description = f"Score on the '{self.scale.label}' scale" if self.scale.label else "Numeric score"
+        # Field order is load-bearing: reasoning first (reason before scoring), confidence last.
         return create_model(
             "ScorerLlmResponse",
-            __base__=BaseScannerOutput,
-            score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
             reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
+            score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
+            confidence=(float, confidence_field()),
         )
 
     def prompt_context(self) -> dict[str, Any]:
@@ -56,12 +62,8 @@ class ScorerScanner(BaseScanner, frozen=True):
         }
 
     def finalize(self, llm_response: BaseModel) -> BaseScannerOutput:
-        return ScorerOutput(
-            confidence=llm_response.confidence,  # type: ignore[attr-defined]
-            score=llm_response.score,  # type: ignore[attr-defined]
-            reasoning=llm_response.reasoning,  # type: ignore[attr-defined]
-            label=self.scale.label,
-        )
+        # Base builds the ScorerOutput from the response; only `label` is workflow-stamped, not model-generated.
+        return super().finalize(llm_response).model_copy(update={"label": self.scale.label})
 
     def validate_semantics(self, output: BaseScannerOutput) -> str | None:
         if not isinstance(output, ScorerOutput):

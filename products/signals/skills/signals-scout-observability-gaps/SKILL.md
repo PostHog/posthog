@@ -1,18 +1,17 @@
 ---
 name: signals-scout-observability-gaps
 description: >
-  Focused Signals scout for finding observability gaps in PostHog itself — significant
-  event volumes the team isn't tracking, custom events with no insight or dashboard
-  coverage, insights pointing at events that have stopped firing, dashboards missing
-  related context, critical events with no alerts. Watches the event-stream-vs-saved-
-  inventory delta as the team's product evolves and emits findings recommending new
-  insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for observability gaps — significant event volumes with no insight, dashboard,
+  or alert coverage. Files a report recommending new insights, dashboards, or alerts as the
+  team's product evolves.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP tool family plus the analytics and entity tools listed in the
-  body's MCP tools section.
+  PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
+  (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
+  tools in the MCP tools section (read-data-schema, query-trends, query-paths, execute-sql
+  over system.* tables, event-definitions-list, alerts-list, dashboards-get-all).
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: observability_gaps
@@ -21,16 +20,25 @@ metadata:
 # Signals scout: observability gaps
 
 You are a focused observability-gaps scout. Spot meaningful gaps between **what events
-this team is producing** and **what they have set up to observe** — and emit findings
-that recommend new insights, dashboard additions, or alerts when a gap clears the
-confidence bar. An empty findings list is a real outcome; recommending things the team
-already has, or recommending coverage for noise events, is worse than recommending
-nothing.
+this team is producing** and **what they have set up to observe** — and file a report
+recommending new insights, dashboard additions, or alerts when a gap clears the bar. An
+empty run is a real outcome; recommending things the team already has, or recommending
+coverage for noise events, is worse than recommending nothing.
 
 The shape of this scout is different from the other specialists: the findings are
-**recommendations**, not **problems**. The confidence bar is correspondingly higher —
-a noisy "you should track X" stream destroys the inbox's signal-to-noise ratio. Prefer
-fewer, well-evidenced recommendations.
+**recommendations**, not **problems**. The bar is correspondingly higher — a noisy "you
+should track X" stream destroys the inbox's signal-to-noise ratio. Prefer fewer,
+well-evidenced recommendations.
+
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the research, so you own each recommendation 1:1
+end-to-end rather than firing weak signals for a pipeline to cluster. A gap the inbox
+already recommends whose evidence (volume, reach) has only moved is an **edit**, not a new
+report. The harness prompt carries the full report-channel contract (fields, status
+mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit
+rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference
+(readable in-run via `skill-file-get`); this body adds only the observability-gaps-specific
+framing.
 
 ## Quick close-out: is this team big enough to have gaps?
 
@@ -86,19 +94,27 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 ### Get oriented
 
-Three cheap reads cold-start a run:
+Four cheap reads cold-start a run:
 
 - `signals-scout-scratchpad-search` (`text=gap` or `text=observability`) — durable team
   steering inherited from past observability runs. **Entries with `pattern:`, `noise:`,
-  `addressed:`, or `dedupe:` key prefixes tell you what's normal, what's already
-  surfaced, what to skip.** Critical here because the same gap should never be re-emitted
-  across runs.
+  `addressed:`, `dedupe:`, `watch:`, `report:`, or `reviewer:` key prefixes tell you what's
+  normal, what's already surfaced, what to skip, which gaps are parked, which report covers
+  a recommendation, and who owns the surface.** Critical here because the same gap should
+  never be re-reported across runs.
 - `signals-scout-runs-list` (last 14d) — what prior observability-gap scouts found and
   what was ruled out. Skim summaries; pull `signals-scout-runs-retrieve` only when a
   summary mentions a recommendation you're considering.
 - `signals-scout-project-profile-get` — `top_events` for volume + reach, `popular_insights`
-  for what's already saved, `recent_dashboards` for the dashboards in active use. This
-  one read tells you most of what you need to detect gaps.
+  for what's already saved, `recent_dashboards` for the dashboards in active use, and
+  `existing_inbox_reports` for what's already in the inbox. This one read tells you most of
+  what you need to detect gaps.
+- `inbox-reports-list` (`ordering=-updated_at`, `search`=the specific event / insight /
+  dashboard name) — the reports already in the inbox. Your own report-channel reports persist
+  their backing signals under `source_product=signals_scout` (**not** `observability_gaps`),
+  so don't filter by product — you'd miss every report you authored. A recommendation you've
+  filed before is an **edit**, not a fresh report; pull the closest matches with
+  `inbox-reports-retrieve` before authoring.
 
 ### Explore — what good observability gaps look like
 
@@ -200,8 +216,8 @@ Direct calls:
 - Check sequence length + retention (% users completing each step).
 
 Strong signal: 3-step sequence with > 1000 users completing step 1, > 50% reaching
-step 2, no existing funnel covering the sequence. Confidence threshold is high here
-because funnels are subjective — a common sequence isn't always a meaningful funnel.
+step 2, no existing funnel covering the sequence. The bar is high here because funnels
+are subjective — a common sequence isn't always a meaningful funnel.
 
 #### 6. Property cardinality / missing breakdown
 
@@ -218,9 +234,17 @@ Strong signal: property has 5-50 distinct values (not unbounded), event > 5000/d
 no insight breaks down by it. Weak signal: property has 1000+ distinct values
 (would explode the chart) or ≤ 2 values (no information added).
 
-### Recommend — emit a finding
+### Decide — author or edit a report
 
-A finding here recommends an action, not surfaces a problem. Required elements:
+A finding here recommends an action, not surfaces a problem. The generic report mechanics
+— search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an
+`inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`),
+edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the
+`priority` / `repository` / actionability fields — live in the harness prompt and in
+`authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the
+observability-gaps judgment on top.
+
+Required elements in every report:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list
   so a human can click straight to them.
@@ -233,8 +257,7 @@ A finding here recommends an action, not surfaces a problem. Required elements:
   volume just crossed a threshold? Because a new event class emerged? Volume + recency
   is the dedupe key.
 
-Severity for observability-gap findings is almost always **P3** (suggestion). The
-confidence bar trades off:
+The bar trades off:
 
 - **Volume threshold** — gap is structurally interesting only at scale. Below 100/day,
   the recommendation is noise.
@@ -242,34 +265,56 @@ confidence bar trades off:
   the project timezone**. Avoid flagging events that just appeared yesterday; a
   partial current day or a deploy-day spike can fake stability.
 - **No prior coverage** — search `popular_insights` and `existing_inbox_reports`
-  before emitting. If a previous run already recommended this gap, don't re-emit.
+  before authoring. If a previous run already recommended this gap, edit-or-skip.
 
-### Park, then emit — the watch lifecycle
+Then, for each candidate that clears the bar:
 
-Most good recommendations are not emitted the run they're spotted — they're parked
+- **Edit** when a still-live report already recommends this gap and its evidence has only
+  moved (volume climbed further, reach widened) — `append_note` the fresh numbers rather
+  than minting a near-duplicate.
+- **Author** a fresh report only when nothing live covers the gap. Recommendations are
+  investigations, not code fixes → `actionability=requires_human_input` +
+  `repository=NO_REPO`. Priority is almost always **P3** (a suggestion); a critical
+  failure-semantics event (family 3 — `payment_failed`, `*_error`, `*_blocked`) firing
+  with zero alert coverage is **P2**.
+- **Remember / Park** a below-bar candidate via the watch lifecycle below.
+- **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an
+  existing inbox report, already covers it.
+
+Sibling courtesy: broken upstream capture (an event that stopped firing) belongs to the
+error-tracking scout; a configured alert that's firing-but-missed to the insight-alerts
+scout; a viewed insight's own anomaly to the anomaly-detection scout. Your unique angle is
+always the structural _coverage gap_, not the anomaly on top of it.
+
+### Park, then author — the watch lifecycle
+
+Most good recommendations are not filed the run they're spotted — they're parked
 until the stability bar crosses. The lifecycle:
 
 1. **Park** — write a `watch:observability_gaps:<gap>` entry carrying the
    discriminating conditions (the exact checks that make this a real gap), the
-   volume evidence so far, and the earliest emit time (when the 7th complete
+   volume evidence so far, and the earliest file time (when the 7th complete
    project-timezone day closes). Future runs inherit the candidate instead of
    re-deriving it.
-2. **Re-verify live, then emit** — the run that crosses the bar must re-check every
-   discriminating condition against live data before emitting (coverage can appear,
-   volume can collapse). Never emit off the watch entry alone.
-3. **Guard** — after emitting, update the watch entry with the finding id and a
-   ~30-day dedupe: no re-emit before then unless a materially new angle appears.
+2. **Re-verify live, then author** — the run that crosses the bar must re-check every
+   discriminating condition against live data before authoring (coverage can appear,
+   volume can collapse). Never file off the watch entry alone.
+3. **Guard** — after authoring, update the watch entry with the `report_id` and a
+   ~30-day dedupe: no re-report before then unless a materially new angle appears. Write
+   the `report:observability_gaps:<gap>` pointer so the next run edits instead of
+   duplicating, and cache the resolved owner under `reviewer:observability_gaps:<area>`.
 4. **Retire** — the entry doesn't live forever. When coverage appears, the
    recommendation was actioned: delete the entry (or convert it to `addressed:`).
    If ~30 days pass and nobody built coverage, that's "recommended but ignored" —
-   convert it to a `noise:` skip note rather than re-emitting.
+   convert it to a `noise:` skip note rather than re-reporting.
 
 ### Close out
 
-**Summarize the run** — one paragraph: what you looked at, what you emitted, what you
-remembered, what you ruled out and why. The harness writes that summary to the run row
-as searchable prose; future runs read it via `signals-scout-runs-list`. Do **not** write
-a separate "run metadata" scratchpad entry — the run summary already serves that role.
+**Summarize the run** — one paragraph: what you looked at, which reports you authored or
+edited, what you remembered, what you ruled out and why. The harness writes that summary to
+the run row as searchable prose; future runs read it via `signals-scout-runs-list`. Do
+**not** write a separate "run metadata" scratchpad entry — the run summary already serves
+that role.
 
 ## Disqualifiers (skip these)
 
@@ -312,7 +357,7 @@ a separate "run metadata" scratchpad entry — the run summary already serves th
   event name for historical continuity are well-maintained, not drifted. Read the
   insight's query JSON before declaring a dead event "still referenced."
 
-When in doubt, write a scratchpad entry instead of emitting. Recommendations have a
+When in doubt, write a scratchpad entry instead of filing a report. Recommendations have a
 high panic radius for whoever owns the observability surface — false positives erode
 trust fast.
 
@@ -332,13 +377,23 @@ Direct calls (read-only):
 - `execute-sql` over `system.insights` / `system.dashboards` / `system.cohorts` —
   the fast path for "does an insight reference event X?" type queries.
 
+Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
+
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating (`ordering=-updated_at`).
+- `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
+- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to the
+  owning insight / dashboard / product surface.
+
 Harness-level:
 
 - `signals-scout-project-profile-get` — cold orientation snapshot. Has `top_events`,
   `popular_insights[13]`, `recent_dashboards`, `existing_inbox_reports` already.
-- `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering.
+- `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` /
+  `signals-scout-scratchpad-forget` — durable steering.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
-- `signals-scout-emit-signal` — emit a recommendation finding.
+- `signals-scout-emit-report` / `signals-scout-edit-report` — author a recommendation report
+  / edit an existing one (the report-channel contract is in the harness prompt).
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and
@@ -350,8 +405,9 @@ each lens applies).
 - Scratchpad + recent runs + profile show every domain you've considered already has
   coverage or has been recommended → close out empty.
 - A candidate matches a scratchpad entry with `addressed:` (recommendation actioned) or
-  `noise:` (recommended but ignored) key prefix → skip with a one-line note.
-- You've validated 1-2 high-confidence gaps and emitted them → close out, even if
+  `noise:` (recommended but ignored) key prefix, or an existing inbox report → edit-or-skip
+  with a one-line note.
+- You've validated 1-2 high-quality gaps and filed reports for them → close out, even if
   there's more you could look at. Quality over volume — recommendations are a budget,
   not a target.
 

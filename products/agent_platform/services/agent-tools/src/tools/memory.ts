@@ -17,7 +17,6 @@
 
 import {
     defineNativeTool,
-    isPreviewSideEffect,
     MAX_DESCRIPTION_LEN,
     MemoryConflictError,
     MemoryFile,
@@ -177,16 +176,6 @@ export const memoryReadV1 = defineNativeTool({
 // =====================================================================
 // MUTATING TOOLS — requires_approval=true by default
 // (set via the spec.tools entry; the tool def itself doesn't carry the flag)
-//
-// Each mutating tool short-circuits in preview mode via `isPreviewSideEffect`
-// and returns a shape-valid synthetic envelope. The memory store is scoped on
-// `(team_id, application_id)` and not forked per revision, so without this
-// gate a draft revision's `memory-write`/`memory-update`/`memory-delete` would
-// mutate the same files the live revision reads. The approval gate (which
-// fires before `run`) doesn't help — a human approver in preview would still
-// reach this code path and hit live storage. The synthetic response shape
-// matches the live one so the model's next turn keeps reasoning naturally;
-// `tool_preview_skipped` lands in the log for the author to inspect.
 // =====================================================================
 
 export const memoryWriteV1 = defineNativeTool({
@@ -214,9 +203,6 @@ export const memoryWriteV1 = defineNativeTool({
         const s = storeOrError(ctx)
         if ('error' in s) {
             return err(s.error)
-        }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-write', args)) {
-            return ok({ path: args.path, created_at: new Date().toISOString() })
         }
         try {
             validateMemoryPath(args.path)
@@ -255,9 +241,6 @@ export const memoryUpdateV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-update', args)) {
-            return ok({ path: args.path, updated_at: new Date().toISOString() })
-        }
         try {
             validateMemoryPath(args.path)
             const existing = await s.read(scope(ctx), args.path)
@@ -294,9 +277,6 @@ export const memoryDeleteV1 = defineNativeTool({
         const s = storeOrError(ctx)
         if ('error' in s) {
             return err(s.error)
-        }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-delete', args)) {
-            return ok({ path: args.path, deleted: true })
         }
         try {
             validateMemoryPath(args.path)

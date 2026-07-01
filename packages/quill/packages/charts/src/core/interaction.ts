@@ -99,6 +99,10 @@ export function buildTooltipContext<Meta = unknown>(
      *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
      *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue: ResolveValueFn = resolveValue,
+    /** Resolves the stacked *bottom* value for each series — used to compute the segment midpoint
+     *  for tooltip row highlighting. When provided, yPixel is set to the segment midpoint so
+     *  findClosestSeriesKey transitions at the visual boundary between segments. */
+    resolveBottomValue?: ResolveValueFn,
     /** Optional horizontal data-extent centered on the categorical axis position — bar charts
      *  pass band width so the tooltip can anchor at the band edge instead of its center. */
     positionExtent?: number,
@@ -127,17 +131,32 @@ export function buildTooltipContext<Meta = unknown>(
         // A gap (`data[i]` non-finite) draws no point/bar, so don't fabricate a `0` row for it —
         // skip it the same way the renderer does.
         const rawValue = s.data[dataIndex]
+        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const px = seriesValueScale(resolvePositionValue(s, dataIndex))
+        if (isFinite(px)) {
+            valuePixels.push(px)
+        }
         if (s.visibility?.tooltip !== false && rawValue != null && isFinite(rawValue)) {
             // A per-bar series carries each bar's identity in `bars[i]` — surface it so the tooltip
             // reads the right color/meta/label rather than the shared series-level ones.
             const bar = s.bars?.[dataIndex]
             const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
-            seriesData.push({ series: entrySeries, value: resolveValue(s, dataIndex), color: barColorAt(s, dataIndex) })
-        }
-        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const px = seriesValueScale(resolvePositionValue(s, dataIndex))
-        if (isFinite(px)) {
-            valuePixels.push(px)
+            const segmentValue = resolveValue(s, dataIndex)
+            // When resolveBottomValue is provided (stacked bar charts), use the segment midpoint
+            // so findClosestSeriesKey transitions exactly at the visual boundary between segments.
+            let yPx = px
+            if (isFinite(px) && resolveBottomValue) {
+                const bottomPx = seriesValueScale(resolveBottomValue(s, dataIndex))
+                if (isFinite(bottomPx)) {
+                    yPx = (px + bottomPx) / 2
+                }
+            }
+            seriesData.push({
+                series: entrySeries,
+                value: segmentValue,
+                color: barColorAt(s, dataIndex),
+                yPixel: isFinite(yPx) ? yPx : undefined,
+            })
         }
     }
 

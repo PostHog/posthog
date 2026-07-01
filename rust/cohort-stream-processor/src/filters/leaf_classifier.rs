@@ -11,6 +11,11 @@ use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::pick_state_variant;
 
+/// HogVM `RETURN` opcode, appended to each program at load. Python-compiled cohort bytecode ends at
+/// its root comparison with no `RETURN`, which the Rust VM would hit as `EndOfProgram`. A program
+/// already ending in `RETURN` stops at the first, so the appended one is inert.
+const OP_RETURN: i64 = 38;
+
 /// Why a leaf was dropped during parse. Used as the `reason` label on the skip counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafDropReason {
@@ -170,7 +175,9 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
 
 fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
     let array = value?.as_array()?;
-    Some(Arc::new(array.clone()))
+    let mut bytecode = array.clone();
+    bytecode.push(Value::from(OP_RETURN));
+    Some(Arc::new(bytecode))
 }
 
 /// A referenced cohort id as a JSON number or string-encoded int.
@@ -199,9 +206,16 @@ mod tests {
 
     const HASH: &str = "0123456789abcdef";
 
-    /// A representative bytecode program.
+    /// A representative bytecode program, as compiled (no trailing `RETURN`).
     fn bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+    }
+
+    /// The stored form of [`bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+    fn bytecode_loaded() -> Vec<Value> {
+        let mut bc = bytecode().as_array().unwrap().clone();
+        bc.push(json!(OP_RETURN));
+        bc
     }
 
     fn hash_bytes() -> [u8; 16] {
@@ -227,7 +241,7 @@ mod tests {
         assert_eq!(leaf.event_key, "$pageview");
         assert_eq!(leaf.time_value, Some(7));
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
-        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(
             leaf.state_variant,
             Some(crate::stage1::state::StateVariant::BehavioralSingle),
@@ -316,6 +330,79 @@ mod tests {
     }
 
     #[test]
+    fn performed_event_multiple_explicit_relative_lower_window_is_kept() {
+        use crate::stage1::state::StateVariant;
+        // The cohort UI stores "in the last N days" as `explicit_datetime: "-Nd"` with no
+        // time_interval/time_value; the multiple path must resolve it like the single path does.
+        for (explicit_datetime, expected_variant, why) in [
+            (
+                "-7d",
+                StateVariant::BehavioralDailyBuckets,
+                "-7d → 7 days → daily",
+            ),
+            (
+                "-1y",
+                StateVariant::BehavioralCompressedHistory,
+                "-1y → 365 days → compressed",
+            ),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "explicit_datetime": explicit_datetime,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+                panic!("an explicit relative-lower multiple is kept: {why}");
+            };
+            assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
+            assert_eq!(leaf.explicit_datetime.as_deref(), Some(explicit_datetime));
+            assert_eq!(leaf.state_variant, Some(expected_variant), "{why}");
+        }
+    }
+
+    #[test]
+    fn performed_event_multiple_explicit_unrepresentable_window_is_dropped() {
+        // Sub-day and absolute-range explicit windows have no whole-day sliding form, so the leaf
+        // drops exactly as it did before explicit_datetime was consulted (which dropped all of them).
+        for (from, to, why) in [
+            (
+                "-2h",
+                Value::Null,
+                "sub-day relative window → unsupported variant",
+            ),
+            (
+                "2026-01-01",
+                json!("2026-12-31"),
+                "absolute range → unsupported variant",
+            ),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "explicit_datetime": from,
+                "explicit_datetime_to": to,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            assert!(
+                matches!(
+                    classify_leaf(&node),
+                    LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
+                ),
+                "{why}",
+            );
+        }
+    }
+
+    #[test]
     fn performed_event_without_window_is_dropped_as_unsupported_variant() {
         let node = json!({
             "type": "behavioral",
@@ -395,7 +482,7 @@ mod tests {
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
         assert_eq!(leaf.leaf_state_key, LeafStateKey(hash_bytes()));
-        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(leaf.raw, node);
     }
 

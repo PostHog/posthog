@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Wrapper for the `hclexp` declarative ClickHouse schema tool (../python-clickhouse-schema).
+#
+# Resolution order:
+#   1. $HCLEXP_BIN            — explicit path to a local hclexp binary
+#   2. `hclexp` on $PATH
+#   3. the pinned container image (CI default)
+#
+# CI uses the container image; locals can point HCLEXP_BIN at a built binary
+# (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
+set -euo pipefail
+
+# Pinned to a concrete build (not :latest) for reproducibility. sha-c0affa0 adds
+# `introspect -exclude` (chschema #79), which the live convergence gate
+# (dump-live.sh) requires; it retains file()/heredoc query refs (#68/#69),
+# structured JSON diff (#66), and the modifier-aware diff (#59).
+# Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-c0affa0}"
+
+if [[ -n "${HCLEXP_BIN:-}" ]]; then
+  exec "$HCLEXP_BIN" "$@"
+fi
+
+if command -v hclexp >/dev/null 2>&1; then
+  exec hclexp "$@"
+fi
+
+# Mount the repo (relative layer/golden paths resolve under -w /work) and the temp
+# dir (diff.sh/gen-sql.sh/the generator pass absolute committed-tree and scratch paths
+# under $TMPDIR) so both resolve inside the container.
+TMP="${TMPDIR:-/tmp}"; TMP="${TMP%/}"
+exec docker run --rm -v "$PWD:/work" -v "$TMP:$TMP" -w /work "$HCLEXP_IMAGE" "$@"

@@ -15,7 +15,7 @@ describe('aiObservabilityAIDataLogic', () => {
         initKeaTests()
     })
 
-    it('passes through when both input and output are already present — no TraceQuery fetch', async () => {
+    it('passes through when both input and output are already present — no heavy-prop lookup', async () => {
         const logic = aiObservabilityAIDataLogic()
         logic.mount()
 
@@ -27,7 +27,6 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
@@ -42,32 +41,20 @@ describe('aiObservabilityAIDataLogic', () => {
             })
 
         expect(mockApi.query).not.toHaveBeenCalled()
+        expect(mockApi.queryHogQL).not.toHaveBeenCalled()
     })
 
-    it('fetches via TraceQuery and populates heavy props when input is missing', async () => {
-        jest.spyOn(mockApi, 'query').mockResolvedValue({
+    it('fetches from ai_events and populates heavy props when input is missing', async () => {
+        jest.spyOn(mockApi, 'queryHogQL').mockResolvedValue({
             results: [
-                {
-                    id: 'trace-1',
-                    events: [
-                        {
-                            id: 'event-1',
-                            event: '$ai_generation',
-                            createdAt: '2026-04-30T10:00:00Z',
-                            properties: {
-                                $ai_input: [{ role: 'user', content: 'post-strip hi' }],
-                                $ai_output_choices: [{ role: 'assistant', content: 'post-strip hello' }],
-                                $ai_tools: [{ function: { name: 'search' } }],
-                            },
-                        },
-                        {
-                            id: 'event-2',
-                            event: '$ai_span',
-                            createdAt: '2026-04-30T10:00:01Z',
-                            properties: {},
-                        },
-                    ],
-                },
+                [
+                    JSON.stringify([{ role: 'user', content: 'post-strip hi' }]),
+                    null,
+                    JSON.stringify([{ role: 'assistant', content: 'post-strip hello' }]),
+                    null,
+                    null,
+                    JSON.stringify([{ function: { name: 'search' } }]),
+                ],
             ],
         } as any)
 
@@ -82,7 +69,6 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
@@ -96,11 +82,58 @@ describe('aiObservabilityAIDataLogic', () => {
                 },
             })
 
-        expect(mockApi.query).toHaveBeenCalledTimes(1)
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
+        expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
+        expect(mockApi.query).not.toHaveBeenCalled()
     })
 
-    it('degrades gracefully to the passed-in values when TraceQuery throws', async () => {
-        jest.spyOn(mockApi, 'query').mockRejectedValue(new Error('network down'))
+    it('falls back to events when ai_events has no heavy props row', async () => {
+        jest.spyOn(mockApi, 'queryHogQL')
+            .mockResolvedValueOnce({ results: [] } as any)
+            .mockResolvedValueOnce({
+                results: [
+                    [
+                        [{ role: 'user', content: 'events hi' }],
+                        null,
+                        [{ role: 'assistant', content: 'events hello' }],
+                        null,
+                        null,
+                        [{ function: { name: 'events-search' } }],
+                    ],
+                ],
+            } as any)
+
+        const logic = aiObservabilityAIDataLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAIDataForEvent({
+                eventId: 'event-1',
+                input: undefined,
+                output: undefined,
+                tools: undefined,
+                traceId: 'trace-1',
+                timestamp: '2026-04-30T10:00:00Z',
+            })
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                aiDataCache: {
+                    'event-1': {
+                        input: [{ role: 'user', content: 'events hi' }],
+                        output: [{ role: 'assistant', content: 'events hello' }],
+                        tools: [{ function: { name: 'events-search' } }],
+                    },
+                },
+            })
+
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
+        expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
+        expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
+    })
+
+    it('degrades gracefully to the passed-in values when the lookup throws', async () => {
+        jest.spyOn(mockApi, 'queryHogQL').mockRejectedValue(new Error('network down'))
 
         const logic = aiObservabilityAIDataLogic()
         logic.mount()
@@ -113,7 +146,6 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
@@ -133,7 +165,7 @@ describe('aiObservabilityAIDataLogic', () => {
         ['timestamp missing', { traceId: 'trace-1', timestamp: undefined }],
         ['both missing', { traceId: undefined, timestamp: undefined }],
     ])('skips the fetch when trace coordinates are incomplete (%s)', async (_label, coords) => {
-        const querySpy = jest.spyOn(mockApi, 'query')
+        const querySpy = jest.spyOn(mockApi, 'queryHogQL')
 
         const logic = aiObservabilityAIDataLogic()
         logic.mount()
@@ -144,29 +176,7 @@ describe('aiObservabilityAIDataLogic', () => {
                 input: undefined,
                 output: undefined,
                 tools: undefined,
-                aiEventsRolloutEnabled: true,
                 ...coords,
-            })
-        }).toFinishAllListeners()
-
-        expect(querySpy).not.toHaveBeenCalled()
-    })
-
-    it('skips the fetch when the ai-events-table-rollout flag is off', async () => {
-        const querySpy = jest.spyOn(mockApi, 'query')
-
-        const logic = aiObservabilityAIDataLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadAIDataForEvent({
-                eventId: 'event-1',
-                input: undefined,
-                output: undefined,
-                tools: undefined,
-                traceId: 'trace-1',
-                timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: false,
             })
         }).toFinishAllListeners()
 

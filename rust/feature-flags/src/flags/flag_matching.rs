@@ -258,7 +258,12 @@ impl PropertyContext<'_> {
     /// an explicit type distinction.
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
         match filter.prop_type {
-            PropertyType::Person => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
+            // PersonMetadata fields (e.g. created_at) are injected into the same map as
+            // regular person properties; see the `result.person` block in
+            // `apply_person_cohort_to_state` (flag_matching_utils.rs).
+            PropertyType::Person | PropertyType::PersonMetadata => {
+                self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
+            }
             PropertyType::Group => {
                 let gti = filter.group_type_index.or(self.aggregation);
                 gti.and_then(|idx| self.group_properties.get(&idx))
@@ -1647,7 +1652,7 @@ impl FeatureFlagMatcher {
                     continue;
                 }
                 match prop.prop_type {
-                    PropertyType::Person => needs_person = true,
+                    PropertyType::Person | PropertyType::PersonMetadata => needs_person = true,
                     PropertyType::Group => {
                         if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
                             group_types.insert(gti);
@@ -1710,7 +1715,14 @@ impl FeatureFlagMatcher {
                 .unwrap_or_default()
         };
 
-        // Merge in overrides (overrides take precedence)
+        // Merge in overrides (overrides take precedence).
+        //
+        // PersonMetadata fields are stored under sentinel-prefixed keys (see
+        // `lookup_key_for` in property_matching.rs). A caller could override the canonical
+        // persons-table value by setting that sentinel key in `person_property_overrides`.
+        // That's intentional for testing — no SDK has any reason to set such a key in
+        // production, and overrides are caller-trusted by design. If we ever need to lock
+        // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
@@ -1804,16 +1816,20 @@ impl FeatureFlagMatcher {
                 }
             }
 
-            // Use hash key overrides for experience continuity
+            // Use hash key overrides for experience continuity. Only consult overrides
+            // when the flag *currently* has continuity enabled — a stored override row
+            // is never deleted when continuity is turned off, so a stale row must not
+            // steer a flag whose continuity is now off (which would keep every distinct_id
+            // of the person bucketing on the old key).
             // Priority: DB override > request's anon_distinct_id > distinct_id
-            if let Some(hash_key_override) = hash_key_overrides
-                .as_ref()
-                .and_then(|h| h.get(&feature_flag.key))
-            {
-                Ok(hash_key_override.clone())
-            } else if feature_flag.has_experience_continuity() {
-                // For EEC flags, use the request's anon_distinct_id as fallback when no DB override exists
-                if let Some(request_override) = request_hash_key_override {
+            if feature_flag.has_experience_continuity() {
+                if let Some(hash_key_override) = hash_key_overrides
+                    .as_ref()
+                    .and_then(|h| h.get(&feature_flag.key))
+                {
+                    Ok(hash_key_override.clone())
+                } else if let Some(request_override) = request_hash_key_override {
+                    // Use the request's anon_distinct_id as fallback when no DB override exists
                     Ok(request_override.clone())
                 } else {
                     Ok(self.distinct_id.clone())
@@ -2445,6 +2461,53 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    /// A stored hash-key override must only steer bucketing while the flag *currently*
+    /// has experience continuity enabled. When continuity is turned off, the row written
+    /// back while it was on is never deleted — so the matcher must fall back to the raw
+    /// distinct_id and ignore the stale override, otherwise every distinct_id of the
+    /// person keeps bucketing on the old key and resolves to the same stale value.
+    #[rstest::rstest]
+    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[tokio::test]
+    async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
+        #[case] ensure_experience_continuity: Option<bool>,
+        #[case] expected_identifier: &str,
+    ) {
+        use crate::utils::test_utils::{mock_group_type_cache, TestContext};
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let matcher = FeatureFlagMatcher::new(
+            "logged-in-username".to_string(),
+            None, // device_id
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::new()),
+            None,
+        );
+
+        // Override left behind from when this flag still had continuity enabled.
+        let overrides = HashMap::from([("my_flag".to_string(), "stale-anon-id".to_string())]);
+        let flag = FeatureFlag {
+            key: "my_flag".to_string(),
+            ensure_experience_continuity,
+            ..Default::default()
+        };
+
+        let identifier = matcher
+            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .unwrap();
+
+        assert_eq!(identifier, expected_identifier);
     }
 
     #[rstest::rstest]
