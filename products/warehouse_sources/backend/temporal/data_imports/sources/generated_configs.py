@@ -599,7 +599,7 @@ class CastorEDCSourceConfig(config.Config):
 
 @config.config
 class ChameleonSourceConfig(config.Config):
-    pass
+    account_secret: str
 
 
 @config.config
@@ -791,7 +791,9 @@ class CommercetoolsSourceConfig(config.Config):
 
 @config.config
 class ConcordSourceConfig(config.Config):
-    pass
+    api_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+    organization_id: str | None = None
 
 
 @config.config
