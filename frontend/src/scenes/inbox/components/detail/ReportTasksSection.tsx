@@ -4,6 +4,7 @@ import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
