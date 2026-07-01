@@ -158,15 +158,15 @@ class MultitenantSAMLAuth(SAMLAuth):
             **_saml_log_context(email, instance),
         )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
-        # `return_to` sets the RelayState, a value the IdP echoes back in its POST to
-        # the (shared) auth_complete URL. We mirror the upstream SAMLAuth JSON format so
-        # the base `auth_complete` can recover the post-login redirect and session: the
-        # session cookie is SameSite=Lax and so is dropped on the IdP's cross-site POST,
-        # which would otherwise lose `next` (and the `reauth` flag) and send the user to
-        # `/`. `idp` carries the OrganizationDomain id since multiple IdPs share the URL.
+        # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
+        # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
+        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
+        # carrying it in RelayState lets the base `auth_complete` recover it for the post-login
+        # redirect. `idp` carries the OrganizationDomain id since multiple IdPs share the URL.
+        # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
+        # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
+        # redirect, and `next` alone is enough to recover the redirect without it.
         relay_state = {"idp": str(instance.id), "next": self.data.get("next")}
-        if session_id := self.strategy.get_session_id():
-            relay_state[self.strategy.SESSION_SAVE_KEY] = session_id
         return auth.login(return_to=json.dumps(relay_state))
 
     def _get_attr(
