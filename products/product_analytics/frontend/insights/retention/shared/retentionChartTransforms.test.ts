@@ -332,7 +332,7 @@ describe('retentionChartTransforms', () => {
             })
             const lineYAxis = model.lineConfig.yAxis as YAxisConfig
             expect(lineYAxis?.label).toBe(expectedLabel)
-            expect(model.barConfig.yAxis?.label).toBe(expectedLabel)
+            expect((model.barConfig.yAxis as any)?.label).toBe(expectedLabel)
             expect(lineYAxis?.format).toBe(expectedFormat)
         })
     })

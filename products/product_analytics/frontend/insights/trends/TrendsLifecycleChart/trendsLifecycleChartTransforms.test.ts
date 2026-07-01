@@ -222,7 +222,7 @@ describe('buildTrendsLifecycleConfig', () => {
 
     it('forwards yAxisScaleType into the y-axis scale', () => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, yAxisScaleType: 'log10' })
-        expect(cfg.yAxis?.scale).toBe('log')
+        expect((cfg.yAxis as any)?.scale).toBe('log')
     })
 
     it('passes the tooltip config through unchanged', () => {
