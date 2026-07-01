@@ -184,16 +184,16 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     def get_next_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
         return (self.context.get("neighbors") or {}).get("next")
 
-    label = serializers.SerializerMethodField(
+    # `label` shadows DRF's Field.label attribute; the field name is intentional.
+    label = serializers.SerializerMethodField(  # type: ignore[assignment]
         help_text="The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled.",
     )
 
     @extend_schema_field(ReplayObservationLabelSerializer(allow_null=True))
     def get_label(self, obj: ReplayObservation) -> dict | None:
-        # Reverse one-to-one; resolved from `select_related("label")` so this adds no per-row query.
-        try:
-            label = obj.label
-        except ReplayObservationLabel.DoesNotExist:
+        # Reverse one-to-one from select_related("label"); getattr returns None when unlabeled.
+        label = getattr(obj, "label", None)
+        if label is None:
             return None
         return ReplayObservationLabelSerializer(label).data
 
@@ -625,23 +625,23 @@ class ReplayObservationViewSet(
     )
     def label(self, request: Request, **kwargs: Any) -> Response:
         observation = self.get_object()
-        # Editing the shared label mutates team-wide data, so require edit access (matches the "Edit scanner" gate),
-        # not just the viewer access that reading observations needs.
+        # Editing the shared label needs edit access, not just the viewer access reading needs.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
             raise PermissionDenied("Editing observation labels requires session_recording edit access.")
         user = cast(User, request.user)
         if request.method == "DELETE":
-            ReplayObservationLabel.objects.filter(observation=observation).delete()
+            ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()
             return Response(status=204)
         input_serializer = ReplayObservationLabelSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
+        # team_id in the lookup keeps the query team-scoped.
         label, _ = ReplayObservationLabel.objects.update_or_create(
             observation=observation,
+            team_id=observation.team_id,
             defaults={
                 "is_correct": input_serializer.validated_data["is_correct"],
                 "feedback": input_serializer.validated_data.get("feedback", ""),
                 "created_by": user,
-                "team_id": observation.team_id,
             },
         )
         return Response(ReplayObservationLabelSerializer(label).data)
