@@ -61,7 +61,8 @@ export function moduleGraphPlugin(repoRoot: string): Plugin {
                 }
                 const info = this.getModuleInfo(id)
                 const reasons = new Set<string>()
-                for (const importer of info?.importers ?? []) {
+                const importers = new Set<string>([...(info?.importers ?? []), ...(info?.dynamicImporters ?? [])])
+                for (const importer of importers) {
                     const from = nameOf(importer)
                     if (from) {
                         reasons.add(from)
