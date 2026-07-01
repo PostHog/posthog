@@ -1053,8 +1053,7 @@ const EmptyResultsState = (): JSX.Element => {
                     <li>Make sure the event or table name is spelled exactly right</li>
                     <li>Widen your date range — the rows you're after may fall outside it</li>
                     <li>
-                        Querying a warehouse source? Confirm it's{' '}
-                        <Link to={urls.sources()}>connected and synced</Link>.
+                        Querying a warehouse source? Confirm it's <Link to={urls.sources()}>connected and synced</Link>.
                     </li>
                 </ul>
             </div>
