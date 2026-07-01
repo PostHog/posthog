@@ -12,7 +12,7 @@ import { AgentSpecSchema } from './spec'
  */
 
 type JsonSchema = {
-    type?: string
+    type?: string | string[]
     items?: unknown
     maxItems?: number
     $ref?: string
@@ -41,7 +41,10 @@ function arraySchemasIn(
         return arraySchemasIn(defs[name], defs, seen)
     }
     const out: JsonSchema[] = []
-    if (node.type === 'array') {
+    // `type` is usually the string 'array', but a nullable array can also project
+    // to `{ type: ['array', 'null'], … }` (type-as-array). Handle both.
+    const isArrayType = node.type === 'array' || (Array.isArray(node.type) && (node.type as string[]).includes('array'))
+    if (isArrayType) {
         out.push(node)
     }
     for (const branch of [...(node.anyOf ?? []), ...(node.oneOf ?? []), ...(node.allOf ?? [])]) {

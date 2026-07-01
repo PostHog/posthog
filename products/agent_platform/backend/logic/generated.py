@@ -19,12 +19,20 @@ def _load(name: str) -> Any:
     # UTF-8 explicitly — the trigger-secret registry contains `→`, which a C/POSIX default decode chokes on.
     path = _DIR / name
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise ImproperlyConfigured(
             f"agent_platform: generated vocabulary '{name}' is missing or corrupt ({e}). "
             "Regenerate with: UPDATE_GENERATED=1 npx vitest run src/spec/spec-codegen.test.ts"
         ) from e
+    # Fail closed on a syntactically-valid but wrong-shaped artifact (e.g. a list
+    # where a dict is expected) so it surfaces here, not as an AttributeError deep
+    # in the promote path.
+    if not isinstance(value, list | dict):
+        raise ImproperlyConfigured(
+            f"agent_platform: generated vocabulary '{name}' has unexpected shape {type(value).__name__}"
+        )
+    return value
 
 
 # Per-trigger-type required secrets (source: trigger-secrets.ts).

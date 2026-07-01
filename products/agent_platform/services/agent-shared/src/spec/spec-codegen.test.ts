@@ -1,5 +1,5 @@
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { relative } from 'node:path'
+import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { basename, dirname, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { GENERATED_ARTIFACTS } from './spec-codegen'
@@ -14,6 +14,18 @@ describe('spec generated artifacts', () => {
     // Assert the registry is populated so an emptied `GENERATED_ARTIFACTS` fails loud.
     it('the artifact registry is non-empty (guard is non-vacuous)', () => {
         expect(GENERATED_ARTIFACTS.length).toBeGreaterThanOrEqual(3)
+    })
+
+    // Registry↔disk bijection: the freshness check iterates the registry, so a file
+    // dropped from it but still on disk (and imported by generated.py) drifts
+    // undetected. Assert the sets match.
+    it('every generated file on disk is registered, and vice versa (no orphans)', () => {
+        const dir = dirname(GENERATED_ARTIFACTS[0].path)
+        const onDisk = readdirSync(dir)
+            .filter((f) => f.endsWith('.generated.json'))
+            .sort()
+        const registered = GENERATED_ARTIFACTS.map((a) => basename(a.path)).sort()
+        expect(onDisk).toEqual(registered)
     })
 
     if (process.env.UPDATE_GENERATED) {
