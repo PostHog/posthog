@@ -108,3 +108,30 @@ def compact_thread(thread_id: str, checkpoint_ns: str = "") -> CompactionResult:
         checkpoints_deleted=checkpoints_deleted,
         blobs_deleted=blobs_deleted,
     )
+
+
+def compact_conversation(thread_id: str) -> CompactionResult:
+    """Compact every checkpoint namespace of a conversation, not just the root graph.
+
+    Max runs subgraphs (taxonomy, tools, deep-research, ...), and each subgraph persists its
+    checkpoints under its own `checkpoint_ns`. `compact_thread` collapses a single namespace, so
+    compacting only the root ("") leaves every subgraph namespace untouched — most of a real
+    conversation's checkpoints. This enumerates the thread's distinct namespaces and compacts each,
+    aggregating what was reclaimed. Each per-namespace call re-checks safety and re-locks, so a
+    concurrent resume between namespaces is handled by `compact_thread`'s own guards."""
+    # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint maintenance)
+    namespaces = list(
+        ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True).distinct()
+    )
+    compacted = False
+    checkpoints_deleted = blobs_deleted = 0
+    for checkpoint_ns in namespaces:
+        result = compact_thread(thread_id, checkpoint_ns)
+        compacted = compacted or result.compacted
+        checkpoints_deleted += result.checkpoints_deleted
+        blobs_deleted += result.blobs_deleted
+    return CompactionResult(
+        compacted=compacted,
+        checkpoints_deleted=checkpoints_deleted,
+        blobs_deleted=blobs_deleted,
+    )
