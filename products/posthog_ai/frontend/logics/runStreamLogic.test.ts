@@ -186,6 +186,9 @@ describe('runStreamLogic', () => {
     let logic: ReturnType<typeof runStreamLogic.build>
 
     beforeEach(() => {
+        // featureFlagLogic persists flags to localStorage; clear before init so a flag set by one
+        // test (e.g. `enableProxy()`) can't leak into a later test's flag-off assertions.
+        window.localStorage.clear()
         initKeaTests()
         // The logic mirrors the live resume cursor to sessionStorage — clear it so a cursor written
         // by one test can't seed another test's reconnect.
