@@ -108,6 +108,7 @@ def build_workflow_run_list(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -121,6 +122,7 @@ def build_workflow_run_list(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 
@@ -154,6 +156,7 @@ def build_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -167,6 +170,7 @@ def build_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 

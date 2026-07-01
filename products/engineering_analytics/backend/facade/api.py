@@ -6,7 +6,8 @@ parameters and return canonical contract types.
 
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
-``head_branch`` filter for workflow health. ``date_from`` / ``date_to`` accept
+``head_branch`` filter for workflow health, a workflow's runs list, and its runner
+costs. ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
@@ -124,6 +125,7 @@ def list_workflow_runs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
@@ -133,6 +135,7 @@ def list_workflow_runs(
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,
+        branch=branch,
     )
 
 
@@ -162,6 +165,7 @@ def get_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
@@ -171,6 +175,7 @@ def get_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,
+        branch=branch,
     )
 
 

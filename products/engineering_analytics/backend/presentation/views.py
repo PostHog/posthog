@@ -77,7 +77,7 @@ _BRANCH = OpenApiParameter(
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
     required=False,
-    description="Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. "
+    description="Optional exact git branch (head_branch) to scope results to, e.g. 'main'. "
     "Omit or leave blank to aggregate across all branches.",
 )
 
@@ -511,6 +511,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
             _DATE_FROM,
             _DATE_TO,
+            _BRANCH,
             _SOURCE_ID,
         ],
         responses={
@@ -519,8 +520,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "Runs of a single workflow within a repo over a window (date_from default -30d), newest first. "
-            "Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub "
-            "'workflow' page between the workflow list and a single run."
+            "Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and "
+            "per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the "
+            "workflow list and a single run."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -537,6 +539,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 workflow_name=workflow_name,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -615,6 +618,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
             _DATE_FROM,
             _DATE_TO,
+            _BRANCH,
             _SOURCE_ID,
         ],
         responses={
@@ -623,7 +627,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "A workflow's estimated CI cost broken down by runner tier over a window (date_from default "
-            "-30d), highest spend first. Returns an empty list when the job-level source isn't synced."
+            "-30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an "
+            "empty list when the job-level source isn't synced."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -639,6 +644,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 workflow_name=workflow_name,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

@@ -912,6 +912,54 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         )
         assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
 
+    def test_workflow_detail_branch_filter(self) -> None:
+        # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
+        # as the Workflows tab — without it, drilling in from a branch-scoped tab widened back to every
+        # branch and showed more runs (and more cost) than the tab did.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(8501, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                _run_row(8502, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
+                _run_row(8503, "CI", "sha-r1", "completed", "success", _ago(1), _ago(1), head_branch="release"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(85010, 8501, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(85020, 8502, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(85030, 8503, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+            ],
+        )
+        repo, workflow = "PostHog/posthog", "CI"
+
+        # Runs list: unfiltered spans every branch; scoped keeps only that branch's runs.
+        all_runs = api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow)
+        assert {r.id for r in all_runs} == {8501, 8502, 8503}
+        main_runs = api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {r.id for r in main_runs} == {8501, 8502}
+        # A blank branch is "no filter", not a literal match on ''; an unknown branch yields nothing.
+        assert len(api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="  ")) == 3
+        assert api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="nope") == []
+
+        # Runner costs: the branch scope narrows the costed jobs the same way (3 jobs → 2 on main).
+        all_jobs = sum(
+            c.job_count for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow)
+        )
+        main_jobs = sum(
+            c.job_count
+            for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        )
+        assert (all_jobs, main_jobs) == (3, 2)
+
     def test_pr_runs_span_all_commits(self) -> None:
         # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.
         self._create_table(

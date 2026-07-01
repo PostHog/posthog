@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
+import { BranchFilter } from '../components/BranchFilter'
 import { DistributionBar } from '../components/DistributionBar'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
@@ -209,7 +210,9 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* One window scopes both the cost breakdown and the runs list below. */}
+            {/* One window + branch scope the cost breakdown and the runs list below — the same scope as the
+                Workflows tab, so numbers match after drilling in (a missing branch filter here read as more
+                runs than the tab showed). */}
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
                 <DateFilter
@@ -219,6 +222,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                     size="small"
                 />
+                <BranchFilter />
             </div>
             <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
             <RunActivityChart runs={activityRuns} truncated={activityTruncated} />

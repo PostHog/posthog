@@ -763,7 +763,7 @@ export type EngineeringAnalyticsQuarantineParams = {
 
 export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string
     /**
@@ -831,6 +831,10 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
 
 export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
@@ -853,6 +857,10 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
 }
 
 export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

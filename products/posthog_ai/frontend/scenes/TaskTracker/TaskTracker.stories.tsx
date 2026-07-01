@@ -322,7 +322,7 @@ const MOBILE_PARAMETERS = {
     testOptions: { viewport: MOBILE_VIEWPORT },
 }
 
-// Mobile: the list fills the screen and scrolls with the page, with a floating "New task" button.
+// Mobile: the list fills the screen in its own scroll container, with a floating "New task" button.
 export const MobileList: Story = {
     parameters: MOBILE_PARAMETERS,
 }
