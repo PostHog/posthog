@@ -1,6 +1,12 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentMeanMetric
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
+    ExperimentMeanMetric,
+    MultipleBreakdownType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -418,7 +424,7 @@ class MeanQueryBuilder:
         absent property lands in a single, recognizable bucket instead of vanishing.
         """
         properties_chain = get_properties_chain(
-            breakdown_type="event",
+            breakdown_type=cast(MultipleBreakdownType, "event"),
             breakdown_field=breakdown_property,
             group_type_index=None,
         )

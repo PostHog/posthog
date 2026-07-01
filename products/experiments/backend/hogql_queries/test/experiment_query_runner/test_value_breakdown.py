@@ -17,6 +17,7 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentVariantResultFrequentist,
 )
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
@@ -182,7 +183,10 @@ class TestExperimentValueBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertAlmostEqual(premium.baseline.sum, 5.0, places=6)
 
         # Test had zero premium events, but its split still covers all 3 exposed users with sum 0.
-        test_variant = next(variant for variant in premium.variants if variant.key == "test")
+        test_variant = cast(
+            ExperimentVariantResultFrequentist,
+            next(variant for variant in premium.variants if variant.key == "test"),
+        )
         self.assertEqual(test_variant.number_of_samples, 3)
         self.assertAlmostEqual(test_variant.sum, 0.0, places=6)
 
