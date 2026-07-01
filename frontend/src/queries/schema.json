@@ -16080,6 +16080,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -16109,10 +16110,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {

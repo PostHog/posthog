@@ -14958,7 +14958,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
         extra="forbid",
     )
     fields: dict[str, DatabaseSchemaField]
-    format: str
+    format: str | None = Field(
+        default=None,
+        description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
+    )
     id: str
     name: str
     row_count: float | None = None
@@ -14971,7 +14974,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     )
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
-    url_pattern: str
+    url_pattern: str | None = Field(
+        default=None,
+        description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
+    )
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
