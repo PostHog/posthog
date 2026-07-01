@@ -3,8 +3,7 @@ import { Group } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { isFunnelsAlertConfig, isTrendsAlertConfig, supportsOngoingInterval } from 'lib/components/Alerts/types'
+import { AlertFormType, ongoingIntervalField } from 'lib/components/Alerts/alertFormLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -28,19 +27,7 @@ export function AlertAdvancedOptionsSection({
     enabledAdvancedOptionsCount,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
-    const config = alertForm?.config
-    const ongoingIsFunnel = isFunnelsAlertConfig(config)
-    // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
-    const showOngoingInterval =
-        supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || can_check_ongoing_interval)
-    const ongoingChecked =
-        supportsOngoingInterval(config) && !!config.check_ongoing_interval && can_check_ongoing_interval
-    const ongoingDisabledReason = can_check_ongoing_interval
-        ? undefined
-        : 'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
-    const ongoingTooltip = ongoingIsFunnel
-        ? 'By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint.'
-        : "Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+    const ongoing = ongoingIntervalField(alertForm?.config, can_check_ongoing_interval)
     return (
         <div className="deprecated-space-y-2">
             <LemonCollapse
@@ -67,19 +54,19 @@ export function AlertAdvancedOptionsSection({
                         },
                         content: (
                             <div className="space-y-2">
-                                {showOngoingInterval && (
+                                {ongoing.show && (
                                     <Group name={['config']}>
                                         <div className="flex gap-1">
                                             <LemonField name="check_ongoing_interval">
                                                 <LemonCheckbox
-                                                    checked={ongoingChecked}
+                                                    checked={ongoing.checked}
                                                     data-attr="alertForm-check-ongoing-interval"
                                                     fullWidth
                                                     label="Check ongoing period"
-                                                    disabledReason={ongoingDisabledReason}
+                                                    disabledReason={ongoing.disabledReason}
                                                 />
                                             </LemonField>
-                                            <Tooltip title={ongoingTooltip} placement="right" delayMs={0}>
+                                            <Tooltip title={ongoing.tooltip} placement="right" delayMs={0}>
                                                 <IconInfo />
                                             </Tooltip>
                                         </div>

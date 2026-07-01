@@ -13,11 +13,19 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 def _trailing_date_range_override(interval: IntervalType | None, periods: int) -> dict:
-    """Widen an insight's date range to the last ``periods`` intervals (no ``date_to``, so the current
-    interval is included). Used so a relative funnel alert always has a prior period to diff against,
-    regardless of the insight's saved range — mirrors the trends extractor's override."""
-    suffix = {IntervalType.DAY: "d", IntervalType.WEEK: "w", IntervalType.MONTH: "m"}.get(interval, "h")
-    return {"date_from": f"-{periods}{suffix}"}
+    # Widen the insight's date range to the last `periods` intervals (no date_to, so the current
+    # interval is included) — mirrors the trends extractor so a relative funnel alert always has a
+    # prior period to diff against, regardless of the insight's saved range.
+    match interval:
+        case IntervalType.DAY:
+            unit = "d"
+        case IntervalType.WEEK:
+            unit = "w"
+        case IntervalType.MONTH:
+            unit = "m"
+        case _:
+            unit = "h"
+    return {"date_from": f"-{periods}{unit}"}
 
 
 class FunnelsExtractor:

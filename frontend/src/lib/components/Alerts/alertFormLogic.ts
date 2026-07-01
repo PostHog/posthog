@@ -44,6 +44,7 @@ import {
     isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
+    supportsOngoingInterval,
 } from './types'
 
 export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
@@ -88,6 +89,32 @@ export function canCheckOngoingInterval(
         upper != null &&
         !isNaN(upper)
     )
+}
+
+const ONGOING_DISABLED_REASON =
+    'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+const ONGOING_TOOLTIP_FUNNEL =
+    'By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint.'
+const ONGOING_TOOLTIP_TRENDS =
+    "Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+
+export interface OngoingIntervalField {
+    show: boolean
+    checked: boolean
+    disabledReason?: string
+    tooltip: string
+}
+
+/** State of the "Check ongoing period" advanced-option, keyed on alert kind — so the per-kind
+ * branching lives here rather than growing inside the component as more alert types are added. */
+export function ongoingIntervalField(config: AlertConfig | null | undefined, canCheck: boolean): OngoingIntervalField {
+    return {
+        // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
+        show: supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
+        checked: supportsOngoingInterval(config) && !!config.check_ongoing_interval && canCheck,
+        disabledReason: canCheck ? undefined : ONGOING_DISABLED_REASON,
+        tooltip: isFunnelsAlertConfig(config) ? ONGOING_TOOLTIP_FUNNEL : ONGOING_TOOLTIP_TRENDS,
+    }
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */

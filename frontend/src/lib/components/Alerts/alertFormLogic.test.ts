@@ -21,7 +21,13 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, canCheckOngoingInterval, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
+import {
+    alertFormLogic,
+    canCheckOngoingInterval,
+    ongoingIntervalField,
+    thresholdAlertHasBounds,
+    type AlertFormType,
+} from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { deriveFunnelAlertPreview } from './funnelAlertPreview'
 import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
@@ -989,6 +995,35 @@ describe('alertFormLogic', () => {
                 threshold: { configuration: { bounds: {} } },
             }
             expect(canCheckOngoingInterval(alert)).toBe(false)
+        })
+
+        // The util the advanced-options section renders from — one place for the per-kind branching.
+        it.each([
+            [
+                'trends, eligible',
+                { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+                true,
+                true,
+                true,
+                false,
+            ],
+            [
+                'trends, ineligible (shown but disabled)',
+                { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+                false,
+                true,
+                false,
+                true,
+            ],
+            ['steps funnel (canCheck false → hidden)', funnelConfig, false, false, false, true],
+            ['trends funnel (canCheck true → shown, no reason)', funnelConfig, true, true, false, false],
+            ['SQL (never shown)', { type: 'HogQLAlertConfig', evaluation: 'last_row' }, false, false, false, true],
+        ])('ongoingIntervalField: %s', (_name, config, canCheck, show, checked, hasReason) => {
+            const field = ongoingIntervalField(config as any, canCheck)
+            expect(field.show).toBe(show)
+            expect(field.checked).toBe(checked)
+            expect(field.disabledReason !== undefined).toBe(hasReason)
+            expect(field.tooltip.length).toBeGreaterThan(0)
         })
     })
 })
