@@ -1,4 +1,5 @@
 import logging
+import logging.config
 
 from posthog.settings import logs
 
@@ -12,6 +13,10 @@ def test_level_filters_split_info_from_warnings() -> None:
 
     assert max_info.filter(_record(logging.INFO))
     assert not max_info.filter(_record(logging.WARNING))
+
+
+def test_logging_config_can_be_applied() -> None:
+    logging.config.dictConfig(logs.LOGGING)
 
 
 def test_default_console_logging_handler_keeps_default_stream() -> None:
