@@ -207,7 +207,9 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
         if _skip_write_if_group_mapping_emptied(team, payload):
             # personhog lag would cache an emptied group_type_mapping; skip both writes
             # without counting a failure (that would wrongly advance the circuit breaker).
-            # The team stays missing and re-enqueues on its next miss.
+            # Release the cooldown so the team retries on the next drain once the mapping
+            # is available, rather than staying missing for the full cooldown window.
+            redis.delete(COOLDOWN_KEY.format(team_id=team_id))
             continue
         try:
             flag_definitions_hypercache.set_cache_value(team, payload)

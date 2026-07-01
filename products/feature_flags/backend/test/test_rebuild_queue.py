@@ -162,6 +162,8 @@ def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
     set_cache.assert_not_called()
     assert stats["success"] == 0 and stats["failure"] == 0
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=8)) is None
+    # Cooldown released so the team retries next drain once the mapping is available.
+    assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=8))
 
 
 def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):
