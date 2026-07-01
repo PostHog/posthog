@@ -112,6 +112,7 @@ import {
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
     isVisualizationArtifactContent,
+    POSTHOG_AI_PREVIEW_EMPTY_STATE,
     visualizationTypeToQuery,
 } from './utils'
 
@@ -1079,7 +1080,7 @@ const Visualization = React.memo(function Visualization({
 
     return (
         <>
-            {!isCollapsed && <Query query={query} readOnly embedded />}
+            {!isCollapsed && <Query query={query} readOnly embedded context={POSTHOG_AI_PREVIEW_EMPTY_STATE} />}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                 <div className="flex items-center gap-1.5">
                     <LemonButton
@@ -1182,7 +1183,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
             <div className={`grid ${gridCols} gap-2`}>
                 {insightsToShow.map((insight, index) => (
                     <div key={index} className="relative min-h-[200px]">
-                        <Query query={insight.query} readOnly embedded />
+                        <Query query={insight.query} readOnly embedded context={POSTHOG_AI_PREVIEW_EMPTY_STATE} />
                     </div>
                 ))}
             </div>
@@ -1263,7 +1264,12 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
                             <TopHeading query={messages[selectedIndex].query} />
                         </h4>
                         <div className="min-h-80">
-                            <Query query={messages[selectedIndex].query} readOnly embedded />
+                            <Query
+                                query={messages[selectedIndex].query}
+                                readOnly
+                                embedded
+                                context={POSTHOG_AI_PREVIEW_EMPTY_STATE}
+                            />
                         </div>
                     </>
                 )}

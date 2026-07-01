@@ -38,7 +38,7 @@ import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { MarkdownMessage, MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { MessageStatus } from '../maxLogic'
-import { castAssistantQuery, visualizationTypeToQuery } from '../utils'
+import { castAssistantQuery, POSTHOG_AI_PREVIEW_EMPTY_STATE, visualizationTypeToQuery } from '../utils'
 import { markdownToTiptap } from '../utils/markdownToTiptap'
 
 interface NotebookArtifactAnswerProps {
@@ -208,7 +208,7 @@ function VisualizationBlockPreview({ block }: { block: VisualizationBlock }): JS
     return (
         <div className="border rounded overflow-hidden">
             <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(block.query) ? 'h-[580px]' : 'h-96')}>
-                <Query query={query} readOnly embedded />
+                <Query query={query} readOnly embedded context={POSTHOG_AI_PREVIEW_EMPTY_STATE} />
             </div>
             <div className="flex items-center justify-between px-2 py-1 bg-surface-secondary border-t">
                 <LemonButton
