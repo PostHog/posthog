@@ -3,8 +3,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import { reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
 
@@ -77,6 +80,18 @@ describe('reverseProxyCheckerLogic', () => {
             .toMatchValues({
                 hasReverseProxy: true,
             })
+    })
+
+    it('should not run the detection query on mount while the team id is unknown', async () => {
+        // Regression: the detection query is team-scoped and throws `Team ID is not known.` when
+        // fired before the current team id is seeded (early app init / onboarding). afterMount must
+        // gate on `hasCurrentTeamId()` so it doesn't kick off the query during that race.
+        ApiConfig.setCurrentTeamId(null as unknown as TeamType['id'])
+        useMockedValues(hasReverseProxyValues)
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toNotHaveDispatchedActions(['loadHasReverseProxy'])
     })
 
     it('should swallow server errors silently instead of showing a toast', async () => {

@@ -2,7 +2,7 @@ import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -70,6 +70,12 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadHasReverseProxy()
+        // The detection query is team-scoped; skip it until the current team id is known.
+        // On early mount (app init / onboarding) the id may not be set yet, and firing the
+        // query throws `Team ID is not known.`. The check re-runs on a later remount or when
+        // the product-setup modal opens (`openSetupModal` calls `loadHasReverseProxy`).
+        if (ApiConfig.hasCurrentTeamId()) {
+            actions.loadHasReverseProxy()
+        }
     }),
 ])

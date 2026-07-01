@@ -1,7 +1,8 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority, SignalReportStatus } from '../types'
 import type { inboxFiltersLogicType } from './inboxFiltersLogicType'
@@ -66,6 +67,12 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
 export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxFiltersLogic']),
 
+    connect(() => ({
+        // Connecting userLogic gives us `loadUserSuccess` to retry the reviewer preload once the
+        // current project id is seeded on OAuth bootstrap (see the mount guard below).
+        values: [userLogic, ['user']],
+    })),
+
     actions({
         setScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
@@ -91,10 +98,18 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
+        },
+        // If the mount-time preload was skipped because the project id wasn't known yet, run it
+        // once the id is seeded (OAuth bootstrap) so the scope picker's initial roster is ready.
+        [userLogic.actionTypes.loadUserSuccess]: () => {
+            if (!cache.reviewersPreloaded && ApiConfig.hasCurrentProjectId()) {
+                cache.reviewersPreloaded = true
+                actions.loadAvailableReviewers()
+            }
         },
     })),
 
@@ -158,7 +173,14 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadAvailableReviewers()
+    afterMount(({ actions, cache }) => {
+        // The reviewer roster is project-scoped; skip the preload until the current project id is
+        // known. On early mount (app init / OAuth bootstrap) it may not be set yet, and firing the
+        // request throws `Project ID is not known.`. The `loadUserSuccess` listener retries once the
+        // id is seeded; user interaction with the scope picker also reloads the roster on demand.
+        if (ApiConfig.hasCurrentProjectId()) {
+            cache.reviewersPreloaded = true
+            actions.loadAvailableReviewers()
+        }
     }),
 ])

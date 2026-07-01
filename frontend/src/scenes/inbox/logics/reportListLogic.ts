@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../inboxAnalytics'
@@ -195,9 +195,13 @@ export const reportListLogic = kea<reportListLogicType>([
         setScope: () => actions.refresh(),
         clearFilters: () => actions.refresh(),
         // For-you scope needs the current user's uuid; reload once it resolves.
+        // Also covers the OAuth bootstrap race where the project id is seeded on user load:
+        // if the count was skipped on mount (id not yet known), fetch it now.
         [userLogic.actionTypes.loadUserSuccess]: () => {
             if (values.scope === INBOX_SCOPE_FOR_YOU) {
                 actions.refresh()
+            } else if (values.count === null && !values.countLoading && ApiConfig.hasCurrentProjectId()) {
+                actions.loadCount()
             }
         },
         archiveReport: async ({ reportId, reason, note }) => {
@@ -241,7 +245,13 @@ export const reportListLogic = kea<reportListLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadCount()
+            // The list request is project-scoped; skip it until the current project id is known.
+            // On early mount (app init / onboarding) the id may not be set yet, and firing the
+            // request throws `Project ID is not known.`. The `loadUserSuccess` listener retries
+            // once the id is seeded (OAuth bootstrap).
+            if (ApiConfig.hasCurrentProjectId()) {
+                actions.loadCount()
+            }
         },
     })),
 ])
