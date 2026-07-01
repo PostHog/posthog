@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.co
     ConcordResumeConfig,
     _agreement_incremental_params,
     _flatten_folder_tree,
+    _iter_events_windows,
     _iter_page,
     _to_epoch_ms,
     base_url_for_environment,
@@ -325,6 +326,45 @@ class TestEventsWindowPagination:
         manager = FakeManager(ConcordResumeConfig(window_start_ms=resume_ms))
         _rows, urls, _ = _run("events", [{"events": []}], manager=manager)
         assert "start=2024-01-15" in urls[0]
+
+    def _iter_single_window(self, *, start_row_offset=0, manager=None):
+        config = CONCORD_ENDPOINTS["events"]
+        manager = manager or FakeManager()
+        # A single window (start within 7 days of today) so the walk stops after one fetch; chunk_size=2
+        # flushes every two rows so the mid-window checkpoint fires.
+        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
+        start_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
+        rows = [{"id": i} for i in range(5)]
+        with mock.patch.object(concord, "_fetch", return_value={"events": rows}):
+            tables = list(
+                _iter_events_windows(
+                    session=mock.MagicMock(),
+                    base_url="https://x",
+                    path="/p",
+                    headers={},
+                    config=config,
+                    logger=mock.MagicMock(),
+                    batcher=batcher,
+                    manager=manager,
+                    start_ms=start_ms,
+                    start_row_offset=start_row_offset,
+                )
+            )
+        emitted = [r["id"] for table in tables for r in table.to_pylist()]
+        return emitted, manager
+
+    @freeze_time("2024-01-20")
+    def test_mid_window_flush_advances_row_offset_monotonically(self):
+        _emitted, manager = self._iter_single_window()
+        window_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
+        # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
+        assert [(s.window_start_ms, s.row_offset) for s in manager.saved] == [(window_ms, 2), (window_ms, 4)]
+
+    @freeze_time("2024-01-20")
+    def test_resume_skips_already_emitted_window_rows(self):
+        emitted, _ = self._iter_single_window(start_row_offset=3)
+        # rows 0–2 were committed last run; the resume must not re-emit them
+        assert emitted == [3, 4]
 
 
 class TestConcordSource:

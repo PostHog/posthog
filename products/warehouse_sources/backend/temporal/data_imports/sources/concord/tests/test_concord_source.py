@@ -1,6 +1,5 @@
 from typing import cast
 
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -122,7 +121,3 @@ class TestConcordSourceClass:
         descriptions = self.source.get_canonical_descriptions()
         assert "agreements" in descriptions
         assert "columns" in descriptions["agreements"]
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

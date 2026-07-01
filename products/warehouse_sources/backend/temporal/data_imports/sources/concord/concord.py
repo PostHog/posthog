@@ -282,17 +282,30 @@ def _iter_events_windows(
     batcher: Batcher,
     manager: ResumableSourceManager[ConcordResumeConfig],
     start_ms: int,
+    start_row_offset: int = 0,
 ) -> Iterator[Any]:
     window_start = _epoch_ms_to_date(start_ms)
     today = datetime.now(UTC).date()
+    # Rows of the first window already emitted in a prior run; skip them so a resume doesn't re-walk
+    # the whole (up to 7-day) window. Only the window we resume on carries a non-zero skip.
+    skip = start_row_offset
     while window_start <= today:
         window_end = min(window_start + timedelta(days=EVENTS_WINDOW_DAYS), today)
         params = {"start": window_start.isoformat(), "end": window_end.isoformat()}
+        window_start_ms = int(datetime.combine(window_start, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
-        for row in _select_rows(payload, config.data_selector, logger):
+        for local_index, row in enumerate(_select_rows(payload, config.data_selector, logger)):
+            if local_index < skip:
+                continue
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
+                # A byte-limit flush can fire mid-window. Checkpoint this window plus how many of
+                # its rows are now committed, so a resume skips them instead of re-walking the whole
+                # window. row_offset advances on every flush, so progress is monotonic and a crash
+                # can't pin the import to replaying the same window forever.
+                manager.save_state(ConcordResumeConfig(window_start_ms=window_start_ms, row_offset=local_index + 1))
+        skip = 0
         if window_end >= today:
             break
         # Start the next window on the boundary day we just queried, so the windows overlap by one
@@ -400,7 +413,10 @@ def get_rows(
             if last_ms is None and config.default_lookback_days is not None:
                 last_ms = int((datetime.now(UTC) - timedelta(days=config.default_lookback_days)).timestamp() * 1000)
             start_ms = last_ms if last_ms is not None else int(datetime.now(UTC).timestamp() * 1000)
-        yield from _iter_events_windows(session, base_url, path, headers, config, logger, batcher, manager, start_ms)
+        start_row_offset = resume.row_offset if resume and resume.row_offset is not None else 0
+        yield from _iter_events_windows(
+            session, base_url, path, headers, config, logger, batcher, manager, start_ms, start_row_offset
+        )
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
