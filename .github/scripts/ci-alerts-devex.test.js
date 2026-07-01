@@ -26,6 +26,7 @@ function recordingFn(impl) {
 function runs(name, conclusions) {
     return conclusions.map((conclusion, i) => ({
         name,
+        status: 'completed',
         conclusion,
         head_sha: `sha_${name}_${i}`,
         html_url: `https://github.com/runs/${name}/${i}`,
@@ -55,6 +56,7 @@ function commitsWithRuns(perCommitConclusions) {
             if (!runsByWorkflow[wf]) runsByWorkflow[wf] = []
             runsByWorkflow[wf].push({
                 name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
+                status: 'completed',
                 conclusion,
                 head_sha: `commit_sha_${i}`,
                 html_url: `https://github.com/runs/${wf}/${i}`,
@@ -105,8 +107,8 @@ const activeAnchor = (payload = {}) => ({
 // One failure that landed `redMins` ago, preceded by a green run. count=1 (below the streak
 // threshold), so this drives the wall-clock arm in isolation; redForMins == redMins.
 const failingFor = (redMins, name = 'Backend CI') => [
-    { name, conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
-    { name, conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
+    { name, status: 'completed', conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
+    { name, status: 'completed', conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
 ]
 
 // A single commit `ageMins` old — drives recentActivity. No matching run SHA, so it classifies
@@ -310,6 +312,7 @@ describe('ci-alerts-devex', () => {
     // --- Stale-bridge duration ---
     const failureRun = (name, key, createdAt, updatedAt) => ({
         name,
+        status: 'completed',
         conclusion: 'failure',
         head_sha: `${name}_${key}`,
         html_url: `https://github.com/runs/${name}/${key}`,
@@ -427,6 +430,99 @@ describe('ci-alerts-devex', () => {
         assert.equal(outputs.action, 'create')
         const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
         assert.match(body, /red for 1h 13m/)
+    })
+
+    // --- Stale / non-terminal fetch (the 70h phantom-flap root cause) ---
+
+    it('does not open a phantom incident when the status=completed index serves a stale page (regression)', async () => {
+        // Reproduces the observed GitHub quirk behind the "opened + resolved in 4 minutes, red 70h"
+        // flap: the status=completed index intermittently returns a page anchored days back (its
+        // newest run an ancient failure), while master is actually green. The fix reads the fresh
+        // (unfiltered) index, so a stale filtered page must never reach detection.
+        const freshGreen = runs('Backend CI', ['success', 'success', 'success'])
+        const stalePage = [
+            failureRun('Backend CI', 'stale1', minutes(-4200).toISOString(), minutes(-4186).toISOString()),
+            failureRun('Backend CI', 'stale2', minutes(-4215).toISOString(), minutes(-4201).toISOString()),
+        ]
+        const github = {
+            rest: {
+                actions: {
+                    // Serve the stale page ONLY to a status=completed request — exactly the API's behavior.
+                    listWorkflowRuns: ({ workflow_id, status }) => {
+                        const table = {
+                            'ci-backend.yml': status === 'completed' ? stalePage : freshGreen,
+                            'ci-frontend.yml': runs('Frontend CI', ['success']),
+                        }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'none') // fresh index shows green → no incident
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    it('fetchWorkflowRuns reads the fresh index and drops non-terminal runs (regression)', async () => {
+        const nonTerminal = (key, st) => ({
+            name: 'Backend CI',
+            status: st,
+            conclusion: null,
+            head_sha: key,
+            html_url: `https://github.com/runs/${key}`,
+            created_at: minutes(0).toISOString(),
+            updated_at: minutes(0).toISOString(),
+        })
+        const page = [
+            nonTerminal('ip', 'in_progress'),
+            nonTerminal('q', 'queued'),
+            failureRun('Backend CI', 'f', minutes(-5).toISOString(), minutes(-5).toISOString()),
+            { ...failureRun('Backend CI', 'x', minutes(-10).toISOString(), minutes(-10).toISOString()), conclusion: 'cancelled' },
+            runs('Backend CI', ['success'])[0],
+        ]
+        let capturedParams
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: (params) => {
+                        capturedParams = params
+                        return Promise.resolve({ data: { workflow_runs: page } })
+                    },
+                },
+            },
+        }
+        const result = await ciAlertsDevex.fetchWorkflowRuns(github, 'PostHog', 'posthog', 'ci-backend.yml', 40)
+        // The root-cause guard: never request the eventually-consistent status=completed index.
+        assert.equal(capturedParams.status, undefined)
+        // in_progress/queued/cancelled dropped; settled runs kept, newest-first order preserved.
+        assert.deepEqual(
+            result.map((r) => r.conclusion),
+            ['failure', 'success']
+        )
+    })
+
+    it('an in-progress run at the head does not mask a real failure streak (regression)', async () => {
+        // A just-started run sits atop the fresh page; the 5 completed failures beneath it must still
+        // page. Since we now fetch non-terminal runs (no server-side status filter), dropping them
+        // client-side — rather than letting the head short-circuit the streak walk — is what holds.
+        const inProgressHead = {
+            name: 'Backend CI',
+            status: 'in_progress',
+            conclusion: null,
+            head_sha: 'ip',
+            html_url: 'https://github.com/runs/ip',
+            created_at: minutes(0).toISOString(),
+            updated_at: minutes(0).toISOString(),
+        }
+        const github = createGithubMock({
+            'ci-backend.yml': [inProgressHead, ...runs('Backend CI', Array(5).fill('failure'))],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
     })
 
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {

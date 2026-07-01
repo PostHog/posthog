@@ -53,11 +53,18 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
         branch: 'master',
         event: 'push',
         per_page: perPage,
-        status: 'completed',
+        // NB: deliberately NOT `status: 'completed'`. That server-side filter is served from an
+        // eventually-consistent index that intermittently returns a page anchored hours/days in the
+        // past — so the newest run it reports is stale. The alerter then reads an ancient failure as
+        // the newest run and backdates a phantom multi-day outage (opened+resolved in minutes,
+        // "red for 70h"). The unfiltered index is fresh; we drop non-terminal runs client-side below.
     })
 
-    // Filter out cancelled/skipped — only real conclusions count
+    // Keep only settled runs with a real conclusion: in-progress/queued are dropped (they must not
+    // count as, nor break, a failure streak — mirroring how unreported commits classify 'unknown'),
+    // and cancelled/skipped never reflect real health (force-pushes, concurrency cancels).
     return data.workflow_runs
+        .filter((run) => run.status === 'completed')
         .filter((run) => run.conclusion !== 'cancelled' && run.conclusion !== 'skipped')
         .map((run) => ({
             name: run.name,
@@ -335,8 +342,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
     const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
-    // Over-fetch to survive cancelled/skipped runs (force-pushes, concurrency cancels).
-    const perPage = Math.max(workflowThreshold * 3, 20)
+    // Over-fetch: the page now also carries in-progress/cancelled/skipped runs we drop client-side
+    // (see fetchWorkflowRuns), so widen it to still net enough settled runs for the streak walk.
+    const perPage = Math.max(workflowThreshold * 6, 40)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
     // Recompute master health from the API and read the Slack incident state (the
@@ -473,3 +481,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 }
 
 module.exports.formatDuration = formatDuration
+module.exports.fetchWorkflowRuns = fetchWorkflowRuns
