@@ -3848,6 +3848,55 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, raised, expected_message, should_capture)
+            # Expected connection error: user sees the friendly, actionable copy, not the raw exception.
+            (
+                "expected",
+                TimeoutError("connection timed out"),
+                "Connection timed out while fetching schemas from the source.",
+                False,
+            ),
+            # Unexpected error: user sees the safe generic fallback (never the raw exception), and we capture it.
+            (
+                "unexpected",
+                RuntimeError("schema parser exploded at 0xdeadbeef"),
+                "Could not fetch schemas from source.",
+                True,
+            ),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_surfaces_friendly_error_when_get_schemas_raises(
+        self, _name, raised, expected_message, should_capture, mock_get_source, mock_capture_exception
+    ):
+        source = PostgresSource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=raised),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("message"), expected_message)
+        self.assertNotEqual(response.json().get("message"), str(raised))
+        self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @parameterized.expand(
+        [
             # (test name, source_type, supports_xmin, expected_xmin_available)
             ("postgres_capable", "Postgres", True, True),
             ("postgres_not_capable", "Postgres", False, False),
