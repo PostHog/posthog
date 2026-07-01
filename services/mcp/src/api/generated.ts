@@ -17897,6 +17897,9 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
@@ -17924,8 +17927,16 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
       /**
@@ -17956,6 +17967,11 @@ export namespace Schemas {
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface Edge {
@@ -33235,6 +33251,11 @@ export namespace Schemas {
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
       /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
          */
@@ -35338,9 +35359,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
      */
-    export interface VisionActionRun {
+    export interface VisionActionRunList {
       readonly id: string;
       /** Run outcome: running, completed, failed, or skipped.
        *
@@ -35356,8 +35377,6 @@ export namespace Schemas {
       readonly scheduled_at: string | null;
       /** Number of observations that fed this run's summary. */
       readonly observation_count: number;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
       /**
          * Short human-readable reason a run skipped or failed; null on success.
          * @nullable
@@ -35367,13 +35386,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export interface PaginatedVisionActionRunList {
+    export interface PaginatedVisionActionRunListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: VisionActionRun[];
+      results: VisionActionRunList[];
     }
 
     export interface WarehouseColumnAnnotation {
@@ -36578,6 +36597,9 @@ export namespace Schemas {
      */
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
@@ -36605,6 +36627,11 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEdge {
@@ -47217,6 +47244,28 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+     */
+    export interface RunObservation {
+      /** Observation id; links to the observation detail view. */
+      readonly id: string;
+      /** Session recording id this observation was made on. */
+      readonly session_id: string;
+      /**
+         * Email of the person in the recorded session, captured at scan time; null if unidentified.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Short title from the observation's summary; null if the observation had none.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the observation was produced. */
+      readonly created_at: string;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -53091,6 +53140,38 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    /**
+     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+      readonly observations: readonly RunObservation[];
+    }
+
     export interface VisionQuota {
       /** Total observations the org may complete per calendar month. */
       readonly monthly_quota: number;
@@ -53456,6 +53537,36 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunActivityPoint {
+      /** GitHub Actions run id. */
+      run_id: number;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+      run_started_at: string;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      head_branch: string;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunActivity {
+      /** Per-run chart points, newest first, capped at `limit`. */
+      points: WorkflowRunActivityPoint[];
+      /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+      truncated: boolean;
+      /** Maximum number of run points returned in `points`. */
+      limit: number;
     }
 
     export interface WorkflowRunDetail {
@@ -61763,6 +61874,33 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to load run activity for.
+     */
+    workflow_name: string;
     };
 
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {

@@ -284,6 +284,41 @@ export const PRLifecycleApi = zod.object({
 export type PRLifecycleApi = zod.input<typeof PRLifecycleApi>
 export type PRLifecycleApiOutput = zod.output<typeof PRLifecycleApi>
 
+export const WorkflowRunActivityApi = zod.object({
+    points: zod
+        .array(
+            zod.object({
+                run_id: zod.number().describe('GitHub Actions run id.'),
+                conclusion: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress."
+                    ),
+                run_started_at: zod.iso
+                    .datetime({ offset: true })
+                    .nullable()
+                    .describe('When the run started, or null for a queued\/barely-started run.'),
+                duration_seconds: zod
+                    .number()
+                    .nullable()
+                    .describe('Wall-clock duration in seconds; null until the run completes.'),
+                head_branch: zod.string().describe("Git branch the run was triggered on, or '' when unknown."),
+                pr_number: zod.number().describe('Attributed pull request number, or 0 when unattributed.'),
+            })
+        )
+        .describe('Per-run chart points, newest first, capped at `limit`.'),
+    truncated: zod
+        .boolean()
+        .describe(
+            'True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window.'
+        ),
+    limit: zod.number().describe('Maximum number of run points returned in `points`.'),
+})
+
+export type WorkflowRunActivityApi = zod.input<typeof WorkflowRunActivityApi>
+export type WorkflowRunActivityApiOutput = zod.output<typeof WorkflowRunActivityApi>
+
 export const WorkflowRunDetailApi = zod.object({
     repo: zod
         .object({
