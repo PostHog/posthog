@@ -181,12 +181,17 @@ def get_direct_external_data_source_for_connection(
     except ValueError:
         return None
 
-    return (
+    # Function-local: capability imports this module (circular); also keeps direct-SQL drivers off django.setup().
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    source = (
         ExternalDataSource.objects.filter(
             team_id=team_id,
             id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         .exclude(deleted=True)
         .first()
     )
+    if source is None or not is_direct_capable(source):
+        return None
+    return source

@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 
 INVALID_CONNECTION_ID_ERROR = (
-    "Invalid connectionId: not a direct external data source (access_method='direct') in this team. "
-    "Warehouse import sources are not valid here."
+    "Invalid connectionId: no direct-query-capable data source with this id in this team, "
+    "or you don't have access to it."
 )
 
 
@@ -32,16 +32,18 @@ def get_direct_connection_source(
     except ValueError:
         return None
 
+    # Function-local: keeps the direct-SQL driver imports off the django.setup() path (startup-import-budget).
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
     source = (
         ExternalDataSource.objects.filter(
             team_id=team.pk,
             id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         .exclude(deleted=True)
         .first()
     )
-    if source is None:
+    if source is None or not is_direct_capable(source):
         return None
 
     if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
