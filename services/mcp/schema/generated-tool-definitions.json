@@ -2980,7 +2980,7 @@
         }
     },
     "experiment-saved-metrics-list": {
-        "description": "List shared metrics in the current project. Returns paginated results with id, name, description, query, created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this listing to resolve by name.",
+        "description": "List shared metrics in the current project. Returns paginated results with id, name, description, query, created_at, updated_at, tags.\n\nTo REUSE a metric by what it measures (rather than by its name): pass ?event=<the event you're measuring> to find metrics that reference it — directly or via an action — then compare each candidate's 'query' (metric_type + math) against the metric you'd otherwise build. Use 'search' (name/description/tags) only when the user named a specific metric to attach.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "List shared experiment metrics",
