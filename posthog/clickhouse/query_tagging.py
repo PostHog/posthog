@@ -409,6 +409,10 @@ class QueryTags(BaseModel):
     clickhouse_exception_type: Optional[str] = None
     client_query_id: Optional[str] = None
     cohort_id: Optional[int] = None
+    # lazy-computation / preaggregation builds: the time window a single build INSERT covers (ISO).
+    # Generic across products (experiments, marketing, web analytics) since they share the executor.
+    precompute_window_start: Optional[str] = None
+    precompute_window_end: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -438,6 +442,10 @@ class QueryTags(BaseModel):
     # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
     # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
     experiment_precompute_skip_reason: Optional[str] = None
+    # Analysis window of the read (ISO), for the query-performance UI. The build sub-queries carry their
+    # own per-chunk window in the generic precompute_window_start/end fields above.
+    experiment_scan_date_from: Optional[str] = None
+    experiment_scan_date_to: Optional[str] = None
     # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
     # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
     # UI group the (synchronous) build INSERTs under the read that triggered them.

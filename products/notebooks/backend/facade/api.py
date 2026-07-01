@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from posthog.models import User
     from posthog.rbac.user_access_control import UserAccessControl
 
+MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
+
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
     return contracts.NotebookData(
@@ -164,12 +166,14 @@ def migrate_notebooks_to_markdown(
     user: "User",
     team_id: int | None = None,
     dry_run: bool = True,
+    batch_size: int | None = None,
     max_previews: int = 5,
 ) -> contracts.MarkdownNotebookMigrationResult:
     return markdown_migration.migrate_notebooks_to_markdown(
         user=user,
         team_id=team_id,
         dry_run=dry_run,
+        batch_size=batch_size,
         max_previews=max_previews,
     )
 

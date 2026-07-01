@@ -16,6 +16,7 @@ import type {
     EmitFindingResponseApi,
     EmitReportRequestApi,
     EmitReportResponseApi,
+    FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -31,6 +32,7 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMemberApi,
     ScoutMetadataApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
@@ -51,7 +53,9 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsScoutMembersListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
@@ -475,6 +479,25 @@ export const signalsScoutConfigUpdate = async (
     })
 }
 
+export const getSignalsScoutConfigDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * @summary Delete a scout config
+ */
+export const signalsScoutConfigDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsScoutConfigDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/sync/`
 }
@@ -490,6 +513,37 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutMembersListUrl = (projectId: string, params?: SignalsScoutMembersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/members/`
+}
+
+/**
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * @summary List project members for reviewer routing
+ */
+export const signalsScoutMembersList = async (
+    projectId: string,
+    params?: SignalsScoutMembersListParams,
+    options?: RequestInit
+): Promise<ScoutMemberApi[]> => {
+    return apiMutator<ScoutMemberApi[]>(getSignalsScoutMembersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -769,6 +823,40 @@ export const signalsScoutRunsEmissionReportsBatch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsFindingsSummaryUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/findings/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/findings/summary/`
+}
+
+/**
+ * Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — the total count, the number of distinct scouts behind them, and the latest emission time. Backs the 'Scout findings' callout so it renders from one query instead of the client paging through the whole runs window. Counts only runs that emitted at least one finding (`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent 120 emitted runs so the count matches what the findings list renders. Strictly team-scoped.
+ * @summary Summarise recently emitted findings across the fleet
+ */
+export const signalsScoutRunsFindingsSummary = async (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams,
+    options?: RequestInit
+): Promise<FleetFindingsSummaryApi> => {
+    return apiMutator<FleetFindingsSummaryApi>(getSignalsScoutRunsFindingsSummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

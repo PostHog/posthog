@@ -14,6 +14,36 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-custom-property-values-create": {
+        "description": "Set the value of a custom property for a Customer Analytics account. This is an upsert: it replaces the account's current value for the given `definition`, keeping at most one active value per account and definition. Pass `definition` (the custom property definition UUID) and `value` matching the definition's type — a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text. List or create definitions with `custom-property-definitions-list` and `custom-property-definitions-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Set account custom property value",
+        "title": "Set account custom property value",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-custom-property-values-list": {
+        "description": "List the current custom property values for a single Customer Analytics account. Each result pairs a custom property definition (via `definition_id`) with the account's `value` for it — typed per the definition's display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with `custom-property-definitions-list` or `custom-property-definitions-retrieve`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account custom property values",
+        "title": "List account custom property values",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-destroy": {
         "description": "Permanently delete a Customer Analytics account by id.",
         "category": "Customer analytics",
@@ -1550,7 +1580,7 @@
         }
     },
     "cohorts-list": {
-        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
+        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search' rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "List all cohorts",
@@ -1744,6 +1774,81 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "custom-property-definitions-create": {
+        "description": "Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and shared across all accounts; set the value a specific account holds via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create custom property definition",
+        "title": "Create custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-destroy": {
+        "description": "Permanently delete a Customer Analytics custom property definition by id. Because values reference the definition, deleting it also removes the value every account holds for that property. The definition is team-scoped, so this affects all accounts.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete custom property definition",
+        "title": "Delete custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-list": {
+        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List custom property definitions",
+        "title": "List custom property definitions",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-partial-update": {
+        "description": "Update fields on an existing Customer Analytics custom property definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` (only valid for numeric display types).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update custom property definition",
+        "title": "Update custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-retrieve": {
+        "description": "Fetch a single Customer Analytics custom property definition by id. Returns its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. A definition is the shape of a custom account attribute; the value a specific account holds for it is managed separately via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get custom property definition",
+        "title": "Get custom property definition",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "dashboard-create": {
         "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
@@ -2371,6 +2476,20 @@
         "summary": "Preview endpoint materialization",
         "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-ci-failure-logs": {
+        "description": "The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI failure logs for a PR",
+        "title": "CI failure logs for a PR",
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3430,7 +3549,7 @@
         }
     },
     "external-data-sources-create": {
-        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard' (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
+        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload = {<credential fields…>, \"schemas\": [...]}. Each schemas entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Create data warehouse source (advanced; prefer source setup)",
@@ -3626,7 +3745,7 @@
         }
     },
     "external-data-sources-wizard": {
-        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To actually connect a source, prefer 'data-warehouse-source-setup'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse source types you can import",
@@ -5842,6 +5961,34 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
+    "mcp-connection-tools-list": {
+        "description": "Load a connected MCP server's live tool catalog by connection `id` (from mcp-connections-list). Returns each tool's `tool_name`, `description`, `input_schema`, and `approval_state`. ALWAYS call this to load a connection's REAL tool names before curating per-agent MCP tool permissions (an agent's `spec.mcps[].tools[]` with `level` / `default_tool_approval`) — never invent or guess tool names from past sessions or skill prose.",
+        "category": "MCP Store",
+        "feature": "mcp_store",
+        "summary": "List a connection's tools",
+        "title": "List a connection's tools",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "mcp-connections-list": {
+        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+        "category": "MCP Store",
+        "feature": "mcp_store",
+        "summary": "List MCP connections",
+        "title": "List MCP connections",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "mcp-feedback-submit": {
         "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
         "category": "MCP analytics",
@@ -6144,7 +6291,7 @@
         }
     },
     "products-enable": {
-        "description": "Turn PostHog products ON for the current project so their signal sources have data to read — call this BEFORE enabling sources. Pass `products`, any of: `session_replay`, `error_tracking`, `conversations`. The server owns each recipe (the toggle plus conservative defaults such as replay input masking), so you only name the products; you cannot pass settings. Idempotent: re-enabling an already-on product is a no-op. Returns `results`, a per-product map of \"enabled\" (just turned on) or \"already_enabled\". Note: this flips server-side flags read by posthog-js — for a pure backend or mobile app the flip is inert until the SDK is configured in code. It does NOT create signal sources; do that separately with inbox-source-configs-create.",
+        "description": "Turn PostHog products ON for the current project. Pass `products`, any of: `session_replay`, `error_tracking`, `conversations`. The server owns each recipe (the toggle plus conservative defaults such as replay input masking), so you only name the products; you cannot pass settings. Idempotent: re-enabling an already-on product is a no-op. Returns `results`, a per-product map of \"enabled\" (just turned on) or \"already_enabled\". Note: this flips server-side flags read by posthog-js — for a pure backend or mobile app the flip is inert until the SDK is configured in code.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Enable PostHog products for the project",
@@ -7095,6 +7242,20 @@
             "readOnlyHint": false
         }
     },
+    "signals-scout-config-delete": {
+        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via `signals-scout-config-update` to make it inert) rather than deleting the config.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a scout config",
+        "title": "Delete a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
         "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create` (one skill) or `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
@@ -7177,6 +7338,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "signals-scout-members-list": {
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing",
+        "title": "List project members for reviewer routing",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "signals-scout-project-profile-get": {
