@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
+import { IconGear, IconSearch, IconStar, IconTarget, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -13,6 +13,9 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
+import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
+import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
 import { ProductTab, TILE_LABELS, TileId } from './common'
 
 const ANALYTICS_TILES = [
@@ -34,11 +37,14 @@ export const WebAnalyticsMenu = (): JSX.Element => {
     const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, showFocusMode, useWebAnalyticsPrecompute } =
         useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
 
     const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
         useActions(webAnalyticsLogic)
+    const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
+    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
 
     return (
@@ -65,6 +71,12 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             Enter focus mode
                         </ButtonPrimitive>
                     ) : null)}
+                {showAchievements && (
+                    <ButtonPrimitive menuItem onClick={() => openAchievementsModal()}>
+                        <IconStar />
+                        Achievements
+                    </ButtonPrimitive>
+                )}
             </ScenePanelActionsSection>
             {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
                 <>
@@ -74,10 +86,11 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => {
-                                    setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                                    // `null` (untouched) is treated as on, so toggling off opts out explicitly.
+                                    setUseWebAnalyticsPrecompute(!(useWebAnalyticsPrecompute ?? true))
                                 }}
                             >
-                                <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                                <LemonSwitch checked={useWebAnalyticsPrecompute ?? true} size="xsmall" />
                                 Allow precompute
                             </ButtonPrimitive>
                         </Tooltip>

@@ -15,6 +15,13 @@ class HogQLPrinter(BasePrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
+    def _assert_qualify_supported(self) -> None:
+        # QUALIFY is valid HogQL (the grammar and resolver support it), so the canonical
+        # round-trip must print it back rather than reject — otherwise any query carrying a
+        # QUALIFY clause fails when `query.py` renders `self.hogql` for the response, before
+        # the target dialect ever runs.
+        return
+
     def visit_cte(self, node: ast.CTE) -> str:
         materialization_hint = (
             "" if node.materialized is None else ("MATERIALIZED " if node.materialized else "NOT MATERIALIZED ")
@@ -50,6 +57,14 @@ class HogQLPrinter(BasePrinter):
         node_type: ast.TableOrSelectType,
     ):
         return
+
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        # HogQL output never produces a real query, so no access-control guard is injected.
+        return None
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         return table_type.table.to_printed_hogql()

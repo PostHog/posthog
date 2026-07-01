@@ -22,6 +22,7 @@ import { GENERATED_TOOLS as email_templates } from './email_templates'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as engineering_analytics } from './engineering_analytics'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
+import { GENERATED_TOOLS as error_tracking_alerts } from './error_tracking_alerts'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as field_notes } from './field_notes'
@@ -30,6 +31,7 @@ import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
+import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
@@ -37,6 +39,7 @@ import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as signals } from './signals'
@@ -47,6 +50,7 @@ import { GENERATED_TOOLS as tasks } from './tasks'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as user_interviews } from './user_interviews'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
+import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
@@ -72,6 +76,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...endpoints,
     ...engineering_analytics,
     ...error_tracking,
+    ...error_tracking_alerts,
     ...experiments,
     ...feature_flags,
     ...field_notes,
@@ -80,6 +85,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...logs,
     ...marketing_analytics,
     ...mcp_analytics,
+    ...mcp_store,
     ...metrics,
     ...notebooks,
     ...persons,
@@ -87,6 +93,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,
+    ...reminders,
     ...replay,
     ...replay_vision,
     ...signals,
@@ -97,6 +104,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...tracing,
     ...user_interviews,
     ...visual_review,
+    ...warehouse_sources,
     ...web_analytics,
     ...workflows,
 }

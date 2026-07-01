@@ -1821,12 +1821,23 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     std::string count_str = text.substr(0, space_pos);
     std::string unit_str = text.substr(space_pos + 1);
 
+    bool count_valid = !count_str.empty();
     for (char c : count_str) {
       if (!std::isdigit(static_cast<unsigned char>(c))) {
-        throw NotImplementedError(("Unsupported interval count: " + count_str).c_str());
+        count_valid = false;
+        break;
       }
     }
-    int countInt = std::stoi(count_str);
+    if (!count_valid) {
+      throw NotImplementedError(("Unsupported interval count: '" + count_str + "' is not a valid integer").c_str());
+    }
+    // ClickHouse stores intervals as Int64, so accept the full Int64 range (stoll, not int32 stoi).
+    int64_t countInt;
+    try {
+      countInt = std::stoll(count_str);
+    } catch (const std::out_of_range&) {
+      throw NotImplementedError(("Unsupported interval count: '" + count_str + "' is too large").c_str());
+    }
 
     std::string name;
     if (unit_str == "second" || unit_str == "seconds") {
@@ -1887,6 +1898,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["left"] = visitAsJSON(ctx->columnExpr(0));
     json["right"] = visitAsJSON(ctx->columnExpr(1));
     json["negated"] = ctx->NOT() != nullptr;
+    return json;
+  }
+
+  VISIT(ColumnExprNullSafeEq) {
+    // MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b`
+    Json json = Json::object();
+    json["node"] = "IsDistinctFrom";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = visitAsJSON(ctx->columnExpr(0));
+    json["right"] = visitAsJSON(ctx->columnExpr(1));
+    json["negated"] = true;
     return json;
   }
 

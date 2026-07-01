@@ -3,12 +3,12 @@ import json
 from typing import Any, Optional, Union, cast, get_args, get_origin
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import (
@@ -194,7 +194,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
             organization_id=organization.id,
             team_id=None,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=key,
             scope="InstanceSetting",
             activity="updated",

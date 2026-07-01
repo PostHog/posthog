@@ -1,21 +1,19 @@
 ---
 name: signals-scout-anomaly-detection
 description: >
-  Signals scout that watches a PostHog project's most-viewed dashboards and insights for
-  recent anomalies — sudden bursts, drops, flat-lines, and trend breaks at the daily or
-  hourly level. It discovers what the team actually looks at (view counts, dashboard
-  access), curates a durable watchlist in the scratchpad, and balances re-checking known
-  high-value insights (exploit) against discovering new ones (explore) across runs, since
-  no single run can cover a busy project. Anomalies are scored by robust deviation from
-  each insight's own seasonality-matched baseline; it emits a finding only when a move
-  clears the confidence bar, otherwise it updates the baseline memory and closes out
-  empty. Self-contained peer in the signals-scout-* fleet.
+  Signals scout that watches a project's most-viewed dashboards and insights for recent
+  anomalies — bursts, drops, flat-lines, and trend breaks scored against each insight's own
+  seasonality-matched baseline. Files each anomaly as a finished 1:1 inbox report on the
+  report channel (emit_report / edit_report) rather than a weak signal.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
-  plus signal_scout_internal:write (scratchpad + emit) and notebook:write (the notebook
-  write-up behind each finding). Assumes the signals-scout MCP tool family plus the
-  dashboard/insight, alert-simulate, and notebook tools listed in the body's MCP tools
-  section.
+  plus signal_scout_internal:write (scratchpad), signal_scout_report:write (the report
+  channel — emit_report / edit_report), and notebook:write (the notebook write-up behind
+  each report). Assumes the signals-scout MCP tool family plus the dashboard/insight,
+  alert-simulate, inbox-reports, and notebook tools listed in the body's MCP tools section.
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: anomaly_detection
@@ -108,6 +106,17 @@ and will always look like a drop (see the partial-bucket guard in `anomaly-metho
 
 When a metric moves, **attribute it before deciding** — re-run the insight with its own breakdown (or add a `GROUP BY` in SQL) to find which segment drove the move. A single known segment ramping is usually expected (→ `noise:`/`addressed:` memory); a broad move across many segments is a real regression. See [`references/anomaly-methods.md`](references/anomaly-methods.md).
 
+**Change-detection lens (optional).** Point/level scoring catches an outlier _bucket_; it
+misses a metric whose mean holds but whose **distribution shifts shape** (variance, tail, mix)
+and it won't tell you _where_ a drift began. For that, run a two-sample Kolmogorov-Smirnov test
+in `Bash` + `python3` — inline as a self-contained heredoc, or fetch the bundled
+`scripts/ks2.py` via `llma-skill-file-get` and write it to `/tmp` first (it is **not** on disk
+in a scheduled run). Compare two seasonality-matched windows, or sweep an ordered series for
+the changepoint. Pull **histograms** (`GROUP BY` a value bucket), not raw rows, to stay cheap
+and under the `execute-sql` cap. Full recipe, calibration (incl. the changepoint multiple-
+comparisons caveat), and the seasonality caveat in
+[`references/anomaly-methods.md`](references/anomaly-methods.md).
+
 ### Explore — discover new high-value insights/dashboards to add
 
 Spend a slice of each run widening coverage so the watchlist tracks what the team currently
@@ -135,7 +144,7 @@ the `importance-refresh` memo are in
 
 Memory is continuous, not a final step. Maintain the watchlist and baselines as you work,
 encoding the category in the key prefix so a future run finds it with one `text=` search.
-The vocabulary (`watchlist:`, `baseline:`, `dedupe:`, `noise:`, `addressed:`, `allowlist:`,
+The vocabulary (`watchlist:`, `baseline:`, `report:`, `noise:`, `addressed:`, `allowlist:`,
 `not-in-use:`) and worked entries are in
 [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md). The short version:
 
@@ -143,36 +152,48 @@ The vocabulary (`watchlist:`, `baseline:`, `dedupe:`, `noise:`, `addressed:`, `a
   cadence (hourly/daily), priority, and `last_checked` + `next_due` timestamps.
 - `baseline:anomaly_detection:insight:<short_id>` — the learned normal (median + MAD per
   seasonal bucket) so the next run scores cheaply instead of recomputing from scratch.
-- `dedupe:anomaly_detection:insight:<short_id>:<date>` — an anomaly already surfaced, with
-  the condition that should re-escalate it.
+- `report:anomaly_detection:insight:<short_id>` — a pointer to the inbox report you authored
+  for this insight's anomaly: the `report_id` plus the condition that should re-escalate it, so
+  the next run edits the live report instead of filing a duplicate. Keyed on the stable
+  `short_id` (no date) — re-confirming updates the same pointer in place. Add a
+  `:<series-or-direction>` suffix only when one insight carries genuinely distinct concurrent
+  anomalies, so they don't collapse onto one report.
 
 ### Decide
 
-For each candidate anomaly, classify against prior runs and the scratchpad
+For each candidate anomaly, classify against prior runs, the inbox, and the scratchpad
 (net-new / material-update / already-covered / addressed-or-noise — full classifier in
-[`references/watchlist-and-memory.md`](references/watchlist-and-memory.md)), then:
+[`references/watchlist-and-memory.md`](references/watchlist-and-memory.md)). You file findings
+on the **report channel**: a scored, attributed anomaly you'd stand behind is a finished, 1:1
+inbox report, not a weak signal for the pipeline to cluster — so you author it directly. Then:
 
-- **Emit** via `signals-scout-emit-signal` when it clears the bar. **Before you emit, write
-  the finding up in a notebook** (`notebooks-create`) — the inbox description is a 3–6 sentence
-  hook, but the notebook is the durable artifact a human opens to see the charts, the baseline
-  math, and the attribution behind the call. Build it first, then put its URL in the emitted
-  finding's description and an evidence entry so the signal links straight to the write-up. The
-  emit contract _and_ the notebook structure — schema, confidence rubric, severity,
-  dedupe keys, description prose, the notebook layout + embedded-chart recipe, worked example —
-  are in [`references/emit-contract.md`](references/emit-contract.md). For this
-  scout a strong finding is: robust z ≥ ~3.5 on the latest complete bucket, the move is not
-  explained by seasonality or a known data-pipeline gap, confidence ≥ 0.85,
-  with the insight `short_id`, the bucket value, the baseline, the z-score, and the time
-  window in the evidence. Cross-check `inbox-reports-list` first — if the same metric move
-  is already reported, emit only if your angle is materially new.
-- **Remember** if it's suggestive but below the bar (confidence < 0.65), or to refresh a
-  baseline / record what you ruled out.
-- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
+- **Author** a fresh report via `signals-scout-emit-report` when the move is net-new and clears
+  the bar. **Before you author, write the anomaly up in a notebook** (`notebooks-create`) — the
+  report `summary` is the inbox surface, but the notebook is the durable artifact a human opens
+  to see the charts, the baseline math, and the attribution behind the call. Build it first,
+  then link its URL from the report `summary` and cite it as an `evidence` entry. The report
+  contract _and_ the notebook structure — the title/summary prose contract, evidence,
+  actionability, suggested reviewers, the notebook layout + embedded-chart recipe, worked
+  example — are in [`references/report-contract.md`](references/report-contract.md). For this
+  scout a report-worthy anomaly is: robust z ≥ ~3.5 on the latest complete bucket, the move not
+  explained by seasonality or a known data-pipeline gap, with the insight `short_id`, the bucket
+  value, the baseline, the z-score, and the time window in the evidence. **Search the inbox
+  first** (`inbox-reports-list`, plus your `report:` scratchpad pointer) — the channel is not
+  idempotent, so never author a duplicate.
+- **Edit** the existing report via `signals-scout-edit-report` when one already covers this
+  insight's anomaly (found via the inbox search or a `report:anomaly_detection:insight:<short_id>`
+  pointer) and you have a material update — it's still firing, escalated, or correlates with a
+  fresh deploy. `append_note` with the new evidence (link a fresh notebook for the new window);
+  rewrite `title`/`summary` only on a report you own. Don't author a second report for the same
+  ongoing move.
+- **Remember** if it's suggestive but below the bar, or to refresh a baseline / record what you
+  ruled out.
+- **Skip** if a `noise:` / `addressed:` / `report:` entry already covers it without new evidence.
 
 ### Close out
 
-One paragraph: which watchlist items you checked, what you added, what anomalies you
-emitted, and what you ruled out and why. The harness saves this as the run summary; future
+One paragraph: which watchlist items you checked, what you added, which anomalies you
+reported (authored or updated), and what you ruled out and why. The harness saves this as the run summary; future
 runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata"
 scratchpad entry. "Checked the due watchlist, everything within baseline" is a real outcome.
 
@@ -183,7 +204,7 @@ scratchpad entry. "Checked the due watchlist, everything within baseline" is a r
 - **The current partial bucket** — the in-progress hour/day is incomplete; never score it.
 - **Data-pipeline gaps, not real drops** — a metric that flat-lines to zero across _every_
   insight at the same timestamp is almost always missing/late data or a deploy gap, not a
-  product anomaly. Note it (it may be worth its own finding) but don't emit it as a metric
+  product anomaly. Note it (it may be worth its own report) but don't report it as a metric
   anomaly per insight.
 - **Low-count noise** — series whose baseline counts are tiny; a few events of movement is
   not signal. Enforce the minimum relative-change and minimum-absolute-count floors.
@@ -192,7 +213,7 @@ scratchpad entry. "Checked the due watchlist, everything within baseline" is a r
 - **Expected one-offs the team already knows about** — launches, migrations, backfills,
   known experiments. If a `noise:` / `addressed:` entry names it, skip.
 
-When in doubt, refresh the baseline memory instead of emitting.
+When in doubt, refresh the baseline memory instead of reporting.
 
 ## MCP tools
 
@@ -209,22 +230,32 @@ Direct (read-only):
 - `execute-sql` over `events` — fallback scorer: hourly/daily series + trailing baseline for
   non-saved series or custom baselines.
 - `read-data-schema` — confirm events/properties before any SQL.
-- `inbox-reports-list` — check whether the move is already reported before emitting.
+- `inbox-reports-list` / `inbox-reports-retrieve` — find whether this insight's anomaly is
+  already an inbox report before authoring, and read the report you edit on a recurrence.
 
-Write (user-facing, gated on `notebook:write`):
+Local: `Bash` + `python3` — the distribution-shift lens: run a pure-stdlib two-sample KS /
+changepoint inline, or fetch the bundled `scripts/ks2.py` via `llma-skill-file-get` and write
+it to `/tmp` first (not on disk in a scheduled run). Feed it histograms from `execute-sql`.
 
-- `notebooks-create` — the durable write-up that backs an emitted finding. Build it _before_
-  emitting and reference its URL from the signal. Layout + embedded-chart recipe (embed the
-  anomalous insight with a `SavedInsightNode`; chart a SQL-fallback series with a
-  `DataVisualizationNode`) is in [`references/emit-contract.md`](references/emit-contract.md).
-- `notebooks-destroy` — clean up the write-up if the emit is preflight-skipped (dry-run /
-  gated / source disabled) so a non-emitting run leaves no orphan artifact. See
-  [`references/emit-contract.md`](references/emit-contract.md).
+Write (user-facing):
+
+- `signals-scout-emit-report` / `signals-scout-edit-report` (gated on
+  `signal_scout_report:write`) — the report channel: author a full inbox report for an anomaly,
+  or update the existing one on a recurrence. Field-level contract in
+  [`references/report-contract.md`](references/report-contract.md).
+- `notebooks-create` (gated on `notebook:write`) — the durable write-up that backs an authored
+  report. Build it _before_ authoring and reference its URL from the report `summary` and an
+  `evidence` entry. Layout + embedded-chart recipe (embed the anomalous insight with a
+  `SavedInsightNode`; chart a SQL-fallback series with a `DataVisualizationNode`) is in
+  [`references/report-contract.md`](references/report-contract.md).
+- `notebooks-destroy` — clean up the write-up if the report did not surface (preflight gate-skip,
+  or the safety judge suppressed it) so a non-surfacing run leaves no orphan artifact. See
+  [`references/report-contract.md`](references/report-contract.md).
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
 `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe);
-`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`,
-`signals-scout-scratchpad-forget` (emit + memory).
+`signals-scout-emit-report`, `signals-scout-edit-report` (the report channel);
+`signals-scout-scratchpad-remember`, `signals-scout-scratchpad-forget` (memory).
 
 ## When to stop
 

@@ -41,6 +41,10 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetValuesRequestApi,
+    _LogsFacetValuesResponseApi,
+    _LogsPatternsRequestApi,
+    _LogsPatternsResponseApi,
     _LogsQueryRequestApi,
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
@@ -378,6 +382,23 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
     })
 }
 
+export const getLogsFacetValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_values/`
+}
+
+export const logsFacetValuesCreate = async (
+    projectId: string,
+    _logsFacetValuesRequestApi: _LogsFacetValuesRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetValuesResponseApi> => {
+    return apiMutator<_LogsFacetValuesResponseApi>(getLogsFacetValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetValuesRequestApi),
+    })
+}
+
 export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/has_logs/`
 }
@@ -389,6 +410,23 @@ export const logsHasLogsRetrieve = async (
     return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsPatternsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/patterns/`
+}
+
+export const logsPatternsCreate = async (
+    projectId: string,
+    _logsPatternsRequestApi: _LogsPatternsRequestApi,
+    options?: RequestInit
+): Promise<_LogsPatternsResponseApi> => {
+    return apiMutator<_LogsPatternsResponseApi>(getLogsPatternsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsPatternsRequestApi),
     })
 }
 

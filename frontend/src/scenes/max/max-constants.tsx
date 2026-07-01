@@ -1244,6 +1244,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching LLM traces...'
         },
     },
+    create_ai_trace_parser: {
+        name: 'Create custom parsers',
+        description: 'Create custom parsers to control how AI observability events are displayed',
+        icon: iconForType('llm_analytics'),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS,
+        clientExecuted: true,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a custom parser'
+            }
+            return 'Writing a custom parser...'
+        },
+    },
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
@@ -1445,6 +1458,11 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
         flag: 'PHAI_SANDBOX_MODE',
         alpha: true,
     },
+}
+
+/** Human-readable label for an agent or special mode value (e.g. `'product_analytics'` → `'Product analytics'`). */
+export function getModeDisplayName(mode: string): string {
+    return MODE_DEFINITIONS[mode as keyof typeof MODE_DEFINITIONS]?.name ?? SPECIAL_MODES[mode]?.name ?? mode
 }
 
 /** Get tools available for a specific agent mode */

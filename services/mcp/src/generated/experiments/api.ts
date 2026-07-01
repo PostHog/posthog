@@ -3,10 +3,575 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 28 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ExperimentHoldoutsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentHoldoutsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ExperimentHoldoutsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentHoldoutsCreateBodyNameMax = 400
+
+export const experimentHoldoutsCreateBodyDescriptionMax = 400
+
+export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyNameMax)
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('* `in` - in\n* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
+
+export const ExperimentHoldoutsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentHoldoutsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentHoldoutsPartialUpdateBodyNameMax = 400
+
+export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
+
+export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('* `in` - in\n* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
+
+export const ExperimentHoldoutsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -17,6 +582,12 @@ export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -237,6 +808,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
+export const experimentsCreateBodyConclusionCommentMax = 4000
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -258,12 +831,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -304,12 +871,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -366,7 +939,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -480,6 +1059,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -1452,6 +2037,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2444,6 +3035,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2489,7 +3086,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -2500,7 +3101,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
@@ -2594,6 +3197,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePro
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
+export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
+
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(experimentsPartialUpdateBodyNameMax).optional().describe('Name of the experiment.'),
@@ -2614,12 +3219,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -2660,12 +3259,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -2722,7 +3327,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -2833,6 +3444,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -3805,6 +4422,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4801,6 +5424,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4850,7 +5479,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsPartialUpdateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4861,7 +5494,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -4879,8 +5514,10 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
  * Archive an ended experiment.
  *
  * Hides the experiment from the default list view. The experiment can be
- * restored at any time by updating archived=false. Returns 400 if the
- * experiment is already archived or has not ended yet.
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4888,6 +5525,17 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
         ),
 })
 
@@ -4995,6 +5643,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
+export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
@@ -5016,12 +5666,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -5062,12 +5706,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -5124,7 +5774,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5238,6 +5894,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -6210,6 +6872,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7206,6 +7874,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7255,7 +7929,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7266,7 +7944,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * End a running experiment without shipping a variant.
@@ -7301,6 +7981,8 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -7315,7 +7997,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -7421,6 +8107,8 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -7437,7 +8125,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
@@ -7490,6 +8182,114 @@ export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const ExperimentsCalculateRunningTimeCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+
+export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
+
+export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_type: zod
+            .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
+            .describe(
+                '* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention'
+            )
+            .describe(
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention"
+            ),
+        minimum_detectable_effect: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin)
+            .describe('Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.'),
+        number_of_variants: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
+            .describe('Total number of variants including control (default 2).'),
+        exposure_rate_per_day: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
+            .nullish()
+            .describe('Expected exposures per day. When provided, the response includes the recommended running time.'),
+        baseline_value: zod
+            .number()
+            .nullish()
+            .describe(
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.'
+            ),
+        variance: zod
+            .number()
+            .nullish()
+            .describe(
+                'Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.'
+            ),
+        baseline_stats: zod
+            .union([
+                zod
+                    .object({
+                        number_of_samples: zod
+                            .number()
+                            .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
+                            .describe('Number of control-group samples (users/units) observed.'),
+                        sum: zod
+                            .number()
+                            .describe(
+                                'Sum of the metric values across the control group (for funnels, the numerator/conversions).'
+                            ),
+                        sum_squares: zod
+                            .number()
+                            .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
+                            .describe('Sum of squared metric values. Required for ratio/retention variance.'),
+                        denominator_sum: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of the denominator values. Required for ratio/retention metrics.'),
+                        denominator_sum_squares: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of squared denominator values (ratio/retention variance).'),
+                        numerator_denominator_sum_product: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Sum of numerator×denominator products, used for the delta-method covariance term.'
+                            ),
+                        step_counts: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
+                    })
+                    .describe(
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio/retention)\nthe delta-method variance, instead of passing `baseline_value`/`variance` directly.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
+    })
+    .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.

@@ -25,11 +25,13 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -87,6 +89,22 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(body["sampling_rate"], 1.0)
         self.assertEqual(body["scanner_version"], 1)
         self.assertEqual(body["created_by"]["id"], self.user.id)
+
+    def test_create_seeds_sweep_watermark_a_settle_interval_back(self) -> None:
+        # The watermark starts one settle-interval before creation so the first sweep isn't a ~settle-interval cold start.
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "watermark-seed",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner = ReplayScanner.objects.get(pk=resp.json()["id"])
+        self.assertAlmostEqual(scanner.created_at - scanner.last_swept_at, SETTLE_INTERVAL, delta=timedelta(seconds=5))
 
     @parameterized.expand(["name", "scanner_type", "scanner_config", "model"])
     def test_create_validates_required_field(self, missing_field: str) -> None:
@@ -667,6 +685,33 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.mock_refresh_estimate.assert_called_once()
 
 
+class TestScannerSignalSourceEnablement(_VisionAPITestCase):
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "signal-enablement",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _has_source_config(self) -> bool:
+        return SignalSourceConfig.objects.filter(team=self.team, source_product="replay_vision").exists()
+
+    def test_creating_with_emits_signals_writes_no_source_config(self) -> None:
+        # Scanner findings are self-authorizing — the scanner is the config, so no SignalSourceConfig row is created.
+        resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        assert not self._has_source_config()
+
+    def test_enabling_emits_signals_on_update_writes_no_source_config(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        assert not self._has_source_config()
+
+
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
     def scanners_url(self) -> str:
@@ -767,6 +812,34 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["session_id"], obs.session_id)
         self.assertIsNone(resp.json()["scanner_result"])  # null until succeeded
+
+    def test_recording_subject_email_exposed(self) -> None:
+        self._create_observation(session_id="s1", distinct_id="sub-1", recording_subject_email="subject@acme.com")
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
+        self.assertEqual(resp.status_code, 200)
+        row = resp.json()["results"][0]
+        self.assertEqual(row["distinct_id"], "sub-1")
+        self.assertEqual(row["recording_subject_email"], "subject@acme.com")
+
+    def test_recording_subject_email_null_when_unset(self) -> None:
+        self._create_observation(session_id="s1")
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
+        row = resp.json()["results"][0]
+        self.assertIsNone(row["distinct_id"])
+        self.assertIsNone(row["recording_subject_email"])
+
+    def test_filter_by_recording_subject(self) -> None:
+        self._create_observation(session_id="s1", recording_subject_email="alice@acme.com")
+        self._create_observation(session_id="s2", recording_subject_email="bob@other.com")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?recording_subject=ACME")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s1"])
+
+    def test_order_by_recording_subject_sorts_nulls_last(self) -> None:
+        self._create_observation(session_id="s1", recording_subject_email="zoe@acme.com")
+        self._create_observation(session_id="s2", recording_subject_email="alice@acme.com")
+        self._create_observation(session_id="s3")  # no subject — sorts last regardless of direction
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=recording_subject_email")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s2", "s1", "s3"])
 
     def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
@@ -1408,6 +1481,40 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["id"], str(observation.id))
 
+    def test_retrieve_exposes_same_scanner_prev_next_neighbors(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        mid = self._create_observation(self.scanner_a, "s-mid")
+        new = self._create_observation(self.scanner_a, "s-new")
+        # A different scanner's observation falling between mid and new must NOT be a neighbor.
+        other = self._create_observation(self.scanner_b, "s-other")
+        ReplayObservation.objects.filter(pk=old.id).update(created_at=now - timedelta(minutes=2))
+        ReplayObservation.objects.filter(pk=mid.id).update(created_at=now - timedelta(minutes=1))
+        ReplayObservation.objects.filter(pk=new.id).update(created_at=now)
+        ReplayObservation.objects.filter(pk=other.id).update(created_at=now - timedelta(seconds=30))
+
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/").json()
+        self.assertEqual(body["previous_observation_id"], str(new.id))  # newer sibling
+        self.assertEqual(body["next_observation_id"], str(old.id))  # older sibling
+
+        newest = self.client.get(f"{self.session_observations_url}{new.id}/").json()
+        self.assertIsNone(newest["previous_observation_id"])
+        self.assertEqual(newest["next_observation_id"], str(mid.id))
+
+        oldest = self.client.get(f"{self.session_observations_url}{old.id}/").json()
+        self.assertEqual(oldest["previous_observation_id"], str(mid.id))
+        self.assertIsNone(oldest["next_observation_id"])
+
+    def test_retrieve_neighbors_break_ties_on_id_for_same_timestamp(self) -> None:
+        ts = timezone.now()
+        trio = [self._create_observation(self.scanner_a, f"s-tie-{i}") for i in range(3)]
+        ReplayObservation.objects.filter(pk__in=[o.id for o in trio]).update(created_at=ts)
+        # Identical created_at falls back to id ASC (the list's tiebreak), so the middle id's neighbors are its siblings.
+        lo, mid, hi = sorted(trio, key=lambda o: o.id)
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/").json()
+        self.assertEqual(body["previous_observation_id"], str(lo.id))
+        self.assertEqual(body["next_observation_id"], str(hi.id))
+
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
@@ -1423,6 +1530,8 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             distinct_id="estimate-distinct-id",
             first_timestamp=first_timestamp,
             last_timestamp=first_timestamp + timedelta(minutes=5),
+            # Clear the scanner eligibility bounds the estimate applies, so these sessions count.
+            active_milliseconds=30_000,
         )
 
     @parameterized.expand(
@@ -1462,3 +1571,45 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["sampling_rate"], 0.5)
         self.assertEqual(body["estimated_observations_per_month"], 2)
+
+    def test_estimate_others_sum_is_enabled_only_and_excludes_the_edited_scanner(self) -> None:
+        self._ingest_session(days_ago=1)
+
+        def make(name: str, *, enabled: bool, estimate: int) -> ReplayScanner:
+            return ReplayScanner.objects.create(
+                team=self.team,
+                name=name,
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_FLASH,
+                enabled=enabled,
+                estimated_monthly_observations=estimate,
+            )
+
+        a = make("a", enabled=True, estimate=100)
+        make("b", enabled=True, estimate=250)
+        make("disabled", enabled=False, estimate=999)  # disabled scanners don't count
+
+        # New scanner (no scanner_id): others = both enabled scanners.
+        new_body = self.client.post(self.estimate_url, data={}, format="json").json()
+        self.assertEqual(new_body["other_enabled_scanners_monthly"], 350)
+
+        # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
+        edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
+        self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+
+    def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
+        # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.
+        other_team = Team.objects.create(organization=self.team.organization, name="sibling")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+            enabled=True,
+            estimated_monthly_observations=500,
+        )
+        resp = self.client.post(self.estimate_url, data={"scanner_id": str(other_scanner.id)}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_id")

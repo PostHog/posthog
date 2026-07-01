@@ -28,6 +28,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
+import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
 import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
@@ -142,6 +143,7 @@ interface NewSourcesWizardProps {
     allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
     initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
     hideBackButton?: boolean
+    autoConfigureTables?: boolean // Onboarding: pre-select all syncable tables for a one-click sync
     sourceWizardLogicProps?: SourceWizardLogicProps
 }
 
@@ -155,6 +157,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const sourceWizardLogicProps = {
         onComplete: props.onComplete,
         availableSources,
+        autoConfigureTables: props.autoConfigureTables,
     }
 
     return (
@@ -186,7 +189,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
+    const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
@@ -301,7 +304,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 2 ? (
                     <SecondStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 3 ? (
-                    <ThirdStep />
+                    <ThirdStep autoConfigureTables={props.autoConfigureTables} />
                 ) : currentStep === 4 ? (
                     <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
@@ -495,8 +498,44 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
     )
 }
 
-function ThirdStep(): JSX.Element {
-    return <SchemaForm />
+function ThirdStep({ autoConfigureTables }: { autoConfigureTables?: boolean }): JSX.Element {
+    return autoConfigureTables ? <AutoConfigureTablesStep /> : <SchemaForm />
+}
+
+function AutoConfigureTablesStep(): JSX.Element {
+    const { databaseSchema } = useValues(sourceWizardLogic)
+    const [customize, setCustomize] = useState(false)
+
+    if (customize) {
+        return <SchemaForm />
+    }
+
+    const selectedCount = databaseSchema.filter((s) => s.should_sync).length
+
+    return (
+        <div className="flex flex-col gap-4">
+            {selectedCount === 0 ? (
+                <LemonBanner type="warning">
+                    No tables could be auto-configured — they may all have permission errors. Use "Review and customize
+                    tables" to inspect and fix them before syncing.
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="info">
+                    We've auto-configured {selectedCount} {selectedCount === 1 ? 'table' : 'tables'} with smart sync
+                    defaults. Continue below to start importing, or review the configuration first.
+                </LemonBanner>
+            )}
+            <div>
+                <LemonButton
+                    type="secondary"
+                    onClick={() => setCustomize(true)}
+                    data-attr="dwh-onboarding-customize-tables"
+                >
+                    Review and customize tables
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 function WebhookSetupStep({

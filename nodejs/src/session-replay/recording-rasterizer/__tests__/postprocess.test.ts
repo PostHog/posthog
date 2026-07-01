@@ -1,5 +1,5 @@
-import { computeVideoTimestamps } from '../postprocess'
-import { InactivityPeriod } from '../types'
+import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { InactivityPeriod } from '~/session-replay/recording-rasterizer/types'
 
 describe('computeVideoTimestamps', () => {
     it('maps active periods to cumulative video time', () => {

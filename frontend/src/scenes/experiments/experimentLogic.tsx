@@ -108,6 +108,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
@@ -713,12 +714,13 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -1367,8 +1369,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
                             ...values.experiment,
-                            parameters: {
-                                ...values.experiment?.parameters,
+                            running_time_calculation: {
+                                ...values.experiment?.running_time_calculation,
                                 recommended_running_time: recommendedRunningTime,
                                 recommended_sample_size: recommendedSampleSize,
                                 minimum_detectable_effect: minimumDetectableEffect,
@@ -1398,7 +1400,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
-                        parameters:
+                        running_time_calculation:
                             /**
                              * only if we are creating a new experiment we need to reset
                              * the recommended running time. If we are duplicating we want to
@@ -1406,12 +1408,12 @@ export const experimentLogic = kea<experimentLogicType>([
                              */
                             values.formMode === FORM_MODES.create
                                 ? {
-                                      ...values.experiment?.parameters,
+                                      ...values.experiment?.running_time_calculation,
                                       recommended_running_time: recommendedRunningTime,
                                       recommended_sample_size: recommendedSampleSize,
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
-                                : values.experiment?.parameters,
+                                : values.experiment?.running_time_calculation,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
@@ -1559,10 +1561,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
@@ -1602,13 +1605,14 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
                 if (recalculationFlow) {
-                    // A config change (date / metric / exposure criteria / settings) invalidates the
-                    // cached results, so kick off a fresh recalculation. Page loads, manual reloads and
-                    // auto-refresh are handled elsewhere (afterMount / the reload button), so don't
-                    // re-trigger here for those. Fire BEFORE loading exposures so an exposures failure
-                    // can't skip the metric recalculation — the two are independent.
-                    if (triggeredBy === 'config_change' && values.experiment) {
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                    /**
+                     * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
+                     * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
+                     */
+                    if ((triggeredBy === 'config_change' || triggeredBy === 'auto_refresh') && values.experiment) {
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                            triggeredBy
+                        )
                     }
                     // Metric results come from experimentMetricsLogic (mounted by the metrics view);
                     // here we only refresh exposures, which still live in experimentLogic.
@@ -1740,8 +1744,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.updateExperiment({
-                parameters: {
-                    ...values.experiment?.parameters,
+                running_time_calculation: {
+                    ...values.experiment?.running_time_calculation,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
                     minimum_detectable_effect: minimumDetectableEffect || 0,
@@ -1864,6 +1868,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             } catch {
                 lemonToast.error('Failed to update experiment variant images')
+            }
+        },
+        updateExperimentVariantNotes: async ({ variantNotes }) => {
+            try {
+                const updatedParameters = {
+                    ...values.experiment.parameters,
+                    variant_notes: variantNotes,
+                }
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    parameters: updatedParameters,
+                    update_feature_flag_params: false,
+                })
+                actions.setExperiment({
+                    parameters: updatedParameters,
+                })
+            } catch {
+                lemonToast.error('Failed to update experiment variant notes')
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
@@ -2462,8 +2483,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 : current.filter((k: string) => k !== variantKey)
 
             try {
+                // excluded_variants is the canonical column; the backend mirrors it into the
+                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+                // backend validates exclusions against the linked flag. The column updates
+                // atomically, so we just send the new list.
                 await asyncActions.updateExperiment({
-                    parameters: { ...values.experiment.parameters, excluded_variants: next },
+                    excluded_variants: next,
                 })
                 lemonToast.success(
                     excluded
@@ -2480,7 +2505,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
                 if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
                     values.experiment &&
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                            'config_change'
+                        )
                 } else {
                     actions.loadPrimaryMetricsResults(true)
                     actions.loadSecondaryMetricsResults(true)
@@ -2626,7 +2653,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
+                    // Show the cached exposures immediately when the backend is recomputing in the
+                    // background, instead of hanging on the spinner until the recompute finishes.
+                    return await performQuery(
+                        query,
+                        undefined,
+                        getExperimentRefreshMode(values.featureFlags, refresh),
+                        undefined, // queryId
+                        undefined, // setPollResponse
+                        undefined, // filtersOverride
+                        undefined, // variablesOverride
+                        false, // pollOnly
+                        undefined, // limitContext
+                        true // acceptStaleCache
+                    )
                 },
             },
         ],
@@ -2689,19 +2729,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 return hasEnded(experiment) && !experiment.archived
             },
         ],
-        variants: [
-            (s) => [s.experiment],
-            (experiment): MultivariateFlagVariant[] => {
-                return (
-                    experiment?.parameters?.feature_flag_variants ??
-                    experiment?.feature_flag?.filters?.multivariate?.variants ??
-                    []
-                )
-            },
-        ],
+        variants: [(s) => [s.experiment], (experiment): MultivariateFlagVariant[] => getExperimentVariants(experiment)],
         excludedVariants: [
             (s) => [s.experiment],
-            (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],
+            (experiment: Experiment): string[] => experiment?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],
@@ -2732,7 +2763,9 @@ export const experimentLogic = kea<experimentLogicType>([
         minimumDetectableEffect: [
             (s) => [s.experiment, s.defaultMinimumDetectableEffect],
             (newExperiment, defaultMinimumDetectableEffect): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                return (
+                    newExperiment?.running_time_calculation?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                )
             },
         ],
         recommendedSampleSize: [

@@ -11,11 +11,14 @@ import { defaultResolveValue } from '../types'
 import type {
     ChartDimensions,
     ChartScales,
+    DateRangeZoomData,
+    DragRect,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
     TooltipContext,
 } from '../types'
+import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
 
@@ -29,11 +32,15 @@ interface UseChartInteractionOptions<Meta> {
     showTooltip: boolean
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     resolveValue?: ResolveValueFn
     /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
      *  segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — passed to buildTooltipContext so yPixel
+     *  is set to the segment midpoint, making closest-series detection match the visual boundary. */
+    resolveBottomValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
@@ -46,7 +53,9 @@ interface UseChartInteractionResult<Meta> {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
+    dragRect: DragRect | null
     handlers: {
+        onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
         onClick: () => void
@@ -63,8 +72,10 @@ export function useChartInteraction<Meta = unknown>({
     showTooltip,
     pinnable,
     onPointClick,
+    onDateRangeZoom,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
@@ -73,11 +84,12 @@ export function useChartInteraction<Meta = unknown>({
     // value (i.e. non-stacked charts, where the two are identical).
     const effectivePositionResolve = resolvePositionValue ?? resolveValue
 
-    // resolveValue / effectivePositionResolve are read live in the pinned-rebuild path so an
-    // unmemoized closure on either doesn't trigger a rebuild every render — see the contract
-    // on `ChartProps.resolveValue`.
+    // resolveValue / effectivePositionResolve / resolveBottomValue are read live in the
+    // pinned-rebuild path so an unmemoized closure on any of them doesn't trigger a rebuild
+    // every render — see the contract on `ChartProps.resolveValue`.
     const resolveValueRef = useLatest(resolveValue)
     const effectivePositionResolveRef = useLatest(effectivePositionResolve)
+    const resolveBottomValueRef = useLatest(resolveBottomValue)
 
     const rebuildPinnedCtx = useCallback(
         (prev: TooltipContext<Meta>): TooltipContext<Meta> | null => {
@@ -100,13 +112,12 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
+                resolveBottomValueRef.current,
                 scales.extent?.(labels[prev.dataIndex]),
-                prev.hoverPosition
-                    ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition)
-                    : undefined
+                prev.hoverPosition ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition) : undefined
             )
         },
-        // resolveValueRef / effectivePositionResolveRef are stable
+        // resolveValueRef / effectivePositionResolveRef / resolveBottomValueRef are stable refs
         [
             scales,
             dimensions,
@@ -117,6 +128,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             resolveValueRef,
             effectivePositionResolveRef,
+            resolveBottomValueRef,
         ]
     )
 
@@ -138,15 +150,40 @@ export function useChartInteraction<Meta = unknown>({
         [labels, scales, labelToCoord]
     )
 
+    const {
+        dragRect,
+        onMouseDown,
+        handleMouseMove: handleDragMouseMove,
+        shouldSwallowClick,
+    } = useDragToZoom({
+        onDateRangeZoom,
+        scales,
+        dimensions,
+        labels,
+        labelPositions,
+        wrapperRef,
+        interactionAxis,
+        onDragActivate: clearTooltip,
+    })
+
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!scales || !dimensions || isPinned) {
+            if (!scales || !dimensions) {
                 return
             }
 
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
             const mouseX = e.clientX - rect.left
             const mouseY = e.clientY - rect.top
+
+            // An active drag-to-zoom owns the gesture — skip hover handling.
+            if (handleDragMouseMove(mouseX, mouseY)) {
+                return
+            }
+
+            if (isPinned) {
+                return
+            }
 
             if (!isInPlotArea(mouseX, mouseY, dimensions)) {
                 clearTooltip()
@@ -173,6 +210,7 @@ export function useChartInteraction<Meta = unknown>({
                         interactionAxis,
                         { x: mouseX, y: mouseY },
                         effectivePositionResolve,
+                        resolveBottomValue,
                         scales.extent?.(labels[index]),
                         scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
                     )
@@ -190,6 +228,7 @@ export function useChartInteraction<Meta = unknown>({
             canvasRef,
             isPinned,
             clearTooltip,
+            handleDragMouseMove,
             labelPositions,
             labelToCoord,
             interactionAxis,
@@ -206,6 +245,10 @@ export function useChartInteraction<Meta = unknown>({
     }, [isPinned, clearTooltip])
 
     const onClick = useCallback(() => {
+        // A click that closes out a drag-to-zoom gesture must not also pin/unpin or fire onPointClick.
+        if (shouldSwallowClick()) {
+            return
+        }
         const currentIndex = hoverIndexRef.current
         if (currentIndex < 0) {
             return
@@ -241,13 +284,17 @@ export function useChartInteraction<Meta = unknown>({
         isPinned,
         clearTooltip,
         pin,
+        shouldSwallowClick,
         hoverIndexRef,
         hoverPositionRef,
         wrapClickData,
         scales,
     ])
 
-    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
+    const handlers = useMemo(
+        () => ({ onMouseDown, onMouseMove, onMouseLeave, onClick }),
+        [onMouseDown, onMouseMove, onMouseLeave, onClick]
+    )
 
-    return { hoverIndex, hoverPosition, tooltipCtx, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }
 }

@@ -5,11 +5,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
+import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
@@ -428,10 +428,12 @@ export function InsightLoadingState({
     queryId,
     insightProps,
     renderEmptyStateAsSkeleton = false,
+    suppressSlowQuerySuggestions = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
+    suppressSlowQuerySuggestions?: boolean
 }): JSX.Element {
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
@@ -446,7 +448,9 @@ export function InsightLoadingState({
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
-                personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                suppressSlowQuerySuggestions ? (
+                    <></>
+                ) : personsOnEventsMode === 'person_id_override_properties_joined' ? (
                     <div className="text-xs">
                         You can speed this query up by changing the{' '}
                         <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
@@ -796,7 +800,7 @@ export function SavedInsightsEmptyState({
             className="saved-insight-empty-state flex flex-col flex-1 items-center justify-center"
         >
             <div className="illustration-main w-40 m-auto">
-                <BuilderHog3 className="w-full h-full" />
+                <HedgehogConstruction2 className="w-full h-full" />
             </div>
             <h2>
                 {usingFilters

@@ -51,19 +51,44 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import process_message
-from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE, PendingBatch
-from posthog.temporal.data_imports.row_tracking import get_rows
-from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_latest_run_if_exists,
+)
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    process_message,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BATCH_TABLE,
+    PendingBatch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.row_tracking import get_rows
+from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClient as PostHogRESTClient,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import XminBounds
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
@@ -79,29 +104,16 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     ExternalDataSourceType,
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
-from posthog.temporal.utils import ExternalDataWorkflowInputs
-
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.external_table_definitions import external_tables
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -290,11 +302,11 @@ def mock_paddle_client():
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.paddle.paddle.paddle_request",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.paddle_request",
             side_effect=mock_paddle_request,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
             return_value=True,
         ),
     ):
@@ -332,11 +344,11 @@ def mock_customer_io_client():
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.customer_io.api_client._session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session",
             return_value=_StubSession(),
         ),
         mock.patch(
-            "posthog.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
             return_value=(True, None),
         ),
     ):
@@ -406,9 +418,11 @@ async def _run(
     with (
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
-        mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
+        ) as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -536,7 +550,7 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
             DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
             side_effect=_pg_queue_replay.mock_idempotency_check,
         ),
     ):
@@ -632,21 +646,21 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         if _current_pipeline_mode == "v3":
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
+                    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=True,
                 )
             )
             # Point the Postgres producer at the Django test database
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
                     _get_test_database_url(),
                 )
             )
         else:
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
+                    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=False,
                 )
             )
@@ -1554,7 +1568,7 @@ async def test_missing_source(team):
     with (
         pytest.raises(Exception) as e,
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
         ) as mock_delete_external_data_schedule,
     ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
@@ -1694,13 +1708,17 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
+        ) as mock_chunk_size,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -1798,12 +1816,14 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ),
     ):
@@ -1881,13 +1901,17 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
+        ) as mock_chunk_size,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -2095,6 +2119,103 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_in_place_repartition_to_finer_datetime_format(team, postgres_config, postgres_connection, minio_client):
+    # A datetime-partitioned table that has outgrown its scheme is repartitioned in place to a finer
+    # (daily) layout from the data already in S3 — no source re-pull — and the next incremental merge
+    # then runs against the new layout. Runs the whole pipeline (V2 + V3 via the pipeline_mode fixture).
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_repartition (id uuid PRIMARY KEY, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    for ts in ("2025-01-15", "2025-01-20", "2025-02-10", "2025-02-15"):
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.test_repartition (id, created_at) VALUES ('{id}', '{ts}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], id=uuid.uuid4(), ts=ts
+            )
+        )
+    await postgres_connection.commit()
+
+    job_inputs = {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+    # First sync → datetime partitioning on created_at (week format is the default).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_repartition",
+        table_name="postgres_test_repartition",
+        source_type="Postgres",
+        job_inputs=job_inputs,
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "week"
+
+    count_before = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
+    assert count_before.results[0][0] == 4
+
+    # Queue an in-place repartition to a finer (daily) format, then add a new row and re-sync. The
+    # pre-extraction activity rewrites the four existing rows to daily partitions; the incremental
+    # merge then folds in the new March row on that new layout.
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            "partition_mode": "datetime",
+            "partition_format": "day",
+            "partition_keys": ["created_at"],
+            "partition_count": None,
+            "partition_size": None,
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_repartition (id, created_at) VALUES ('{id}', '2025-03-05T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], id=uuid.uuid4()
+        )
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "day", "repartition should have switched the table to daily partitions"
+    assert schema.repartition_pending is None, "the activity should have consumed the pending repartition"
+
+    job = await sync_to_async(
+        lambda: (
+            ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+            .order_by("-created_at")
+            .first()
+        )
+    )()
+    assert job is not None
+    folder_path = await sync_to_async(job.folder_path)()
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_repartition/")
+    keys = [obj["Key"] for obj in s3_objects["Contents"]]
+    # Live data is now in daily partition folders (%Y-%m-%d); the old weekly (%G-wWW) folders are gone.
+    assert any(f"{PARTITION_KEY}=2025-01-15" in k for k in keys), keys
+    assert not any(f"{PARTITION_KEY}=2025-w" in k for k in keys), keys
+
+    # No rows lost or duplicated by the rewrite + the subsequent merge.
+    count_after = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
+    assert count_after.results[0][0] == 5
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "partition_format,test_dates,expected_partitions",
     [
@@ -2220,10 +2341,11 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            mock_setup_partitioning,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
             mock_apply_partitioning,
         ),
     ):
@@ -2319,10 +2441,11 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            mock_setup_partitioning,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
             mock_apply_partitioning,
         ),
     ):
@@ -2450,12 +2573,14 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
     ):
@@ -2504,12 +2629,14 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.finish_row_tracking"
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.decrement_rows"
+        ) as mock_decrement_rows,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
         ) as mock_finish_row_tracking_workflow,
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking"
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking"
         ) as mock_finish_row_tracking_consumer,
     ):
         _, inputs = await _run(
@@ -2575,7 +2702,9 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
 
     with (
         pytest.raises(Exception),
-        mock.patch("posthog.temporal.data_imports.external_data_job.update_should_sync") as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
     ):
         await _run(
             team=team,
@@ -2695,10 +2824,15 @@ async def test_worker_shutdown_desc_sort_order(team):
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.vitally.vitally.get_messages", mock_get_messages),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
+            mock_get_messages,
+        ),
     ):
         _, inputs = await _run(
             team=team,
@@ -2735,9 +2869,11 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
     ):
         _, inputs = await _run(
             team=team,
@@ -2928,9 +3064,13 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
         process_mock = mock.patch.object(PipelineNonDLT, "_process_pa_table")
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES", 1),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 5000
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES",
+            1,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE",
+            5000,
         ),  # Explicitly make this big
         process_mock as mock_process,
     ):
@@ -3188,7 +3328,10 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Sync a fifth time 1 min later but with a reduced query file delete buffer
     datetime_5 = datetime_4 + timedelta(minutes=1)
-    with freeze_time(datetime_5), mock.patch("posthog.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1):
+    with (
+        freeze_time(datetime_5),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1),
+    ):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3263,7 +3406,9 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     if _current_pipeline_mode != "v3":
         pytest.skip("only applies to pipeline_v3")
 
-    from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
+        is_batch_already_processed,
+    )
 
     _, inputs = await _run(
         team=team,
@@ -3360,50 +3505,75 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+@pytest.mark.parametrize("pipeline_mode", ["non_dlt"], indirect=True)
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client, pipeline_mode):
+    # The retry/short-circuit behaviour lives in the workflow + activity layer, upstream of the
+    # v3/non_dlt split, so running a single pipeline mode is enough — running both just doubles the
+    # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
+    # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
+    # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
+    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    resumable_retry_cap = 3
+    non_retryable_attempts = 2
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.MAX_RESUMABLE_SOURCE_RETRIES",
+            resumable_retry_cap,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.NON_RETRYABLE_ERROR_RETRY_LIMIT",
+            non_retryable_attempts - 1,
+        ),
+    ):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.get_rows"
+        ) as mock_get_rows:
+            mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
-    # Resumable source syncs retry up to 15 times
-    assert mock_get_rows.call_count == 15
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
-    non_retryable_error = next(iter(non_retryable_errors.keys()))
+        # Resumable source syncs retry up to the configured cap
+        assert mock_get_rows.call_count == resumable_retry_cap
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception(non_retryable_error)
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        non_retryable_error = next(iter(non_retryable_errors.keys()))
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.get_rows"
+        ) as mock_get_rows:
+            mock_get_rows.side_effect = Exception(non_retryable_error)
 
-    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
-    assert mock_get_rows.call_count == 4
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
+
+        # Non-retryable errors short-circuit before reaching the resumable cap
+        assert mock_get_rows.call_count == non_retryable_attempts
+        assert non_retryable_attempts < resumable_retry_cap
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3416,7 +3586,7 @@ async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.external_data_job.start_child_workflow"
+        "products.warehouse_sources.backend.temporal.data_imports.external_data_job.start_child_workflow"
     ) as mock_start_child_workflow:
         _, inputs = await _run(
             team=team,
@@ -3484,11 +3654,12 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
             _fake_scope,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns",
+            return_value=1768828644858352000,
         ),
     ):
         _, inputs = await _run(
@@ -3512,7 +3683,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         "tax_exempt": "none",
         "address": None,
         "invoice_prefix": "0759376C",
-        "balance": 0,
+        "balance": -1000,
         "currency": None,
         "livemode": False,
         "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
@@ -3542,6 +3713,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     assert str(uuid.UUID(data["event_id"])) == data["event_id"]
     assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
+        "table_name": "stripe.customer",
         "properties": expected_properties,
     }
 
@@ -4136,3 +4308,185 @@ async def test_mysql_decimal_and_unsigned_types(team, mysql_config, mysql_connec
     assert str(rows[0][1]) == "123.45"
     # Unsigned BIGINT > signed-int64 max — must come back intact.
     assert int(rows[0][2]) == 9_000_000_000_000_000_000
+
+
+def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str]]:
+    return {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
+    """End-to-end xmin replication: initial snapshot, incremental delta on insert/update,
+    persisted ceiling state, and hard-delete invisibility."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_table (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Initial snapshot captures the committed row (`_run` asserts exactly one row landed).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="xmin_table",
+        table_name="postgres_xmin_table",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_ceiling is not None
+    assert schema.xmin_num_wraparound is not None
+    first_ceiling = schema.xmin_last_value
+
+    # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
+    await postgres_connection.execute(
+        "UPDATE {schema}.xmin_table SET name = 'a2' WHERE id = 1".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # Only the delta is read, upserted by primary key: row 1 reflects the update, row 2 is new.
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+    # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_last_value > first_ceiling
+
+    # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
+    await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres_connection):
+    """The single-wrap `>= lower OR < upper` predicate executes against real Postgres and reads rows.
+    A mocked ceiling forces the wraparound branch (the exact SQL is covered by unit tests)."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_wrap (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_wrap (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Force the OR-range branch with a huge `upper` so the `< upper` side matches every real
+    # (small) tuple xmin — exercising the wraparound predicate end-to-end.
+    wraparound_bounds = XminBounds(
+        lower=4_000_000_000,
+        upper=4_294_967_295,
+        ceiling_xid8=(1 << 32) | 4_294_967_295,
+        num_wraparound=1,
+        wraparound_or_range=True,
+    )
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._capture_xmin_ceiling",
+        return_value=wraparound_bounds,
+    ) as mock_capture:
+        await _run(
+            team=team,
+            schema_name="xmin_wrap",
+            table_name="postgres_xmin_wrap",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={},
+        )
+
+    mock_capture.assert_called_once()
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, postgres_connection):
+    """Switching an already-synced table to xmin rebuilds the Delta table. Without the resync the
+    write fails: the old physical schema lacks the non-nullable `_ph_xmin` control column."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.switch_tbl (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # First sync as incremental — the Delta table is created without `_ph_xmin`.
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="switch_tbl",
+        table_name="postgres_switch_tbl",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
+    await sync_to_async(schema.save)()
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
+    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
+    )
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a"), (2, "b")]
+    assert all(r[2] is not None for r in res.results)
+
+    # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.sync_type_config.get("reset_pipeline") is None
+    assert schema.xmin_last_value is not None

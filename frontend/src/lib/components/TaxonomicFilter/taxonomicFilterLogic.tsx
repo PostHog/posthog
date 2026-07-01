@@ -342,7 +342,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
-            ['eventMetadataPropertyDefinitions'],
+            ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
             primaryEventPropertiesModel,
@@ -558,6 +558,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
         ],
+        // Combined selector so taxonomicGroups stays under kea's 16-dep tuple type limit.
+        metadataPropertyDefinitionsByType: [
+            (s) => [s.eventMetadataPropertyDefinitions, s.personMetadataPropertyDefinitions],
+            (
+                event: PropertyDefinition[],
+                person: PropertyDefinition[]
+            ): { event: PropertyDefinition[]; person: PropertyDefinition[] } => ({ event, person }),
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -570,7 +578,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
-                s.eventMetadataPropertyDefinitions,
+                s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
@@ -591,7 +599,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
-                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                {
+                    event: eventMetadataPropertyDefinitions,
+                    person: personMetadataPropertyDefinitions,
+                }: {
+                    event: PropertyDefinition[]
+                    person: PropertyDefinition[]
+                },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
@@ -690,6 +704,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
+                        valueLoading: 'databaseLoading',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
+                        getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data warehouse tables',
+                        searchPlaceholder: 'data warehouse tables',
+                        type: TaxonomicFilterGroupType.DataWarehouseSourceTables,
+                        logic: dataWarehouseSettingsSceneLogic,
+                        value: 'externalDataSourceTables',
                         valueLoading: 'databaseLoading',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -1041,6 +1067,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1059,6 +1086,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_resource_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1100,6 +1128,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+                    },
+                    {
+                        name: 'Person metadata',
+                        searchPlaceholder: 'person metadata',
+                        type: TaxonomicFilterGroupType.PersonMetadata,
+                        options: personMetadataPropertyDefinitions,
+                        getIcon: getPropertyDefinitionIcon,
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.PersonMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Person metadata',
                     },
                     {
                         name: 'Cohorts',
@@ -1387,6 +1431,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
                                 propertyFilterType: PropertyFilterType.Recording,
                             },
+                            {
+                                key: 'click_count',
+                                name: getFilterLabel('click_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'keypress_count',
+                                name: getFilterLabel('keypress_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'mouse_activity_count',
+                                name: getFilterLabel('mouse_activity_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
                         ],
                         getName: (option: Record<string, any>) => option.name,
                         getValue: (option: Record<string, any>) => option.key,
@@ -1653,6 +1712,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ),
             ],
             (infiniteListCounts) => infiniteListCounts,
+            { resultEqualityCheck: objectsEqual },
+        ],
+        // Like `infiniteListCounts` but counts only genuine search results (`totalResultCount`),
+        // excluding the affordance rows `totalListCount` adds for render-backed groups (e.g. the
+        // SQL expression editor) and "see more" expanders. Use this when deciding whether a tab
+        // actually matched the query — `totalListCount` is non-zero for a render group on any query.
+        infiniteListResultCounts: [
+            (s) => [
+                (state, props) =>
+                    Object.fromEntries(
+                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
+                            groupType,
+                            logic.isMounted() ? logic.selectors.totalResultCount(state, logic.props) : 0,
+                        ])
+                    ),
+            ],
+            (infiniteListResultCounts) => infiniteListResultCounts,
             { resultEqualityCheck: objectsEqual },
         ],
         value: [() => [(_, props) => props.value], (value) => value],
@@ -2023,6 +2099,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {
+            // Search-latency telemetry: one event per settled remote search on the
+            // active tab. `loadDurationMs` is set only for the offset-0 page (see
+            // infiniteListLogic), so pagination and local-only groups don't fire,
+            // and the value is the real fetch wall-clock — this runs when the
+            // results actually land, so there's no debounce race to wait out.
+            if (
+                groupType === values.activeTab &&
+                values.searchQuery &&
+                typeof results?.loadDurationMs === 'number' &&
+                results.searchQuery === values.searchQuery
+            ) {
+                posthog.capture('taxonomic filter search latency', {
+                    surface: legacyTaxonomicSurface(
+                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                    ),
+                    groupType,
+                    searchQuery: values.searchQuery,
+                    time_to_see_data_ms: results.loadDurationMs,
+                    resultCount: results.count,
+                })
+            }
+
             if (groupType && !values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {

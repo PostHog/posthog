@@ -44,7 +44,7 @@ export const annotationsModel = kea<annotationsModelType>([
         rawAnnotations: {
             __default: [],
             loadAnnotations: async () => {
-                const response = await api.annotations.list()
+                const response = await api.annotations.list({ hidden_in_user_interface: false })
                 actions.setNext(response.next || null)
                 return response.results
             },

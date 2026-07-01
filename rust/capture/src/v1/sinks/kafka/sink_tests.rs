@@ -8,7 +8,7 @@ use rstest::rstest;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome};
@@ -76,11 +76,6 @@ impl FakeEvent {
         self
     }
 
-    fn with_payload(mut self, p: Result<String, String>) -> Self {
-        self.payload = p;
-        self
-    }
-
     fn with_partition_key(mut self, k: Option<&str>) -> Self {
         self.partition_key = k.map(String::from);
         self
@@ -105,21 +100,23 @@ impl Event for FakeEvent {
         &self.destination
     }
 
-    fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, _ctx: &RequestContext) -> CapturedEventHeaders {
         self.event_headers.clone()
     }
 
-    fn partition_key(&self, _ctx: &Context) -> String {
+    fn partition_key(&self, _ctx: &RequestContext) -> String {
         self.partition_key.clone().unwrap_or_default()
     }
 
-    fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
+    fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         match &self.payload {
-            Ok(p) => Ok(p.clone()),
+            Ok(p) => Ok(bytes::Bytes::from(p.clone())),
             Err(e) => Err(anyhow::anyhow!(e.clone())),
         }
     }
 }
+
+use crate::v1::test_utils::prepared;
 
 // ---------------------------------------------------------------------------
 // TestHarness
@@ -129,7 +126,7 @@ struct TestHarness {
     sink: KafkaSink<MockProducer>,
     producer: Arc<MockProducer>,
     handle: lifecycle::Handle,
-    ctx: Context,
+    ctx: RequestContext,
     _monitor: lifecycle::MonitorGuard,
 }
 
@@ -273,7 +270,7 @@ impl HarnessBuilder {
 async fn single_event_success() {
     let h = TestHarness::new();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -301,7 +298,7 @@ async fn non_publishable_events_skipped() {
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2").with_publish(false);
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -319,7 +316,7 @@ async fn non_publishable_events_skipped() {
 async fn destination_drop_skips_without_result() {
     let h = TestHarness::new();
     let event = FakeEvent::ok("evt-1").with_destination(Destination::Drop);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -336,7 +333,7 @@ async fn sink_unavailable() {
     let h = TestHarness::builder().not_ready().build();
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+    let events = prepared(&[&e1, &e2], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -361,7 +358,7 @@ async fn queue_full_is_immediate_retriable() {
         })
         .build();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -384,7 +381,7 @@ async fn send_error_fatal_event_too_big() {
         })
         .build();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -403,7 +400,7 @@ async fn ack_error_retriable_delivery_cancelled() {
         .ack_error(|| ProduceError::DeliveryCancelled)
         .build();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -429,7 +426,7 @@ async fn ack_error_retriable_topic_auth() {
         })
         .build();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -451,7 +448,7 @@ async fn produce_timeout_single() {
         .produce_timeout(Duration::from_millis(50))
         .build();
     let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -470,7 +467,7 @@ async fn produce_timeout_batch_all_pending_get_timeout() {
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -482,89 +479,7 @@ async fn produce_timeout_batch_all_pending_get_timeout() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. Serialization failure
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn serialization_failure() {
-    let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_payload(Err("bad json".into()));
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::FatalError);
-    assert_eq!(results[0].cause(), Some("serialization_failed"));
-    assert!(
-        results[0].detail().unwrap().contains("bad json"),
-        "expected detail to contain 'bad json', got: {:?}",
-        results[0].detail()
-    );
-    assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 11. Mixed batch (some succeed, some fail)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn mixed_batch_success_and_serialize_error() {
-    let h = TestHarness::new();
-    let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2").with_payload(Err("serialize error".into()));
-    let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 3);
-
-    // Serialization errors are returned inline before ack results, so evt-2
-    // appears first in the results vec (pushed during Phase 1), while evt-1
-    // and evt-3 are appended during Phase 2 (ack drain). Order among the
-    // ack results may vary, so collect into maps.
-    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
-
-    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::Success);
-    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::FatalError);
-    assert_eq!(
-        by_key[&e2.parsed_uuid].cause(),
-        Some("serialization_failed")
-    );
-    assert_eq!(by_key[&e3.parsed_uuid].outcome(), Outcome::Success);
-
-    // Only the two successful events were enqueued
-    assert_eq!(h.producer.record_count(), 2);
-}
-
-// ---------------------------------------------------------------------------
-// 12. BatchSummary correctness
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn batch_summary_from_mixed_results() {
-    let h = TestHarness::new();
-    let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2").with_payload(Err("ser error".into()));
-    let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-    let summary = BatchSummary::from_results(&results);
-
-    assert_eq!(summary.total, 3);
-    assert_eq!(summary.succeeded, 2);
-    assert_eq!(summary.retriable, 0);
-    assert_eq!(summary.fatal, 1);
-    assert_eq!(summary.timed_out, 0);
-    assert!(!summary.all_ok());
-    assert_eq!(summary.errors.get("serialization_failed").copied(), Some(1));
-}
-
-// ---------------------------------------------------------------------------
-// 13. Flush delegates to producer
+// Flush delegates to producer
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -602,7 +517,7 @@ async fn destination_routes_to_correct_topic(
 ) {
     let h = TestHarness::new();
     let event = FakeEvent::ok("evt-1").with_destination(destination);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -625,7 +540,7 @@ async fn batch_summary_with_timeouts() {
         .build();
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+    let events = prepared(&[&e1, &e2], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
     let summary = BatchSummary::from_results(&results);
@@ -652,7 +567,7 @@ async fn slow_ack_within_timeout_batch_all_succeed() {
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -694,7 +609,6 @@ enum FailureMode {
     Timeout,
     SendError,
     AckError,
-    SerializationError,
 }
 
 fn health_harness(mode: &FailureMode) -> TestHarness {
@@ -713,17 +627,16 @@ fn health_harness(mode: &FailureMode) -> TestHarness {
         FailureMode::AckError => {
             b = b.ack_error(|| ProduceError::DeliveryCancelled);
         }
-        FailureMode::SerializationError => {}
     }
     b.build()
 }
 
-fn health_events(mode: &FailureMode) -> Vec<FakeEvent> {
-    let make = |id: &str| match mode {
-        FailureMode::SerializationError => FakeEvent::ok(id).with_payload(Err("bad".into())),
-        _ => FakeEvent::ok(id),
-    };
-    vec![make("evt-1"), make("evt-2"), make("evt-3")]
+fn health_events() -> Vec<FakeEvent> {
+    vec![
+        FakeEvent::ok("evt-1"),
+        FakeEvent::ok("evt-2"),
+        FakeEvent::ok("evt-3"),
+    ]
 }
 
 fn expected_outcome(mode: &FailureMode) -> Outcome {
@@ -731,7 +644,6 @@ fn expected_outcome(mode: &FailureMode) -> Outcome {
         FailureMode::Timeout => Outcome::Timeout,
         FailureMode::SendError => Outcome::RetriableError,
         FailureMode::AckError => Outcome::RetriableError,
-        FailureMode::SerializationError => Outcome::FatalError,
     }
 }
 
@@ -739,13 +651,12 @@ fn expected_outcome(mode: &FailureMode) -> Outcome {
 #[case::timeout(FailureMode::Timeout)]
 #[case::send_error(FailureMode::SendError)]
 #[case::ack_error(FailureMode::AckError)]
-#[case::serialization_error(FailureMode::SerializationError)]
 #[tokio::test]
 async fn health_not_refreshed_on_full_failure(#[case] mode: FailureMode) {
     let h = health_harness(&mode);
-    let owned_events = health_events(&mode);
+    let owned_events = health_events();
     let refs: Vec<&FakeEvent> = owned_events.iter().collect();
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![refs[0], refs[1], refs[2]];
+    let events = prepared(&refs, &h.ctx);
     let expected = expected_outcome(&mode);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -773,7 +684,7 @@ async fn health_refreshed_on_full_success() {
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
     for r in &results {
@@ -788,7 +699,7 @@ async fn health_refreshed_on_full_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Health: mixed batch (some succeed, some fail) -> heartbeat refreshed
+// Health: partial success (some send errors) -> heartbeat still fires
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -796,21 +707,31 @@ async fn health_refreshed_on_partial_success() {
     let h = TestHarness::builder()
         .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
         .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
         .build();
     let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2").with_payload(Err("bad".into()));
+    let e2 = FakeEvent::ok("evt-2");
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
-    let summary = BatchSummary::from_results(&results);
-    assert!(summary.succeeded > 0);
-    assert!(summary.fatal > 0);
+    let outcomes: Vec<Outcome> = results.iter().map(|r| r.outcome()).collect();
+    assert!(
+        outcomes.contains(&Outcome::RetriableError),
+        "at least one event should fail"
+    );
+    assert!(
+        outcomes.contains(&Outcome::Success),
+        "at least one event should succeed"
+    );
 
     tokio::time::sleep(HEALTH_TEST_HEALTHY_SLEEP).await;
     assert!(
         h.handle.is_healthy(),
-        "handle should stay healthy when at least one event succeeded"
+        "handle should stay healthy when at least one event succeeds"
     );
 }
 
@@ -840,7 +761,7 @@ async fn force_disable_null_key_policy(
         .with_partition_key(Some("phc_test:user-1"))
         .with_destination(destination)
         .with_headers(headers);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -855,7 +776,7 @@ async fn force_disable_null_key_policy(
 async fn some_partition_key_propagates_as_some() {
     let h = TestHarness::new();
     let event = FakeEvent::ok("evt-1").with_partition_key(Some("phc_test:user-1"));
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+    let events = prepared(&[&event], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -877,7 +798,7 @@ async fn some_partition_key_propagates_as_some() {
 async fn realistic_single_pageview_round_trip() {
     let h = TestHarness::new();
     let wrapped = test_utils::realistic_pageview("user-42");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -911,7 +832,7 @@ async fn realistic_single_pageview_round_trip() {
 async fn realistic_batch_round_trip() {
     let h = TestHarness::new();
     let batch = test_utils::realistic_batch();
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+    let events = prepared(&[&batch[0], &batch[1], &batch[2]], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -949,7 +870,7 @@ async fn realistic_event_with_destination_mutation() {
     let h = TestHarness::new();
     let wrapped = test_utils::realistic_pageview("user-42")
         .with_destination(Destination::AnalyticsHistorical);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -967,7 +888,7 @@ async fn realistic_dropped_event_not_published() {
     let h = TestHarness::new();
     let wrapped = test_utils::realistic_pageview("user-42")
         .with_result(EventResult::Drop, Some("rate_limited"));
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -996,7 +917,7 @@ async fn mixed_send_error_and_ack_error_in_batch() {
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
     let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1034,7 +955,7 @@ async fn partial_timeout_with_send_error() {
         .build();
     let e1 = FakeEvent::ok("evt-1");
     let e2 = FakeEvent::ok("evt-2");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+    let events = prepared(&[&e1, &e2], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1050,37 +971,6 @@ async fn partial_timeout_with_send_error() {
     assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
 }
 
-// ---------------------------------------------------------------------------
-// Partial timeout: serialization failure + timeout in one batch.
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn partial_timeout_with_serialization_error() {
-    let h = TestHarness::builder()
-        .ack_delay(Duration::from_secs(60))
-        .produce_timeout(Duration::from_millis(50))
-        .build();
-    let e1 = FakeEvent::ok("evt-1").with_payload(Err("bad".into()));
-    let e2 = FakeEvent::ok("evt-2");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 2);
-    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
-
-    // evt-1: serialization failure (immediate, fatal)
-    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::FatalError);
-    assert_eq!(
-        by_key[&e1.parsed_uuid].cause(),
-        Some("serialization_failed")
-    );
-
-    // evt-2: enqueued, times out
-    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
-    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
-}
-
 // ===========================================================================
 // Realistic WrappedEvent — destination routing, property injection, options
 // ===========================================================================
@@ -1090,7 +980,7 @@ async fn realistic_exception_routes_to_exception_topic() {
     let h = TestHarness::new();
     let wrapped = test_utils::wrapped_event("$exception", "user-1")
         .with_destination(Destination::ExceptionErrorTracking);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1106,7 +996,7 @@ async fn realistic_heatmap_routes_to_heatmap_topic() {
     let h = TestHarness::new();
     let wrapped =
         test_utils::wrapped_event("$$heatmap", "user-1").with_destination(Destination::HeatmapMain);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1122,7 +1012,7 @@ async fn realistic_session_id_injected_into_properties() {
     let h = TestHarness::new();
     let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
     wrapped.event.session_id = Some("sess-123".to_string());
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1142,7 +1032,7 @@ async fn realistic_window_id_injected_into_properties() {
     let h = TestHarness::new();
     let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
     wrapped.event.window_id = Some("win-456".to_string());
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1161,8 +1051,8 @@ async fn realistic_window_id_injected_into_properties() {
 async fn realistic_cookieless_partition_key() {
     let h = TestHarness::new();
     let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
-    wrapped.event.options.cookieless_mode = Some(true);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    wrapped.options.cookieless_mode = Some(true);
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1190,7 +1080,7 @@ async fn realistic_spread_destinations_routes_correctly(
     let h = TestHarness::new();
     let all = test_utils::realistic_spread_destinations();
     let ev = &all[idx];
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![ev];
+    let events = prepared(&[ev], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
@@ -1215,7 +1105,7 @@ async fn realistic_force_disable_pp_null_partition_key() {
     let wrapped = test_utils::wrapped_event("$pageview", "user-1")
         .with_force_disable_person_processing(true)
         .with_destination(Destination::AnalyticsMain);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 

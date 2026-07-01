@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
+import { IconBook, IconSparkles, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,12 +11,11 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { userLogic } from 'scenes/userLogic'
 
 import { NotebookSyncStatus } from '../types'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
-import { getNotebookPresenceParticipants, type NotebookPresenceParticipant } from './notebookPresence'
+import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const MAX_PRESENCE_BUBBLES = 6
@@ -138,13 +137,7 @@ function formatNotebookPresenceNames(names: string[]): string {
 }
 
 export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null => {
-    const { user } = useValues(userLogic)
-    const { markdownRemoteParticipants } = useValues(notebookLogic(props))
-    const { remoteParticipants } = useValues(notebookCollabLogic({ shortId: props.shortId }))
-    const participants = getNotebookPresenceParticipants(
-        user,
-        markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
-    )
+    const { notebookPresenceParticipants: participants } = useValues(notebookLogic(props))
 
     if (!participants.length) {
         return null
@@ -160,20 +153,35 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
                   .join(', ')
             : undefined
     const tooltip = notebookPresenceTooltip(participants)
-
     return (
         <Tooltip title={tooltip} placement="left">
             <div className="ProfileBubbles" aria-label={tooltip}>
-                {shownParticipants.map((participant) => (
-                    <ProfilePicture
-                        key={`${participant.userId}-${participant.clientId}`}
-                        user={participant.profileUser}
-                        name={participant.userName}
-                        title={participant.userName}
-                        size="md"
-                        index={participant.userId}
-                    />
-                ))}
+                {shownParticipants.map((participant) =>
+                    participant.isAI ? (
+                        <div
+                            key={`${participant.userId}-${participant.clientId}`}
+                            className="NotebookPresence__ai-bubble"
+                            title={participant.userName}
+                            aria-label={participant.userName}
+                            style={
+                                {
+                                    '--notebook-ai-presence-color': NOTEBOOK_AI_PRESENCE_COLOR,
+                                } as React.CSSProperties
+                            }
+                        >
+                            <IconSparkles className="size-3" />
+                        </div>
+                    ) : (
+                        <ProfilePicture
+                            key={`${participant.userId}-${participant.clientId}`}
+                            user={participant.profileUser}
+                            name={participant.userName}
+                            title={participant.userName}
+                            size="md"
+                            index={participant.userId}
+                        />
+                    )
+                )}
                 {overflowCount > 0 ? (
                     <div className="ProfileBubbles__more" title={overflowTitle}>
                         +{overflowCount}
@@ -186,33 +194,47 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
 
 interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
     inPanel: boolean
+    isMarkdownNotebook?: boolean
 }
 
-export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
-    const { isExpanded } = useValues(notebookSettingsLogic)
-    const { setIsExpanded } = useActions(notebookSettingsLogic)
+export const NotebookExpandButton = ({
+    inPanel,
+    isMarkdownNotebook = false,
+    ...buttonProps
+}: NotebookExpandButtonProps): JSX.Element => {
+    const { isExpanded, isMarkdownExpanded } = useValues(notebookSettingsLogic)
+    const { setIsExpanded, setIsMarkdownExpanded } = useActions(notebookSettingsLogic)
+    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
+    const toggleContentWidth = (): void => {
+        const nextIsExpanded = !isContentWidthExpanded
+        if (isMarkdownNotebook) {
+            setIsMarkdownExpanded(nextIsExpanded)
+        } else {
+            setIsExpanded(nextIsExpanded)
+        }
+    }
 
-    if (props.inPanel) {
+    if (inPanel) {
         return (
             <ButtonPrimitive
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={toggleContentWidth}
                 iconOnly
-                tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+                tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
                 tooltipPlacement="left"
             >
                 <IconDocumentExpand
                     className="text-tertiary size-4 group-hover:text-primary z-10"
-                    mode={isExpanded ? 'expand' : 'collapse'}
+                    mode={isContentWidthExpanded ? 'expand' : 'collapse'}
                 />
             </ButtonPrimitive>
         )
     }
     return (
         <LemonButton
-            {...props}
-            onClick={() => setIsExpanded(!isExpanded)}
-            icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
-            tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            {...buttonProps}
+            onClick={toggleContentWidth}
+            icon={<IconDocumentExpand mode={isContentWidthExpanded ? 'expand' : 'collapse'} />}
+            tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
             tooltipPlacement="left"
         />
     )
@@ -233,7 +255,14 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
     )
 }
 
-export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element | null => {
+type NotebookKernelInfoButtonProps = Pick<LemonButtonProps, 'children' | 'size' | 'type'> & {
+    onBeforeShowKernelInfo?: () => void
+}
+
+export const NotebookKernelInfoButton = ({
+    onBeforeShowKernelInfo,
+    ...props
+}: NotebookKernelInfoButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
@@ -245,7 +274,14 @@ export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 
     return (
         <LemonButton
             {...props}
-            onClick={() => setShowKernelInfo(!showKernelInfo)}
+            onClick={() => {
+                const nextShowKernelInfo = !showKernelInfo
+                if (nextShowKernelInfo) {
+                    onBeforeShowKernelInfo?.()
+                }
+                setShowKernelInfo(nextShowKernelInfo)
+            }}
+            active={showKernelInfo}
             icon={<IconTerminal />}
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"

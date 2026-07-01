@@ -18,6 +18,7 @@ import {
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
+import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 
 // `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
@@ -96,9 +97,15 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('')
     })
 
-    it('carries the overview tile metrics on the same AccountsQuery', () => {
+    it('keeps the overview tile metrics off the list query so it loads independently', () => {
         const source = logic.values.hogqlQuery.source as AccountsQuery
-        expect(source.metrics).toEqual(['count()'])
+        expect(source.metrics).toBeUndefined()
+    })
+
+    it('exposes the overview tile metrics on a separate metrics-only query (no select)', () => {
+        const metricsQuery = logic.values.metricsQuery as AccountsQuery
+        expect(metricsQuery.metrics).toEqual(['count()'])
+        expect(metricsQuery.select).toBeUndefined()
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {
@@ -353,6 +360,57 @@ describe('accountsLogic', () => {
 
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+        })
+    })
+
+    describe('deep link (path route)', () => {
+        // `/customer_analytics/accounts/:accountId/:tab` filters the list to one account and opens a tab.
+        const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+
+        const filterExpressionOf = (source: unknown): string | undefined => (source as AccountsQuery).filterExpression
+
+        it('filters the list to the account, expands it, and opens the requested tab', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
+            expect(filterExpressionOf(logic.values.hogqlQuery.source)).toContain(`toString(id) = '${ACCOUNT_ID}'`)
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.expandedAccountIds).toContain(ACCOUNT_ID)
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('usage')
+        })
+
+        it('defaults the tab when the path omits it', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
+        })
+
+        it('falls back to the default tab for an unknown tab', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'bogus'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
+        })
+
+        it('ignores a non-UUID account id', async () => {
+            router.actions.push(urls.customerAnalyticsAccount('not-a-uuid', 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountIdFilter).toBeNull()
+        })
+
+        it('clears the account filter when returning to the bare list', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
+
+            router.actions.push(urls.customerAnalyticsAccounts())
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accountIdFilter).toBeNull()
         })
     })
 

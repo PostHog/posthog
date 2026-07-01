@@ -10,12 +10,12 @@ from django.views.decorators.csrf import csrf_exempt
 import jwt
 import requests
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -35,7 +35,14 @@ TEAMS_OAUTH_SCOPES = (
     "Team.ReadBasic.All Channel.ReadBasic.All TeamsAppInstallation.ReadWriteForTeam "
     # User.ReadBasic.All is needed to resolve a Teams user's email via
     # GET /users/{aadObjectId} — User.Read alone only grants /me.
-    "User.ReadBasic.All offline_access openid profile"
+    "User.ReadBasic.All "
+    # ChannelMessage.Read.All (delegated) lets the shared-channel poller read
+    # channel messages via Graph's messages/delta as the connecting admin.
+    # ChannelMessage.Send (delegated) lets us post confirmation cards and agent
+    # replies back into shared channels via Graph — the bot connector can't write
+    # to shared channels (the bot isn't a member). Must stay in sync with
+    # support_teams.GRAPH_REFRESH_SCOPES.
+    "ChannelMessage.Read.All ChannelMessage.Send offline_access openid profile"
 )
 AZURE_AD_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 AZURE_AD_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -171,7 +178,7 @@ class TeamsDisconnectView(APIView):
         clear_teams_token(
             team=user.current_team,
             user=user,
-            is_impersonated_session=is_impersonated_session(request),
+            is_impersonated_session=is_impersonated(request),
         )
         return Response({"ok": True})
 
@@ -293,7 +300,7 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
             save_teams_token(
                 team=team,
                 user=user,
-                is_impersonated_session=is_impersonated_session(request),
+                is_impersonated_session=is_impersonated(request),
                 access_token=access_token,
                 refresh_token=refresh_token,
                 tenant_id=tenant_id,

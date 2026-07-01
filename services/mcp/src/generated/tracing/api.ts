@@ -234,6 +234,8 @@ export const tracingSpansAttributesRetrieveQueryLimitMax = 100
 
 export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
+export const tracingSpansAttributesRetrieveQuerySearchValuesDefault = false
+
 export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribute_type: zod
         .enum(['span_attribute', 'span_resource_attribute'])
@@ -253,6 +255,12 @@ export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Pagination offset (default: 0).'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+    search_values: zod
+        .boolean()
+        .default(tracingSpansAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            'When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.'
+        ),
 })
 
 export const TracingSpansCountCreateParams = /* @__PURE__ */ zod.object({
@@ -580,6 +588,7 @@ export const TracingSpansSparklineCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = false
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -651,8 +660,14 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    "When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume."
+                ),
         })
-        .describe('The sparkline / duration-histogram query to execute.'),
+        .describe('The sparkline query to execute.'),
 })
 
 export const tracingSpansTraceCreatePathTraceIdRegExp = new RegExp('^[a-zA-Z0-9]+$')
@@ -667,6 +682,7 @@ export const TracingSpansTraceCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
+export const tracingSpansTraceCreateBodyOffsetMin = 0
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -689,6 +705,13 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
             'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+        ),
+    offset: zod
+        .number()
+        .min(tracingSpansTraceCreateBodyOffsetMin)
+        .optional()
+        .describe(
+            "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
 })
 

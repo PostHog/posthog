@@ -5,11 +5,15 @@
 // the bot's own anchor message (tagged via Slack message metadata) and reconciles.
 // There is no external state store, so there are no cache races and the alerter
 // self-heals: delete the anchor and the next run reposts; a missed run just
-// reconciles on the next tick.
+// reconciles on the next tick. (A duration-only incident deleted during a quiet period
+// reposts only once pushes resume.)
 //
 // Two signals make master "unhealthy" (folded into one incident):
-//   1. any gating workflow with >= WORKFLOW_FAILURE_STREAK_THRESHOLD consecutive
-//      failures on master — a single workflow broken run after run.
+//   1. any gating workflow failing run-after-run (>= WORKFLOW_FAILURE_STREAK_THRESHOLD
+//      consecutive failures) OR red for >= WORKFLOW_FAILURE_MINUTES_THRESHOLD minutes. The
+//      wall-clock arm only OPENS an incident while master is still being pushed (a commit
+//      within ACTIVITY_WINDOW_MINUTES), so a master sitting red over a quiet weekend doesn't
+//      page; an open incident still resolves only on green.
 //   2. >= COMMIT_FAILURE_STREAK_THRESHOLD consecutive red commits across the gating
 //      workflows — rotating-culprit breakage where no single workflow crosses its
 //      own threshold but master is still consistently red.
@@ -18,8 +22,8 @@
 //   - Anchor: one top-level message, edited silently each tick to keep the live
 //     summary current. On resolve its header is struck through and a green line
 //     prepended — the close is visible, nothing is erased.
-//   - Thread: append-only replies, one per *real change* (workflow crossed
-//     threshold / recovered, commit-streak started, master green). An unchanged
+//   - Thread: append-only replies, one per *real change* (workflow started failing
+//     / recovered, commit-streak started, master green). An unchanged
 //     tick refreshes the anchor duration only — no thread noise.
 //
 // GitHub API rate-limit observability is handled by the separate
@@ -33,45 +37,88 @@ const HISTORY_LIMIT = 100
 // Attachment side-bar colors (Slack's red / green).
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
+// Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
+// wide between kept failures, so it can't anchor to a stale run.
+const STREAK_MAX_GAP_MINUTES = 180
 
 // ---------------------------------------------------------------------------
 // GitHub data
 // ---------------------------------------------------------------------------
 
-async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
-    const { data } = await github.rest.actions.listWorkflowRuns({
-        owner,
-        repo,
-        workflow_id: workflowFile,
-        branch: 'master',
-        event: 'push',
-        per_page: perPage,
-        status: 'completed',
-    })
+// The single definition of a "red" run conclusion, shared by the streak and commit checks.
+const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 'timed_out'
 
-    // Filter out cancelled/skipped — only real conclusions count
-    return data.workflow_runs
-        .filter((run) => run.conclusion !== 'cancelled' && run.conclusion !== 'skipped')
-        .map((run) => ({
-            name: run.name,
-            conclusion: run.conclusion,
-            sha: run.head_sha,
-            run_url: run.html_url,
-            updated_at: run.updated_at,
-            workflow_file: workflowFile,
-        }))
+// The freshest settled runs for a workflow, newest-first.
+//
+// We deliberately do NOT pass `status: 'completed'`. That server-side filter is served from an
+// eventually-consistent index that intermittently returns a page anchored hours/days in the past —
+// so the newest run it reports is stale. The alerter then reads an ancient failure as the newest run
+// and backdates a phantom multi-day outage (opened+resolved in minutes, "red for 70h"). The
+// unfiltered index is fresh, so we read it and drop non-terminal/cancelled runs client-side.
+//
+// The catch: `per_page` truncates the raw page BEFORE our client-side filter, so a head full of
+// in-progress/cancelled runs could push real completed failures off a single page and silently miss
+// an incident. So we page until the leading streak is settled (a kept non-failure bounds the walk)
+// or we hit a bounded cap.
+async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
+    const MAX_PAGES = 5
+    const settled = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+        const { data } = await github.rest.actions.listWorkflowRuns({
+            owner,
+            repo,
+            workflow_id: workflowFile,
+            branch: 'master',
+            event: 'push',
+            per_page: perPage,
+            page,
+        })
+        for (const run of data.workflow_runs) {
+            // In-progress/queued must neither count as nor break a failure streak (mirroring how
+            // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
+            if (run.status !== 'completed') continue
+            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') continue
+            settled.push({
+                name: run.name,
+                conclusion: run.conclusion,
+                sha: run.head_sha,
+                run_url: run.html_url,
+                updated_at: run.updated_at,
+                created_at: run.created_at, // immutable; updated_at is bumped by re-runs
+                workflow_file: workflowFile,
+            })
+        }
+        // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
+        // A short raw page means there are no older runs to fetch.
+        const streakBounded = settled.some((r) => !isFailure(r))
+        if (streakBounded || data.workflow_runs.length < perPage) break
+    }
+    return settled
 }
 
 function countConsecutiveFailures(runs) {
     let count = 0
     for (const run of runs) {
-        if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
+        if (isFailure(run)) {
             count++
         } else {
             break
         }
     }
     return count
+}
+
+// Display-only "red since": oldest failure reachable from the newest without crossing a gap wider
+// than STREAK_MAX_GAP_MINUTES. Uses immutable created_at so re-runs can't collapse the span.
+function contiguousFailureSince(runs, count) {
+    const dispatchedAt = (run) => run.created_at || run.updated_at
+    let oldest = runs[0]
+    for (let i = 1; i < count; i++) {
+        const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
+        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe
+        oldest = runs[i]
+    }
+    return dispatchedAt(oldest)
 }
 
 // Workflows whose newest run starts a failure streak, keyed by display name.
@@ -85,7 +132,8 @@ function buildFailingMap(allWorkflowRuns) {
             const oldest = runs[count - 1]
             failing[latest.name] = {
                 name: latest.name,
-                since: oldest.updated_at,
+                since: oldest.updated_at, // detection (full streak)
+                displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
                 run_url: latest.run_url,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
@@ -125,7 +173,7 @@ function classifyCommits(commits, allWorkflowRuns) {
     return commits.map((commit) => {
         const runs = runsBySha.get(commit.sha) || []
         if (runs.length === 0) return { ...commit, status: 'unknown' }
-        const red = runs.some((r) => r.conclusion === 'failure' || r.conclusion === 'timed_out')
+        const red = runs.some(isFailure)
         return { ...commit, status: red ? 'red' : 'green' }
     })
 }
@@ -230,8 +278,11 @@ function buildAnchorMessage({
     durationMins,
     allFailingRunsUrl,
 }) {
-    const lines = blocking.map(
-        (wf) => `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row`
+    // Duration-only blockers show just the red time — no sub-threshold "N failed runs" count.
+    const lines = blocking.map((wf) =>
+        wf.byCount
+            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.displayRedForMins)}`
+            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.displayRedForMins)}`
     )
     if (commitActive) {
         lines.push(`• _${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
@@ -281,7 +332,8 @@ function buildResolvedMessage({ previousWorkflows, durationMins }) {
 function buildThreadReply({ created = [], added = [], removed = [], commitStarted = false }) {
     const parts = []
     if (created.length) {
-        parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} crossed the failure threshold`))
+        // Arm-neutral wording: the anchor bullet already says count vs. duration.
+        parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} is now failing master`))
     }
     if (added.length) parts.push(`:heavy_plus_sign: now also failing: ${added.map(workflowLink).join(', ')}`)
     if (removed.length) parts.push(`:white_check_mark: recovered: ${removed.map(workflowLink).join(', ')}`)
@@ -306,9 +358,14 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     const workflowFiles = (process.env.GATING_WORKFLOWS || '').split(',').filter(Boolean)
     const workflowThreshold = parseInt(process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10)
+    const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
+    const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
-    // Over-fetch to survive cancelled/skipped runs (force-pushes, concurrency cancels).
-    const perPage = Math.max(workflowThreshold * 3, 20)
+    // Page size for the run fetch. fetchWorkflowRuns pages until the streak is settled, so this only
+    // trades round-trips against page size; keep it wide enough to resolve the common case in one page
+    // despite the in-progress/cancelled runs it now drops client-side. Clamp to GitHub's per_page max
+    // of 100 (silently capped otherwise) so a tuned-up streak threshold can't quietly lose capacity.
+    const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
     // Recompute master health from the API and read the Slack incident state (the
@@ -331,30 +388,52 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     ])
 
     const failing = buildFailingMap(allWorkflowRuns)
+    // byDuration catches slow-velocity breakage that never stacks up a full failure streak.
     const blocking = Object.values(failing)
-        .filter((f) => f.consecutive_failures >= workflowThreshold)
-        .sort((a, b) => b.consecutive_failures - a.consecutive_failures) // longest streak first
-        .map((b) => ({ ...b, runsUrl: runsUrlFor(owner, repo, b.workflow_file) }))
+        .map((f) => {
+            const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
+            return {
+                ...f,
+                runsUrl: runsUrlFor(owner, repo, f.workflow_file),
+                redForMins, // detection: byDuration + open/resolve thresholds
+                displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
+                byCount: f.consecutive_failures >= workflowThreshold,
+                byDuration: redForMins >= minutesThreshold,
+            }
+        })
+        .filter((f) => f.byCount || f.byDuration)
+        .sort((a, b) => b.redForMins - a.redForMins) // most-severe (longest true red) first
 
     const latestCommit = commits[0] || null
+    // Fail closed: no dated commit → not recent → the wall-clock arm won't open.
+    const recentActivity =
+        latestCommit?.date != null && now.getTime() - new Date(latestCommit.date).getTime() <= activityWindowMins * 60000
+
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
         classifyCommits(commits, allWorkflowRuns)
     )
     const commitActive = commitStreakCount >= commitThreshold
+    // Sustains/resolves an open incident — ungated, so a stale-red master stays unhealthy
+    // and an open incident resolves only on genuine green.
     const unhealthy = blocking.length > 0 || commitActive
+    // Gates OPENING a new incident on recent push activity — the weekend-safety gate.
+    const shouldOpen = commitActive || blocking.some((f) => f.byCount || (f.byDuration && recentActivity))
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
-    // Earliest start across both active signals (preserve original on update).
+    // Earliest start across both active signals (preserve original on update); gap-bounded displaySince.
     const computeSince = () => {
-        const times = blocking.map((b) => new Date(b.since).getTime())
+        const times = blocking.map((b) => new Date(b.displaySince).getTime())
         if (commitActive && commitStreakSince) times.push(new Date(commitStreakSince).getTime())
         return times.length ? new Date(Math.min(...times)).toISOString() : now.toISOString()
     }
 
     let action = 'none'
 
-    if (unhealthy) {
+    // Open incident: sustain while unhealthy, else resolve. No incident: open only if shouldOpen.
+    const shouldWriteAnchor = active ? unhealthy : shouldOpen
+
+    if (shouldWriteAnchor) {
         // Carry name + runs link in metadata so later ticks can diff and re-link by name.
         const workflows = blocking.map((b) => ({ name: b.name, runsUrl: b.runsUrl }))
         const since = active?.payload?.since || computeSince()
@@ -423,3 +502,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 }
 
 module.exports.formatDuration = formatDuration
+module.exports.fetchWorkflowRuns = fetchWorkflowRuns

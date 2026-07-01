@@ -1,106 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Fragment, useState } from 'react'
 
-import { IconCode, IconGear, IconWarning } from '@posthog/icons'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { API_SCOPES } from 'lib/scopes'
-import { isKeyOf } from 'lib/utils/guards'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ScopeAccessRow } from 'scenes/settings/shared/ScopeAccessRow'
 import { urls } from 'scenes/urls'
 
-import { cliAuthorizeLogic } from './cliAuthorizeLogic'
+import { CLI_SCOPE_PRESETS, cliAuthorizeLogic } from './cliAuthorizeLogic'
 
 export const scene: SceneExport = {
     component: CLIAuthorize,
     logic: cliAuthorizeLogic,
-}
-
-function ScopesList({
-    scopes,
-    formScopeRadioValues,
-    displayScopeValues,
-    setScopeRadioValue,
-    showAll = false,
-}: {
-    scopes: typeof API_SCOPES
-    formScopeRadioValues: Record<string, string>
-    displayScopeValues?: Record<string, string>
-    setScopeRadioValue: (key: string, action: string) => void
-    showAll?: boolean
-}): JSX.Element {
-    // Use displayScopeValues for filtering if provided, otherwise use formScopeRadioValues
-    const filterValues = displayScopeValues ?? formScopeRadioValues
-    const visibleScopes = showAll
-        ? scopes
-        : scopes.filter((scope) => filterValues[scope.key] && filterValues[scope.key] !== 'none')
-
-    if (!showAll && visibleScopes.length === 0) {
-        return (
-            <div className="text-muted text-sm italic py-2">
-                No scopes selected. Click "Manage scopes" to select permissions.
-            </div>
-        )
-    }
-
-    return (
-        <div>
-            {visibleScopes.map(({ key, disabledActions, warnings, info }) => {
-                const radioValue = formScopeRadioValues[key]
-                return (
-                    <Fragment key={key}>
-                        <div className="flex items-center justify-between gap-2 min-h-8">
-                            <div className="flex items-center gap-1">
-                                <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
-
-                                {info ? (
-                                    <Tooltip title={info}>
-                                        <IconInfo className="text-secondary text-base" />
-                                    </Tooltip>
-                                ) : null}
-                            </div>
-                            <LemonSegmentedButton
-                                onChange={(value) => setScopeRadioValue(key, value)}
-                                value={radioValue ?? 'none'}
-                                options={[
-                                    { label: 'No access', value: 'none' },
-                                    {
-                                        label: 'Read',
-                                        value: 'read',
-                                        disabledReason: disabledActions?.includes('read')
-                                            ? 'Does not apply to this resource'
-                                            : undefined,
-                                    },
-                                    {
-                                        label: 'Write',
-                                        value: 'write',
-                                        disabledReason: disabledActions?.includes('write')
-                                            ? 'Does not apply to this resource'
-                                            : undefined,
-                                    },
-                                ]}
-                                size="xsmall"
-                            />
-                        </div>
-                        {warnings && isKeyOf(radioValue, warnings) && (
-                            <div className="flex items-start gap-2 text-xs italic pb-2">
-                                <IconWarning className="text-base text-secondary mt-0.5" />
-                                <span>{warnings[radioValue]}</span>
-                            </div>
-                        )}
-                    </Fragment>
-                )
-            })}
-        </div>
-    )
 }
 
 export function CLIAuthorize(): JSX.Element {
@@ -112,39 +28,20 @@ export function CLIAuthorize(): JSX.Element {
         projectsLoading,
         isAuthorizeSubmitting,
         formScopeRadioValues,
-        displayedScopeValues,
+        filteredScopes,
+        searchTerm,
+        scopePreset,
+        allAccessSelected,
         missingSchemaScopes,
         missingErrorTrackingScopes,
         missingEndpointsScopes,
+        missingAgentScopes,
     } = useValues(cliAuthorizeLogic)
-    const { setAuthorizeValue, setScopeRadioValue, updateDisplayedScopeSnapshot } = useActions(cliAuthorizeLogic)
-    const [isScopesModalOpen, setIsScopesModalOpen] = useState(false)
-
-    const handleOpenModal = (): void => {
-        setIsScopesModalOpen(true)
-    }
-
-    const handleCloseModal = (): void => {
-        updateDisplayedScopeSnapshot()
-        setIsScopesModalOpen(false)
-    }
+    const { setAuthorizeValue, setScopeRadioValue, setSearchTerm, setScopePreset, resetScopes } =
+        useActions(cliAuthorizeLogic)
 
     return (
-        <BridgePage
-            view="login"
-            {...(!isSuccess
-                ? {
-                      hedgehog: true as const,
-                      message: (
-                          <>
-                              Authorize
-                              <br />
-                              PostHog CLI
-                          </>
-                      ),
-                  }
-                : { hedgehog: false as const })}
-        >
+        <BridgePage view="login">
             {isSuccess ? (
                 <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>
@@ -213,22 +110,26 @@ export function CLIAuthorize(): JSX.Element {
                             />
                         </LemonField>
 
-                        <div className="mt-4 mb-2">
-                            <div className="flex items-center justify-between mb-2">
-                                <h3>Scopes</h3>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconGear />}
-                                    onClick={handleOpenModal}
-                                >
-                                    Manage scopes
-                                </LemonButton>
-                            </div>
-                            <p className="text-muted text-sm mb-2">
-                                Selected permissions for the CLI. Only grant the scopes you need.
-                            </p>
+                        <div className="flex items-center justify-between mt-4 mb-2">
+                            <h3 className="mb-0">Scopes</h3>
+                            <LemonSelect
+                                data-attr="cli-scope-preset"
+                                size="small"
+                                placeholder="Custom selection"
+                                value={scopePreset}
+                                onChange={(value) => setScopePreset(value)}
+                                options={CLI_SCOPE_PRESETS.map((preset) => ({
+                                    label: preset.label,
+                                    value: preset.value,
+                                }))}
+                                dropdownMatchSelectWidth={false}
+                                dropdownPlacement="bottom-end"
+                            />
                         </div>
+                        <p className="text-muted text-sm mb-2">
+                            Permissions granted to the CLI. Pick a preset or fine-tune individual scopes. Only grant
+                            what you need.
+                        </p>
 
                         <LemonField name="scopes">
                             {({ error }) => (
@@ -239,39 +140,74 @@ export function CLIAuthorize(): JSX.Element {
                                         </div>
                                     )}
 
-                                    <ScopesList
-                                        scopes={API_SCOPES}
-                                        formScopeRadioValues={formScopeRadioValues}
-                                        displayScopeValues={displayedScopeValues}
-                                        setScopeRadioValue={setScopeRadioValue}
-                                        showAll={false}
-                                    />
+                                    {allAccessSelected ? (
+                                        <LemonBanner
+                                            type="warning"
+                                            action={{ children: 'Reset', onClick: () => resetScopes() }}
+                                        >
+                                            <b>This key will have full access to all supported endpoints.</b> We
+                                            recommend scoping it to only what the CLI needs.
+                                        </LemonBanner>
+                                    ) : (
+                                        <>
+                                            <LemonInput
+                                                type="search"
+                                                placeholder="Search scopes..."
+                                                value={searchTerm}
+                                                onChange={setSearchTerm}
+                                                className="mb-2"
+                                                size="small"
+                                                fullWidth
+                                            />
+                                            <div className="max-h-64 overflow-y-auto pr-1">
+                                                {filteredScopes.length === 0 ? (
+                                                    <div className="text-muted text-sm py-2">
+                                                        No scopes match "{searchTerm}"
+                                                    </div>
+                                                ) : (
+                                                    filteredScopes.map(
+                                                        ({ key, objectName, disabledActions, warnings, info }) => {
+                                                            const selected = formScopeRadioValues[key]
+                                                            const warningAction =
+                                                                selected === 'read' || selected === 'write'
+                                                                    ? selected
+                                                                    : null
+                                                            return (
+                                                                <ScopeAccessRow
+                                                                    key={key}
+                                                                    label={objectName}
+                                                                    info={info}
+                                                                    value={selected ?? 'none'}
+                                                                    onChange={(value) => setScopeRadioValue(key, value)}
+                                                                    readDisabledReason={
+                                                                        disabledActions?.includes('read')
+                                                                            ? 'Does not apply to this resource'
+                                                                            : undefined
+                                                                    }
+                                                                    writeDisabledReason={
+                                                                        disabledActions?.includes('write')
+                                                                            ? 'Does not apply to this resource'
+                                                                            : undefined
+                                                                    }
+                                                                    warning={
+                                                                        warningAction ? warnings?.[warningAction] : null
+                                                                    }
+                                                                />
+                                                            )
+                                                        }
+                                                    )
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
                                 </>
                             )}
                         </LemonField>
 
-                        <LemonModal
-                            title="Manage CLI Scopes"
-                            description="Select which permissions to grant to the CLI. Only select the scopes you need."
-                            isOpen={isScopesModalOpen}
-                            onClose={handleCloseModal}
-                            footer={
-                                <LemonButton type="primary" onClick={handleCloseModal}>
-                                    Done
-                                </LemonButton>
-                            }
-                        >
-                            <div className="max-h-96 overflow-y-auto">
-                                <ScopesList
-                                    scopes={API_SCOPES}
-                                    formScopeRadioValues={formScopeRadioValues}
-                                    setScopeRadioValue={setScopeRadioValue}
-                                    showAll={true}
-                                />
-                            </div>
-                        </LemonModal>
-
-                        {(missingSchemaScopes || missingErrorTrackingScopes || missingEndpointsScopes) && (
+                        {(missingSchemaScopes ||
+                            missingErrorTrackingScopes ||
+                            missingEndpointsScopes ||
+                            missingAgentScopes) && (
                             <div className="space-y-2 mt-2">
                                 {missingSchemaScopes && (
                                     <LemonBanner type="warning">
@@ -290,6 +226,13 @@ export function CLIAuthorize(): JSX.Element {
                                     <LemonBanner type="warning">
                                         <b>Endpoints unavailable:</b> The CLI needs <code>endpoint</code> permissions
                                         (read or write) to execute endpoints.
+                                    </LemonBanner>
+                                )}
+                                {missingAgentScopes && (
+                                    <LemonBanner type="warning">
+                                        <b>Agent commands limited:</b> The CLI's <code>api</code> commands need{' '}
+                                        <code>user</code>, <code>project</code>, and <code>query</code> permissions
+                                        (read or write) to discover data and run queries.
                                     </LemonBanner>
                                 )}
                             </div>

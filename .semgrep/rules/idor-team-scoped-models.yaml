@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -88,6 +90,9 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomOAuth2Integration
+                              |CustomPropertyDefinition
+                              |CustomPropertyValue
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -101,13 +106,13 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -165,6 +170,7 @@ rules:
                               |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
+                              |KnowledgeGapSuggestion
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -225,6 +231,8 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -248,11 +256,19 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracingView
                               |UploadedMedia
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |VisionAction
+                              |VisionActionRun
+                              |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
+                              |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
+                              |WebAnalyticsInteraction
+                              |WebAnalyticsVisit
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -314,6 +330,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -343,6 +361,9 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomOAuth2Integration
+                        |CustomPropertyDefinition
+                        |CustomPropertyValue
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -356,13 +377,13 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -420,6 +441,7 @@ rules:
                         |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
+                        |KnowledgeGapSuggestion
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -476,6 +498,8 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -499,11 +523,19 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracingView
                         |UploadedMedia
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |VisionAction
+                        |VisionActionRun
+                        |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
+                        |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
+                        |WebAnalyticsInteraction
+                        |WebAnalyticsVisit
                         |WizardSession
                     )$
           # Exclude when team filter is present
@@ -594,6 +626,7 @@ rules:
                       regex: |
                           (?x)(
                               CIMDVerificationToken
+                              |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -602,6 +635,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -661,6 +695,7 @@ rules:
                 regex: |
                     (?x)(
                         CIMDVerificationToken
+                        |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
@@ -669,6 +704,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
@@ -907,10 +943,12 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
+                              |WebAnalyticsUserConfig
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -978,10 +1016,12 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
+                        |WebAnalyticsUserConfig
                     )$
           # Exclude when BOTH user AND team filters are present
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ..., team=$T, ...)

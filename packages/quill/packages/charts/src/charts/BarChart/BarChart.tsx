@@ -1,11 +1,14 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
     computeDivergingStackData,
     computePercentStackData,
@@ -95,28 +98,38 @@ function BarChartInner<Meta = unknown>({
     const barTrack = trackConfig !== false
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
+
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
     const wrapperMinHeight = useMemo(
-        () => computeWrapperMinHeight({ isHorizontal, fitToHeight, resolvedMinBandSize, labels }),
+        () =>
+            computeWrapperMinHeight({
+                isHorizontal,
+                fitToHeight,
+                resolvedMinBandSize,
+                labels,
+            }),
         [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
     )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
-            return computePercentStackData(series, labels)
+            return computePercentStackData(visibleSeries, labels)
         }
         if (barLayout === 'stacked') {
-            return divergingStack ? computeDivergingStackData(series, labels) : computeStackData(series, labels)
+            return divergingStack
+                ? computeDivergingStackData(visibleSeries, labels)
+                : computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [barLayout, series, labels, divergingStack])
+    }, [barLayout, visibleSeries, labels, divergingStack])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
     // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
     // so the last write per axis is that axis's top layer.
     const topStackedKeyByAxis = useMemo<Map<string, string>>(
-        () => (barLayout === 'grouped' ? new Map() : computeTopStackedKeyByAxis(series)),
-        [barLayout, series]
+        () => (barLayout === 'grouped' ? new Map() : computeTopStackedKeyByAxis(visibleSeries)),
+        [barLayout, visibleSeries]
     )
 
     const chartConfig = useMemo<BarChartConfig>(() => {
@@ -147,7 +160,11 @@ function BarChartInner<Meta = unknown>({
                     if (divergingStack) {
                         return [
                             { ...s, data: band.top },
-                            { ...s, key: `${s.key}__bottom`, data: band.bottom },
+                            {
+                                ...s,
+                                key: `${s.key}__bottom`,
+                                data: band.bottom,
+                            },
                         ]
                     }
                     return [{ ...s, data: band.top }]
@@ -304,7 +321,12 @@ function BarChartInner<Meta = unknown>({
                 alpha = resetHoverFade()
                 lastHoverKeyRef.current = currentKey
             }
-            drawBarHoverItems(ctx, d3Scales, resolved, { alpha, barCornerRadius, barTrack, isHorizontal })
+            drawBarHoverItems(ctx, d3Scales, resolved, {
+                alpha,
+                barCornerRadius,
+                barTrack,
+                isHorizontal,
+            })
             return true
         },
         [
@@ -323,8 +345,9 @@ function BarChartInner<Meta = unknown>({
     // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(stackedData), [stackedData])
 
-    const seriesRef = useLatest(series)
+    const seriesRef = useLatest(visibleSeries)
     const labelsRef = useLatest(labels)
 
     // Bars sharing a band slot — rewrite the click payload to the series actually under the
@@ -353,7 +376,7 @@ function BarChartInner<Meta = unknown>({
 
     const chart = (
         <Chart
-            series={series}
+            series={visibleSeries}
             labels={labels}
             config={chartConfig}
             theme={theme}
@@ -364,11 +387,12 @@ function BarChartInner<Meta = unknown>({
                 <BarTooltip<Meta>
                     ctx={ctx}
                     userTooltip={tooltip}
-                    allSeries={series}
+                    allSeries={visibleSeries}
                     stackedData={stackedData}
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    tooltipConfig={config?.tooltip}
                 />
             )}
             onPointClick={onPointClick}
@@ -377,6 +401,7 @@ function BarChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>
@@ -384,8 +409,10 @@ function BarChartInner<Meta = unknown>({
 
     // Always wrap — switching shape (axisOrientation, empty labels) would otherwise remount Chart.
     return (
-        <div className="flex flex-col flex-1" style={{ minHeight: wrapperMinHeight }}>
-            {chart}
-        </div>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-bar-legend">
+            <div className="flex flex-col flex-1" style={{ minHeight: wrapperMinHeight }}>
+                {chart}
+            </div>
+        </ChartLegend>
     )
 }

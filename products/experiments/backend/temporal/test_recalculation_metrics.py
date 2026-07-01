@@ -24,17 +24,6 @@ def test_registered_on_general_purpose_queue():
     assert is_task_queue_supported(settings.GENERAL_PURPOSE_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor)
 
 
-def test_metric_names_defined():
-    assert (
-        "experiment_metrics_recalculation_activity_execution_latency"
-        in EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS
-    )
-    assert (
-        "experiment_metrics_recalculation_workflow_execution_latency"
-        in EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS
-    )
-
-
 def test_buckets_sorted_ascending_and_floats():
     buckets = EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS
     assert buckets == sorted(buckets)

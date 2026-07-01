@@ -290,6 +290,9 @@ export enum TaxonomicFilterGroupType {
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',
     DataWarehouse = 'data_warehouse',
+    // Like DataWarehouse but restricted to external-source tables (no views/saved queries or self-managed
+    // tables) — used by CDP destination/workflow warehouse-row triggers.
+    DataWarehouseSourceTables = 'data_warehouse_source_tables',
     DataWarehouseProperties = 'data_warehouse_properties',
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
@@ -301,6 +304,7 @@ export enum TaxonomicFilterGroupType {
     EventMetadata = 'event_metadata',
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
+    PersonMetadata = 'person_metadata',
     PageviewUrls = 'pageview_urls',
     PageviewEvents = 'pageview_events',
     Screens = 'screens',
@@ -363,6 +367,7 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
     TaxonomicFilterGroupType.DataWarehouseProperties,
 ])
 
@@ -377,6 +382,9 @@ export interface ListStorage {
     expandedCount?: number
     queryChanged?: boolean
     first?: boolean
+    // Wall-clock duration of the remote fetch that produced this page, in ms.
+    // Only set for server-backed loads; absent for local/empty storage.
+    loadDurationMs?: number
 }
 
 export interface LoaderOptions {

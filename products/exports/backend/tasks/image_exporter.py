@@ -92,7 +92,15 @@ MEASURE_CONTENT_WIDTH_JS = f"""
                 return replayElement.offsetWidth;
             }}
 
-            // Check for left-to-right funnel (FunnelBarVertical)
+            // Left-to-right funnel (FunnelStepsBarChart, quill-charts). The bars + legend carry an
+            // explicit pixel width on this element, while every ancestor stretches to fill the wide
+            // export viewport — so measure this element directly rather than the stretched wrapper.
+            const funnelStepsCanvas = document.querySelector('[data-attr="funnel-steps-bar-chart-canvas"]');
+            if (funnelStepsCanvas) {{
+                return Math.ceil(funnelStepsCanvas.getBoundingClientRect().width) + {CONTENT_PADDING};
+            }}
+
+            // Legacy left-to-right funnel (FunnelBarVertical, table-based)
             // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
             const funnelElement = document.querySelector('.FunnelBarVertical');
             if (funnelElement) {{
@@ -511,7 +519,8 @@ def export_image(
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        user=None,
+                        # Background render (no request user); attribute the read to the export owner.
+                        user=exported_asset.created_by,
                         variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
@@ -524,7 +533,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
@@ -560,7 +570,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
                             analytics_props=export_analytics_props,

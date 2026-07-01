@@ -5,6 +5,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use serde_json::Value;
 use uuid::Uuid;
 
 /// Safe adapter for writing serde_json output into a `String` buffer.
@@ -22,7 +23,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 
@@ -80,6 +81,110 @@ pub struct Options {
     pub process_person_profile: Option<bool>,
 }
 
+/// Deserialize-tolerant wrapper for event options. Accepts any JSON value so
+/// that a single mistyped field cannot fail batch deserialization.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct RawOptions(pub Value);
+
+/// Error produced when `RawOptions::validate` cannot coerce one or more fields.
+/// Carries the offending field names for logging; the wire/metric tag is the
+/// static `DETAIL_INVALID_OPTIONS` constant applied at the drop site.
+#[derive(Debug)]
+pub struct OptionsError {
+    pub invalid_fields: Vec<&'static str>,
+}
+
+impl RawOptions {
+    /// Validate and coerce raw JSON into typed Options.
+    ///
+    /// - Null/absent -> Ok(default)
+    /// - Object -> coerce each known key, ignore unknown, collect invalid fields
+    /// - Non-object -> Err with no field names
+    pub fn validate(&self) -> Result<Options, OptionsError> {
+        match &self.0 {
+            Value::Null => Ok(Options::default()),
+            Value::Object(map) => {
+                let mut opts = Options::default();
+                let mut invalid_fields: Vec<&'static str> = Vec::new();
+
+                if let Some(v) = map.get("cookieless_mode") {
+                    if !v.is_null() {
+                        match coerce_bool(v) {
+                            Some(b) => opts.cookieless_mode = Some(b),
+                            None => invalid_fields.push("cookieless_mode"),
+                        }
+                    }
+                }
+                if let Some(v) = map.get("disable_skew_correction") {
+                    if !v.is_null() {
+                        match coerce_bool(v) {
+                            Some(b) => opts.disable_skew_correction = Some(b),
+                            None => invalid_fields.push("disable_skew_correction"),
+                        }
+                    }
+                }
+                if let Some(v) = map.get("process_person_profile") {
+                    if !v.is_null() {
+                        match coerce_bool(v) {
+                            Some(b) => opts.process_person_profile = Some(b),
+                            None => invalid_fields.push("process_person_profile"),
+                        }
+                    }
+                }
+                if let Some(v) = map.get("product_tour_id") {
+                    if !v.is_null() {
+                        match coerce_string(v) {
+                            Some(s) => opts.product_tour_id = Some(s),
+                            None => invalid_fields.push("product_tour_id"),
+                        }
+                    }
+                }
+
+                if invalid_fields.is_empty() {
+                    Ok(opts)
+                } else {
+                    Err(OptionsError { invalid_fields })
+                }
+            }
+            _ => Err(OptionsError {
+                invalid_fields: Vec::new(),
+            }),
+        }
+    }
+}
+
+/// Coerce a JSON value to bool with conservative rules:
+/// - native bool passes through
+/// - strings "true"/"false"/"1"/"0" (trimmed, case-insensitive)
+/// - any nonzero number -> true, 0 -> false
+fn coerce_bool(v: &Value) -> Option<bool> {
+    match v {
+        Value::Bool(b) => Some(*b),
+        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
+        Value::Number(n) => n.as_f64().map(|f| f != 0.0),
+        _ => None,
+    }
+}
+
+/// Coerce a JSON value to string:
+/// - native string passes through
+/// - integer number -> its decimal string representation
+fn coerce_string(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => n
+            .as_i64()
+            .map(|i| i.to_string())
+            .or_else(|| n.as_u64().map(|u| u.to_string())),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,
@@ -94,7 +199,7 @@ pub struct Event {
     pub session_id: Option<String>,
     pub window_id: Option<String>,
     #[serde(default)]
-    pub options: Options,
+    pub options: RawOptions,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
 }
@@ -104,12 +209,17 @@ pub struct WrappedEvent {
     pub event: Event,
     /// Pre-parsed UUID from Event.uuid, set once during validate_events.
     pub uuid: Uuid,
+    /// Typed options coerced from Event.options during validate_events.
+    pub options: Options,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
+    /// Set by the gateway-provenance step when a valid signature was verified;
+    /// read by the quota shim to exempt the event from the llm_events limiter.
+    pub is_gateway_verified: bool,
 }
 
 impl SinkEvent for WrappedEvent {
@@ -137,7 +247,7 @@ impl SinkEvent for WrappedEvent {
     // fields. Sinks convert the returned CapturedEventHeaders to their
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
-    fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
         // v1 decouples overflow routing from person-processing (unlike v0 where
         // overflow ForceLimited unconditionally sets this); operators configure
@@ -189,11 +299,11 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn partition_key(&self, ctx: &Context) -> String {
+    fn partition_key(&self, ctx: &RequestContext) -> String {
         use std::fmt::Write;
         let mut buf = String::with_capacity(128);
         match (
-            self.event.options.cookieless_mode == Some(true),
+            self.options.cookieless_mode == Some(true),
             ctx.capture_internal,
         ) {
             (true, true) => {
@@ -209,7 +319,7 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    fn serialize(&self, ctx: &Context) -> anyhow::Result<String> {
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
@@ -245,20 +355,20 @@ impl SinkEvent for WrappedEvent {
             token: &ctx.api_token,
             event: &self.event.event,
             timestamp,
-            is_cookieless_mode: self.event.options.cookieless_mode.unwrap_or(false),
+            is_cookieless_mode: self.options.cookieless_mode.unwrap_or(false),
             historical_migration: ctx.historical_migration,
         };
 
-        let mut buf = String::with_capacity(data.len() + 512);
-        serde_json::to_writer(StringWriter(&mut buf), &ie)
+        let mut buf = Vec::with_capacity(data.len() + 512);
+        serde_json::to_writer(&mut buf, &ie)
             .map_err(|e| anyhow::anyhow!("serializing IngestionEvent: {e:#}"))?;
-        Ok(buf)
+        Ok(bytes::Bytes::from(buf))
     }
 }
 
 impl WrappedEvent {
     #[allow(unused_assignments)]
-    fn build_property_injections(&self, ctx: &Context) -> anyhow::Result<String> {
+    fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -282,16 +392,16 @@ impl WrappedEvent {
         if let Some(ref wid) = self.event.window_id {
             inject!(buf, first, "$window_id", wid);
         }
-        if let Some(cm) = self.event.options.cookieless_mode {
+        if let Some(cm) = self.options.cookieless_mode {
             inject!(buf, first, "$cookieless_mode", &cm);
         }
-        if let Some(dsa) = self.event.options.disable_skew_correction {
+        if let Some(dsa) = self.options.disable_skew_correction {
             inject!(buf, first, "$ignore_sent_at", &dsa);
         }
-        if let Some(ref pti) = self.event.options.product_tour_id {
+        if let Some(ref pti) = self.options.product_tour_id {
             inject!(buf, first, "$product_tour_id", pti);
         }
-        if let Some(ppp) = self.event.options.process_person_profile {
+        if let Some(ppp) = self.options.process_person_profile {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
 
@@ -310,7 +420,10 @@ impl WrappedEvent {
 
     /// Build spliced properties if injection is needed, or return None
     /// to signal the caller should borrow `self.event.properties` directly.
-    fn build_spliced_properties(&self, ctx: &Context) -> anyhow::Result<Option<Box<RawValue>>> {
+    fn build_spliced_properties(
+        &self,
+        ctx: &RequestContext,
+    ) -> anyhow::Result<Option<Box<RawValue>>> {
         let injection = self.build_property_injections(ctx)?;
         if injection.is_empty() {
             return Ok(None);
@@ -350,8 +463,8 @@ impl WrappedEvent {
 ///
 /// The v1 capture pipeline does not deserialize event.properties -- they are
 /// forwarded as raw JSON to Kafka. Property checks here are limited to fields
-/// that have been promoted to the typed Event::Options struct. If a new quota
-/// limiter predicate needs a property not in Options, add it there first.
+/// that have been promoted to WrappedEvent.options. If a new quota limiter
+/// predicate needs a property not in Options, add it there first.
 impl HasEventName for WrappedEvent {
     fn event_name(&self) -> &str {
         &self.event.event
@@ -359,7 +472,7 @@ impl HasEventName for WrappedEvent {
 
     fn has_property(&self, key: &str) -> bool {
         match key {
-            "product_tour_id" => self.event.options.product_tour_id.is_some(),
+            "product_tour_id" => self.options.product_tour_id.is_some(),
             _ => false,
         }
     }
@@ -693,10 +806,11 @@ mod tests {
         let event = &batch.batch[0];
         assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
         assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
-        assert_eq!(event.options.cookieless_mode, Some(true));
-        assert_eq!(event.options.disable_skew_correction, Some(true));
-        assert_eq!(event.options.product_tour_id.as_deref(), Some("tour-123"));
-        assert_eq!(event.options.process_person_profile, Some(false));
+        let opts = event.options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+        assert_eq!(opts.disable_skew_correction, Some(true));
+        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-123"));
+        assert_eq!(opts.process_person_profile, Some(false));
     }
 
     #[test]
@@ -712,10 +826,11 @@ mod tests {
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         let event = &batch.batch[0];
-        assert_eq!(event.options.cookieless_mode, None);
-        assert_eq!(event.options.disable_skew_correction, None);
-        assert_eq!(event.options.product_tour_id, None);
-        assert_eq!(event.options.process_person_profile, None);
+        let opts = event.options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+        assert_eq!(opts.product_tour_id, None);
+        assert_eq!(opts.process_person_profile, None);
     }
 
     #[test]
@@ -734,16 +849,168 @@ mod tests {
         let event = &batch.batch[0];
         assert_eq!(event.session_id, None);
         assert_eq!(event.window_id, None);
-        assert_eq!(event.options.cookieless_mode, None);
-        assert_eq!(event.options.disable_skew_correction, None);
-        assert_eq!(event.options.product_tour_id, None);
-        assert_eq!(event.options.process_person_profile, None);
+        let opts = event.options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+        assert_eq!(opts.product_tour_id, None);
+        assert_eq!(opts.process_person_profile, None);
     }
 
     #[test]
     fn parse_invalid_json() {
         let garbage = b"this is not json at all {{{";
         assert!(serde_json::from_slice::<Batch>(garbage).is_err());
+    }
+
+    // --- RawOptions::validate coercion matrix ---
+
+    #[test]
+    fn raw_options_null_validates_to_defaults() {
+        let raw = RawOptions::default();
+        let opts = raw.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+        assert_eq!(opts.product_tour_id, None);
+        assert_eq!(opts.process_person_profile, None);
+    }
+
+    #[test]
+    fn raw_options_empty_object_validates_to_defaults() {
+        let raw = RawOptions(serde_json::json!({}));
+        let opts = raw.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+    }
+
+    #[rstest::rstest]
+    #[case::native_true(serde_json::json!(true), Some(true))]
+    #[case::native_false(serde_json::json!(false), Some(false))]
+    #[case::str_true(serde_json::json!("true"), Some(true))]
+    #[case::str_false(serde_json::json!("false"), Some(false))]
+    #[case::str_one(serde_json::json!("1"), Some(true))]
+    #[case::str_zero(serde_json::json!("0"), Some(false))]
+    #[case::str_uppercase(serde_json::json!("FALSE"), Some(false))]
+    #[case::str_padded(serde_json::json!("  true  "), Some(true))]
+    #[case::num_one(serde_json::json!(1), Some(true))]
+    #[case::num_zero(serde_json::json!(0), Some(false))]
+    #[case::num_large(serde_json::json!(42), Some(true))]
+    #[case::num_negative(serde_json::json!(-1), Some(true))]
+    fn raw_options_bool_coercion_valid(
+        #[case] input: serde_json::Value,
+        #[case] expected: Option<bool>,
+    ) {
+        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
+        assert_eq!(raw.validate().unwrap().cookieless_mode, expected);
+    }
+
+    #[rstest::rstest]
+    #[case::array(serde_json::json!([1, 2, 3]))]
+    #[case::object(serde_json::json!({"nested": true}))]
+    #[case::yes(serde_json::json!("yes"))]
+    #[case::off(serde_json::json!("off"))]
+    #[case::empty_string(serde_json::json!(""))]
+    fn raw_options_bool_uncoercible(#[case] input: serde_json::Value) {
+        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
+        let err = raw.validate().unwrap_err();
+        assert_eq!(err.invalid_fields, vec!["cookieless_mode"]);
+    }
+
+    #[test]
+    fn raw_options_all_bool_fields_routed_to_correct_slot() {
+        let raw = RawOptions(serde_json::json!({
+            "cookieless_mode": "true",
+            "disable_skew_correction": 0,
+            "process_person_profile": false
+        }));
+        let opts = raw.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+        assert_eq!(opts.disable_skew_correction, Some(false));
+        assert_eq!(opts.process_person_profile, Some(false));
+    }
+
+    #[rstest::rstest]
+    #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
+    #[case::integer(serde_json::json!(999), Some("999"))]
+    #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
+    fn raw_options_product_tour_id_coercion_valid(
+        #[case] input: serde_json::Value,
+        #[case] expected: Option<&str>,
+    ) {
+        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
+        assert_eq!(raw.validate().unwrap().product_tour_id.as_deref(), expected);
+    }
+
+    #[rstest::rstest]
+    #[case::object(serde_json::json!({"nested": true}))]
+    #[case::array(serde_json::json!(["a"]))]
+    #[case::bool(serde_json::json!(true))]
+    #[case::float(serde_json::json!(1.5))]
+    fn raw_options_product_tour_id_uncoercible(#[case] input: serde_json::Value) {
+        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
+        let err = raw.validate().unwrap_err();
+        assert_eq!(err.invalid_fields, vec!["product_tour_id"]);
+    }
+
+    #[test]
+    fn raw_options_multiple_invalid_fields_collected() {
+        let raw = RawOptions(serde_json::json!({
+            "cookieless_mode": {"bad": true},
+            "disable_skew_correction": [false],
+            "product_tour_id": "valid-string",
+            "process_person_profile": null
+        }));
+        let err = raw.validate().unwrap_err();
+        assert!(err.invalid_fields.contains(&"cookieless_mode"));
+        assert!(err.invalid_fields.contains(&"disable_skew_correction"));
+        assert!(!err.invalid_fields.contains(&"product_tour_id"));
+    }
+
+    #[test]
+    fn raw_options_non_object_value_returns_error() {
+        let raw = RawOptions(serde_json::json!("just a string"));
+        let err = raw.validate().unwrap_err();
+        assert!(err.invalid_fields.is_empty());
+    }
+
+    #[test]
+    fn raw_options_unknown_fields_ignored() {
+        let raw = RawOptions(serde_json::json!({
+            "cookieless_mode": true,
+            "some_unknown_future_field": 42
+        }));
+        let opts = raw.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+    }
+
+    #[test]
+    fn raw_options_null_field_treated_as_absent() {
+        let raw = RawOptions(serde_json::json!({
+            "cookieless_mode": null,
+            "disable_skew_correction": true
+        }));
+        let opts = raw.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, Some(true));
+    }
+
+    #[test]
+    fn batch_deserialization_survives_mistyped_options() {
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "event": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "user-42",
+                "timestamp": "2026-03-19T14:29:58.123Z",
+                "options": {"disable_skew_correction": 999, "cookieless_mode": "banana"}
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        // 999 coerces to true (nonzero), "banana" does not coerce
+        let err = batch.batch[0].options.validate().unwrap_err();
+        assert!(err.invalid_fields.contains(&"cookieless_mode"));
+        assert!(!err.invalid_fields.contains(&"disable_skew_correction"));
     }
 
     // --- SinkEvent impl for WrappedEvent ---
@@ -943,7 +1210,7 @@ mod tests {
     fn partition_key_cookieless_mode() {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.event.options.cookieless_mode = Some(true);
+        ev.options.cookieless_mode = Some(true);
         assert_eq!(
             ev.partition_key(&ctx),
             format!("{}:{}", ctx.api_token, ctx.client_ip)
@@ -955,7 +1222,7 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.capture_internal = true;
         let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.event.options.cookieless_mode = Some(true);
+        ev.options.cookieless_mode = Some(true);
         assert_eq!(
             ev.partition_key(&ctx),
             format!("{}:127.0.0.1", ctx.api_token)
@@ -993,7 +1260,7 @@ mod tests {
     #[test]
     fn has_property_product_tour_id_some() {
         let mut ev = ok_wrapped("survey sent", "user-1");
-        ev.event.options.product_tour_id = Some("tour-123".into());
+        ev.options.product_tour_id = Some("tour-123".into());
         assert!(ev.has_property("product_tour_id"));
     }
 
@@ -1024,7 +1291,7 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn serialize_ctx() -> crate::v1::context::Context {
+    fn serialize_ctx() -> crate::v1::context::RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_project_abc123".to_string();
         ctx.client_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 42));
@@ -1045,32 +1312,34 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-01jq9abc".to_string()),
                 window_id: Some("win-xyz789".to_string()),
-                options: Options {
-                    cookieless_mode: Some(false),
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: Some(true),
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(
                     r#"{"$current_url":"https://app.example.com/dashboard","$browser":"Chrome","custom_prop":42}"#,
                 ),
             },
             uuid,
+            options: Options {
+                cookieless_mode: Some(false),
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: Some(true),
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         }
     }
 
     fn serialize_and_parse(
         wrapped: &WrappedEvent,
-        ctx: &crate::v1::context::Context,
+        ctx: &crate::v1::context::RequestContext,
     ) -> (CapturedEvent, RawEvent) {
         let buf = wrapped.serialize(ctx).expect("serialize failed");
         let captured: CapturedEvent =
-            serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+            serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
         let data: RawEvent =
             serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
         (captured, data)
@@ -1227,20 +1496,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-01jq9abc".to_string()),
                 window_id: Some("win-xyz789".to_string()),
-                options: Options {
-                    cookieless_mode: Some(true),
-                    disable_skew_correction: Some(true),
-                    product_tour_id: Some("tour-onboarding-v2".to_string()),
-                    process_person_profile: Some(false),
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(r#"{"existing":"value"}"#),
             },
             uuid,
+            options: Options {
+                cookieless_mode: Some(true),
+                disable_skew_correction: Some(true),
+                product_tour_id: Some("tour-onboarding-v2".to_string()),
+                process_person_profile: Some(false),
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1267,20 +1538,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-abc".to_string()),
                 window_id: None,
-                options: Options {
-                    cookieless_mode: Some(false),
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(r#"{"x":1}"#),
             },
             uuid,
+            options: Options {
+                cookieless_mode: Some(false),
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1306,20 +1579,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj("{}"),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1342,20 +1617,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-abc".to_string()),
                 window_id: None,
-                options: Options {
-                    cookieless_mode: Some(true),
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj("{}"),
             },
             uuid,
+            options: Options {
+                cookieless_mode: Some(true),
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1379,22 +1656,24 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-abc".to_string()),
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(
                     r#"{"$lib":"posthog-js","$lib_version":"1.150.0","$referrer":"https://google.com"}"#,
                 ),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1411,7 +1690,7 @@ mod tests {
     #[test]
     fn serialize_is_cookieless_mode_true() {
         let mut wrapped = pageview_event();
-        wrapped.event.options.cookieless_mode = Some(true);
+        wrapped.options.cookieless_mode = Some(true);
         let ctx = serialize_ctx();
         let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         assert!(captured.is_cookieless_mode);
@@ -1421,10 +1700,10 @@ mod tests {
     #[test]
     fn serialize_is_cookieless_mode_false_skipped() {
         let wrapped = pageview_event();
-        assert_eq!(wrapped.event.options.cookieless_mode, Some(false));
+        assert_eq!(wrapped.options.cookieless_mode, Some(false));
         let ctx = serialize_ctx();
         let buf = wrapped.serialize(&ctx).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("is_cookieless_mode").is_none(),
             "is_cookieless_mode should be absent when false"
@@ -1445,7 +1724,7 @@ mod tests {
         let wrapped = pageview_event();
         let ctx = serialize_ctx();
         let buf = wrapped.serialize(&ctx).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("historical_migration").is_none(),
             "historical_migration should be absent when false"
@@ -1480,7 +1759,7 @@ mod tests {
     #[test]
     fn serialize_process_person_profile_in_properties() {
         let mut wrapped = pageview_event();
-        wrapped.event.options.process_person_profile = Some(false);
+        wrapped.options.process_person_profile = Some(false);
         wrapped.force_disable_person_processing = false;
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
@@ -1498,20 +1777,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(r#"{"x":1}"#),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: true,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1539,20 +1820,22 @@ mod tests {
                 timestamp: "2026-03-19T14:30:00.000Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: Some(true),
-                },
+                options: RawOptions::default(),
                 properties: raw_obj(r#"{"$browser":"Safari","$os":"macOS"}"#),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: Some(true),
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1578,20 +1861,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-abc".to_string()),
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj("[1,2,3]"),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1613,20 +1898,22 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: Some("sess-abc".to_string()),
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: raw_obj("{   }"),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: None,
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1769,7 +2056,7 @@ mod tests {
     fn partition_key_parity_cookieless() {
         let ctx = serialize_ctx();
         let mut ev = realistic_pageview("user-42");
-        ev.event.options.cookieless_mode = Some(true);
+        ev.options.cookieless_mode = Some(true);
         let key = ev.partition_key(&ctx);
         assert_eq!(key, format!("{}:{}", ctx.api_token, ctx.client_ip));
     }

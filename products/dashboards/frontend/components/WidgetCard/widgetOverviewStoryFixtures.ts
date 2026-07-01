@@ -1,6 +1,7 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
+import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -151,6 +152,123 @@ export const sessionReplaySampleRecordings = [
     },
 ]
 
+export const experimentsSampleListRows = [
+    {
+        id: 101,
+        name: 'New signup CTA',
+        status: 'running',
+        conclusion: null,
+        start_date: '2026-05-12T00:00:00.000Z',
+        end_date: null,
+        created_at: '2026-05-10T09:00:00.000Z',
+        feature_flag_key: 'new-signup-cta',
+        created_by: { id: 1, first_name: 'Alex', email: 'alex@example.test' },
+    },
+    {
+        id: 102,
+        name: 'Pricing page layout',
+        status: 'draft',
+        conclusion: null,
+        start_date: null,
+        end_date: null,
+        created_at: '2026-05-18T14:30:00.000Z',
+        feature_flag_key: 'pricing-page-layout',
+        created_by: { id: 2, first_name: 'Sam', email: 'sam@example.test' },
+    },
+    {
+        id: 103,
+        name: 'Onboarding checklist copy',
+        status: 'stopped',
+        conclusion: 'won',
+        start_date: '2026-04-01T00:00:00.000Z',
+        end_date: '2026-04-22T00:00:00.000Z',
+        created_at: '2026-03-28T11:00:00.000Z',
+        feature_flag_key: 'onboarding-checklist-copy',
+        created_by: { id: 1, first_name: 'Alex', email: 'alex@example.test' },
+    },
+]
+
+export const experimentResultsSamplePayload = {
+    experiment: {
+        id: 101,
+        name: 'New signup CTA',
+        status: 'running',
+        start_date: '2026-05-12T00:00:00.000Z',
+        end_date: null,
+        feature_flag_key: 'new-signup-cta',
+    },
+    metrics: [
+        {
+            uuid: 'metric-1',
+            name: 'Signup conversion',
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: 'funnel',
+                uuid: 'metric-1',
+                name: 'Signup conversion',
+                series: [{ kind: 'EventsNode', event: 'signed_up' }],
+            },
+            result: {
+                baseline: {
+                    key: 'control',
+                    number_of_samples: 4321,
+                    sum: 980,
+                    sum_squares: 980,
+                },
+                variant_results: [
+                    {
+                        key: 'test',
+                        method: 'bayesian',
+                        number_of_samples: 4287,
+                        sum: 1112,
+                        sum_squares: 1112,
+                        chance_to_win: 0.92,
+                        credible_interval: [0.012, 0.131],
+                        significant: false,
+                    },
+                ],
+            },
+            error: null,
+        },
+    ],
+    secondaryMetrics: [
+        {
+            uuid: 'secondary-1',
+            name: 'Revenue per user',
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: 'mean',
+                uuid: 'secondary-1',
+                name: 'Revenue per user',
+                source: { kind: 'EventsNode', event: 'purchase' },
+            },
+            result: {
+                baseline: {
+                    key: 'control',
+                    number_of_samples: 4321,
+                    sum: 8600,
+                    sum_squares: 21400,
+                },
+                variant_results: [
+                    {
+                        key: 'test',
+                        method: 'bayesian',
+                        number_of_samples: 4287,
+                        sum: 9120,
+                        sum_squares: 23900,
+                        chance_to_win: 0.78,
+                        credible_interval: [-0.004, 0.061],
+                        significant: false,
+                    },
+                ],
+            },
+            error: null,
+        },
+    ],
+    totalMetricsCount: 1,
+    totalSecondaryMetricsCount: 1,
+}
+
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
 export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey): WidgetOverviewDemoState {
     const catalogEntry = getDashboardWidgetCatalogEntry(catalogKey)
@@ -195,6 +313,45 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 loading: false,
                 result: {
                     results: activityEventsSampleEvents,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
+                },
+            }
+        case 'experiments_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: defaultConfig,
+                loading: false,
+                result: {
+                    results: experimentsSampleListRows,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 12,
+                    totalCountCapped: false,
+                },
+            }
+        case 'experiment_results':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, experimentId: 101 },
+                loading: false,
+                result: experimentResultsSamplePayload,
+            }
+        case 'logs_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig },
+                loading: false,
+                result: {
+                    results: logsWidgetSampleLogLines,
                     hasMore: true,
                     limit: 10,
                     totalCount: 25,

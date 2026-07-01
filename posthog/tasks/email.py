@@ -27,7 +27,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import feature_enabled_or_false, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -738,8 +738,11 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -748,9 +751,12 @@ def send_matview_failure_digest() -> None:
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
     # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    latest_job = DataModelingJob.objects.filter(
-        saved_query_id=OuterRef("id"),
-    ).order_by("-last_run_at")
+    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
+    latest_job = (
+        DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        .order_by("-last_run_at")
+    )
 
     failed_queries = (
         DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
@@ -807,8 +813,11 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -829,6 +838,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
         DataModelingJob.objects.filter(saved_query_id__in=all_ids)
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):
@@ -1107,7 +1117,7 @@ def login_from_new_device_notification(
     elif user.current_organization is None:
         enabled = False
     else:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = feature_enabled_or_false(
             key="login-from-new-device-notification",
             distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},
@@ -1907,6 +1917,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "new_issues": error_tracking_api.get_new_issues_for_team(team),
             "daily_counts": error_tracking_api.get_daily_exception_counts(team),
             "crash_free": error_tracking_api.get_crash_free_sessions(team),
+            "source_maps_recommendation": error_tracking_api.get_source_maps_recommendation_for_team(team),
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
         }
@@ -1980,3 +1991,138 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
         f"({len(team_digest_data)} teams with exceptions)"
     )
+
+
+def get_integration_display_name(kind: str) -> str:
+    # Only kinds whose correct casing differs from the title-cased fallback need an override.
+    custom_casing = {"github": "GitHub", "gitlab": "GitLab"}
+    return custom_casing.get(kind, kind.replace("-", " ").title())
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_integration_access_request(team_id: int, requesting_user_id: int, kind: str, reason: str) -> None:
+    """Notify project admins that a member is requesting an integration be connected."""
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if team is None or requester is None:
+        return
+
+    log_context = {"team_id": team_id, "kind": kind, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_integration_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        team.organization.name,
+        fallback="your organization",
+        context={"task": "send_integration_access_request", "field": "organization_name", **log_context},
+    )
+    sanitized_reason = sanitize_message_body(
+        reason,
+        fallback="",
+        context={"task": "send_integration_access_request", "field": "reason", **log_context},
+    )
+    integration_name = get_integration_display_name(kind)
+
+    # Deterministic per requester + integration so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"integration_access_request_{team_id}_{kind}_{requesting_user_id}"
+    subject = f"{requester_name} requested the {integration_name} integration on PostHog"
+
+    # Org admins/owners always have access to every project, so the org-level filter is the access check.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="integration_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "integration_name": integration_name,
+            "integration_kind": kind,
+            "reason": sanitized_reason,
+            "org_name": org_name,
+            "team_name": team.name,
+            "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int) -> None:
+    """Notify org admins that a member is requesting PostHog AI be enabled."""
+    organization = Organization.objects.filter(id=organization_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if organization is None or requester is None:
+        return
+
+    log_context = {"organization_id": organization_id, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
+    )
+
+    # AI consent is an org-level setting reachable from any project; prefer the requester's
+    # current project so the link feels familiar, falling back to any project in the org.
+    current_team = requester.current_team
+    team = (
+        current_team
+        if current_team is not None and current_team.organization_id == organization.id
+        else organization.teams.first()
+    )
+    if team is None:
+        return
+    posthog_ai_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+    )
+
+    # Deterministic per requester so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"posthog_ai_access_request_{organization_id}_{requesting_user_id}"
+
+    # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"{requester_name} requested access to PostHog AI",
+        template_name="posthog_ai_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "organization_name": org_name,
+            "posthog_ai_url": posthog_ai_url,
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()

@@ -96,6 +96,7 @@ MATERIALIZED_PROPERTY_USAGE_TOTAL = PromCounter(
 MATERIALIZED_RANGE_REWRITE_TOTAL = PromCounter(
     "hogql_materialized_range_rewrite_total",
     "Range comparisons on materialized property columns by rewrite outcome. "
+    "'fired_compare' rewrote to a bare column comparison; 'fired_if_null' rewrote with an isNotNull(col) guard; "
     "'skipped' means a materialized source was identified but the bare (minmax-eligible) rewrite was unsafe.",
     labelnames=[*_BASE_LABELS, "result"],
 )
@@ -172,6 +173,7 @@ _MATERIALIZED_PROPERTY_RESULTS = {
     "materialized_column",
     "dynamic_materialized_column",
     "property_group",
+    "map_subscript",
     "json",
 }
 
