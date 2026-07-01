@@ -89,6 +89,11 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',
             loader: async (teamIds: string[]) => this.loadAndBuildHogFunctions(teamIds),
+            // Retry transient PG/PgBouncer blips (e.g. a read-pooler scale-down returning EAI_AGAIN or
+            // a connection terminated unexpectedly) instead of letting them propagate. This loader also
+            // runs detached in fire-and-forget background refreshes, where an un-retried transient failure
+            // can surface as an unhandled rejection and restart the worker.
+            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
             refreshAgeMs: 600000, // 10 minutes
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
