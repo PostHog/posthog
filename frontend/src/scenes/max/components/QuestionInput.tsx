@@ -24,6 +24,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { FillInHint } from './FillInHint'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
@@ -145,8 +146,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, panelId: maxPanelId } = useValues(maxLogic)
-    const { setQuestion } = useActions(maxLogic)
+    const { question, panelId: maxPanelId, fillInHint } = useValues(maxLogic)
+    const { setQuestion, setFillInHint } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -214,6 +215,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     const handleQuestionChange = (value: string): void => {
         setInputValue(value)
+        // The user typing their own text ends the fill-in cue.
+        if (fillInHint) {
+            setFillInHint(null)
+        }
         if (value.startsWith('/')) {
             // Slash commands drive the autocomplete off kea's `question`, so sync immediately.
             debouncedSetQuestion.cancel()
@@ -227,10 +232,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
         // pending debounce to stop it from re-populating the just-sent text.
         debouncedSetQuestion.cancel()
+        if (fillInHint) {
+            setFillInHint(null)
+        }
         askMax(prompt)
     }
 
     const hasQuestion = inputValue.trim().length > 0
+    // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
+    const showFillInHint = !!fillInHint
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
@@ -372,6 +382,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             )}
                                         </div>
                                     )}
+                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
+                                    {showFillInHint && (
+                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
+                                            <FillInHint text={inputValue} hint={fillInHint} />
+                                        </div>
+                                    )}
                                     <LemonTextArea
                                         aria-describedby={!inputValue ? 'textarea-hint' : undefined}
                                         id="question-input"
@@ -432,7 +448,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         maxRows={10}
                                         className={cn(
                                             '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12'
+                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
+                                            // Hide the native caret so only the enlarged fill-in caret shows.
+                                            showFillInHint && 'caret-transparent'
                                         )}
                                         hideFocus
                                     />

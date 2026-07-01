@@ -214,6 +214,8 @@ export const maxLogic = kea<maxLogicType>([
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
+        // Postfix hint shown after a fill-in capability suggestion's typed-in prefix.
+        setFillInHint: (hint: string | null) => ({ hint }),
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
@@ -292,6 +294,14 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setActiveGroup: (_, { group }) => group,
                 setQuestion: (state, { question }) => (question === '' ? null : state),
+            },
+        ],
+
+        fillInHint: [
+            null as string | null,
+            {
+                setFillInHint: (_, { hint }) => hint,
+                startNewConversation: () => null,
             },
         ],
 
