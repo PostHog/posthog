@@ -40,6 +40,11 @@
             "minimum": 1,
             "type": "number"
         },
+        "summary_max_chars": {
+            "description": "Truncate each run's `summary` to the first N characters (a preview). Omit for the full body. The `summary` is a free-text close-out that can run to multiple paragraphs, so a wide orientation sweep can overflow the response budget — set this on a cold-start scan to keep it cheap, then re-query a specific run (`get-run`) for its full summary.",
+            "minimum": 0,
+            "type": "number"
+        },
         "text": {
             "description": "Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
             "minLength": 1,

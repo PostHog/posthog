@@ -964,6 +964,25 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # Absent skill (or no description) falls back to "".
         assert response.json()[0]["description"] == (skill_description or "")
 
+    def test_list_omit_description_blanks_description_but_keeps_origin(self) -> None:
+        # `omit_description=true` blanks the (potentially multi-paragraph) description for a compact
+        # fleet sweep, but must not disturb `scout_origin` — which is resolved from the same skill
+        # lookup and would silently misbadge canonical scouts as custom if the lookup were skipped.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="Investigates broad project health.",
+            body="...",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+        )
+
+        response = self.client.get(self._list_url(), data={"omit_description": "true"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["description"] == ""
+        assert response.json()[0]["scout_origin"] == "canonical"
+
     def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
         LLMSkill.objects.create(

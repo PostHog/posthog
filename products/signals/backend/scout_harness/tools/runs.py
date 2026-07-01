@@ -133,6 +133,7 @@ def search_recent_runs(
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
+    summary_max_chars: int | None = None,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -149,6 +150,12 @@ def search_recent_runs(
     a single scout — the primary scoping path for a specialist deduping against its
     own past work; pair it with `skill_version` to pin a specific version. Results
     are capped at `MAX_RUN_SEARCH_LIMIT`.
+
+    `summary_max_chars=N` truncates each run's `summary` to the first `N` characters (a
+    preview). The `summary` is a free-text close-out that can run to multiple paragraphs,
+    so a wide orientation sweep can return up to `summary length × limit` characters the
+    caller doesn't need yet — pass this to keep the cold-start scan under the token budget,
+    then `get_run` a specific run for its full summary. Omit for the full body.
     """
     clamped_limit = _clamp_limit(limit)
     qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
@@ -171,7 +178,7 @@ def search_recent_runs(
     if skill_version is not None:
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
-    return [_to_summary(row, team_id=team_id) for row in qs]
+    return [_to_summary(row, team_id=team_id, summary_max_chars=summary_max_chars) for row in qs]
 
 
 @dataclass(frozen=True)
@@ -233,7 +240,7 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     return _to_detail(row, team_id=team_id)
 
 
-def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
+def _to_summary(row: SignalScoutRun, *, team_id: int, summary_max_chars: int | None = None) -> RunSummary:
     task_run = row.task_run
     task_id = str(task_run.task_id) if task_run is not None else None
     task_run_id = str(task_run.id) if task_run is not None else None
@@ -246,7 +253,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         created_at=row.created_at.isoformat(),
         started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
         completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
-        summary=row.summary,
+        summary=_project_summary(row.summary, summary_max_chars),
         emitted_count=row.emitted_count or 0,
         emitted_finding_ids=list(row.emitted_finding_ids or []),
         emitted_report_ids=list(row.emitted_report_ids or []),
@@ -300,6 +307,14 @@ def _build_task_url(*, team_id: int, task_id: str | None, task_run_id: str | Non
     if not task_id or not task_run_id:
         return None
     return f"/project/{team_id}/tasks/{task_id}?runId={task_run_id}"
+
+
+def _project_summary(summary: str, max_chars: int | None) -> str:
+    """Truncate a run's `summary` to a preview for the list projection. A negative max clamps to 0;
+    None returns the full body. `get_run` passes None so a single-row detail fetch is never truncated."""
+    if max_chars is None:
+        return summary
+    return summary[: max(max_chars, 0)]
 
 
 def _clamp_limit(limit: int) -> int:

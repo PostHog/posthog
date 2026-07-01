@@ -75,6 +75,7 @@ from products.signals.backend.scout_harness.serializers import (
     FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
+    ListScoutConfigsQuerySerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
@@ -314,7 +315,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
             "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
             "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. "
-            "Results capped at 100."
+            "Pass `summary_max_chars` to truncate each run's `summary` to a preview so a wide "
+            "cold-start sweep stays under the token budget. Results capped at 100."
         ),
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -326,6 +328,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
         limit = validated.get("limit") or 20
+        summary_max_chars = validated.get("summary_max_chars")
         rows = search_recent_runs(
             team_id=_canonical_team_id(self),
             date_from=date_from,
@@ -335,6 +338,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
+            summary_max_chars=summary_max_chars,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
@@ -1279,7 +1283,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     lookup_field = "id"
     pagination_class = None
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=ListScoutConfigsQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
@@ -1291,12 +1296,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "List the per-(team, skill) scout configs for this project — schedule "
             "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
             "authored scout skill appears here once its config is registered, either "
-            "explicitly via create or by the coordinator's next tick."
+            "explicitly via create or by the coordinator's next tick. Pass "
+            "`omit_description=true` to blank each config's skill `description` so a compact "
+            "fleet sweep stays under the token budget."
         ),
         operation_id="signals_scout_config_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        omit_description = (getattr(request, "validated_query_data", {}) or {}).get("omit_description") or False
         # Don't surface held-back scouts here either — keeps the config read surface consistent
         # with the sync response and the seeding gate, so a withheld scout stays invisible to a
         # held-back team across the whole config API. Storage is untouched; the row reappears if
@@ -1308,8 +1316,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             .exclude(skill_name__in=withheld)
             .order_by("skill_name")
         )
+        # `scout_origin` also reads `skill_info`, so keep the lookup even when omitting the
+        # description — the serializer blanks only `description` off the `omit_description` flag.
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
-        serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
+        serializer = SignalScoutConfigSerializer(
+            configs, many=True, context={"skill_info": skill_info, "omit_description": omit_description}
+        )
         return Response(serializer.data)
 
     @extend_schema(

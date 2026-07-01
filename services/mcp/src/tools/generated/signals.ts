@@ -20,6 +20,7 @@ import {
     SignalsReportsStateCreateParams,
     SignalsScoutConfigCreateBody,
     SignalsScoutConfigDestroyParams,
+    SignalsScoutConfigListQueryParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
     SignalsScoutEditReportBody,
@@ -534,7 +535,7 @@ const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSch
     },
 })
 
-const SignalsScoutConfigListSchema = z.object({})
+const SignalsScoutConfigListSchema = SignalsScoutConfigListQueryParams
 
 const signalsScoutConfigList = (): ToolBase<
     typeof SignalsScoutConfigListSchema,
@@ -542,12 +543,14 @@ const signalsScoutConfigList = (): ToolBase<
 > => ({
     name: 'signals-scout-config-list',
     schema: SignalsScoutConfigListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+            query: {
+                omit_description: params.omit_description,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },
@@ -833,6 +836,7 @@ const signalsScoutRunsList = (): ToolBase<
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
+                summary_max_chars: params.summary_max_chars,
                 text: params.text,
             },
         })

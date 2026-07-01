@@ -355,7 +355,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `omit_description=true` to blank each config's skill `description` so a compact fleet sweep stays under the token budget.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -363,6 +363,15 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const SignalsScoutConfigListQueryParams = /* @__PURE__ */ zod.object({
+    omit_description: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, blank each config's `description` (the scout's skill summary, which can run to multiple paragraphs). Use on a compact fleet sweep to keep the response under the token budget — schedule, enablement, and emit posture are unaffected. Omit for the full description."
         ),
 })
 
@@ -521,7 +530,7 @@ export const SignalsScoutProjectProfileGetQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Pass `summary_max_chars` to truncate each run's `summary` to a preview so a wide cold-start sweep stays under the token budget. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -533,6 +542,8 @@ export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const signalsScoutRunsListQueryLimitMax = 100
+
+export const signalsScoutRunsListQuerySummaryMaxCharsMin = 0
 
 export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
@@ -569,6 +580,13 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.'),
+    summary_max_chars: zod
+        .number()
+        .min(signalsScoutRunsListQuerySummaryMaxCharsMin)
+        .optional()
+        .describe(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the full body. The `summary` is a free-text close-out that can run to multiple paragraphs, so a wide orientation sweep can overflow the response budget — set this on a cold-start scan to keep it cheap, then re-query a specific run (`get-run`) for its full summary."
+        ),
     text: zod
         .string()
         .min(1)

@@ -53,6 +53,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsScoutConfigListParams,
     SignalsScoutMembersListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsFindingsSummaryParams,
@@ -418,19 +419,32 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
-export const getSignalsScoutConfigListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/configs/`
+export const getSignalsScoutConfigListUrl = (projectId: string, params?: SignalsScoutConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/`
 }
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `omit_description=true` to blank each config's skill `description` so a compact fleet sweep stays under the token budget.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
     projectId: string,
+    params?: SignalsScoutConfigListParams,
     options?: RequestInit
 ): Promise<SignalScoutConfigApi[]> => {
-    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -613,7 +627,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Pass `summary_max_chars` to truncate each run's `summary` to a preview so a wide cold-start sweep stays under the token budget. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (

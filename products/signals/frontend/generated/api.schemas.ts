@@ -410,7 +410,7 @@ export interface SignalScoutConfigApi {
     readonly id: string
     /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
     readonly skill_name: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team, carries no description, or the search set `omit_description=true`. */
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
@@ -466,7 +466,7 @@ export interface PatchedSignalScoutConfigApi {
     readonly id?: string
     /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
     readonly skill_name?: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team, carries no description, or the search set `omit_description=true`. */
     readonly description?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin?: ScoutOriginEnumApi
@@ -1135,7 +1135,7 @@ export interface SignalScoutRunSummaryApi {
      * @nullable
      */
     task_url?: string | null
-    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Truncated to a preview when the search set `summary_max_chars`. */
     summary: string
     /**
      * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
@@ -1195,7 +1195,7 @@ export interface SignalScoutRunDetailApi {
      * @nullable
      */
     task_url?: string | null
-    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Truncated to a preview when the search set `summary_max_chars`. */
     summary: string
     /**
      * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
@@ -1859,6 +1859,13 @@ export type SignalsReportArtefactsListParams = {
     offset?: number
 }
 
+export type SignalsScoutConfigListParams = {
+    /**
+     * When true, blank each config's `description` (the scout's skill summary, which can run to multiple paragraphs). Use on a compact fleet sweep to keep the response under the token budget — schedule, enablement, and emit posture are unaffected. Omit for the full description.
+     */
+    omit_description?: boolean
+}
+
 export type SignalsScoutMembersListParams = {
     /**
      * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
@@ -1904,6 +1911,11 @@ export type SignalsScoutRunsListParams = {
      * @minimum 1
      */
     skill_version?: number
+    /**
+     * Truncate each run's `summary` to the first N characters (a preview). Omit for the full body. The `summary` is a free-text close-out that can run to multiple paragraphs, so a wide orientation sweep can overflow the response budget — set this on a cold-start scan to keep it cheap, then re-query a specific run (`get-run`) for its full summary.
+     * @minimum 0
+     */
+    summary_max_chars?: number
     /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1

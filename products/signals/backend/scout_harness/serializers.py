@@ -75,7 +75,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         allow_blank=True,
         help_text=(
             "One-paragraph close-out the scout wrote at end-of-run. Empty string for "
-            "runs that errored before close-out. The dedupe key for non-emitting runs."
+            "runs that errored before close-out. The dedupe key for non-emitting runs. "
+            "Truncated to a preview when the search set `summary_max_chars`."
         ),
     )
     error = serializers.CharField(
@@ -360,6 +361,16 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=100,
         help_text="Max rows to return (default 20, hard cap 100).",
+    )
+    summary_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the full "
+            "body. The `summary` is a free-text close-out that can run to multiple paragraphs, so a "
+            "wide orientation sweep can overflow the response budget — set this on a cold-start scan "
+            "to keep it cheap, then re-query a specific run (`get-run`) for its full summary."
+        ),
     )
 
 
@@ -1334,6 +1345,20 @@ class ProjectProfileSerializer(serializers.Serializer):
 # --- Scout config ----------------------------------------------------------
 
 
+class ListScoutConfigsQuerySerializer(serializers.Serializer):
+    """Query parameters for `signals-scout-config-list`."""
+
+    omit_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, blank each config's `description` (the scout's skill summary, which can run "
+            "to multiple paragraphs). Use on a compact fleet sweep to keep the response under the "
+            "token budget — schedule, enablement, and emit posture are unaffected. Omit for the full "
+            "description."
+        ),
+    )
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Per-(team, skill) scout config: schedule, enablement, and emit posture.
 
@@ -1350,7 +1375,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "Human-readable summary of what this scout investigates, sourced from the scout "
             "skill's `description` metadata. Use it for a quick steer on the scout's focus "
             "without loading the full skill body. Empty if the skill is not currently present "
-            "on the team or carries no description."
+            "on the team, carries no description, or the search set `omit_description=true`."
         ),
     )
     scout_origin = serializers.SerializerMethodField(
@@ -1383,6 +1408,10 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
+        # `omit_description` (set by the list view from the query param) blanks the body so a compact
+        # fleet sweep stays under the token budget without a second round-trip.
+        if self.context.get("omit_description"):
+            return ""
         # Resolved by the view into `skill_info` (skill_name -> _ScoutSkillInfo) so the
         # list endpoint stays a single LLMSkill query rather than one lookup per config row.
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)

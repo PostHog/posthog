@@ -173,6 +173,19 @@ class TestSearchRecentRuns(BaseTest):
         assert detail is not None
         assert detail.summary == "emit-free run; only known-noise patterns"
 
+    def test_summary_max_chars_truncates_list_but_leaves_get_run_full(self) -> None:
+        # The list projection truncates each summary to keep a wide orientation sweep cheap; the
+        # single-row detail fetch must stay full — regression guard against the projection leaking
+        # into get_run.
+        run = _create_run(self.team, summary="abcdefghij")
+
+        hits = search_recent_runs(team_id=self.team.id, limit=1, summary_max_chars=4)
+
+        assert hits[0].summary == "abcd"
+        detail = get_run(team_id=self.team.id, run_id=str(run.id))
+        assert detail is not None
+        assert detail.summary == "abcdefghij"
+
     def test_emit_tally_round_trips_through_projection(self) -> None:
         run = _create_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
 
