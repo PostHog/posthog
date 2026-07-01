@@ -14,10 +14,6 @@ CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 # Resources that will always get pulled
 BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "ticket_comments", "tickets", "ticket_metric_events"]
 
-# Endpoints that are NOT pre-selected at source setup — the user must explicitly opt in.
-# ticket_comments carries private/internal agent note bodies, so importing it is opt-in for PII reasons.
-DEFAULT_OFF_ENDPOINTS = {"ticket_comments"}
-
 # Endpoints backed by a Zendesk Incremental Export API, so incremental sync actually
 # reduces the data fetched (the `start_time` cursor is filtered server-side) rather than
 # only changing the write disposition. Endpoints without an incremental export

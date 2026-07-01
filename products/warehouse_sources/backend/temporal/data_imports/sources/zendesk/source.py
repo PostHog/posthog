@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
-    DEFAULT_OFF_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
     PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
@@ -72,7 +71,6 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                 supports_incremental=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_append=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint not in DEFAULT_OFF_ENDPOINTS,
             )
             for endpoint in list(BASE_ENDPOINTS)
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
