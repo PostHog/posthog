@@ -21,6 +21,6 @@ export function tryJsonParse(value: string, fallback?: any): any {
 // unserializable values still throw, same as JSON.stringify. The bigint->string
 // conversion is lossy, which is fine here: the result is only used for
 // URL encoding and change-detection keys, not to reconstruct the original value.
-export function stringifyWithBigInts(value: unknown): string | undefined {
+export function stringifyWithBigInts(value: unknown): string {
     return JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val))
 }
