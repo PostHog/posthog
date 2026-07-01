@@ -300,6 +300,21 @@ def _make_method(name):
     return _
 
 
+async def _emit_async(logger, ctx, method_name, event, **kwargs):
+    """Offload a log emission to the default executor, degrading gracefully at shutdown.
+
+    When a Temporal worker is tearing down, the default asyncio executor may already be
+    closed, so `run_in_executor` raises `RuntimeError: Executor shutdown has been called`.
+    That's a benign shutdown-timing race, not a functional failure, so we fall back to a
+    synchronous emit rather than letting it surface as an error.
+    """
+    emit = lambda: ctx.run(lambda: logger._proxy_to_logger(method_name, event, **kwargs))
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, emit)
+    except RuntimeError:
+        return emit()
+
+
 def _make_async_method(name):
     """Utility function used to generate async logging methods."""
 
@@ -316,10 +331,7 @@ def _make_async_method(name):
         ctx = contextvars.copy_context()
 
         try:
-            return await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: ctx.run(lambda: self._proxy_to_logger(method_name, event, **kwargs)),
-            )
+            return await _emit_async(self, ctx, method_name, event, **kwargs)
         finally:
             structlog.contextvars._ASYNC_CALLING_STACK.reset(scs_token)
 
@@ -437,10 +449,7 @@ class WrapperLogger(structlog.BoundLoggerBase):
         ctx = contextvars.copy_context()
 
         try:
-            return await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: ctx.run(lambda: self._proxy_to_logger(method_name, event, **kwargs)),
-            )
+            return await _emit_async(self, ctx, method_name, event, **kwargs)
         finally:
             structlog.contextvars._ASYNC_CALLING_STACK.reset(scs_token)
 

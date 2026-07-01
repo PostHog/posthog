@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 import freezegun
+from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
@@ -236,6 +237,24 @@ async def test_logger_context(log_capture):
         assert info_dict.pop("lineno") is not None
         assert info_dict.pop("uuid") == str(context_uuid)
         assert not info_dict
+
+
+async def test_async_logger_falls_back_to_sync_when_executor_is_shut_down(log_capture):
+    """Async log emission must not raise when the executor is already shut down.
+
+    During Temporal worker shutdown the default executor can be closed while an
+    activity still logs, so `run_in_executor` raises `RuntimeError`. That's a benign
+    shutdown race; the log should still be emitted synchronously rather than surfacing
+    as an error.
+    """
+    logger = structlog.get_logger("test_async_logger_shutdown")
+
+    loop = asyncio.get_running_loop()
+    with mock.patch.object(loop, "run_in_executor", side_effect=RuntimeError("Executor shutdown has been called")):
+        await logger.adebug("Compacting table...")
+
+    assert len(log_capture.write_entries) == 1
+    assert json.loads(log_capture.write_entries[0])["msg"] == "Compacting table..."
 
 
 async def test_logger_renders_tracebacks(log_capture):
