@@ -19,4 +19,31 @@
             }
         }
     }
+
+    // InsightLabel nests its series name in `w-fit` flex rows that grow to fit
+    // long breakdown/filter pills, pushing the name (e.g. "Ad Views") out of
+    // view. Cap the wrappers and force `min-width: 0` so the name's built-in
+    // text-ellipsis truncation engages instead — same `w-fit` trap already
+    // handled in InsightTooltip.scss. The math tag and pills keep their natural
+    // size (`shrink-0` in InsightLabel), so only the name truncates.
+    .InsightLegendMenu-item {
+        // LemonCheckbox's label is a flexbox; it must allow its label child to
+        // shrink for the truncation below to take effect.
+        .LemonCheckbox__label {
+            min-width: 0;
+        }
+
+        .insights-label,
+        .insights-label * {
+            min-width: 0;
+        }
+
+        .insights-label {
+            overflow: hidden;
+
+            div {
+                max-width: 100%;
+            }
+        }
+    }
 }
