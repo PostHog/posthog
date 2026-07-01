@@ -1,3 +1,7 @@
+// .FunnelTooltip styles live in FunnelBarVertical.scss; import here so they load on the quill funnel
+// charts that reuse this tooltip (the old FunnelBarVertical that used to pull them in is gone).
+import './FunnelBarVertical/FunnelBarVertical.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'

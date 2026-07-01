@@ -4,6 +4,7 @@ SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
+OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
@@ -207,6 +208,7 @@ DEFAULT_TRUSTED_DOMAINS = [
 RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
     {
         "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_WIZARD_API_KEY",
         "POSTHOG_API_URL",
         "POSTHOG_PROJECT_ID",
         "JWT_PUBLIC_KEY",

@@ -556,6 +556,11 @@ export function TaxonomicFilterMenu({
             if (target.closest?.('[data-quill-portal]')) {
                 return
             }
+            // Monaco portals suggestion widgets to a shared body-level div; treat clicks there as
+            // inside so picking a SQL autocomplete value doesn't close the filter.
+            if (target.closest?.('[data-attr="monaco-overflow-root"]')) {
+                return
+            }
             if (triggerWrapRef.current?.contains(target)) {
                 return
             }

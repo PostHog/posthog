@@ -48,8 +48,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
-from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
@@ -897,9 +896,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
+        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule, materialize_saved_query
+
         saved_query = self.get_object()
 
-        trigger_saved_query_schedule(saved_query)
+        if is_saved_query_on_v2_schedule(saved_query):
+            materialize_saved_query(saved_query)
+        else:
+            trigger_saved_query_schedule(saved_query)
 
         log_activity(
             organization_id=self.team.organization_id,

@@ -113,17 +113,19 @@ fn like_to_regex(pattern: &str) -> String {
     result
 }
 
-pub fn get_json_nested(
-    haystack: &Value,
+/// Walk `chain` into `haystack`, returning a borrow tied to `haystack` (a caller needing an owned
+/// value clones only the final subtree). On the hot path of every `GET_GLOBAL`.
+pub fn get_json_nested<'h>(
+    haystack: &'h Value,
     mut chain: &[HogValue],
     vm: &HogVM,
-) -> Result<Option<Value>, VmError> {
+) -> Result<Option<&'h Value>, VmError> {
     let mut current = Some(haystack);
 
     while let Some(val) = current {
         if chain.is_empty() {
             // We found a value pointed to by the last element in the chain
-            return Ok(Some(val.clone()));
+            return Ok(Some(val));
         }
 
         let next_key = chain.first().unwrap().deref(&vm.heap)?;

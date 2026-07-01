@@ -407,7 +407,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());
                 };
-                construct_free_standing(res, 0)
+                // `res` borrows into the local `json`; clone the extracted subtree for the owned
+                // value `construct_free_standing` needs.
+                construct_free_standing(res.clone(), 0)
             })),
         ),
         // Wrapped in `err_to_null` so an unparseable input becomes `Null`, letting a leaf's
@@ -1772,7 +1774,7 @@ fn json_path_value(vm: &HogVM, args: &[HogValue]) -> Result<Option<JsonValue>, V
     if path.is_empty() {
         return Ok(Some(json));
     }
-    Ok(get_json_nested(&json, path, vm).unwrap_or(None))
+    Ok(get_json_nested(&json, path, vm).unwrap_or(None).cloned())
 }
 
 // position(haystack, needle): 1-based char index of str(needle) in haystack, or 0 if absent (or

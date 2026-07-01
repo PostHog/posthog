@@ -18,6 +18,7 @@ import { KpiTiles } from './dashboard/KpiTiles'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -30,7 +31,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         dailyActivity,
-        activityIncompleteTail,
         activityRowsLoading,
         toolDailySeries,
         toolDailyRowsLoading,
@@ -51,6 +51,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <MCPAnalyticsFirstLook />
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                     <McpDateFilter
@@ -94,7 +95,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
-                                incompleteTail={activityIncompleteTail}
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />

@@ -54,8 +54,14 @@ from products.notebooks.backend.facade import (
 # account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
 # CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
+from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
 from . import contracts
+
+# The "Update account property" workflow action (Hog template) stores the custom property values it
+# sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+_ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
+_ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -352,6 +358,57 @@ def update_external_account(
     return contracts.ExternalAccountUpdateResult(account=_to_external_account(account))
 
 
+def set_external_account_custom_properties(
+    team_id: int,
+    external_id: str,
+    *,
+    properties: dict[str, Any],
+    created_by_id: int | None = None,
+) -> contracts.ExternalAccountCustomPropertiesResult:
+    """Set custom property values on an account by definition id, for the external API.
+
+    Resolves the account by external id, then applies every ``{definition_id: value}`` pair
+    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
+    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
+    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+    """
+    account = _get_external_account_by_external_id(team_id, external_id)
+    if account is None:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND
+        )
+
+    try:
+        with transaction.atomic():
+            rows = _custom_property_values_logic.set_account_custom_properties_by_id(
+                team_id=team_id,
+                account_id=account.id,
+                properties=properties,
+                created_by_id=created_by_id,
+            )
+    except _custom_property_values_logic.CustomPropertyDefinitionNotFound as exc:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND,
+            error_field=str(exc.identifier),
+        )
+    except _custom_property_values_logic.InvalidCustomPropertyValue as exc:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE,
+            error_field=exc.field,
+        )
+    except _custom_property_values_logic.CustomPropertyValueConflict:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.CONFLICT
+        )
+    except Exception as e:
+        capture_exception(e, {"external_id": external_id})
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
+        )
+
+    return contracts.ExternalAccountCustomPropertiesResult(values=[_to_custom_property_value(row) for row in rows])
+
+
 # ---------------------------------------------------------------------------
 # Presentation wave: account / customer-journey / profile-config CRUD.
 #
@@ -603,6 +660,7 @@ def delete_customer_profile_config(
 
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
+    references: list[contracts.CustomPropertyReference] | None = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
         id=definition.id,
@@ -613,22 +671,68 @@ def _to_custom_property_definition_view(
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
+        references=references or [],
     )
 
 
+def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
+    """Whether the caller may see the workflows that reference a custom property.
+
+    ``references`` exposes HogFlow metadata (id, name, status), so it's gated on the caller
+    having at least viewer access to the ``hog_flow`` resource — the property-definition API is
+    authorized as ``account``, and a caller without workflow read access must not enumerate
+    workflows through it. Without RBAC restrictions this resolves to the default (allowed)."""
+    return user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+
+
+def _custom_property_references_by_definition_id(
+    team_id: int, definition_id: str | None = None
+) -> dict[str, list[contracts.CustomPropertyReference]]:
+    """Map each referenced definition id to the workflows that set it via the "Update account
+    property" action. One scan of the team's workflows, matched by definition id. Pass
+    ``definition_id`` to scan for just that one definition (the single-definition lookup)."""
+    usage = get_hog_flows_referencing_template_input_keys(
+        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY, only_value_key=definition_id
+    )
+    return {
+        referenced_id: [
+            contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
+            for ref in refs
+        ]
+        for referenced_id, refs in usage.items()
+    }
+
+
 def list_custom_property_definitions(
-    team_id: int, offset: int, limit: int
+    team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
-    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``."""
+    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
+
+    ``references`` (the workflows referencing each definition) is included only when the caller can
+    read workflows — see ``_can_read_workflow_references``."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_custom_property_definition_view(d) for d in page], total_count
+    references = (
+        _custom_property_references_by_definition_id(team_id)
+        if _can_read_workflow_references(user_access_control)
+        else {}
+    )
+    return [_to_custom_property_definition_view(d, references.get(str(d.id), [])) for d in page], total_count
 
 
-def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
+def get_custom_property_definition(
+    team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
+) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
-    return _to_custom_property_definition_view(definition) if definition is not None else None
+    if definition is None:
+        return None
+    references: list[contracts.CustomPropertyReference] = []
+    if _can_read_workflow_references(user_access_control):
+        references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
+            str(definition.id), []
+        )
+    return _to_custom_property_definition_view(definition, references)
 
 
 def create_custom_property_definition(
