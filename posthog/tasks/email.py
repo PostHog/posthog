@@ -751,8 +751,7 @@ def send_matview_failure_digest() -> None:
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
     # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    # Exclude the duckgres shadow: it shares saved_query_id and stamps last_run_at, so a shadow failure would otherwise
-    # masquerade as the model's latest result and email a false alert for a model whose real materialization is healthy.
+    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
     latest_job = (
         DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
         .exclude(engine=DataModelingJobEngine.DUCKGRES)
@@ -836,7 +835,6 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     all_ids = list(set(failed_query_ids + paused_query_ids))
     queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
 
-    # Exclude the duckgres shadow so a shadow failure can't surface as the model's latest result.
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
         DataModelingJob.objects.filter(saved_query_id__in=all_ids)

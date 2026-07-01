@@ -1978,7 +1978,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             status=DataModelingJob.Status.COMPLETED,
             last_run_at=timezone.now() - dt.timedelta(hours=2),
         )
-        # duckgres shadow failed more recently than the healthy ClickHouse run — must not alert the customer
         DataModelingJob.objects.create(
             team=self.team,
             saved_query=saved_query,
@@ -1991,6 +1990,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 0
+
+    def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from products.data_modeling.backend.facade.models import (
+            DataModelingJob,
+            DataModelingJobEngine,
+            DataWarehouseSavedQuery,
+        )
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="failing_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.FAILED,
+            error="clickhouse boom",
+            last_run_at=timezone.now() - dt.timedelta(hours=2),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.DUCKGRES,
+            error="duckgres boom",
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert "clickhouse boom" in mocked_email_messages[0].html_body
+        assert "duckgres boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
         from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
