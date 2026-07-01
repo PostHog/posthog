@@ -3,7 +3,13 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.common.utils import close_db_connections, make_sync_retryable_with_exponential_backoff
+import django.db
+
+from posthog.temporal.common.utils import (
+    aretry_on_db_connection_drop,
+    close_db_connections,
+    make_sync_retryable_with_exponential_backoff,
+)
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -189,3 +195,47 @@ def test_close_db_connections_preserves_sync_signature_for_temporal():
     assert not inspect.iscoroutinefunction(wrapped)
     assert wrapped.__name__ == "fn"
     assert wrapped.__annotations__ == {"value": int, "return": str}
+
+
+@pytest.mark.parametrize("exc_type", [django.db.OperationalError, django.db.InterfaceError])
+@pytest.mark.asyncio
+async def test_aretry_on_db_connection_drop_retries_once_then_succeeds(exc_type):
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise exc_type("server closed the connection unexpectedly")
+        return "ok"
+
+    assert await aretry_on_db_connection_drop(operation) == "ok"
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_aretry_on_db_connection_drop_propagates_second_failure():
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        raise django.db.OperationalError("still down")
+
+    with pytest.raises(django.db.OperationalError):
+        await aretry_on_db_connection_drop(operation)
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_aretry_on_db_connection_drop_does_not_retry_unrelated_error():
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        raise ValueError("not a connection drop")
+
+    with pytest.raises(ValueError):
+        await aretry_on_db_connection_drop(operation)
+    assert calls == 1

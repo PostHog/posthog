@@ -56,6 +56,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 from posthog.temporal.data_modeling.activities.fail_materialization import (
     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
     should_pause_schedule_for_timeout,
@@ -1280,6 +1281,7 @@ class InvalidSelector(Exception):
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1420,6 +1422,7 @@ class CreateJobModelInputs:
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -1497,6 +1500,7 @@ def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
     """Marks orphaned RUNNING DataModelingJobs for this saved query as FAILED when starting a new run."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1518,6 +1522,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1554,6 +1559,7 @@ class FinishRunActivityInputs:
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1594,9 +1600,13 @@ async def update_saved_query_status(
         )
         filter_params["name"] = label
 
-    saved_query = await database_sync_to_async(
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(**filter_params).get
-    )()
+    # Connect-time read: the long-lived worker pools connections via pgbouncer, so a stale
+    # pooled connection can raise OperationalError on first use. Retry once on a fresh one.
+    saved_query = await aretry_on_db_connection_drop(
+        lambda: database_sync_to_async(
+            DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(**filter_params).get
+        )()
+    )
 
     if run_at:
         saved_query.last_run_at = run_at
@@ -1624,6 +1634,7 @@ class FailJobsActivityInputs:
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1638,6 +1649,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
