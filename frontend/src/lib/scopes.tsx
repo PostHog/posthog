@@ -244,7 +244,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
+        // llm_gateway:read is a privileged scope — the backend rejects it for
+        // unprivileged flows, matching the same exclusion in the mcp_server preset.
+        scopes: API_SCOPES.filter(({ key }) => key !== 'llm_gateway').map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

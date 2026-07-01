@@ -54,9 +54,10 @@ const DEFAULT_SCOPES = getDefaultScopesForUseCases(DEFAULT_USE_CASES)
 
 // `read` for every scope that supports it (write-disabled scopes like file_system
 // still allow read; only skip scopes whose read action is disabled).
-const READ_ONLY_SCOPES = API_SCOPES.filter(({ disabledActions }) => !disabledActions?.includes('read')).map(
-    ({ key }) => `${key}:read`
-)
+const READ_ONLY_SCOPES = API_SCOPES.filter(
+    // llm_gateway:read is privileged — the backend rejects it for unprivileged flows.
+    ({ disabledActions, key }) => !disabledActions?.includes('read') && key !== 'llm_gateway'
+).map(({ key }) => `${key}:read`)
 
 // Presets offered in the consent screen dropdown. Values match the URL `use_cases`
 // so a requested use case maps onto the matching preset.
@@ -173,6 +174,10 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                         throw { projectId: 'You do not have access to this project.' }
                     } else if (errorCode === 'invalid_project') {
                         throw { projectId: 'Project not found.' }
+                    } else if (errorCode === 'invalid_scope') {
+                        throw {
+                            scopes: 'One or more selected scopes are not permitted. Try choosing a different preset.',
+                        }
                     } else {
                         throw { userCode: 'An error occurred. Please try again.' }
                     }
