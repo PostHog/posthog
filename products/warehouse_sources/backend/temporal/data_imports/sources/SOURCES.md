@@ -458,6 +458,7 @@ doesn't conflict with concurrent PRs.
 - insightful
 - insightly
 - instagram
+- instantly
 - instatus
 - interzoid
 - intruder
