@@ -16,10 +16,10 @@ connections, sync schemas, and webhook push channels. Use it when the user wants
 their imports**, not a deep-dive on one sync. The deep-dive on individual failures is
 `diagnosing-failed-warehouse-syncs`; this skill is the scan that tells them where to look first.
 
-The same underlying endpoint (`data-warehouse-data-health-issues-retrieve`) also reports materialized-view,
-batch-export-destination, and transformation issues. Materialized views are covered by
-`auditing-warehouse-view-health`. Destinations (batch exports) and transformations are owned by other products — surface
-them if they appear, but route them to the relevant team rather than diagnosing here.
+The health-issues tools report every kind of health check in the project, not just sources — materialized-view
+failures, ingestion warnings, outdated SDKs, web-analytics setup gaps, and more. Materialized views are covered by
+`auditing-warehouse-view-health`. The other health-check kinds are owned by other products — surface them if they
+appear, but route them to the relevant team rather than diagnosing here.
 
 ## When to use this skill
 
@@ -31,58 +31,69 @@ them if they appear, but route them to the relevant team rather than diagnosing 
 
 ## Available tools
 
-| Tool                                          | Purpose                                                            |
-| --------------------------------------------- | ------------------------------------------------------------------ |
-| `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline      |
-| `external-data-sources-list`                  | All sources with status and latest error                           |
-| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error              |
-| `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by data-health-issues) |
+| Tool                                          | Purpose                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `health-issues-summary`                       | One-shot: active health-issue counts by `kind` and `severity` across the project |
+| `health-issues-list`                          | Active health issues, filterable by `kind`, `severity`, `status`, `dismissed`    |
+| `health-issues-get`                           | One issue's full `payload` plus trusted `remediation` (`human` + `agent`)        |
+| `external-data-sources-list`                  | All sources with status and latest error                                         |
+| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error                            |
+| `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by health issues)                    |
 
-The `data-health-issues` endpoint aggregates across the whole pipeline — it's the fastest path to a summary. Filter
-its results to the `source` and `external_data_sync` types for this audit. Use the list endpoints when you need more
-context than the summary provides (row counts, non-failing items, schema-level detail).
+The health-issues tools aggregate across every health check — they're the fastest path to a summary. Call
+`health-issues-summary` for the counts, then `health-issues-list` with `kind=external_data_failure` (always pass
+`status=active` and `dismissed=false` — the list does **not** default-exclude resolved or dismissed issues), and
+`health-issues-get` for a single issue's `remediation`. Use the external-data list endpoints when you need more
+context than the summary provides (row counts, non-failing items, schema-level detail, source-level status).
 
 ## What counts as a source/sync "issue"
 
-From the data-health endpoint, this audit cares about two of the five categories:
+From the health-issues tools, this audit cares about a single `kind`:
 
-| `type`               | Trigger                                                                                                                                       | Typical urgency |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `source`             | `ExternalDataSource.status = Error` — whole source connection broken                                                                          | High            |
-| `external_data_sync` | schema in Failed or BillingLimitReached state (the data-health endpoint returns `status: "failed"` or `status: "billing_limit"` respectively) | Medium–High     |
+| `kind`                  | Trigger                                                                                                     | Typical severity |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------- |
+| `external_data_failure` | A sync schema is `Failed`, has hit a billing limit, or was paused with an error — the source/sync is broken | `warning`        |
 
-Each entry includes `id`, `name`, `type`, `status`, `error`, `failed_at`, `url`, and `source_type`.
+Each issue carries a top-level `kind`, `severity` (`critical`/`warning`/`info`), and `status` (`active`/`resolved`),
+plus a check-specific `payload` (`pipeline_name`, `pipeline_id`, `source_type`, `error`). `health-issues-get` adds a
+human `title`, `summary`, `link`, and trusted `remediation`. The failing schema's `error` text (or a cross-check via
+`external-data-schemas-list`) is what distinguishes a credential/schema failure from a billing-limit stop.
 
-The other categories the endpoint returns are out of scope for this skill:
+The other `kind`s the health checks return are out of scope for this skill:
 
-- `materialized_view` → `auditing-warehouse-view-health`
-- `destination` (batch export) → owned by the batch exports / data pipelines product
-- `transformation` (HogFunction) → owned by the CDP / ingestion side
+- `materialized_view_failure` → `auditing-warehouse-view-health`
+- setup-health kinds (`sdk_outdated`, `ingestion_warning`, `web_vitals`, `reverse_proxy`, …) → owned by the relevant
+  product (growth / ingestion / web analytics); route, don't diagnose here
 
-Note the data-health endpoint only reports _active failures_. For source/sync health it doesn't flag:
+Note the health checks only report _active failures_. For source/sync health they don't flag:
 
-- Schemas paused by the user (`should_sync = false`)
+- Schemas paused by the user with no recorded error (`should_sync = false`, no `latest_error`)
 - Schemas that are slow or stale but technically `Completed`
 - **Webhook problems on `sync_type: "webhook"` schemas.** The bulk-sync safety net can succeed while the webhook
   push channel is silently broken (deregistered, disabled on the remote side, failing signature verification).
-  These don't surface in `data-health-issues` — check per-source with `webhook-info-retrieve`.
+  These don't surface as health issues — check per-source with `webhook-info-retrieve`.
 
-If the user asks about staleness or unused items, reach beyond this endpoint — see Step 4.
+If the user asks about staleness or unused items, reach beyond these tools — see Step 4.
 
 ## Workflow
 
 ### Step 1 — One-shot pull
 
-Call `data-warehouse-data-health-issues-retrieve` and keep the `source` and `external_data_sync` entries.
+Call `health-issues-summary` for the by-`kind` counts, then `health-issues-list` with `kind=external_data_failure`,
+`status=active`, `dismissed=false` to pull the failing sources/syncs. Use `health-issues-get` on any issue whose
+`remediation` you want to relay.
 
-If there are no source/sync issues, tell the user their sources are healthy and stop. Don't invent problems.
+If there are no `external_data_failure` issues, tell the user their sources are healthy and stop. Don't invent
+problems.
 
 ### Step 2 — Group and prioritize
 
-1. **Sources in Error first.** A source failure cascades — every schema under it is effectively dead until the
-   source reconnects. Fix these first.
-2. **Sync schemas next**, in this order:
-   - `status: "billing_limit"` entries (billing issue, non-technical — flag and route to billing)
+1. **Whole-source failures first.** When many `external_data_failure` issues share one `source_type` (or, via
+   `external-data-sources-list`, one source sitting in `Error`), that's a cascade — every schema under the source is
+   effectively dead until it reconnects. Fix the source first.
+2. **Individual sync schemas next**, in this order:
+   - Billing-limit stops (the `error` text says so, or `external-data-schemas-list` shows `BillingLimitReached`) —
+     billing issue, non-technical, flag and route to billing
    - `Failed` on heavily-used tables (user asks / check row counts via schemas-list if needed)
    - `Failed` on less-used tables
 
@@ -160,10 +171,10 @@ Any fix should be confirmed explicitly before executing.
   (or will be, once they try to sync again). The user needs to understand the blast radius.
 - **Billing limits aren't technical problems.** Flag them but route to billing / quota discussion, not to a
   recovery action.
-- **`data-health-issues` only surfaces active failures.** For staleness or abandoned sources you need to cross-check
+- **The health checks only surface active failures.** For staleness or abandoned sources you need to cross-check
   the list endpoints. Only do this when the user explicitly asks for a deeper audit.
-- **Webhook health is separate from schema health.** The data-health endpoint doesn't know about webhook state.
+- **Webhook health is separate from schema health.** The health checks don't know about webhook state.
   When a user's request mentions "real-time", "Stripe webhook", or "why is data hours behind on a webhook
   source", go straight to `webhook-info-retrieve` rather than inferring from schema status.
-- **Materialized views, destinations, and transformations are out of scope here.** They share the data-health
-  endpoint but belong to other audits/products — route, don't diagnose.
+- **Materialized views and setup-health kinds are out of scope here.** They surface through the same health-issues
+  tools but belong to other audits/products — route, don't diagnose.

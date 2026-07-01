@@ -13,10 +13,10 @@ This skill produces a project-wide audit of **materialized views** (materialized
 — which ones are failing, and which are materialized but unused. Use it when the user wants a summary of view health,
 not a deep-dive on one failure.
 
-The same underlying endpoint (`data-warehouse-data-health-issues-retrieve`) also reports source, sync, batch-export,
-and transformation issues. Source and sync health is covered by `auditing-warehouse-source-health`. Destinations
-(batch exports) and transformations are owned by other products — surface them if they appear, but route them to the
-relevant team rather than diagnosing here.
+The health-issues tools report every kind of health check in the project, not just views — source-sync failures,
+ingestion warnings, outdated SDKs, web-analytics setup gaps, and more. Source and sync health is covered by
+`auditing-warehouse-source-health`. The other health-check kinds are owned by other products — surface them if they
+appear, but route them to the relevant team rather than diagnosing here.
 
 ## When to use this skill
 
@@ -27,33 +27,39 @@ relevant team rather than diagnosing here.
 
 ## Available tools
 
-| Tool                                         | Purpose                                                             |
-| -------------------------------------------- | ------------------------------------------------------------------- |
-| `data-warehouse-data-health-issues-retrieve` | One-shot: all failed/degraded items across the whole pipeline       |
-| `view-list`                                  | All saved queries / materialized views with status and latest_error |
-| `view-run-history`                           | Run history for a specific materialized view                        |
+| Tool                    | Purpose                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| `health-issues-summary` | One-shot: active health-issue counts by `kind` and `severity` across the project  |
+| `health-issues-list`    | Active health issues, filterable by `kind`, `severity`, `status`, `dismissed`     |
+| `health-issues-get`     | One issue's full `payload` plus trusted `remediation` (`human` + `agent`)         |
+| `view-list`             | All saved queries / materialized views with status and latest_error               |
+| `view-run-history`      | Run history for a specific materialized view                                      |
 
-Filter the `data-health-issues` results to the `materialized_view` type for this audit. Use `view-list` when you need
-more than the active-failure summary (non-failing views, materialization flags, last-queried info) and
+Call `health-issues-summary` for the one-shot counts, then `health-issues-list` with `kind=materialized_view_failure`
+for the failing views (always pass `status=active` and `dismissed=false` — the list does **not** default-exclude
+resolved or dismissed issues), and `health-issues-get` for a single issue's `remediation`. Use `view-list` when you
+need more than the active-failure summary (non-failing views, materialization flags, last-queried info) and
 `view-run-history` to see the run trail for a specific view.
 
 ## What counts as a view "issue"
 
-From the data-health endpoint, this audit cares about one of the five categories:
+From the health-issues tools, this audit cares about a single `kind`:
 
-| `type`              | Trigger                                                       | Typical urgency |
-| ------------------- | ------------------------------------------------------------- | --------------- |
-| `materialized_view` | `DataWarehouseSavedQuery.is_materialized=true, status=Failed` | Medium          |
+| `kind`                      | Trigger                                                                | Typical severity |
+| --------------------------- | ---------------------------------------------------------------------- | ---------------- |
+| `materialized_view_failure` | A saved query failed to materialize (`status=Failed` or a build error) | `warning`        |
 
-Each entry includes `id`, `name`, `type`, `status`, `error`, `failed_at`, and `url`.
+Each issue carries a top-level `kind`, `severity` (`critical`/`warning`/`info`), and `status` (`active`/`resolved`),
+plus a check-specific `payload` (`pipeline_name`, `pipeline_id`, `error`). `health-issues-get` adds a human `title`,
+`summary`, `link`, and trusted `remediation`.
 
-The other categories the endpoint returns are out of scope for this skill:
+The other `kind`s the health checks return are out of scope for this skill:
 
-- `source` / `external_data_sync` → `auditing-warehouse-source-health`
-- `destination` (batch export) → owned by the batch exports / data pipelines product
-- `transformation` (HogFunction) → owned by the CDP / ingestion side
+- `external_data_failure` (source/sync failures) → `auditing-warehouse-source-health`
+- setup-health kinds (`sdk_outdated`, `ingestion_warning`, `web_vitals`, `reverse_proxy`, …) → owned by the relevant
+  product (growth / ingestion / web analytics); route, don't diagnose here
 
-Note the data-health endpoint only reports _active failures_. For views it doesn't flag:
+Note the health checks only report _active failures_. For views they don't flag:
 
 - Non-materialized views with errors (only materialized views are reported)
 - Materialized views that are healthy but unused (costing compute every run) — see Step 4
@@ -62,9 +68,12 @@ Note the data-health endpoint only reports _active failures_. For views it doesn
 
 ### Step 1 — One-shot pull
 
-Call `data-warehouse-data-health-issues-retrieve` and keep the `materialized_view` entries.
+Call `health-issues-summary` for the by-`kind` counts, then `health-issues-list` with
+`kind=materialized_view_failure`, `status=active`, `dismissed=false` to pull the failing views. Use
+`health-issues-get` on any issue whose `remediation` you want to relay.
 
-If there are no view issues, tell the user their materialized views are healthy and stop. Don't invent problems.
+If there are no `materialized_view_failure` issues, tell the user their materialized views are healthy and stop.
+Don't invent problems.
 
 ### Step 2 — Triage failures
 
@@ -107,5 +116,5 @@ autonomously from an audit; confirm explicitly before editing or unmaterializing
 - **Empty = healthy.** Don't pad an empty audit with hypothetical issues. "No view issues found" is a good answer.
 - **View failures are usually self-contained.** Unlike source failures, a failed materialized view rarely cascades —
   it's a query problem in that view. Don't imply a broader outage.
-- **Sources, syncs, destinations, and transformations are out of scope here.** They share the data-health endpoint
-  but belong to other audits/products — route, don't diagnose.
+- **Sources, syncs, and setup-health kinds are out of scope here.** They surface through the same health-issues
+  tools but belong to other audits/products — route, don't diagnose.
