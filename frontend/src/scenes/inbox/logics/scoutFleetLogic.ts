@@ -317,21 +317,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     return
                 }
                 const displayName = prettifyScoutSkillName(config.skill_name)
-                const teamId = teamLogic.values.currentTeamId
+                // Scout skills are seeded under the canonical (parent/root) team, and the coordinator's
+                // `register_missing_configs` only scans skill rows there — so archive against the canonical
+                // project id, not the raw child-environment team id. Archiving the child team would 404 (the
+                // skill lives on the parent), get swallowed as "already archived" below, and leave a live
+                // skill the coordinator re-seeds. `currentProjectId` mirrors the backend `_canonical_team_id`
+                // (parent_team_id or team_id); it's '@current' until the team loads, which we reject.
+                const canonicalProjectId = teamLogic.values.currentProjectId
                 try {
                     // Archiving the skill is the permanent off switch: the coordinator won't re-seed a
                     // tombstoned skill or re-create its config. Only custom scouts are deletable — the UI
                     // offers canonical ones disable instead, since a deleted canonical scout can't be re-added.
                     if (config.scout_origin === 'custom') {
                         // A custom scout's config must never be dropped without first archiving its skill —
-                        // otherwise the coordinator re-seeds the config and the scout runs again. If the team
-                        // can't be resolved to archive, fail here instead of half-deleting (the outer catch
-                        // surfaces the error and reloads, leaving the row intact).
-                        if (!teamId) {
+                        // otherwise the coordinator re-seeds the config and the scout runs again. If the
+                        // project can't be resolved to archive, fail here instead of half-deleting (the outer
+                        // catch surfaces the error and reloads, leaving the row intact).
+                        if (typeof canonicalProjectId !== 'number') {
                             throw new Error('Could not resolve the active project to archive the scout')
                         }
                         try {
-                            await llmSkillsNameArchiveCreate(String(teamId), config.skill_name)
+                            await llmSkillsNameArchiveCreate(String(canonicalProjectId), config.skill_name)
                         } catch (error: any) {
                             // Already archived (e.g. retrying after a partial failure) — fall through to
                             // clear the leftover config rather than dead-ending on a 404.
