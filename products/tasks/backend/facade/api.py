@@ -166,7 +166,6 @@ __all__ = [
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
-    "send_permission_response",
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
@@ -4044,27 +4043,6 @@ def send_user_message(
     if timeout is not None:
         extra["timeout"] = timeout
     return _send(run, message, auth_token=auth_token, **extra)
-
-
-def send_permission_response(
-    run_id: str | UUID,
-    *,
-    request_id: str,
-    option_id: str,
-    auth_token: str | None = None,
-):
-    """Answer a pending agent permission request in a run's live sandbox."""
-    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_agent_command,
-    )
-
-    run = TaskRun.objects.select_related("task").get(id=run_id)
-    return send_agent_command(
-        run,
-        method="permission_response",
-        params={"requestId": request_id, "optionId": option_id},
-        auth_token=auth_token,
-    )
 
 
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):

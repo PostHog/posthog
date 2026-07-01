@@ -22,6 +22,16 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
             "re-plan against the current connections",
         ),
         (
+            "User-authored run run-1 requires a linked GitHub account with repo access.",
+            SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
+            "connecting the missing tool",
+        ),
+        (
+            "Slack run requires an acting user before refreshing GitHub credentials.",
+            SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
+            "connecting the missing tool",
+        ),
+        (
             "Task is infeasible without the missing information",
             SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
             "missing detail",

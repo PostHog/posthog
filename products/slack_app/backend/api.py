@@ -3229,7 +3229,7 @@ def _selected_permission_mode(payload: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _sync_permission_config_to_task_run(context: dict[str, Any], integration: Integration, selected_tier: str) -> None:
+def _sync_permission_mode_to_task_run(context: dict[str, Any], integration: Integration, selected_mode: str) -> None:
     run_id = context.get("run_id")
     task_id = context.get("task_id")
     if not isinstance(run_id, str) or not isinstance(task_id, str):
@@ -3242,7 +3242,7 @@ def _sync_permission_config_to_task_run(context: dict[str, Any], integration: In
     if task_run is None or str(task_run.task_id) != task_id or task_run.is_terminal:
         return
 
-    tasks_facade.update_task_run_state(task_run.id, updates={"slack_autonomy_tier": selected_tier})
+    tasks_facade.update_task_run_state(task_run.id, updates={"slack_permission_mode": selected_mode})
 
 
 def _handle_permission_config_select(payload: dict) -> HttpResponse:
@@ -3270,7 +3270,7 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
             "permission_mode": selected_mode,
         },
     )
-    _sync_permission_config_to_task_run(context, integration, selected_tier)
+    _sync_permission_mode_to_task_run(context, integration, selected_mode)
 
     selected_label = SlackPermissionMode(selected_mode).label
     _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")

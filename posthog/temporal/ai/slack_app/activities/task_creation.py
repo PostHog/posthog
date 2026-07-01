@@ -36,6 +36,8 @@ _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 # channel that mostly ignored the bot); we surface the most recent slice so the
 # update stays bounded and the agent doesn't drown in scrollback.
 _THREAD_UPDATE_MAX_MESSAGES = 50
+# Sandbox session permission mode the run launches with (a subset of the tasks
+# product's ClaudePermissionMode values — see products/tasks/backend/constants.py).
 _InitialPermissionMode = Literal["default", "plan"]
 
 
@@ -490,8 +492,10 @@ def create_posthog_code_task_for_repo_activity(
     except Exception:
         logger.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
-    # Task kind only controls code/PR behavior; the Slack permission mode controls PostHog MCP scope.
-    allow_pr_creation = resolved_task_kind == tasks_facade.TaskKind.CODING
+    # Slack tasks can intentionally start without an attached repository. Keep
+    # PR tooling enabled so an explicit follow-up can clone a repo and publish.
+    # The Slack permission mode controls PostHog MCP scope.
+    allow_pr_creation = True
     permission_policy = _resolve_slack_permission_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
@@ -517,7 +521,7 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
             initial_permission_mode=permission_policy.initial_permission_mode,
             runtime_adapter=ai_prefs.runtime_adapter,
             model=ai_prefs.model,
@@ -608,7 +612,7 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
 
 
@@ -970,8 +974,7 @@ def _resume_task_with_new_run(
         )
         return True
 
-    is_general_task = mapping.task.task_kind == tasks_facade.TaskKind.GENERAL
-    create_pr = not is_general_task
+    create_pr = True
     permission_policy = _resolve_slack_permission_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
@@ -981,7 +984,6 @@ def _resume_task_with_new_run(
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",
-        "task_kind": mapping.task.task_kind,
         "initial_permission_mode": permission_policy.initial_permission_mode,
         **_slack_permission_state_updates(permission_policy),
         **_slack_actor_state_updates(user_id=run_actor.id, slack_user_id=slack_user_id),
@@ -1054,7 +1056,7 @@ def _resume_task_with_new_run(
             user_id=run_actor.id,
             create_pr=create_pr,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
     except Exception:
         logger.exception(

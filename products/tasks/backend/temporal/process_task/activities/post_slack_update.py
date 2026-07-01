@@ -37,6 +37,10 @@ _CONNECT_THEN_REPLAN_MARKERS = (
     "missing scope",
     "no connected github",
     "repository selection expired",
+    # Raised by the fail-closed Slack actor credential paths in
+    # process_task/utils.py and sandbox_credentials.py.
+    "linked github account",
+    "requires an acting user",
 )
 _UNBLOCK_AND_REPLAN_MARKERS = (
     "infeasible",
