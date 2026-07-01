@@ -124,13 +124,16 @@ export const TopToolsPerServer: Story = {
         // open_query loads SAMPLE_SQL into a tab but doesn't run it. Wait for the Run button to
         // become enabled (query loaded + HogQLMetadata resolved), click it, then wait for the
         // results grid so SQL_RESULTS is actually rendered in the snapshot.
-        const runButton = await waitFor(() => {
-            const button = document.querySelector<HTMLButtonElement>('[data-attr="sql-editor-run-button"]')
-            if (!button || button.disabled) {
-                throw new Error('Run button not ready')
-            }
-            return button
-        })
+        const runButton = await waitFor(
+            () => {
+                const button = document.querySelector<HTMLButtonElement>('[data-attr="sql-editor-run-button"]')
+                if (!button || button.disabled) {
+                    throw new Error('Run button not ready')
+                }
+                return button
+            },
+            { timeout: 5000 }
+        )
         runButton.click()
         await waitFor(
             () => {
