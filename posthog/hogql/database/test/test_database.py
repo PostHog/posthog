@@ -883,6 +883,54 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    def test_skip_data_warehouse_omits_warehouse_hydration_but_keeps_core_tables(self):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            name="whatever0",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="",
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="whatever_view0",
+            query={"query": "SELECT id FROM whatever0"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="whatever0",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        sources = Database._fetch_sources(team=self.team, skip_data_warehouse=True)
+
+        assert sources.warehouse_tables == []
+        assert sources.saved_queries == []
+        assert sources.endpoint_saved_queries == []
+        assert sources.data_warehouse_joins == []
+
+        db = Database._build_from_sources(sources)
+        # Warehouse tables/views/joins are gone, but the core ClickHouse embedding table still resolves.
+        assert not db.has_table("whatever0")
+        assert "some_field" not in db.get_table("events").fields
+        assert db.has_table("document_embeddings_text_embedding_3_large_3072")
+
+    def test_skip_data_warehouse_rejects_direct_connection(self):
+        with self.assertRaises(ValueError):
+            Database._fetch_sources(
+                team=self.team,
+                connection_id="00000000-0000-0000-0000-000000000000",
+                skip_data_warehouse=True,
+            )
+
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"

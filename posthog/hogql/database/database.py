@@ -1053,6 +1053,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        skip_data_warehouse: bool = False,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1066,6 +1067,7 @@ class Database(BaseModel):
             timings=timings,
             connection_id=connection_id,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            skip_data_warehouse=skip_data_warehouse,
         )
         return Database._build_from_sources(sources, timings=timings)
 
@@ -1080,9 +1082,17 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        skip_data_warehouse: bool = False,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
-        database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
+        database, returning a bundle that Database._build_from_sources turns into tables with no I/O.
+
+        When skip_data_warehouse is set, all data-warehouse hydration (tables, sources, schemas,
+        saved queries, revenue views, joins) is skipped. Callers whose query only touches core
+        ClickHouse tables use this to avoid the warehouse Postgres load entirely — it is
+        incompatible with connection_id (direct queries require the warehouse tables)."""
+        if connection_id is not None and skip_data_warehouse:
+            raise ValueError("skip_data_warehouse cannot be combined with a direct connection_id")
         if timings is None:
             timings = HogQLTimings()
 
@@ -1111,7 +1121,9 @@ class Database(BaseModel):
         is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
-            is_managed_viewset_enabled = feature_enabled_or_false(
+            # Both flags only gate warehouse tables/views, so skip the evaluation entirely when the
+            # caller opted out of warehouse hydration.
+            is_managed_viewset_enabled = not skip_data_warehouse and feature_enabled_or_false(
                 "managed-viewsets",
                 str(team.uuid),
                 groups={
@@ -1153,7 +1165,7 @@ class Database(BaseModel):
                 team, user, user_access_control
             )
 
-        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
+        is_hogql_warehouse_access_control_enabled = not skip_data_warehouse and feature_enabled_or_false(
             "hogql-warehouse-access-control",
             str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
@@ -1175,7 +1187,7 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
             # Direct-connection queries do not expose saved queries.
-            if not is_direct_query:
+            if not is_direct_query and not skip_data_warehouse:
                 with timings.measure("select"):
                     queryset = (
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
@@ -1191,7 +1203,7 @@ class Database(BaseModel):
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
-            if not is_direct_query:
+            if not is_direct_query and not skip_data_warehouse:
                 try:
                     endpoint_saved_queries = list(
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
@@ -1206,7 +1218,7 @@ class Database(BaseModel):
 
         with timings.measure("revenue_analytics_views", emit_span=True):
             revenue_views: list[RevenueAnalyticsBaseView] = []
-            if not is_direct_query:
+            if not is_direct_query and not skip_data_warehouse:
                 try:
                     if not is_managed_viewset_enabled:
                         from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
@@ -1225,63 +1237,72 @@ class Database(BaseModel):
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
-        with timings.measure("data_warehouse_tables", emit_span=True):
-            with timings.measure("select", emit_span=True):
-                tables_query = (
-                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
-                    # source, so an orphan can't shadow the live table sharing its name.
-                    DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .queryable()
-                    # created_by is hydrated for the warehouse access-control creator check
-                    .select_related("created_by")
-                    # credential/external_data_source attached in bulk below, not joined per row; the
-                    # access_method filter still joins the source for its WHERE without hydrating it.
-                    # Deterministic tiebreak when two live tables share a name: newest wins, since
-                    # name collisions resolve first-come-first-served when added to the table tree.
-                    .order_by("-created_at")
-                )
-                if backing_table_ids:
-                    tables_query = tables_query.exclude(id__in=backing_table_ids)
-                if is_direct_query:
-                    tables_query = tables_query.filter(external_data_source_id=connection_id)
-                else:
-                    tables_query = tables_query.exclude(
-                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+        warehouse_tables: list[DataWarehouseTable] = []
+        if not skip_data_warehouse:
+            with timings.measure("data_warehouse_tables", emit_span=True):
+                with timings.measure("select", emit_span=True):
+                    tables_query = (
+                        # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                        # source, so an orphan can't shadow the live table sharing its name.
+                        DataWarehouseTable.raw_objects.filter(team_id=team.pk)
+                        .queryable()
+                        # created_by is hydrated for the warehouse access-control creator check
+                        .select_related("created_by")
+                        # credential/external_data_source attached in bulk below, not joined per row; the
+                        # access_method filter still joins the source for its WHERE without hydrating it.
+                        # Deterministic tiebreak when two live tables share a name: newest wins, since
+                        # name collisions resolve first-come-first-served when added to the table tree.
+                        .order_by("-created_at")
                     )
-
-                warehouse_tables: list[DataWarehouseTable] = list(tables_query)
-                # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
-                # keep it hydrated there instead of lazily reloading it per table.
-                _attach_external_data_sources(warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query)
-                _preload_active_external_data_schemas(warehouse_tables)
-                if is_direct_query:
-                    warehouse_tables = [
-                        table
-                        for table in warehouse_tables
-                        if _should_include_connection_table(
-                            table,
-                            connection_id=cast(str, connection_id),
+                    if backing_table_ids:
+                        tables_query = tables_query.exclude(id__in=backing_table_ids)
+                    if is_direct_query:
+                        tables_query = tables_query.filter(external_data_source_id=connection_id)
+                    else:
+                        tables_query = tables_query.exclude(
+                            external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
                         )
-                    ]
+
+                    warehouse_tables = list(tables_query)
+                    # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
+                    # keep it hydrated there instead of lazily reloading it per table.
+                    _attach_external_data_sources(
+                        warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query
+                    )
+                    _preload_active_external_data_schemas(warehouse_tables)
+                    if is_direct_query:
+                        warehouse_tables = [
+                            table
+                            for table in warehouse_tables
+                            if _should_include_connection_table(
+                                table,
+                                connection_id=cast(str, connection_id),
+                            )
+                        ]
 
         with timings.measure("data_warehouse_joins", emit_span=True):
-            data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+            data_warehouse_joins = (
+                []
+                if skip_data_warehouse
+                else list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+            )
 
-        with timings.measure("attach_credentials", emit_span=True):
-            # Tables and view-backing tables share the credential pool; attach across all of them.
-            credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
-            credentialed_tables.extend(
-                sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
-            )
-            credentialed_tables.extend(
-                sq.table for sq in endpoint_saved_queries if sq.table_id is not None and sq.table is not None
-            )
-            _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
+        if not skip_data_warehouse:
+            with timings.measure("attach_credentials", emit_span=True):
+                # Tables and view-backing tables share the credential pool; attach across all of them.
+                credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
+                credentialed_tables.extend(
+                    sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
+                )
+                credentialed_tables.extend(
+                    sq.table for sq in endpoint_saved_queries if sq.table_id is not None and sq.table is not None
+                )
+                _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
         # warehouse_tables fetch.
         event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
-        if modifiers.dataWarehouseEventsModifiers:
+        if modifiers.dataWarehouseEventsModifiers and not skip_data_warehouse:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     name = warehouse_modifier.table_name

@@ -94,6 +94,9 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    # Skip all data-warehouse hydration when the query only touches core ClickHouse tables. Avoids
+    # the per-build warehouse Postgres load (tables, sources, schemas, saved queries, joins).
+    skip_data_warehouse: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -170,6 +173,7 @@ class HogQLQueryExecutor:
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                        skip_data_warehouse=self.skip_data_warehouse,
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -234,6 +238,7 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 connection_id=self.connection_id,
                 bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                skip_data_warehouse=self.skip_data_warehouse,
             )
 
         # Reset between executions: the resolver/printer append per query, and dataclasses.replace
