@@ -38,6 +38,9 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     __repr__ = sane_repr("saved_query_id", "column_name", "description_source")
 
     class Meta:
+        # Match the `posthog_...` table naming every sibling data_modeling model uses (e.g.
+        # `posthog_datawarehousesavedquery`) instead of the app-prefixed Django default.
+        db_table = "posthog_datawarehousesavedquerycolumnannotation"
         constraints = [
             models.UniqueConstraint(fields=["saved_query", "column_name"], name="unique_saved_query_column_annotation"),
         ]
