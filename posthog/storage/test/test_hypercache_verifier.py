@@ -414,6 +414,28 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.errors == 1
         assert result.total_fixed == 0
 
+    def test_soft_time_limit_exceeded_propagates_from_verify_team_fn(self):
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn = None
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            raise SoftTimeLimitExceeded()
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team],
+                    config=mock_config,
+                    verify_team_fn=verify_fn,
+                    cache_type="test_cache",
+                    result=result,
+                )
+
+        assert result.errors == 0
+
     def test_batch_load_fn_called_when_available(self) -> None:
         mock_config = MagicMock()
         mock_db_batch_data: dict = {self.team.id: {"flags": []}}

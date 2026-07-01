@@ -21,6 +21,10 @@ from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch
 
 logger = structlog.get_logger(__name__)
 
+# Celery time limits subclass Exception. Before any broad `except Exception` that falls
+# back to degraded mode, re-raise SoftTimeLimitExceeded/TimeLimitExceeded so the task
+# stops at its limit instead of swallowing the signal and continuing.
+
 # Number of batches between progress logs (balance between log spam and visibility)
 # With 250 teams/batch and ~238K teams, we have ~950 batches. Logging every 20
 # batches gives us ~48 progress logs total.
@@ -188,6 +192,8 @@ def _verify_and_fix_batch(
     # Batch-read cached values using MGET (single Redis round trip)
     try:
         cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    except (SoftTimeLimitExceeded, TimeLimitExceeded):
+        raise
     except Exception as e:
         logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
         cache_batch_data = {}
@@ -201,6 +207,8 @@ def _verify_and_fix_batch(
     if config.get_team_ids_to_skip_fix_fn:
         try:
             team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+        except (SoftTimeLimitExceeded, TimeLimitExceeded):
+            raise
         except Exception as e:
             logger.warning("Batch skip-fix check failed, proceeding without skips", error=str(e))
 
@@ -216,6 +224,8 @@ def _verify_and_fix_batch(
                 team_count=len(teams),
                 duration_seconds=time.time() - batch_load_start,
             )
+        except (SoftTimeLimitExceeded, TimeLimitExceeded):
+            raise
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 
