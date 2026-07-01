@@ -453,8 +453,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
-            # See _PATCH_ID_SLACK_AGENT_DESIGN_STATUS.
-            if workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_STATUS):
+            # See _PATCH_ID_SLACK_AGENT_DESIGN_STATUS. Short-circuit on
+            # ``_slack_thread_context`` so non-Slack runs never call the
+            # workflow-scoped ``workflow.patched`` API (unit tests that
+            # invoke ``run`` outside a Temporal event loop would otherwise
+            # raise "Not in workflow event loop" here). Skipping the marker
+            # is safe: ``_resolve_agent_design_flag`` itself returns False
+            # for these runs, so recording the patch would have no
+            # observable effect on their behavior.
+            if self._slack_thread_context and workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_STATUS):
                 self._is_agent_design_enabled = await self._resolve_agent_design_flag()
             await self._update_task_run_status("in_progress")
 
