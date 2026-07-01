@@ -4,11 +4,10 @@ import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { retryWithBackoff } from 'lib/utils/async'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { isKeyOf } from 'lib/utils/guards'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { isAbortedRequest, isTimedOutRequest } from 'lib/utils/requests'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { toString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -47,20 +46,6 @@ const PROPERTY_VALUES_POLL_BASE_MS = 2000
 const PROPERTY_VALUES_POLL_MAX_MS = 30000
 const PROPERTY_VALUES_POLL_BACKOFF = 1.5
 const PROPERTY_VALUES_MAX_POLLS = 8
-// Retry transient (network / 5xx) failures a few times with exponential backoff before giving up
-// and surfacing an error toast, rather than failing on the first blip.
-const PROPERTY_VALUES_MAX_ATTEMPTS = 3
-const PROPERTY_VALUES_RETRY_DELAY_MS = 1000
-
-/** Retry transient failures only — an aborted/superseded request, a client timeout, or a 4xx won't
- * succeed on retry, so fail fast on those and only back off for network errors and 5xx responses. */
-const shouldRetryPropertyValues = (error: unknown): boolean => {
-    if (isAbortedRequest(error) || isTimedOutRequest(error)) {
-        return false
-    }
-    const status = (error as { status?: number })?.status
-    return status === undefined || status === 0 || status >= 500
-}
 
 // List of property definitions that are calculated on the backend. These
 // are valid properties that do not exist on events.
@@ -475,27 +460,18 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
-                const responseData: { results: PropValue[]; refreshing: boolean } = await retryWithBackoff(
-                    () =>
-                        api.get(
-                            constructValuesEndpoint(
-                                endpoint,
-                                values.currentTeamId as number,
-                                type,
-                                propertyKey,
-                                eventNames,
-                                newInput,
-                                properties,
-                                refresh
-                            ),
-                            methodOptions
-                        ),
-                    {
-                        maxAttempts: PROPERTY_VALUES_MAX_ATTEMPTS,
-                        initialDelayMs: PROPERTY_VALUES_RETRY_DELAY_MS,
-                        signal: cache.abortController.signal,
-                        shouldRetry: shouldRetryPropertyValues,
-                    }
+                const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
+                    constructValuesEndpoint(
+                        endpoint,
+                        values.currentTeamId as number,
+                        type,
+                        propertyKey,
+                        eventNames,
+                        newInput,
+                        properties,
+                        refresh
+                    ),
+                    methodOptions
                 )
                 breakpoint()
 
