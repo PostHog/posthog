@@ -13,7 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -4428,8 +4428,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action, mock_personhog_client):
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_ids.return_value = MagicMock(results=[])
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4497,8 +4499,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         unique_calls_properties = unique_calls_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
 
+    @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_update_group_feature_flag_key_updates_usage_dashboard(self, mock_report_user_action):
+    def test_update_group_feature_flag_key_updates_usage_dashboard(
+        self, mock_report_user_action, mock_personhog_client
+    ):
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_ids.return_value = MagicMock(results=[])
         create = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
