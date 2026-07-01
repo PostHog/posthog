@@ -220,6 +220,23 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ */
+export const visionObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionObservationsLabelCreateBodyFeedbackMax)
+            .default(visionObservationsLabelCreateBodyFeedbackDefault)
+            .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
+    })
+    .describe("A user's judgement on whether the scanner scored this session correctly.")
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
@@ -380,6 +397,23 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
             .describe('ID of the session recording to apply the scanner to.'),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
+
+/**
+ * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ */
+export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionScannersObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionScannersObservationsLabelCreateBodyFeedbackMax)
+            .default(visionScannersObservationsLabelCreateBodyFeedbackDefault)
+            .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
+    })
+    .describe("A user's judgement on whether the scanner scored this session correctly.")
 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.

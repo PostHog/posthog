@@ -2,7 +2,7 @@ import uuid
 from typing import Any, cast, get_args
 
 from django.conf import settings
-from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, FloatField, Func, IntegerField, Prefetch, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -39,6 +39,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -86,6 +87,21 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
+    )
+
+
+class ReplayObservationLabelSerializer(serializers.Serializer):
+    """A user's judgement on whether the scanner scored this session correctly."""
+
+    is_correct = serializers.BooleanField(
+        help_text="True if the scanner scored this session correctly, false if not.",
+    )
+    feedback = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=5000,
+        help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
     )
 
 
@@ -168,6 +184,25 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     def get_next_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
         return (self.context.get("neighbors") or {}).get("next")
 
+    my_label = serializers.SerializerMethodField(
+        help_text="The requesting user's label on this observation (correct/incorrect + feedback), or null if unlabeled.",
+    )
+
+    @extend_schema_field(ReplayObservationLabelSerializer(allow_null=True))
+    def get_my_label(self, obj: ReplayObservation) -> dict | None:
+        user = getattr(self.context.get("request"), "user", None)
+        if user is None or user.is_anonymous:
+            return None
+        prefetched = getattr(obj, "_my_labels", None)
+        label = (
+            (prefetched[0] if prefetched else None)
+            if prefetched is not None
+            else ReplayObservationLabel.objects.filter(observation=obj, created_by=user).first()
+        )
+        if label is None:
+            return None
+        return ReplayObservationLabelSerializer(label).data
+
     class Meta:
         model = ReplayObservation
         fields = [
@@ -185,6 +220,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "recording_subject_email",
             "previous_observation_id",
             "next_observation_id",
+            "my_label",
             "started_at",
             "completed_at",
             "created_at",
@@ -385,6 +421,10 @@ class ReplayObservationFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
     )
+    labeled_by_me = django_filters.BooleanFilter(
+        method="_filter_labeled_by_me",
+        help_text="When true, return only observations the requesting user has labeled (correct or incorrect).",
+    )
     order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
@@ -412,6 +452,16 @@ class ReplayObservationFilter(django_filters.FilterSet):
             for name, field in cls.declared_filters.items()
             if name != "order_by"
         ]
+
+    def _filter_labeled_by_me(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: bool
+    ) -> QuerySet[ReplayObservation]:
+        if not value:
+            return queryset
+        user = getattr(self.request, "user", None)
+        if user is None or user.is_anonymous:
+            return queryset.none()
+        return queryset.filter(labels__created_by=user).distinct()
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -482,11 +532,22 @@ class ReplayObservationViewSet(
         self._scanner_for_url_cache = scanner
         return scanner
 
+    def _my_labels_prefetch(self) -> Prefetch:
+        # Scoped to the current user so `my_label` is one query for the whole list, not one per row.
+        user = self.request.user
+        label_qs = (
+            ReplayObservationLabel.objects.filter(created_by=cast(User, user))
+            if user.is_authenticated
+            else ReplayObservationLabel.objects.none()
+        )
+        return Prefetch("labels", queryset=label_qs, to_attr="_my_labels")
+
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         scanner = self._scanner_for_url()
         return (
             queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
             .select_related("triggered_by_user")
+            .prefetch_related(self._my_labels_prefetch())
             .order_by("-created_at", "id")
         )
 
@@ -556,6 +617,42 @@ class ReplayObservationViewSet(
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(
+        methods=["POST"],
+        request=ReplayObservationLabelSerializer,
+        responses={200: ReplayObservationLabelSerializer},
+        description=(
+            "Upsert the requesting user's label on this observation: whether the scanner scored the session "
+            "correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement."
+        ),
+    )
+    @extend_schema(methods=["DELETE"], responses={204: None}, description="Remove the requesting user's label.")
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="label",
+        # Read scope by design: labeling is per-user feedback open to anyone who can view the scanner, not a scanner edit.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def label(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationLabel.objects.filter(observation=observation, created_by=user).delete()
+            return Response(status=204)
+        input_serializer = ReplayObservationLabelSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        label, _ = ReplayObservationLabel.objects.update_or_create(
+            observation=observation,
+            created_by=user,
+            defaults={
+                "is_correct": input_serializer.validated_data["is_correct"],
+                "feedback": input_serializer.validated_data.get("feedback", ""),
+                "team_id": observation.team_id,
+            },
+        )
+        return Response(ReplayObservationLabelSerializer(label).data)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -591,6 +688,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         queryset = (
             queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
             .select_related("triggered_by_user")
+            .prefetch_related(self._my_labels_prefetch())
             .order_by("-created_at", "id")
         )
         # A bare list would scan the whole team's observation history; the replay page always has a session.

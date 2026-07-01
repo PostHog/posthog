@@ -21,6 +21,7 @@ import type {
     PatchedReplayScannerApi,
     PatchedVisionActionApi,
     ReplayObservationApi,
+    ReplayObservationLabelApi,
     ReplayScannerApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
@@ -281,6 +282,45 @@ export const visionObservationsRetryCreate = async (
     })
 }
 
+export const getVisionObservationsLabelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/label/`
+}
+
+/**
+ * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ */
+export const visionObservationsLabelCreate = async (
+    projectId: string,
+    id: string,
+    replayObservationLabelApi: ReplayObservationLabelApi,
+    options?: RequestInit
+): Promise<ReplayObservationLabelApi> => {
+    return apiMutator<ReplayObservationLabelApi>(getVisionObservationsLabelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayObservationLabelApi),
+    })
+}
+
+export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/label/`
+}
+
+/**
+ * Remove the requesting user's label.
+ */
+export const visionObservationsLabelDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsLabelDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/quota/`
 }
@@ -492,6 +532,50 @@ export const visionScannersObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
+}
+
+/**
+ * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ */
+export const visionScannersObservationsLabelCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayObservationLabelApi: ReplayObservationLabelApi,
+    options?: RequestInit
+): Promise<ReplayObservationLabelApi> => {
+    return apiMutator<ReplayObservationLabelApi>(
+        getVisionScannersObservationsLabelCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(replayObservationLabelApi),
+        }
+    )
+}
+
+export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
+}
+
+/**
+ * Remove the requesting user's label.
+ */
+export const visionScannersObservationsLabelDestroy = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsLabelDestroyUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

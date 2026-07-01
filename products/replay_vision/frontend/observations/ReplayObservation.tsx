@@ -61,6 +61,8 @@ import {
     parseIneligibleReason,
     type ScannerType,
 } from '../replay_scanners/types'
+import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
+import { ObservationLabelControl } from './ObservationLabelControl'
 import { replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -466,6 +468,18 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         $recording_observed
                                     </Link>
                                 </LabeledRow>
+                            )}
+                            <ObservationLabelControl observationId={observation.id} />
+                            {prompt && scannerType && (
+                                <div className="flex justify-end pt-1">
+                                    <ImproveScannerPromptButton
+                                        scannerName={scannerName}
+                                        scannerType={scannerType}
+                                        prompt={prompt}
+                                        outcome={describeObservationOutcome(observation)}
+                                        reasoning={reasoning}
+                                    />
+                                </div>
                             )}
                         </div>
                     )}

@@ -12,6 +12,7 @@
         "lodash.uniqby": "^4.7.0"
     },
     "devDependencies": {
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
