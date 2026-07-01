@@ -80,7 +80,7 @@ Property filters to narrow results. Same format as `query-logs` filters.
 }
 ```
 
-## Which pods a service's errors come from
+## Which pods a service's logs come from
 
 ```json
 {
