@@ -322,7 +322,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // Archiving the skill is the permanent off switch: the coordinator won't re-seed a
                     // tombstoned skill or re-create its config. Only custom scouts are deletable — the UI
                     // offers canonical ones disable instead, since a deleted canonical scout can't be re-added.
-                    if (teamId && config.scout_origin === 'custom') {
+                    if (config.scout_origin === 'custom') {
+                        // A custom scout's config must never be dropped without first archiving its skill —
+                        // otherwise the coordinator re-seeds the config and the scout runs again. If the team
+                        // can't be resolved to archive, fail here instead of half-deleting (the outer catch
+                        // surfaces the error and reloads, leaving the row intact).
+                        if (!teamId) {
+                            throw new Error('Could not resolve the active project to archive the scout')
+                        }
                         try {
                             await llmSkillsNameArchiveCreate(String(teamId), config.skill_name)
                         } catch (error: any) {
