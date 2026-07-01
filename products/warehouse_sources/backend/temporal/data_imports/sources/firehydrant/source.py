@@ -115,7 +115,7 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
     def validate_credentials(
         self, config: FireHydrantSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_firehydrant_credentials(config.api_key, schema_name)
+        return validate_firehydrant_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FireHydrantResumeConfig]:
         return ResumableSourceManager[FireHydrantResumeConfig](inputs, FireHydrantResumeConfig)

@@ -11,32 +11,32 @@ Source: <https://docs.firehydrant.com/reference/firehydrant-api> and the officia
 
 ## Endpoints implemented
 
-| Schema name | Path | Primary key | Partition key (created_at?) |
-| --- | --- | --- | --- |
-| incidents | `/v1/incidents` | id | created_at |
-| alerts | `/v1/alerts` | id | — (no created_at) |
-| changes | `/v1/changes` | id | created_at |
-| change_events | `/v1/changes/events` | id | created_at |
-| environments | `/v1/environments` | id | created_at |
-| functionalities | `/v1/functionalities` | id | created_at |
-| services | `/v1/services` | id | created_at |
-| teams | `/v1/teams` | id | created_at |
-| users | `/v1/users` | id | created_at |
-| incident_roles | `/v1/incident_roles` | id | created_at |
-| incident_types | `/v1/incident_types` | id | created_at |
-| incident_tags | `/v1/incident_tags` | name | — (only `name`) |
-| priorities | `/v1/priorities` | slug | created_at |
-| severities | `/v1/severities` | slug | created_at |
-| custom_field_definitions | `/v1/custom_fields/definitions` | field_id | — (no created_at) |
-| integrations | `/v1/integrations` | id | created_at |
-| runbooks | `/v1/runbooks` | id | created_at |
-| runbook_executions | `/v1/runbooks/executions` | id | created_at |
-| webhooks | `/v1/webhooks` | id | created_at |
-| signals_on_call | `/v1/signals_on_call` | id | — (undocumented response shape) |
-| post_mortem_reports | `/v1/post_mortems/reports` | id | created_at |
-| scheduled_maintenances | `/v1/scheduled_maintenances` | id | created_at |
-| task_lists | `/v1/task_lists` | id | created_at |
-| checklist_templates | `/v1/checklist_templates` | id | created_at |
+| Schema name              | Path                            | Primary key | Partition key (created_at?)     |
+| ------------------------ | ------------------------------- | ----------- | ------------------------------- |
+| incidents                | `/v1/incidents`                 | id          | created_at                      |
+| alerts                   | `/v1/alerts`                    | id          | — (no created_at)               |
+| changes                  | `/v1/changes`                   | id          | created_at                      |
+| change_events            | `/v1/changes/events`            | id          | created_at                      |
+| environments             | `/v1/environments`              | id          | created_at                      |
+| functionalities          | `/v1/functionalities`           | id          | created_at                      |
+| services                 | `/v1/services`                  | id          | created_at                      |
+| teams                    | `/v1/teams`                     | id          | created_at                      |
+| users                    | `/v1/users`                     | id          | created_at                      |
+| incident_roles           | `/v1/incident_roles`            | id          | created_at                      |
+| incident_types           | `/v1/incident_types`            | id          | created_at                      |
+| incident_tags            | `/v1/incident_tags`             | name        | — (only `name`)                 |
+| priorities               | `/v1/priorities`                | slug        | created_at                      |
+| severities               | `/v1/severities`                | slug        | created_at                      |
+| custom_field_definitions | `/v1/custom_fields/definitions` | field_id    | — (no created_at)               |
+| integrations             | `/v1/integrations`              | id          | created_at                      |
+| runbooks                 | `/v1/runbooks`                  | id          | created_at                      |
+| runbook_executions       | `/v1/runbooks/executions`       | id          | created_at                      |
+| webhooks                 | `/v1/webhooks`                  | id          | created_at                      |
+| signals_on_call          | `/v1/signals_on_call`           | id          | — (undocumented response shape) |
+| post_mortem_reports      | `/v1/post_mortems/reports`      | id          | created_at                      |
+| scheduled_maintenances   | `/v1/scheduled_maintenances`    | id          | created_at                      |
+| task_lists               | `/v1/task_lists`                | id          | created_at                      |
+| checklist_templates      | `/v1/checklist_templates`       | id          | created_at                      |
 
 ## Future enhancements
 

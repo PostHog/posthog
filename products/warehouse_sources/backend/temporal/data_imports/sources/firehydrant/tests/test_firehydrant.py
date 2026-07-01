@@ -174,21 +174,22 @@ class TestFireHydrantSource:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, None, True),
-            ("forbidden_at_create_accepted", 403, None, True),
-            ("forbidden_for_schema_rejected", 403, "incidents", False),
-            ("unauthorized", 401, None, False),
-            ("unexpected", 500, None, False),
+            ("ok", 200, True),
+            # Only a 200 proves the key is real and usable — a 403 means it reached FireHydrant but
+            # lacks permissions, so we reject it rather than register an unverified credential.
+            ("forbidden_rejected", 403, False),
+            ("unauthorized", 401, False),
+            ("unexpected", 500, False),
         ]
     )
-    def test_status_mapping(self, _name: str, status_code: int, schema_name: str | None, expected_valid: bool) -> None:
+    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
         response = requests.Response()
         response.status_code = status_code
         session = MagicMock()
         session.get.return_value = response
 
         with patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
-            valid, _error = firehydrant.validate_credentials("fhb_test", schema_name)
+            valid, _error = firehydrant.validate_credentials("fhb_test")
         assert valid is expected_valid
 
     def test_network_error_is_invalid(self, monkeypatch: Any) -> None:
@@ -199,6 +200,45 @@ class TestValidateCredentials:
         valid, error = firehydrant.validate_credentials("fhb_test")
         assert valid is False
         assert error is not None
+
+
+class TestCredentialRedaction:
+    """The token must be registered for redaction so it can't leak into logged URLs or HTTP samples."""
+
+    def test_validate_credentials_redacts_api_key(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            response = requests.Response()
+            response.status_code = 200
+            session = MagicMock()
+            session.get.return_value = response
+            return session
+
+        monkeypatch.setattr(firehydrant, "make_tracked_session", fake_session)
+        firehydrant.validate_credentials("fhb_secret")
+        assert captured.get("redact_values") == ("fhb_secret",)
+
+    def test_get_rows_redacts_api_key(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(firehydrant, "make_tracked_session", fake_session)
+        monkeypatch.setattr(firehydrant, "_fetch_page", lambda *a, **k: {"data": [], "pagination": {}})
+
+        list(
+            get_rows(
+                api_key="fhb_secret",
+                endpoint="incidents",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert captured.get("redact_values") == ("fhb_secret",)
 
 
 class TestFetchPageRetries:

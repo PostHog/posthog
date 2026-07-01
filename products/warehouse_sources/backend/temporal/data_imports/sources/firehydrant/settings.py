@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 @dataclass
 class FireHydrantEndpointConfig:
-    name: str
     path: str
     # Field to partition by. Must be a STABLE creation timestamp (never updated_at), and only set
     # when the endpoint's entity actually returns it — several FireHydrant resources don't.
@@ -23,55 +22,35 @@ class FireHydrantEndpointConfig:
 # `created_at_or_after` / `updated_after` filters, but we couldn't curl-verify they actually filter
 # (no live credentials), so incremental sync for incidents is left as a future enhancement.
 FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
-    "incidents": FireHydrantEndpointConfig(name="incidents", path="/v1/incidents", partition_key="created_at"),
-    "alerts": FireHydrantEndpointConfig(name="alerts", path="/v1/alerts"),
-    "changes": FireHydrantEndpointConfig(name="changes", path="/v1/changes", partition_key="created_at"),
-    "change_events": FireHydrantEndpointConfig(
-        name="change_events", path="/v1/changes/events", partition_key="created_at"
-    ),
-    "environments": FireHydrantEndpointConfig(name="environments", path="/v1/environments", partition_key="created_at"),
-    "functionalities": FireHydrantEndpointConfig(
-        name="functionalities", path="/v1/functionalities", partition_key="created_at"
-    ),
-    "services": FireHydrantEndpointConfig(name="services", path="/v1/services", partition_key="created_at"),
-    "teams": FireHydrantEndpointConfig(name="teams", path="/v1/teams", partition_key="created_at"),
-    "users": FireHydrantEndpointConfig(name="users", path="/v1/users", partition_key="created_at"),
-    "incident_roles": FireHydrantEndpointConfig(
-        name="incident_roles", path="/v1/incident_roles", partition_key="created_at"
-    ),
-    "incident_types": FireHydrantEndpointConfig(
-        name="incident_types", path="/v1/incident_types", partition_key="created_at"
-    ),
+    "incidents": FireHydrantEndpointConfig(path="/v1/incidents", partition_key="created_at"),
+    "alerts": FireHydrantEndpointConfig(path="/v1/alerts"),
+    "changes": FireHydrantEndpointConfig(path="/v1/changes", partition_key="created_at"),
+    "change_events": FireHydrantEndpointConfig(path="/v1/changes/events", partition_key="created_at"),
+    "environments": FireHydrantEndpointConfig(path="/v1/environments", partition_key="created_at"),
+    "functionalities": FireHydrantEndpointConfig(path="/v1/functionalities", partition_key="created_at"),
+    "services": FireHydrantEndpointConfig(path="/v1/services", partition_key="created_at"),
+    "teams": FireHydrantEndpointConfig(path="/v1/teams", partition_key="created_at"),
+    "users": FireHydrantEndpointConfig(path="/v1/users", partition_key="created_at"),
+    "incident_roles": FireHydrantEndpointConfig(path="/v1/incident_roles", partition_key="created_at"),
+    "incident_types": FireHydrantEndpointConfig(path="/v1/incident_types", partition_key="created_at"),
     # TagEntity only carries `name`; it has no id or created_at, so the name is the natural key.
-    "incident_tags": FireHydrantEndpointConfig(name="incident_tags", path="/v1/incident_tags", primary_keys=["name"]),
+    "incident_tags": FireHydrantEndpointConfig(path="/v1/incident_tags", primary_keys=["name"]),
     # PriorityEntity / SeverityEntity are keyed by their human-readable slug, not a UUID.
-    "priorities": FireHydrantEndpointConfig(
-        name="priorities", path="/v1/priorities", primary_keys=["slug"], partition_key="created_at"
-    ),
-    "severities": FireHydrantEndpointConfig(
-        name="severities", path="/v1/severities", primary_keys=["slug"], partition_key="created_at"
-    ),
+    "priorities": FireHydrantEndpointConfig(path="/v1/priorities", primary_keys=["slug"], partition_key="created_at"),
+    "severities": FireHydrantEndpointConfig(path="/v1/severities", primary_keys=["slug"], partition_key="created_at"),
     "custom_field_definitions": FireHydrantEndpointConfig(
-        name="custom_field_definitions", path="/v1/custom_fields/definitions", primary_keys=["field_id"]
+        path="/v1/custom_fields/definitions", primary_keys=["field_id"]
     ),
-    "integrations": FireHydrantEndpointConfig(name="integrations", path="/v1/integrations", partition_key="created_at"),
-    "runbooks": FireHydrantEndpointConfig(name="runbooks", path="/v1/runbooks", partition_key="created_at"),
-    "runbook_executions": FireHydrantEndpointConfig(
-        name="runbook_executions", path="/v1/runbooks/executions", partition_key="created_at"
-    ),
-    "webhooks": FireHydrantEndpointConfig(name="webhooks", path="/v1/webhooks", partition_key="created_at"),
+    "integrations": FireHydrantEndpointConfig(path="/v1/integrations", partition_key="created_at"),
+    "runbooks": FireHydrantEndpointConfig(path="/v1/runbooks", partition_key="created_at"),
+    "runbook_executions": FireHydrantEndpointConfig(path="/v1/runbooks/executions", partition_key="created_at"),
+    "webhooks": FireHydrantEndpointConfig(path="/v1/webhooks", partition_key="created_at"),
     # Undocumented response shape in the spec; handled defensively in transport. No created_at to partition on.
-    "signals_on_call": FireHydrantEndpointConfig(name="signals_on_call", path="/v1/signals_on_call"),
-    "post_mortem_reports": FireHydrantEndpointConfig(
-        name="post_mortem_reports", path="/v1/post_mortems/reports", partition_key="created_at"
-    ),
-    "scheduled_maintenances": FireHydrantEndpointConfig(
-        name="scheduled_maintenances", path="/v1/scheduled_maintenances", partition_key="created_at"
-    ),
-    "task_lists": FireHydrantEndpointConfig(name="task_lists", path="/v1/task_lists", partition_key="created_at"),
-    "checklist_templates": FireHydrantEndpointConfig(
-        name="checklist_templates", path="/v1/checklist_templates", partition_key="created_at"
-    ),
+    "signals_on_call": FireHydrantEndpointConfig(path="/v1/signals_on_call"),
+    "post_mortem_reports": FireHydrantEndpointConfig(path="/v1/post_mortems/reports", partition_key="created_at"),
+    "scheduled_maintenances": FireHydrantEndpointConfig(path="/v1/scheduled_maintenances", partition_key="created_at"),
+    "task_lists": FireHydrantEndpointConfig(path="/v1/task_lists", partition_key="created_at"),
+    "checklist_templates": FireHydrantEndpointConfig(path="/v1/checklist_templates", partition_key="created_at"),
 }
 
 ENDPOINTS = tuple(FIREHYDRANT_ENDPOINTS.keys())

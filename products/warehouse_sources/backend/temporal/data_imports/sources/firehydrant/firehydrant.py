@@ -62,7 +62,13 @@ def _fetch_page_once(
         raise FireHydrantRetryableError(f"FireHydrant API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"FireHydrant API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log the raw body on auth failures — keep it out of job logs in case the API echoes
+        # anything sensitive. Other 4xx bodies carry no credentials and are useful for debugging. The
+        # url holds only the path and pagination params (the token lives in the Authorization header).
+        if response.status_code in (401, 403):
+            logger.error(f"FireHydrant auth error: status={response.status_code}, url={url}")
+        else:
+            logger.error(f"FireHydrant API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -78,25 +84,29 @@ _fetch_page = retry(
 )(_fetch_page_once)
 
 
-def validate_credentials(api_key: str, schema_name: str | None = None) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe the authenticated ping endpoint to confirm the token is genuine.
 
-    FireHydrant API keys default to Owner-level permissions, so a valid token can reach every
-    resource. A 403 therefore almost never happens, but if it does at source-create time we accept it
-    (the token is real; sync-time permission errors are handled by `get_non_retryable_errors`).
+    Only a 200 proves the key is real and usable. A 403 means the request reached FireHydrant but the
+    token lacks the required permissions — we surface that as a permissions failure rather than
+    silently accepting an unverified key (which would let a broken source register as authenticated).
     """
     url = f"{FIREHYDRANT_BASE_URL}/v1/ping"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
         return False, "Could not reach the FireHydrant API. Please try again."
 
     if response.status_code == 200:
         return True, None
-    if response.status_code == 403 and schema_name is None:
-        return True, None
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         return False, "Invalid FireHydrant API key"
+    if response.status_code == 403:
+        return (
+            False,
+            "Your FireHydrant API key is missing the permissions needed to access this data. "
+            "Grant the required permissions in your FireHydrant settings, then reconnect.",
+        )
     return False, f"FireHydrant API returned an unexpected status: {response.status_code}"
 
 
@@ -123,8 +133,8 @@ def get_rows(
     config = FIREHYDRANT_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session()
+    # re-handshaking per request. Redact the token so it never lands in logged URLs or HTTP samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1

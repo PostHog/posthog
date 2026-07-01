@@ -4,7 +4,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
@@ -39,8 +44,9 @@ class TestFireHydrantSourceConfig:
         fields = FireHydrantSource().get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
-        assert api_key.type.value == "password"
+        assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True
 
@@ -127,7 +133,7 @@ class TestResumableWiring:
 
         manager = MagicMock()
         inputs = MagicMock(schema_name="incidents", logger=MagicMock())
-        result = FireHydrantSource().source_for_pipeline(_config(), manager, inputs)
+        result: Any = FireHydrantSource().source_for_pipeline(_config(), manager, inputs)
 
         assert result == "sentinel"
         assert captured["api_key"] == "fhb_test"
@@ -139,7 +145,7 @@ class TestValidateCredentials:
     def test_delegates_to_transport(self, monkeypatch: Any) -> None:
         import products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source as source_module
 
-        monkeypatch.setattr(source_module, "validate_firehydrant_credentials", lambda key, schema: (True, None))
+        monkeypatch.setattr(source_module, "validate_firehydrant_credentials", lambda key: (True, None))
         valid, error = FireHydrantSource().validate_credentials(_config(), team_id=1)
         assert valid is True
         assert error is None
