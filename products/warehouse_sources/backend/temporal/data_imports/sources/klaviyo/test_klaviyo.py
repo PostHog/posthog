@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -191,6 +191,31 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+
+class TestFetchPageRetries:
+    @parameterized.expand(
+        [
+            ("chunked_encoding", requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength")),
+            ("read_timeout", requests.ReadTimeout("Read timed out.")),
+            ("connection_error", requests.ConnectionError("Connection reset by peer")),
+        ]
+    )
+    def test_transient_errors_are_retried(self, _name: str, transient_error: Exception) -> None:
+        # A transient network failure on the first attempt must retry rather than fail the whole sync.
+        good = MagicMock()
+        good.status_code = 200
+        good.ok = True
+        good.json.return_value = {"data": []}
+
+        session = MagicMock()
+        session.get.side_effect = [transient_error, good]
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):
+            result = klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert result == {"data": []}
+        assert session.get.call_count == 2
 
 
 def _response_with_status(status_code: int) -> requests.Response:
