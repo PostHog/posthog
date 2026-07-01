@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -571,6 +572,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         mock_session.assert_not_called()
 
+    @freeze_time("2025-01-01T00:00:00Z")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
         # The pre-mint runs before the probe session is built, so the freshly-minted access token
