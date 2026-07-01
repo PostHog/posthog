@@ -17,6 +17,10 @@ SCROLL_KEEPALIVE = "5m"
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
 
+# Stable prefix for the non-JSON response error. Shared so source.py can match it in
+# get_non_retryable_errors without the two strings silently drifting apart.
+NON_JSON_RESPONSE_ERROR = "Elasticsearch returned a non-JSON response"
+
 
 class ElasticsearchRetryableError(Exception):
     pass
@@ -80,7 +84,7 @@ def list_indices(host: str, auth: ElasticsearchAuth) -> list[str]:
         # A 2xx body that isn't JSON usually means the URL points at something other than
         # the Elasticsearch HTTP API (e.g. a browser/Kibana URL or a reverse proxy).
         raise ValueError(
-            "Elasticsearch returned a non-JSON response. Check that the cluster URL points "
+            f"{NON_JSON_RESPONSE_ERROR}. Check that the cluster URL points "
             "at the Elasticsearch HTTP API, not a browser or Kibana URL."
         ) from None
     indices = [row.get("index", "") for row in body if isinstance(row, dict)]

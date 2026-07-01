@@ -1,8 +1,8 @@
 from typing import Any
+from unittest import mock
 
 import pytest
 import requests
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     PAGE_SIZE,
