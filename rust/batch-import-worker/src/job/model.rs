@@ -177,6 +177,17 @@ impl JobModel {
         }
     }
 
+    /// Count jobs that still need a worker: everything in `running` status, whether
+    /// queued (unleased) or in-flight (leased). This is the autoscaling signal — one
+    /// worker processes one job, so the count maps directly to the desired replica count.
+    pub async fn count_active_jobs(pool: &PgPool) -> Result<i64, Error> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM posthog_batchimport WHERE status = 'running'")
+                .fetch_one(pool)
+                .await?;
+        Ok(count)
+    }
+
     /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
     /// Keeps status as 'running' so the main loop can pick it up when the lease expires.
     pub async fn schedule_backoff(

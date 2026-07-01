@@ -10,11 +10,12 @@ send out, not what clients send us.
 """
 
 from posthog.rate_limiting.outbound import OutboundRateLimiter, get_outbound_rate_limiter
-from posthog.rate_limiting.policies import RatePolicy, register_policy
+from posthog.rate_limiting.policies import Priority, RatePolicy, register_policy
 
 __all__ = [
     "OutboundRateLimiter",
     "get_outbound_rate_limiter",
+    "Priority",
     "RatePolicy",
     "register_policy",
 ]
