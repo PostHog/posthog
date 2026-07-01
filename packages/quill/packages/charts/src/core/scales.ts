@@ -623,13 +623,18 @@ export function createBarScales(
         const byAxis = groupVisibleSeriesByAxis(visibleSeries)
         const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
         positions.forEach(({ axisId, position }, axisIndex) => {
+            const axisSeries = byAxis.get(axisId) ?? []
+            const axisKeys = new Set(axisSeries.map((s) => s.key))
+            // Filter the pre-computed stacked tops to this axis so the domain reflects
+            // the cumulative stack for this axis's series, not raw individual values.
+            const axisStackedSeries = stackedSeries?.filter((s) => axisKeys.has(s.key))
             const scale = buildBarValueScale(
-                byAxis.get(axisId) ?? [],
+                axisSeries,
                 valueRange,
                 tickCount,
-                barLayout === 'grouped' ? 'grouped' : 'stacked',
+                barLayout,
                 scaleType,
-                undefined,
+                axisStackedSeries?.length ? axisStackedSeries : undefined,
                 axisIndex === 0 ? valueDomain : undefined,
                 valuePadding
             )
