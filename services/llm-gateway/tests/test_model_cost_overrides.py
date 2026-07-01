@@ -120,4 +120,5 @@ class TestOverrideSurfacesThroughRefresh:
             ):
                 model_ids = {m.id for m in get_available_models("posthog_code")}
 
+        assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
