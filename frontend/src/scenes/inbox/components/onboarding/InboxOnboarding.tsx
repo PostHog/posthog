@@ -2,8 +2,8 @@ import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
 
-import { IconBolt, IconGithub, IconNotebook, IconPause, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { JumpingLogomark } from 'lib/brand/JumpingLogomark'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -23,21 +23,55 @@ const WIZARD_SETS_UP: { icon: JSX.Element; label: string }[] = [
 
 interface Beat {
     label: string
-    description: string
+    description: JSX.Element
     preview: JSX.Element
+}
+
+/**
+ * Info icon explaining PR pricing on hover, kept separate from the sentence it follows so the
+ * sentiment (why $15, and that it's expected to fall) doesn't have to live in the onboarding copy itself.
+ */
+function PrPricingInfo(): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <p className="mb-2">We aim for the $15 cost to go down significantly in the coming months.</p>
+                    <p className="mb-0">
+                        The truth is that capable enough models <em>currently</em> cost quite a bit, so we're pricing
+                        with a very limited margin – similarly to our strategy with other PostHog tools. Like with our
+                        other tools, we will be passing savings along to you.
+                    </p>
+                </>
+            }
+        >
+            <span className="-m-1 inline-flex cursor-help items-center p-1 align-middle text-sm text-tertiary">
+                <IconInfo />
+            </span>
+        </Tooltip>
+    )
 }
 
 const BEATS: Beat[] = [
     {
         label: 'Pull requests, ready to merge.',
-        description:
-            'Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and reviewers already lined up.',
+        description: (
+            <>
+                Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and
+                reviewers already lined up. Your first 3 PRs each month are free, then it's $15 per PR after that{' '}
+                <PrPricingInfo />.
+            </>
+        ),
         preview: <PullRequestPreview />,
     },
     {
         label: 'Reports, when it needs your call.',
-        description:
-            "Not everything is a clean code change. When something needs your judgment, agents file a report with the context and what they'd do – you decide.",
+        description: (
+            <>
+                Not everything is a clean code change. When something needs your judgment, agents file a report with the
+                context and what they'd do – you decide. Reports without PRs are free.
+            </>
+        ),
         preview: <ReportPreview />,
     },
 ]
