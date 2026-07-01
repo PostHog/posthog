@@ -167,6 +167,27 @@ class TestOAuth2Auth(SimpleTestCase):
         assert body["audience"] == "https://api.example.com"
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_extra_params_cannot_override_required_token_params(self, mock_session):
+        # extra_token_request_params is for provider-specific knobs, not for clobbering the grant_type /
+        # client_id / refresh_token this engine derives from its config (which would let a manifest smuggle
+        # a different grant past validation). Non-conflicting extras still pass through.
+        mock_session.return_value.post.return_value = _token_response(payload={"access_token": "t", "expires_in": 60})
+        auth = OAuth2Auth(
+            token_url="https://a/t",
+            client_id="real-cid",
+            client_secret="cs",
+            grant_type="client_credentials",
+            extra_token_request_params={"grant_type": "authorization_code", "client_id": "attacker", "audience": "aud"},
+        )
+
+        _apply_auth(auth)
+
+        body = mock_session.return_value.post.call_args.kwargs["data"]
+        assert body["grant_type"] == "client_credentials"
+        assert body["client_id"] == "real-cid"
+        assert body["audience"] == "aud"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_absolute_datetime_expiry_field(self, mock_session):
         # The Square case: the provider returns an absolute `expires_at` datetime, not seconds.
         mock_session.return_value.post.return_value = _token_response(

@@ -210,7 +210,11 @@ class OAuth2Auth(BearerTokenAuth):
         return tuple(value for value in (self.client_secret, self.token, self.refresh_token) if value)
 
     def _build_token_request_body(self) -> dict[str, str]:
-        body: dict[str, str] = {"grant_type": self.grant_type}
+        # Seed with the caller's extras first so the required OAuth2 params set below always win. The extras
+        # are for provider-specific knobs (e.g. an `audience`); they must not be able to override the
+        # grant_type, client_id/secret, or refresh_token this auth engine derives from its config.
+        body: dict[str, str] = dict(self.extra_token_request_params or {})
+        body["grant_type"] = self.grant_type
         if self.grant_type == "refresh_token":
             if not self.refresh_token:
                 raise OAuth2AuthRequestError(
@@ -227,8 +231,6 @@ class OAuth2Auth(BearerTokenAuth):
                 body["client_id"] = self.client_id
             if self.client_secret:
                 body["client_secret"] = self.client_secret
-        if self.extra_token_request_params:
-            body.update(self.extra_token_request_params)
         return body
 
     def _obtain_token(self, timeout: Optional[tuple[float, float]] = None) -> None:
