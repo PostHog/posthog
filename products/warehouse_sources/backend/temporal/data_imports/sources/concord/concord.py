@@ -35,10 +35,13 @@ class ConcordRetryableError(Exception):
 
 @dataclasses.dataclass
 class ConcordResumeConfig:
-    # Next page index to fetch (page-number pagination). 0-based, matching Concord.
+    # Page index to fetch on resume (page-number pagination). 0-based, matching Concord.
     page: Optional[int] = None
-    # Next row offset to fetch (offset pagination).
+    # Row offset to fetch on resume (offset pagination).
     offset: Optional[int] = None
+    # Rows of `page`/`offset` already emitted, so a resume skips them rather than re-walking the
+    # whole page. Advances on every mid-page flush so progress is monotonic even across crashes.
+    row_offset: Optional[int] = None
     # Start of the next audit-log window as a Unix ms timestamp (events_window pagination).
     window_start_ms: Optional[int] = None
 
@@ -189,20 +192,28 @@ def _iter_page(
     manager: ResumableSourceManager[ConcordResumeConfig],
     base_params: dict[str, Any],
     start_page: int,
+    start_row_offset: int = 0,
 ) -> Iterator[Any]:
     page = start_page
+    # Rows of the first page already emitted in a prior run; skip them so a resume doesn't re-walk
+    # the whole page. Only the page we resume on carries a non-zero skip.
+    skip = start_row_offset
     while True:
         params = {**base_params, "page": page, "numberOfItemsByPage": config.page_size}
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
         rows = _select_rows(payload, config.data_selector, logger)
-        for row in rows:
+        for local_index, row in enumerate(rows):
+            if local_index < skip:
+                continue
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Checkpoint the page we're still walking, not the next one: a byte-limit flush can
-                # fire mid-page, leaving this page's tail rows un-yielded in the batcher. Resuming
-                # re-fetches this page (merge dedupes on the primary key) so no rows are skipped.
-                manager.save_state(ConcordResumeConfig(page=page))
+                # A byte-limit flush can fire mid-page. Checkpoint this page plus how many of its
+                # rows are now committed, so a resume skips them instead of re-emitting from the
+                # page start. row_offset advances on every flush, so progress is monotonic and a
+                # crash can't pin the import to replaying the same rows forever.
+                manager.save_state(ConcordResumeConfig(page=page, row_offset=local_index + 1))
+        skip = 0
         if len(rows) < config.page_size:
             break
         page += 1
@@ -219,20 +230,28 @@ def _iter_offset(
     manager: ResumableSourceManager[ConcordResumeConfig],
     base_params: dict[str, Any],
     start_offset: int,
+    start_row_offset: int = 0,
 ) -> Iterator[Any]:
     offset = start_offset
+    # Rows of the first window already emitted in a prior run; skip them so a resume doesn't re-walk
+    # the whole window. Only the offset we resume on carries a non-zero skip.
+    skip = start_row_offset
     while True:
         params = {**base_params, config.offset_param: offset, "limit": config.page_size}
         payload = _fetch(session, _build_url(base_url, path, params), headers, logger)
         rows = _select_rows(payload, config.data_selector, logger)
-        for row in rows:
+        for local_index, row in enumerate(rows):
+            if local_index < skip:
+                continue
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Checkpoint the current offset, not the next page: a byte-limit flush can fire
-                # mid-page, leaving this page's tail rows un-yielded. Resuming re-fetches from this
-                # offset (merge dedupes on the primary key) so no rows are skipped.
-                manager.save_state(ConcordResumeConfig(offset=offset))
+                # A byte-limit flush can fire mid-window. Checkpoint this offset plus how many of
+                # its rows are now committed, so a resume skips them instead of re-emitting from the
+                # window start. row_offset advances on every flush, so progress is monotonic and a
+                # crash can't pin the import to replaying the same rows forever.
+                manager.save_state(ConcordResumeConfig(offset=offset, row_offset=local_index + 1))
+        skip = 0
         if len(rows) < config.page_size:
             break
         offset += config.page_size
@@ -323,14 +342,36 @@ def get_rows(
         if endpoint == "agreements":
             base_params["statuses"] = AGREEMENT_STATUSES
         start_page = resume.page if resume and resume.page is not None else 0
+        start_row_offset = resume.row_offset if resume and resume.row_offset is not None else 0
         yield from _iter_page(
-            session, base_url, path, headers, config, logger, batcher, manager, base_params, start_page
+            session,
+            base_url,
+            path,
+            headers,
+            config,
+            logger,
+            batcher,
+            manager,
+            base_params,
+            start_page,
+            start_row_offset,
         )
 
     elif config.pagination == "offset":
         start_offset = resume.offset if resume and resume.offset is not None else 0
+        start_row_offset = resume.row_offset if resume and resume.row_offset is not None else 0
         yield from _iter_offset(
-            session, base_url, path, headers, config, logger, batcher, manager, base_params, start_offset
+            session,
+            base_url,
+            path,
+            headers,
+            config,
+            logger,
+            batcher,
+            manager,
+            base_params,
+            start_offset,
+            start_row_offset,
         )
 
     elif config.pagination == "events_window":

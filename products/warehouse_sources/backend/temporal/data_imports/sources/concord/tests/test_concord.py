@@ -7,12 +7,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
     ConcordResumeConfig,
     _agreement_incremental_params,
     _flatten_folder_tree,
+    _iter_page,
     _to_epoch_ms,
     base_url_for_environment,
     concord_source,
@@ -212,6 +214,50 @@ class TestPagePagination:
             incremental_field="modifiedAt",
         )
         assert "modifiedAt.from=1700000000000" in urls[0]
+
+
+class TestIntraPageResume:
+    """A byte-limit flush can fire mid-page. The checkpoint must record intra-page progress so a
+    resume skips already-emitted rows instead of replaying the whole page forever (a DoS vector)."""
+
+    def _iter(self, *, start_page=0, start_row_offset=0, manager=None, page_rows=None):
+        config = CONCORD_ENDPOINTS["agreements"]
+        manager = manager or FakeManager()
+        # chunk_size=2 flushes every two rows; the 5-row page is shorter than page_size so the walk
+        # stops after one page.
+        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
+        rows = page_rows if page_rows is not None else [{"uuid": str(i)} for i in range(5)]
+        with (
+            mock.patch.object(config, "page_size", 100),
+            mock.patch.object(concord, "_fetch", return_value={"items": rows}),
+        ):
+            tables = list(
+                _iter_page(
+                    session=mock.MagicMock(),
+                    base_url="https://x",
+                    path="/p",
+                    headers={},
+                    config=config,
+                    logger=mock.MagicMock(),
+                    batcher=batcher,
+                    manager=manager,
+                    base_params={},
+                    start_page=start_page,
+                    start_row_offset=start_row_offset,
+                )
+            )
+        emitted = [r["uuid"] for table in tables for r in table.to_pylist()]
+        return emitted, manager
+
+    def test_mid_page_flush_advances_row_offset_monotonically(self):
+        _emitted, manager = self._iter()
+        # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
+        assert [(s.page, s.row_offset) for s in manager.saved] == [(0, 2), (0, 4)]
+
+    def test_resume_skips_already_emitted_rows(self):
+        emitted, _ = self._iter(start_row_offset=3)
+        # rows 0–2 were committed last run; the resume must not re-emit them
+        assert emitted == ["3", "4"]
 
 
 class TestOffsetPagination:
