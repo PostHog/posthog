@@ -80,6 +80,15 @@ _account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPos
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
+    # Scope through team-filtered accounts (as the other junction tables do) AND prune
+    # soft-deleted rows, so superseded `value_*` data can't be read via direct selection
+    # of this hidden backing table — matching the `NOT cpv.is_deleted` filter in the lazy join.
+    predicates=[
+        parse_expr("account_id IN (SELECT id FROM system.accounts)"),
+        # `NOT is_deleted` (not `is_deleted != true`): the predicate is pushed into the federated
+        # PostgreSQL query, where comparing a boolean column to an integer literal is a type error.
+        parse_expr("NOT is_deleted"),
+    ],
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
         "definition_id": UUIDDatabaseField(
@@ -233,7 +242,12 @@ class _AccountCustomPropertiesTable(LazyTable):
         ),
         "values": StringJSONDatabaseField(
             name="values",
-            description="JSON object of active custom property values keyed by definition id, coalesced to strings.",
+            description=(
+                "JSON object of active custom property values keyed by custom property definition id, "
+                "coalesced to strings. Read one property with "
+                "accounts.custom_properties.values.`<definition_id>` (backtick-quote the id). "
+                "Get definition ids and names from system.custom_property_definitions."
+            ),
         ),
     }
 

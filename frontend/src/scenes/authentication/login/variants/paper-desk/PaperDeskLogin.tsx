@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
@@ -77,7 +78,14 @@ function Login(): JSX.Element {
                     sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 {generalError && (
-                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                    <div
+                        className={twMerge(
+                            'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
+                            isEmailVerificationSent
+                                ? 'bg-success-highlight border-success'
+                                : 'bg-danger-highlight border-danger'
+                        )}
+                    >
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}

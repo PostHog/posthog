@@ -533,6 +533,11 @@ export interface AchievementsListResponseApi {
     pending_celebrations: PendingCelebrationApi[]
 }
 
+export interface WebAnalyticsUserPreferencesApi {
+    /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
+    achievements_opt_out: boolean
+}
+
 /**
  * * `data` - data
  * * `recording` - recording

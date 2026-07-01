@@ -238,11 +238,37 @@ export function QueryPerformance(): JSX.Element {
 
     const slowestQueryColumns: LemonTableColumns<SlowestQuery> = [
         {
+            title: 'Result',
+            width: 220,
+            render: function Result(_, item): JSX.Element {
+                const { label, type } = outcome(item)
+                const tag = <LemonTag type={type}>{label}</LemonTag>
+                if (!item.exception) {
+                    return tag
+                }
+                const firstLine = item.exception.split('\n')[0]
+                const preview = firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+                return (
+                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
+                        <div className="flex items-center gap-1 min-w-0">
+                            {tag}
+                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                        </div>
+                    </Tooltip>
+                )
+            },
+        },
+        {
             title: 'Time',
-            dataIndex: 'timestamp',
-            width: 160,
-            render: function Timestamp(_, item) {
-                return <span className="font-mono text-xs">{item.timestamp}</span>
+            width: 120,
+            render: function Timestamp(_, item): JSX.Element {
+                return (
+                    <Tooltip title={item.timestamp}>
+                        <span className="font-mono text-xs whitespace-nowrap">
+                            {dayjs(item.timestamp).format('MMM D HH:mm:ss')}
+                        </span>
+                    </Tooltip>
+                )
             },
         },
         {
@@ -265,6 +291,7 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Read',
+            key: 'read_bytes',
             width: 130,
             sorter: (a, b) => groupBytes(a) - groupBytes(b),
             render: function Read(_, item): JSX.Element {
@@ -307,34 +334,40 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Experiment',
-            render: function ExperimentCell(_, item) {
+            render: function ExperimentCell(_, item): JSX.Element {
                 if (!item.experiment_name) {
                     return <span className="text-muted">Unknown</span>
                 }
-                if (!item.experiment_id || !item.team_id) {
-                    return <span className="truncate max-w-60">{item.experiment_name}</span>
-                }
-                return (
-                    <Link
-                        to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
-                        target="_blank"
-                        className="truncate max-w-60"
-                    >
-                        {item.experiment_name}
-                    </Link>
+                const label = (
+                    <span className="truncate max-w-40 inline-block align-bottom">{item.experiment_name}</span>
                 )
+                const content =
+                    item.experiment_id && item.team_id ? (
+                        <Link
+                            to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
+                            target="_blank"
+                            className="truncate max-w-40 inline-block align-bottom"
+                        >
+                            {item.experiment_name}
+                        </Link>
+                    ) : (
+                        label
+                    )
+                return <Tooltip title={item.experiment_name}>{content}</Tooltip>
             },
         },
         {
             title: 'Metric',
-            render: function Metric(_, item) {
+            render: function Metric(_, item): JSX.Element {
                 const metricTypeLabel =
                     item.experiment_metric_type === 'funnel' && item.experiment_funnel_order_type
                         ? `funnel:${item.experiment_funnel_order_type}`
                         : item.experiment_metric_type
                 return (
-                    <div className="flex items-center gap-1">
-                        <span>{item.experiment_metric_name}</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                        <Tooltip title={item.experiment_metric_name}>
+                            <span className="truncate max-w-40">{item.experiment_metric_name}</span>
+                        </Tooltip>
                         {item.experiment_metric_type && <LemonTag type="muted">{metricTypeLabel}</LemonTag>}
                     </div>
                 )
@@ -384,32 +417,6 @@ export function QueryPerformance(): JSX.Element {
                         {events}
                     </div>
                 )
-            },
-        },
-        {
-            title: 'Status',
-            render: function Status(_, item) {
-                if (!item.exception) {
-                    return <LemonTag type="success">OK</LemonTag>
-                }
-                const firstLine = item.exception.split('\n')[0]
-                const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
-                return (
-                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
-                        <div className="flex items-center gap-1 min-w-0">
-                            <LemonTag type="danger">Error</LemonTag>
-                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
-                        </div>
-                    </Tooltip>
-                )
-            },
-        },
-        {
-            title: 'Outcome',
-            width: 160,
-            render: function Outcome(_, item): JSX.Element {
-                const { label, type } = outcome(item)
-                return <LemonTag type={type}>{label}</LemonTag>
             },
         },
     ]
