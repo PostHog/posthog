@@ -131,7 +131,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         trace_id = uuid4()
         session_id = "test-session"
 
-        with patch("ee.hogai.core.runner.CallbackHandler") as mock_callback_handler_class:
+        with patch("ee.hogai.core.runner.MaxCallbackHandler") as mock_callback_handler_class:
             mock_handler_instance = Mock()
             mock_callback_handler_class.return_value = mock_handler_instance
 
