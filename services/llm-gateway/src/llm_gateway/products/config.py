@@ -95,6 +95,17 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=False,
         billable=True,
     ),
+    # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
+    # bot. Authenticates with a personal API key (not OAuth), so no application
+    # IDs are needed. It pins claude-opus-4-8 but can be repointed via
+    # ANTHROPIC_MODEL and uses Bedrock fallback, so all models are permitted.
+    # Internal infra tooling — not billed to a customer credit bucket.
+    "sherlockhog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,
+        allow_api_keys=True,
+        billable=False,
+    ),
     "wizard": ProductConfig(
         allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
         allowed_models=None,

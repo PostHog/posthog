@@ -20,7 +20,6 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -306,8 +305,6 @@ function LogsViewerContent({
     const displayBarProps = {
         id,
         totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
-        orderBy,
-        onChangeOrderBy: (newOrderBy: LogsOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
     }
 
     const logList = (

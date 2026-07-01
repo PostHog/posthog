@@ -541,11 +541,24 @@ class TestRun:
             sandbox_id="sandbox-123",
         )
 
-    async def test_run_ends_session_without_failing_when_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize(
+        "use_modal_resume_snapshots, expect_resume_snapshot_call",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
+    async def test_run_ends_session_without_failing_when_sandbox_gone(
+        self, monkeypatch, silent_workflow_logger, use_modal_resume_snapshots, expect_resume_snapshot_call
+    ):
         workflow = ExecuteSandboxWorkflow()
-        context = _build_context(state={"mode": "interactive"}, use_modal_resume_snapshots=False)
+        context = _build_context(
+            state={"mode": "interactive"},
+            use_modal_resume_snapshots=use_modal_resume_snapshots,
+        )
         update_status_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock()
 
         monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
@@ -555,6 +568,7 @@ class TestRun:
         monkeypatch.setattr(workflow, "_persist_sandbox_id", AsyncMock())
         monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
         monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
         monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", AsyncMock())
         monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
@@ -600,6 +614,10 @@ class TestRun:
         payload = completed_signals[0].args[0]
         assert isinstance(payload, ChildCompletionPayload)
         assert payload.success is True
+        if expect_resume_snapshot_call:
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+        else:
+            create_resume_snapshot_mock.assert_not_awaited()
 
     async def test_context_load_failure_marks_run_failed(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()

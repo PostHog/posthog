@@ -20,7 +20,7 @@
         "@storybook/addon-links": "^10.4.3",
         "@storybook/csf": "^0.1.12",
         "@storybook/react": "catalog:",
-        "@storybook/react-vite": "^10.4.6",
+        "@storybook/react-vite": "catalog:",
         "@storybook/test-runner": "^0.24.4",
         "@tailwindcss/vite": "4.3.0",
         "@types/jest-image-snapshot": "^6.4.0",
