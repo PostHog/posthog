@@ -204,6 +204,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
                               |ReplayScanner
                               |Repo
                               |RepoRoutingRule
@@ -469,6 +470,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
                         |ReplayScanner
                         |Repo
                         |RepoRoutingRule
