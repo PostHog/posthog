@@ -118,11 +118,12 @@ export function getPropertyDisplayInfo(
     type: TaxonomicFilterGroupType
     propertyFilterType?: PropertyFilterType
 } {
-    const propertyType = recordingProperties?.[property]
-        ? // HogQL query can return multiple types, so we need to check
-          // but if it doesn't match a core definition it must be an event property
-          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-        : TaxonomicFilterGroupType.PersonProperties
+    const propertyType =
+        recordingProperties && property in recordingProperties
+            ? // HogQL query can return multiple types, so we need to check
+              // but if it doesn't match a core definition it must be an event property
+              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+            : TaxonomicFilterGroupType.PersonProperties
 
     const propertyFilterType: PropertyFilterType | undefined =
         propertyType === TaxonomicFilterGroupType.EventProperties
@@ -501,6 +502,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
+        setPinnedProperties: () => {
+            // a newly pinned session property may not be in the cached recording properties yet
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
+                actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
+            }
+        },
         loadRecordingMetaSuccess: () => {
             // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
             if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
