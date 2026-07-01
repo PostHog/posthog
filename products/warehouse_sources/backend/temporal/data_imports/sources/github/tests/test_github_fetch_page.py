@@ -4,7 +4,7 @@ from unittest import mock
 import requests
 from prometheus_client import REGISTRY
 
-from posthog.rate_limiting.policies import Priority
+from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 

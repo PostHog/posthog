@@ -11,8 +11,8 @@ Importing this module registers the policy as a side effect — import it (direc
 
 from django.conf import settings
 
-from posthog.rate_limiting.outbound import get_outbound_rate_limiter
-from posthog.rate_limiting.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.outbound import get_outbound_rate_limiter
+from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
 
 GITHUB_DOMAIN = "github"
 

@@ -11,8 +11,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.egress.github.observability import record_github_api_response
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
-from posthog.rate_limiting.github_observability import record_github_api_response
 
 logger = structlog.get_logger(__name__)
 

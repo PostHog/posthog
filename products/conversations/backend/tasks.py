@@ -19,11 +19,11 @@ import requests
 import structlog
 from celery import shared_task
 
+from posthog.egress.github.observability import record_github_api_response
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
-from posthog.rate_limiting.github_observability import record_github_api_response
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 

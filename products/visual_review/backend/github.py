@@ -10,8 +10,8 @@ from __future__ import annotations
 import requests
 import structlog
 
+from posthog.egress.github.observability import record_github_api_response
 from posthog.models.integration import GITHUB_API_VERSION, GitHubRateLimitError, raise_if_github_rate_limited
-from posthog.rate_limiting.github_observability import record_github_api_response
 
 logger = structlog.get_logger(__name__)
 

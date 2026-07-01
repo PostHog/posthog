@@ -1,12 +1,12 @@
 import pytest
 
-import posthog.rate_limiting.backends as backends_module
-import posthog.rate_limiting.outbound as outbound_module
-import posthog.rate_limiting.policies as policies_module
-from posthog.rate_limiting import OutboundRateLimiter, Priority, RatePolicy, register_policy
-from posthog.rate_limiting.backends import LimitsBackend
-from posthog.rate_limiting.github import acquire_github_installation, github_installation_key
-from posthog.rate_limiting.policies import resolve_policy
+import posthog.egress.limiter.backends as backends_module
+import posthog.egress.limiter.outbound as outbound_module
+import posthog.egress.limiter.policies as policies_module
+from posthog.egress.github.limiter import acquire_github_installation, github_installation_key
+from posthog.egress.limiter.backends import LimitsBackend
+from posthog.egress.limiter.outbound import OutboundRateLimiter
+from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy, resolve_policy
 
 
 @pytest.fixture(autouse=True)

@@ -14,10 +14,10 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.egress.github.limiter import consume_github_installation_sync
+from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
-from posthog.rate_limiting.github import consume_github_installation_sync
-from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
-from posthog.rate_limiting.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse

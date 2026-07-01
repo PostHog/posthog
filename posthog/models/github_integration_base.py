@@ -22,7 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
-from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
+from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)

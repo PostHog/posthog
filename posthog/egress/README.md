@@ -21,8 +21,8 @@ A consumer identifies a budget with a limiter key shaped `{domain}:{scope}:{id}`
 Go through the facade, never the backing library:
 
 ```python
-from posthog.rate_limiting import Priority
-from posthog.rate_limiting.github import consume_github_installation_sync
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.github.limiter import consume_github_installation_sync
 
 if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
     # Budget exhausted — back off and retry, defer, or drop. The limiter never blocks or sleeps.
@@ -91,6 +91,6 @@ The headers are already on the response, so it needs no request restructuring �
 ## Adding a new egress domain
 
 - Register a budget with `register_policy("<domain>", provider)` returning a `RatePolicy`.
-- Expose a thin per-domain gate that builds the `{domain}:{scope}:{id}` key (see `github.py`).
+- Expose a thin per-domain gate that builds the `{domain}:{scope}:{id}` key (see `github/limiter.py`).
 - For telemetry, register an observability adapter (metric set, response parser, endpoint normalizer) and record responses through it.
 - Keep the identity in the external API's id space, and remember the limiter is non-blocking — the caller owns the back-off.
