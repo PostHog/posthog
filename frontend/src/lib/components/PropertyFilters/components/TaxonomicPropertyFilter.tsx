@@ -266,14 +266,22 @@ export function TaxonomicPropertyFilter({
             overlay={taxonomicFilter}
             placement="bottom-start"
             visible={dropdownOpen}
-            onClickOutside={closeDropdown}
+            // Drive open/close through a single source of truth. In controlled mode the trigger's
+            // own click and floating-ui's outside-dismiss would otherwise both mutate visibility and
+            // race — reopening a just-closed popover, or closing one right as it opens. Routing the
+            // toggle and the dismiss through `onVisibilityChange` (which reads the live prop, not a
+            // stale closure) keeps them from fighting.
+            onVisibilityChange={(nextVisible) => (nextVisible ? openDropdown() : closeDropdown())}
+            // Selecting a property closes the dropdown explicitly via the logic's `selectItem`; the
+            // overlay hosts its own inputs (search, category picker), so a click inside must not
+            // dismiss it.
+            closeOnClickInside={false}
         >
             <LemonButton
                 type="secondary"
                 icon={!valuePresent ? <IconPlusSmall /> : undefined}
                 data-attr={'property-select-toggle-' + index}
                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                 size={size}
                 truncate={true}
                 tooltip={
