@@ -23,7 +23,7 @@ if (!prNumber) {
     process.exit(0)
 }
 
-// compressed-size-action builds the PR branch and then the base branch in the same
+// The CI bundle-size job builds the PR branch and then the base branch in the same
 // workspace, so the plain report filename holds the LAST build's (the base's) numbers.
 // The PR build's report carries its checkout sha in the filename — that's the one to
 // post. The PR build checks out the merge ref, so its sha is GITHUB_SHA; the head sha
