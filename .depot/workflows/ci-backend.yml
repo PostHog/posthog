@@ -14,7 +14,9 @@
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, PR comment posters, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
-#   --store-durations write, test-selection verdict
+#   --store-durations write, test-selection verdict, Trunk flaky-test upload
+#   (trunk-upload — the shadow strips the junit artifact uploads it would aggregate,
+#   and must not post to the external Trunk service from a non-blocking timing trial)
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,

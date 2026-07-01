@@ -3222,3 +3222,31 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # Core/Temporal/async-migrations already emit and upload junit-results-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request
+        # events only (master push + merge queue), so the secret token never runs in a
+        # PR-controlled context; the uploader is a pinned external action, not a local one.
+        needs: [django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-*
+            - name: Upload to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/**/*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
