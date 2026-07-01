@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
+import { HedgehogGreek } from '@posthog/brand/hoggies'
 import { LemonTable, Link } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
@@ -20,7 +20,7 @@ interface PersonEmailsTabProps {
 function EmptyEmails(): JSX.Element {
     return (
         <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-            <ListHog width="100" height="100" className="mb-4" />
+            <HedgehogGreek width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">No emails sent to this person</h2>
             <p className="text-sm text-balance text-tertiary">
                 Once a workflow sends this person an email, it will show up here.
