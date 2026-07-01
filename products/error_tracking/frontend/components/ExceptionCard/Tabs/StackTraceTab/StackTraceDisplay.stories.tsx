@@ -9,6 +9,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../../__mocks__/events'
+import { results as batchGetResults } from '../../../../__mocks__/stack_frames/batch_get'
 import { StyleVariables } from '../../../StyleVariables'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 
@@ -31,7 +32,7 @@ const meta: Meta = {
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': { results: batchGetResults },
             },
         }),
     ],

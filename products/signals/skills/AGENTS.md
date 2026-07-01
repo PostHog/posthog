@@ -37,12 +37,14 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   product. The first canonical scout on the **report channel** (its frontmatter
   `allowed_tools` lists `emit_report` / `edit_report`): it authors fully-validated
   correlations 1:1 as `SignalReport`s directly, rather than firing weak `emit_signal`
-  findings for the pipeline to cluster. Carries two progressively-disclosed references:
+  findings for the pipeline to cluster. The report-channel contract itself (when to author
+  vs. edit, the field schema, status mapping, reviewer routing, dedupe) lives in the harness
+  prompt (`scout_harness/prompt.py`), injected into every report-channel scout — so a ported
+  scout carries only its _domain-specific_ report framing inline in its body, not a bundled
+  copy of the contract. The generalist keeps one progressively-disclosed reference,
   `references/conventions.md` (scratchpad key prefixes + the four-states author/edit
-  classifier + cross-project noise patterns) and `references/report.md` (the report
-  channel — when to author vs. edit, fields, status mapping, reviewer routing, dedupe).
-  This is the entry point if you want to understand how a scout decides what to
-  investigate end-to-end.
+  classifier + cross-project noise patterns). This is the entry point if you want to
+  understand how a scout decides what to investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
 - `signals-scout-apm/` — RED-metrics anomaly watcher for the distributed tracing (APM /
@@ -157,8 +159,11 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   dashboard access), curates a durable scratchpad watchlist, and balances
   re-checking known items (exploit) against discovering new ones (explore) across
   runs; scores the latest complete bucket by robust (MAD) deviation from each
-  insight's own seasonality-matched baseline. Bundles its own references
-  (`anomaly-methods.md`, `watchlist-and-memory.md`, `emit-contract.md`).
+  insight's own seasonality-matched baseline. The first canonical scout on the
+  **report channel** — it files each anomaly as a finished 1:1 inbox report via
+  `emit_report` / `edit_report` (its `allowed_tools`) rather than a weak signal.
+  Bundles its own references
+  (`anomaly-methods.md`, `watchlist-and-memory.md`, `report-contract.md`).
 - `signals-scout-health-checks/` — the judgment layer over PostHog's own health
   checks. Reads the project's active health issues (`health-issues-summary` /
   `-list` / `-get`) rather than re-running detection, and decides which are worth
@@ -258,36 +263,39 @@ recurring token cost on every run — and push detail into references that are o
 read when needed.
 
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
-directly and does not `emit_signal`, so it carries two references:
+directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh
+report vs. edit an existing one, the field schema, the safety × actionability status mapping,
+reviewer routing via `signals-scout-members-list`, and the non-idempotency + pipeline-rewrite
+caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's
+channel and injects it into every report-channel scout — so it is **not** duplicated as a
+per-scout reference. The generalist keeps one bundled reference:
 
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
-- **`references/report.md`** — the report channel (`emit-report` / `edit-report`):
-  when to author a fresh report vs. edit an existing one, the field schema, the
-  safety × actionability status mapping, reviewer routing (`suggested_reviewers` via
-  `org-member-get-github-login`), and the non-idempotency + pipeline-rewrite caveats.
-  Bundled because the generalist is the first canonical scout on the channel; a scout
-  reads only its own files at runtime, so any future report-channel adopter bundles its
-  own copy rather than pointing here.
 
-The rest of the fleet is being ported onto the **report channel** one scout per PR,
-biggest reach first (see the `scouts-emit-reports` spec). A ported scout is report-only —
-its frontmatter `allowed_tools` lists `emit_report` / `edit_report` and it bundles its own
-`references/report.md`, the same shape as the generalist (`signals-scout-ai-observability`
-is on the channel; others follow). A scout not yet ported still emits weak `emit_signal`
-findings for the pipeline to cluster; those specialists carry their own emit/dedupe contract
-where they need it, and its canonical write-up now lives in
-`authoring-scouts/references/emit-contract.md`.
+The rest of the fleet is being ported onto the **report channel** one scout per PR, biggest
+reach first (see the `scouts-emit-reports` spec). A ported scout is report-only — its frontmatter
+`allowed_tools` lists `emit_report` / `edit_report` — and it carries only its _domain-specific_
+report framing **inline in its body** (what's report-shaped for its surface, its
+`reviewer:<domain>` / `report:<domain>` scratchpad keys, a tailored title example); the channel
+contract comes from the prompt, so a ported scout bundles **no** `report.md`. The exception is
+`signals-scout-anomaly-detection`, which keeps a slimmed `references/report-contract.md` for its
+genuinely scout-specific **notebook write-up + embedded-chart recipe** (it defers the generic
+contract to the prompt). A scout not yet ported still emits weak `emit_signal` findings for the
+pipeline to cluster; those specialists carry their own emit/dedupe contract where they need it,
+and its canonical write-up now lives in `authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
 read on demand — `signals-scout-anomaly-detection` (`anomaly-methods.md`,
-`watchlist-and-memory.md`, `emit-contract.md`), `signals-scout-ai-observability`
+`watchlist-and-memory.md`, `report-contract.md`), `signals-scout-ai-observability`
 (`lenses.md`), and `signals-scout-surveys` (`response-querying.md`). Treat the
 generalist as the reference shape. Note that a scout can only read its own bundled
-files at runtime (each team's `LLMSkill` row carries just that skill's files), so a
-specialist that needs the emit/dedupe conventions in depth bundles its own copy
-rather than pointing at the generalist's.
+files at runtime (each team's `LLMSkill` row carries just that skill's files) — which is
+why a signal scout that needs the emit/dedupe conventions in depth bundles its own copy
+rather than pointing at the generalist's. The report-channel contract is the exception to
+that copy-it-locally rule: it rides in the harness prompt, not a file, so report scouts
+share one definition without each bundling a copy.
 
 ## When editing skills in this directory
 

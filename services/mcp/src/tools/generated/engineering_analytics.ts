@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    EngineeringAnalyticsCiFailureLogsQueryParams,
     EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
@@ -12,6 +13,29 @@ import {
 } from '@/generated/engineering_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
+
+const engineeringAnalyticsCiFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsCiFailureLogsSchema,
+    Schemas.CIFailureLogs
+> => ({
+    name: 'engineering-analytics-ci-failure-logs',
+    schema: EngineeringAnalyticsCiFailureLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsCiFailureLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CIFailureLogs>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/ci_failure_logs/`,
+            query: {
+                pr_number: params.pr_number,
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
 
 const EngineeringAnalyticsPrCostSchema = EngineeringAnalyticsPrCostQueryParams
 
@@ -89,6 +113,7 @@ const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_runner_costs/`,
             query: {
+                branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 repo: params.repo,
@@ -173,6 +198,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-sources': engineeringAnalyticsSources,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,

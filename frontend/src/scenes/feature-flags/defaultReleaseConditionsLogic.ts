@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import type { defaultReleaseConditionsLogicType } from './defaultReleaseConditionsLogicType'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 
 export interface DefaultReleaseConditionsResponse {
     enabled: boolean
@@ -122,6 +123,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 groups: groups.length > 0 ? groups : [{ properties: [], rollout_percentage: 0, variant: null }],
                 multivariate: null,
                 payloads: {},
+                aggregation_group_type_index: uniformAggregationGroupTypeIndex(groups),
             }),
         ],
 

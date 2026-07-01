@@ -1,0 +1,80 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: MCP Store
+feature: mcp_store
+url_prefix: /settings/environment-mcp-servers
+ui_apps: {}
+tools:
+    mcp-connection-tools-list:
+        operation: mcp_server_installations_tools_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a connection's tools
+        description: >
+            Load a connected MCP server's live tool catalog by connection `id` (from mcp-connections-list). Returns each
+            tool's `tool_name`, `description`, `input_schema`, and `approval_state`. ALWAYS call this to load a
+            connection's REAL tool names before curating per-agent MCP tool permissions (an agent's
+            `spec.mcps[].tools[]` with `level` / `default_tool_approval`) — never invent or guess tool names from past
+            sessions or skill prose.
+    mcp-connection-tools-partial-update:
+        operation: mcp_server_installations_tools_partial_update
+        enabled: false
+    mcp-connection-tools-refresh-create:
+        operation: mcp_server_installations_tools_refresh_create
+        enabled: false
+    mcp-connections-authorize-retrieve:
+        operation: mcp_server_installations_authorize_retrieve
+        enabled: false
+    mcp-connections-create:
+        operation: mcp_server_installations_create
+        enabled: false
+    mcp-connections-destroy:
+        operation: mcp_server_installations_destroy
+        enabled: false
+    mcp-connections-install-custom-create:
+        operation: mcp_server_installations_install_custom_create
+        enabled: false
+    mcp-connections-install-template-create:
+        operation: mcp_server_installations_install_template_create
+        enabled: false
+    mcp-connections-list:
+        operation: mcp_server_installations_list
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List MCP connections
+        description: >
+            List the MCP servers connected to this project (the "connections"). Each entry returns its `id` (the
+            connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields
+            (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections
+            exist before loading a connection's live tool catalog with mcp-connection-tools-list.
+    mcp-connections-partial-update:
+        operation: mcp_server_installations_partial_update
+        enabled: false
+    mcp-connections-proxy-create:
+        operation: mcp_server_installations_proxy_create
+        enabled: false
+    mcp-connections-retrieve:
+        operation: mcp_server_installations_retrieve
+        enabled: false
+    mcp-connections-update:
+        operation: mcp_server_installations_update
+        enabled: false
+    mcp-servers-list:
+        operation: mcp_servers_list
+        enabled: false
