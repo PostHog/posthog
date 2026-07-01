@@ -90,6 +90,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertyValue
                               |DAG
@@ -359,6 +360,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertyValue
                         |DAG

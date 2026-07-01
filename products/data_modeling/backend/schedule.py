@@ -18,9 +18,15 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_DAG_ID_KEY,
+    POSTHOG_ORG_ID_KEY,
+    POSTHOG_SCHEDULE_TYPE_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
 
 from products.data_modeling.backend.models import Node
 
@@ -30,6 +36,17 @@ if TYPE_CHECKING:
 # v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
 # (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+
+def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
+    return TypedSearchAttributes(
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=organization_id),
+            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=dag_id),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=DATA_MODELING_EXECUTE_DAG_WORKFLOW),
+        ]
+    )
 
 
 @async_to_sync
