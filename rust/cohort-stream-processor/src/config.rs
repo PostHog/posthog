@@ -278,6 +278,11 @@ pub struct Config {
     #[envconfig(from = "COHORT_STORE_STATISTICS_ENABLED", default = "true")]
     pub store_statistics_enabled: bool,
 
+    /// Sample 1-in-N reads into the read-latency histogram; the read counter stays exact. See
+    /// [`StoreConfig::read_sample_ratio`]. `1` records every read; `0` floors to `1`.
+    #[envconfig(from = "COHORT_STORE_READ_SAMPLE_RATIO", default = "64")]
+    pub store_read_sample_ratio: u32,
+
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
     /// `AppliedOffsets`). Refused alongside `cohort_cascade_enabled` — merge column families are not
@@ -433,7 +438,8 @@ impl Config {
     }
 
     pub fn stats_publish_interval(&self) -> Duration {
-        Duration::from_secs(self.stats_publish_interval_secs)
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_secs(self.stats_publish_interval_secs).max(Duration::from_secs(1))
     }
 
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
@@ -557,6 +563,7 @@ impl Config {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
             statistics_enabled: self.store_statistics_enabled,
+            read_sample_ratio: self.store_read_sample_ratio,
             ..StoreConfig::default()
         }
     }
@@ -744,6 +751,7 @@ mod tests {
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
             store_statistics_enabled: true,
+            store_read_sample_ratio: 64,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -883,10 +891,13 @@ mod tests {
         assert!(defaults.store_statistics_enabled);
         assert!(defaults.store_config().statistics_enabled);
         assert_eq!(defaults.stats_publish_interval(), Duration::from_secs(15));
+        assert_eq!(defaults.store_read_sample_ratio, 64);
+        assert_eq!(defaults.store_config().read_sample_ratio, 64);
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_STORE_STATISTICS_ENABLED", "false"),
             ("COHORT_STATS_PUBLISH_INTERVAL_SECS", "30"),
+            ("COHORT_STORE_READ_SAMPLE_RATIO", "8"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -898,6 +909,24 @@ mod tests {
             "the flag reaches StoreConfig",
         );
         assert_eq!(config.stats_publish_interval(), Duration::from_secs(30));
+        assert_eq!(config.store_read_sample_ratio, 8);
+        assert_eq!(
+            config.store_config().read_sample_ratio,
+            8,
+            "the sample ratio reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn stats_publish_interval_floors_zero_at_one_second() {
+        // Zero would panic `tokio::time::interval`; the accessor clamps to 1s.
+        let env: std::collections::HashMap<String, String> =
+            [("COHORT_STATS_PUBLISH_INTERVAL_SECS", "0")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(1));
     }
 
     #[test]

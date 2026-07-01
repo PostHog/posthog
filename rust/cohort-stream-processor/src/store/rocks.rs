@@ -1,5 +1,6 @@
 //! RocksDB wrapper: multi-CF atomic `WriteBatch`, async WAL.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -40,6 +41,8 @@ const OP_CHECKPOINT: &str = "checkpoint";
 const DEFAULT_BLOCK_CACHE_BYTES: usize = 128 * 1024 * 1024;
 const DEFAULT_WRITE_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_OPEN_FILES: i32 = 1024;
+/// `get` is on the hot path, so sample the latency histogram 1-in-64 by default; the counter is exact.
+const DEFAULT_READ_SAMPLE_RATIO: u32 = 64;
 
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
@@ -54,6 +57,9 @@ pub struct StoreConfig {
     /// Enable RocksDB statistics so [`CohortStore::stats_snapshot`] reports live cache tickers; they
     /// read 0 when off.
     pub statistics_enabled: bool,
+    /// Sample 1-in-N reads into [`STORE_READ_DURATION_SECONDS`] (the read counter stays exact).
+    /// `1` records every read; clamped to `>= 1` at open.
+    pub read_sample_ratio: u32,
 }
 
 impl Default for StoreConfig {
@@ -66,6 +72,7 @@ impl Default for StoreConfig {
             create_if_missing: true,
             wipe_on_start: false,
             statistics_enabled: true,
+            read_sample_ratio: DEFAULT_READ_SAMPLE_RATIO,
         }
     }
 }
@@ -106,6 +113,8 @@ pub struct CohortStore {
     /// Retained so [`Self::stats_snapshot`] can read cache tickers: RocksDB shares one statistics
     /// handle between these `Options` and the live DB, so reads here reflect ongoing activity.
     db_opts: Arc<Options>,
+    /// See [`StoreConfig::read_sample_ratio`]; `>= 1`.
+    read_sample_ratio: u32,
 }
 
 impl CohortStore {
@@ -144,16 +153,21 @@ impl CohortStore {
         Ok(Self {
             db: Arc::new(db),
             db_opts: Arc::new(db_opts),
+            // Floor at 1: `next % ratio` must not divide by zero.
+            read_sample_ratio: config.read_sample_ratio.max(1),
         })
     }
 
     /// Read a raw value from any CF.
     pub fn get(&self, cf: Cf, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
         let handle = self.cf(cf)?;
-        let started = Instant::now();
+        // Sample 1-in-N; unsampled reads skip even `Instant::now()`. The counter below stays exact.
+        let started = should_sample_read(self.read_sample_ratio).then(Instant::now);
         let result = self.db.get_cf(handle, key);
-        histogram!(STORE_READ_DURATION_SECONDS, "op" => OP_GET)
-            .record(started.elapsed().as_secs_f64());
+        if let Some(started) = started {
+            histogram!(STORE_READ_DURATION_SECONDS, "op" => OP_GET)
+                .record(started.elapsed().as_secs_f64());
+        }
         counter!(STORE_READS_TOTAL, "op" => OP_GET).increment(1);
         result.map_err(|source| {
             counter!(STORE_ERRORS_TOTAL, "op" => OP_GET).increment(1);
@@ -679,6 +693,20 @@ impl BatchBuilder<'_> {
     }
 }
 
+thread_local! {
+    /// Thread-local to avoid cross-worker contention; each worker samples independently (~1-in-N).
+    static READ_SAMPLE_COUNTER: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Fires once per `ratio` calls. Count-based, so sampled quantiles stay unbiased; `ratio >= 1`.
+fn should_sample_read(ratio: u32) -> bool {
+    READ_SAMPLE_COUNTER.with(|counter| {
+        let next = counter.get().wrapping_add(1);
+        counter.set(next);
+        next % ratio == 0
+    })
+}
+
 /// Records one duration sample and `key_count` logical reads for a `multi_get` (a batch touches
 /// `key_count` keys).
 fn record_multi_get(started: Instant, key_count: usize) {
@@ -1182,6 +1210,19 @@ mod tests {
         assert!(config.write_buffer_bytes > 0);
         assert!(config.max_open_files > 0);
         assert!(config.statistics_enabled, "statistics default on");
+        assert_eq!(
+            config.read_sample_ratio, 64,
+            "read latency sampling defaults to 1-in-64",
+        );
+    }
+
+    #[test]
+    fn read_sampler_fires_once_per_ratio() {
+        // `ratio == 1` samples every read.
+        assert!((0..4).all(|_| should_sample_read(1)));
+        // Any 64 consecutive calls hold exactly one multiple of 64, so carry-over doesn't matter.
+        let hits = (0..64).filter(|_| should_sample_read(64)).count();
+        assert_eq!(hits, 1, "1-in-64 fires exactly once across 64 calls");
     }
 
     #[test]

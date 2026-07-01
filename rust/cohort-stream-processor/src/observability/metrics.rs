@@ -121,7 +121,9 @@ pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
-/// Latency of a RocksDB read, labelled by `op` (histogram, seconds).
+/// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
+/// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
+/// records once per batch.
 pub const STORE_READ_DURATION_SECONDS: &str = "store_read_duration_seconds";
 /// Logical RocksDB reads issued, labelled by `op` (counter). A `multi_get` counts once per key.
 pub const STORE_READS_TOTAL: &str = "store_reads_total";
