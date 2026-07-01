@@ -7,12 +7,11 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
+import { AccessControlDetail } from './AccessControlDetail'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
-import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
-import { MemberAccessControlDetail } from './MemberAccessControlDetail'
 import type { AccessControlsTab, ScopeType } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
@@ -22,7 +21,6 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         activeTab,
         searchText,
         filters,
-        ruleModalState,
         canUseRoles,
         allMembers,
         roles,
@@ -33,15 +31,19 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         canEdit,
         loading,
         selectedMemberId,
+        selectedRoleId,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal, openMemberDetail } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openMemberDetail, openRoleDetail } = useActions(logic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
-    // A member is being inspected — take over the whole section with their detail page
+    // A member or role is being inspected — take over the whole section with their detail page
     if (activeTab === 'members' && selectedMemberId) {
-        return <MemberAccessControlDetail projectId={projectId} />
+        return <AccessControlDetail projectId={projectId} scopeType="member" />
+    }
+    if (activeTab === 'roles' && selectedRoleId) {
+        return <AccessControlDetail projectId={projectId} scopeType="role" />
     }
 
     return (
@@ -86,15 +88,13 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 onEdit={(entry) =>
                                     scopeType === 'member'
                                         ? openMemberDetail(getEntryId(entry))
-                                        : openRuleModal({ scopeType, entry, projectId })
+                                        : openRoleDetail(getEntryId(entry))
                                 }
                             />
                         </div>
                     )}
                 </AccessControlTabContainer>
             </div>
-
-            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
         </>
     )
 }

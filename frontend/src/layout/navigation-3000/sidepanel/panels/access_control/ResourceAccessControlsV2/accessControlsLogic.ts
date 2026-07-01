@@ -126,6 +126,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         closeRuleModal: true,
         openMemberDetail: (membershipId: string) => ({ membershipId }),
         closeMemberDetail: true,
+        openRoleDetail: (roleId: string) => ({ roleId }),
+        closeRoleDetail: true,
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -192,6 +194,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             {
                 openMemberDetail: (_, { membershipId }) => membershipId,
                 closeMemberDetail: () => null,
+                setActiveTab: () => null,
+            },
+        ],
+        selectedRoleId: [
+            null as string | null,
+            {
+                openRoleDetail: (_, { roleId }) => roleId,
+                closeRoleDetail: () => null,
                 setActiveTab: () => null,
             },
         ],
@@ -288,6 +298,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     : null,
         ],
 
+        selectedRole: [
+            (s) => [s.rolesData, s.selectedRoleId],
+            (rolesData, selectedRoleId): AccessControlRoleEntry | null =>
+                selectedRoleId && rolesData
+                    ? (rolesData.results.find((r) => r.role_id === selectedRoleId) ?? null)
+                    : null,
+        ],
+
         filteredMembers: [
             (s) => [s.membersData, s.searchText, s.filters],
             (membersData, searchText, filters): AccessControlMemberEntry[] => {
@@ -346,6 +364,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         openMemberDetail: () => {
             captureAccessControlEvent('access_control_member_detail_opened', {
+                ui_version: 'v2',
+            })
+        },
+
+        openRoleDetail: () => {
+            captureAccessControlEvent('access_control_role_detail_opened', {
                 ui_version: 'v2',
             })
         },
@@ -511,6 +535,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         return {
             openMemberDetail: ({ membershipId }) => buildUrl({ access_tab: 'members', access_member: membershipId }),
             closeMemberDetail: () => buildUrl({ access_tab: 'members', access_member: undefined }),
+            openRoleDetail: ({ roleId }) => buildUrl({ access_tab: 'roles', access_role_detail: roleId }),
+            closeRoleDetail: () => buildUrl({ access_tab: 'roles', access_role_detail: undefined }),
         }
     }),
 
@@ -530,6 +556,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     actions.loadMembers()
                 }
                 actions.openMemberDetail(searchParams.access_member)
+            }
+            if (searchParams.access_role_detail) {
+                // Deep link / back-button restore of a role's detail page
+                actions.setActiveTab('roles')
+                if (!values.rolesData && !values.rolesDataLoading) {
+                    actions.loadRoles()
+                }
+                actions.openRoleDetail(searchParams.access_role_detail)
             }
         },
     })),

@@ -277,6 +277,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "access_control_members",
             "access_control_member_objects",
             "access_control_member_properties",
+            "access_control_role_objects",
+            "access_control_role_properties",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -909,5 +911,81 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 }
             )
 
+        results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
+        return Response({"results": results})
+
+    def _get_role(self, request: Request, team: Team):
+        role_id = request.query_params.get("role_id")
+        if not role_id:
+            raise exceptions.ValidationError("role_id is required")
+        role = Role.objects.filter(id=role_id, organization=team.organization).first()
+        if not role:
+            raise exceptions.NotFound("Role not found")
+        return role
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_role_objects")
+    def access_control_role_objects(self, request: Request, *args, **kwargs):
+        """Object-level access rules configured for a role."""
+        from collections import defaultdict
+
+        team = cast(Team, self.team)  # type: ignore
+        role = self._get_role(request, team)
+
+        rows = list(
+            AccessControl.objects.filter(team=team, role=role, resource_id__isnull=False).exclude(resource="project")
+        )
+        ids_by_resource: dict[str, list[str]] = defaultdict(list)
+        for ac in rows:
+            ids_by_resource[ac.resource].append(ac.resource_id)
+        names_by_resource = {
+            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+        }
+
+        results = [
+            {
+                "resource": ac.resource,
+                "resource_id": ac.resource_id,
+                "name": names_by_resource.get(ac.resource, {}).get(str(ac.resource_id)) or ac.resource_id,
+                "access_level": ac.access_level,
+                "source": "role",
+                "role_name": None,
+            }
+            for ac in rows
+        ]
+        results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
+        return Response({"results": results})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_role_properties")
+    def access_control_role_properties(self, request: Request, *args, **kwargs):
+        """Property restrictions configured for a role (anything below read_write)."""
+        from products.access_control.backend.models.property_access_control import (  # noqa: PLC0415 — product model, keep off import path
+            PropertyAccessControl,
+        )
+
+        team = cast(Team, self.team)  # type: ignore
+        role = self._get_role(request, team)
+
+        rows = list(
+            PropertyAccessControl.objects.filter(team=team, role=role)
+            .exclude(access_level="read_write")
+            .select_related("property_definition")
+        )
+
+        results = []
+        for pac in rows:
+            pd = pac.property_definition
+            if pd is None:
+                continue
+            results.append(
+                {
+                    "property": pd.name,
+                    "property_type": "person" if pd.type == pd.Type.PERSON else "event",
+                    "access_level": pac.access_level,
+                    "source": "role",
+                    "role_name": None,
+                }
+            )
         results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
         return Response({"results": results})

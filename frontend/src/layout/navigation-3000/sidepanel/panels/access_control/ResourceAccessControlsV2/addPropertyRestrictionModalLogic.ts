@@ -8,8 +8,8 @@ import api from 'lib/api'
 import { propertyAccessControlsCreate } from 'products/access_control/frontend/generated/api'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
+import { AccessScope, accessDetailLogic } from './accessDetailLogic'
 import type { addPropertyRestrictionModalLogicType } from './addPropertyRestrictionModalLogicType'
-import { memberAccessDetailLogic } from './memberAccessDetailLogic'
 
 export interface PropertyOption {
     id: string
@@ -18,16 +18,17 @@ export interface PropertyOption {
 
 export interface AddPropertyRestrictionModalLogicProps {
     projectId: string
-    membershipId: string
+    scopeType: AccessScope
+    subjectId: string
 }
 
 export const addPropertyRestrictionModalLogic = kea<addPropertyRestrictionModalLogicType>([
     path((key) => ['scenes', 'access_control', 'addPropertyRestrictionModalLogic', key]),
     props({} as AddPropertyRestrictionModalLogicProps),
-    key((props) => `${props.projectId}:${props.membershipId}`),
+    key((props) => `${props.projectId}:${props.scopeType}:${props.subjectId}`),
 
     connect((props: AddPropertyRestrictionModalLogicProps) => ({
-        actions: [memberAccessDetailLogic(props), ['loadProperties']],
+        actions: [accessDetailLogic(props), ['loadProperties']],
     })),
 
     actions({
@@ -86,7 +87,9 @@ export const addPropertyRestrictionModalLogic = kea<addPropertyRestrictionModalL
                 await propertyAccessControlsCreate(props.projectId, {
                     property_definition_id: values.propertyId,
                     access_level: values.level,
-                    organization_member: props.membershipId,
+                    ...(props.scopeType === 'role'
+                        ? { role: props.subjectId }
+                        : { organization_member: props.subjectId }),
                 })
                 lemonToast.success('Property restriction added')
                 actions.loadProperties()

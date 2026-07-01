@@ -7,8 +7,8 @@ import api from 'lib/api'
 
 import { AccessControlLevel } from '~/types'
 
+import { AccessScope, accessDetailLogic } from './accessDetailLogic'
 import type { addObjectOverrideModalLogicType } from './addObjectOverrideModalLogicType'
-import { memberAccessDetailLogic } from './memberAccessDetailLogic'
 
 // Object resource types whose list `id` maps directly to their `/{route}/{id}/access_controls` endpoint.
 export const ADD_RULE_RESOURCES: { value: string; label: string; route: string }[] = [
@@ -28,20 +28,26 @@ export interface ObjectOption {
 
 export interface AddObjectOverrideModalLogicProps {
     projectId: string
-    membershipId: string
+    scopeType: AccessScope
+    subjectId: string
 }
 
 function routeFor(resource: string): string {
     return ADD_RULE_RESOURCES.find((r) => r.value === resource)?.route ?? `${resource}s`
 }
 
+// The access-control PUT body targets either an org member or a role, depending on the page's scope.
+function subjectBody(props: AddObjectOverrideModalLogicProps): Record<string, string> {
+    return props.scopeType === 'role' ? { role: props.subjectId } : { organization_member: props.subjectId }
+}
+
 export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>([
     path((key) => ['scenes', 'access_control', 'addObjectOverrideModalLogic', key]),
     props({} as AddObjectOverrideModalLogicProps),
-    key((props) => `${props.projectId}:${props.membershipId}`),
+    key((props) => `${props.projectId}:${props.scopeType}:${props.subjectId}`),
 
     connect((props: AddObjectOverrideModalLogicProps) => ({
-        actions: [memberAccessDetailLogic(props), ['loadObjects']],
+        actions: [accessDetailLogic(props), ['loadObjects']],
     })),
 
     actions({
@@ -75,9 +81,10 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             {
                 loadObjectOptions: async (_, breakpoint) => {
                     await breakpoint(300)
-                    const route = routeForCurrent(values)
                     const response = await api.get<{ results: Record<string, any>[] }>(
-                        `api/projects/${props.projectId}/${route}/?limit=20&search=${encodeURIComponent(values.search)}`
+                        `api/projects/${props.projectId}/${routeFor(values.resource)}/?limit=20&search=${encodeURIComponent(
+                            values.search
+                        )}`
                     )
                     return response.results.map((item) => ({
                         id: String(item.id),
@@ -98,8 +105,8 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             }
             try {
                 await api.put(
-                    `api/projects/${props.projectId}/${routeForCurrent(values)}/${values.objectId}/access_controls`,
-                    { organization_member: props.membershipId, access_level: values.level }
+                    `api/projects/${props.projectId}/${routeFor(values.resource)}/${values.objectId}/access_controls`,
+                    { ...subjectBody(props), access_level: values.level }
                 )
                 lemonToast.success('Access rule added')
                 actions.loadObjects()
@@ -110,10 +117,10 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             }
         },
         deleteObjectOverride: async ({ resource, resourceId }) => {
-            // Clearing the member override = PUT with a null access level for this member
+            // Clearing the override = PUT with a null access level for this subject
             try {
                 await api.put(`api/projects/${props.projectId}/${routeFor(resource)}/${resourceId}/access_controls`, {
-                    organization_member: props.membershipId,
+                    ...subjectBody(props),
                     access_level: null,
                 })
                 lemonToast.success('Rule removed')
@@ -125,7 +132,3 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         },
     })),
 ])
-
-function routeForCurrent(values: { resource: string }): string {
-    return routeFor(values.resource)
-}
