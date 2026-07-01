@@ -5,6 +5,8 @@ import { IconChevronRight } from '@posthog/icons'
 interface DetailSectionProps {
     icon: ReactNode
     title: string
+    /** Metadata rendered immediately after the title, before the divider (e.g. a branch tag, info icon). */
+    afterTitle?: ReactNode
     rightSlot?: ReactNode
     children: ReactNode
     /** When set, the header toggles the body open/closed. */
@@ -21,6 +23,7 @@ interface DetailSectionProps {
 export function DetailSection({
     icon,
     title,
+    afterTitle,
     rightSlot,
     children,
     collapsible = false,
@@ -39,21 +42,24 @@ export function DetailSection({
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3 min-w-0 select-none">
-                {collapsible ? (
-                    <button
-                        type="button"
-                        aria-expanded={open}
-                        onClick={() => setCollapsed((c) => !c)}
-                        className="flex items-center gap-1.5 min-w-0 rounded text-left transition-colors hover:text-primary"
-                    >
-                        <IconChevronRight
-                            className={`size-3 shrink-0 text-tertiary transition-transform ${open ? 'rotate-90' : ''}`}
-                        />
-                        {heading}
-                    </button>
-                ) : (
-                    heading
-                )}
+                <div className="flex items-center gap-2 min-w-0">
+                    {collapsible ? (
+                        <button
+                            type="button"
+                            aria-expanded={open}
+                            onClick={() => setCollapsed((c) => !c)}
+                            className="flex items-center gap-1.5 min-w-0 rounded text-left transition-colors hover:text-primary"
+                        >
+                            <IconChevronRight
+                                className={`size-3 shrink-0 text-tertiary transition-transform ${open ? 'rotate-90' : ''}`}
+                            />
+                            {heading}
+                        </button>
+                    ) : (
+                        heading
+                    )}
+                    {afterTitle && <div className="shrink-0">{afterTitle}</div>}
+                </div>
                 <div className="h-px min-w-4 flex-1 bg-border-light" />
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
             </div>

@@ -71,21 +71,21 @@ export function PullRequestDiffPanel({
         <DetailSection
             icon={<IconCode />}
             title="Files changed"
+            afterTitle={
+                <Tooltip title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}>
+                    <LemonTag type="muted" className="font-mono">
+                        <IconGitBranch className="shrink-0" />
+                        <span className="truncate">{commit.branch}</span>
+                    </LemonTag>
+                </Tooltip>
+            }
             rightSlot={
-                <div className="flex items-center gap-2">
-                    <Tooltip title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}>
-                        <LemonTag type="muted" className="font-mono">
-                            <IconGitBranch className="shrink-0" />
-                            <span className="truncate">{commit.branch}</span>
-                        </LemonTag>
-                    </Tooltip>
-                    <LemonSegmentedButton
-                        size="small"
-                        value={diffStyle}
-                        onChange={setDiffStyle}
-                        options={DIFF_STYLE_OPTIONS}
-                    />
-                </div>
+                <LemonSegmentedButton
+                    size="small"
+                    value={diffStyle}
+                    onChange={setDiffStyle}
+                    options={DIFF_STYLE_OPTIONS}
+                />
             }
         >
             <div className="flex flex-col gap-3">
