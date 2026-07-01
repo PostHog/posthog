@@ -136,10 +136,6 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     ) {
         return false
     }
-    // quill's TimeSeriesBarChart has no trend-line support yet — fall back until it does.
-    if (yData?.some((series) => series.settings?.display?.trendLine)) {
-        return false
-    }
     return true
 }
 
