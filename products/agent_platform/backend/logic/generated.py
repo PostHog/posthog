@@ -9,11 +9,22 @@ import json
 from pathlib import Path
 from typing import Any
 
+from django.core.exceptions import ImproperlyConfigured
+
 _DIR = Path(__file__).parent
 
 
 def _load(name: str) -> Any:
-    return json.loads((_DIR / name).read_text())
+    # Runs at django.setup(); fail closed but legibly on a missing/corrupt artifact. Read
+    # UTF-8 explicitly — the trigger-secret registry contains `→`, which a C/POSIX default decode chokes on.
+    path = _DIR / name
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ImproperlyConfigured(
+            f"agent_platform: generated vocabulary '{name}' is missing or corrupt ({e}). "
+            "Regenerate with: UPDATE_GENERATED=1 npx vitest run src/spec/spec-codegen.test.ts"
+        ) from e
 
 
 # Per-trigger-type required secrets (source: trigger-secrets.ts).

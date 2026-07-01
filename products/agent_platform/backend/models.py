@@ -298,9 +298,9 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
         constraints = [
             models.CheckConstraint(
                 name="agent_tool_approval_request_state_valid",
-                # Vocabulary owned by the runner (approval-store.ts). Imported from
-                # the generated artifact so the DB CHECK can't drift from the states
-                # the runner actually writes — a mismatch would reject a live insert.
+                # Imported from the generated artifact (source: approval-store.ts). Changing it
+                # needs a migration, deploy-ordered vs the runner: widen the CHECK before a new
+                # state, narrow after it stops being written.
                 condition=Q(state__in=APPROVAL_REQUEST_STATES),
             ),
             models.UniqueConstraint(

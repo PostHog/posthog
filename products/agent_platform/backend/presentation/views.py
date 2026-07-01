@@ -1650,13 +1650,16 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise JanitorUpstreamError(e) from e
         # Only `agent`-type approvals are decided through the console. A
         # `principal`-type request is the session owner's to clear at the ingress
-        # decision API; collapse it to not-found here. The janitor serializes
-        # approvals through the shared serializer, which resolves
-        # `approver_scope.type` — including legacy `approvers[]` rows — via the one
-        # owner of that mapping, so Django trusts the resolved type here rather than
-        # re-deriving it (which used to be a third copy of the rule).
-        scope = existing.get("approver_scope", {})
-        if scope.get("type") != "agent":
+        # decision API; collapse it to not-found here.
+        #
+        # Legacy fallback keeps this decode order-independent across a janitor rollout:
+        # an old janitor may return the pre-resolution `approvers[]` shape (no `type`),
+        # which we still resolve. Transitional.
+        scope = existing.get("approver_scope") or {}
+        approval_type = scope.get("type")
+        if approval_type is None:
+            approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
+        if approval_type != "agent":
             raise NotFound("Approval not found")
         # A human acting interactively only: SessionAuthentication, or a bearer
         # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -12,7 +12,11 @@ import { GENERATED_ARTIFACTS } from './spec-codegen'
 describe('spec generated artifacts', () => {
     if (process.env.UPDATE_GENERATED) {
         for (const artifact of GENERATED_ARTIFACTS) {
-            writeFileSync(artifact.path, artifact.content())
+            // Atomic write: an interrupted regen must not leave a half-file that
+            // Django then loads at import time (see generated.py `_load`).
+            const tmp = `${artifact.path}.tmp`
+            writeFileSync(tmp, artifact.content())
+            renameSync(tmp, artifact.path)
         }
     }
 
