@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { type Ref, Suspense, lazy, useEffect, useRef } from 'react'
+import { type Ref, Suspense, lazy, useCallback, useEffect, useRef } from 'react'
 
 import { IconWarning, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonDrawer, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -42,6 +42,11 @@ const LLMASessionFeedbackDisplay = lazy(() =>
 )
 
 type TurnPhase = 'userThinking' | 'aiThinking' | 'complete'
+
+// During playback, prefetch the next batch once the playhead is this many turns
+// from the loaded edge, so a revealed turn is already loading/loaded rather than
+// popping in as a "Show conversation" button mid-play.
+const PLAYBACK_PREFETCH_AHEAD = 2
 
 export const scene: SceneExport = {
     component: AIObservabilitySessionScene,
@@ -103,9 +108,12 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         fullTraces,
         loadingFullTraces,
         expandedGenerationIds,
+        hasMoreTurns,
+        turnsLoading,
+        autoLoadLimit,
     } = useValues(aiObservabilitySessionDataLogic)
     const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
-    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded } = useActions(
+    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded, loadMoreTurns } = useActions(
         aiObservabilitySessionDataLogic
     )
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -138,11 +146,15 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, built.durationMs])
 
-    // Idle: show the whole conversation. Scrubbing: reveal turns phase by phase.
+    // Playing: reveal turns phase by phase as the playhead advances.
+    // Idle/paused: render only the loaded prefix and grow it on scroll (infinite
+    // scroll), so turns past the loaded edge never render as a "Show conversation"
+    // button — the sentinel below the prefix pulls the next batch in as you approach.
     const isScrubbing = playing || currentMs > 0
     const revealedTurnCount = isScrubbing
         ? built.turnRevealsMs.reduce((n, revealMs) => (revealMs <= currentMs ? n + 1 : n), 0)
         : sessionTurns.length
+    const shownTurnCount = playing ? revealedTurnCount : autoLoadLimit
     const phaseOf = (i: number): TurnPhase =>
         currentMs < built.turnStartsMs[i]
             ? 'userThinking'
@@ -153,7 +165,12 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
     // While playing, keep the newest turn in view above the docked player.
     const latestTurnRef = useRef<HTMLDivElement>(null)
     useEffect(() => {
-        if (!playing || !latestTurnRef.current) {
+        // Follow the newest turn while playing, plus one final scroll when playback
+        // reaches the end: the player pauses on the same tick that reveals the last
+        // turn (see sessionPlaybackLogic.tick), so `playing` is already false on the
+        // render that reveals it — without this the last message never scrolls in.
+        const atPlaybackEnd = currentMs > 0 && currentMs >= durationMs
+        if ((!playing && !atPlaybackEnd) || !latestTurnRef.current) {
             return
         }
         // Scroll fully to the bottom so the newest turn clears the sticky player.
@@ -166,7 +183,72 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         } else {
             latestTurnRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' })
         }
+        // currentMs/durationMs are read for the end-of-playback check but intentionally
+        // omitted from deps — including currentMs would fire this every 50ms tick.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [playing, revealedTurnCount])
+
+    // Progressive turn loading: extend the loaded prefix as the sentinel below the
+    // list nears the viewport. Refs let the observer read fresh state without being
+    // rebuilt each time `hasMoreTurns` / `turnsLoading` flip during a batch.
+    const hasMoreTurnsRef = useRef(hasMoreTurns)
+    hasMoreTurnsRef.current = hasMoreTurns
+    const turnsLoadingRef = useRef(turnsLoading)
+    turnsLoadingRef.current = turnsLoading
+    // Callback ref, not ref+effect: the sentinel mounts only once `initialLoading` clears
+    // (the scene returns a spinner before that) and its render is also gated on
+    // `hasMoreTurns` / `!playing`. A ref+effect misses the attach whenever the sentinel
+    // mounts on a render whose deps didn't change; a callback ref fires exactly on
+    // mount/unmount, so the observer always attaches to the live node.
+    const observerRef = useRef<IntersectionObserver | null>(null)
+    const sentinelIntersectingRef = useRef(false)
+    const setLoadMoreSentinel = useCallback(
+        (node: HTMLDivElement | null): void => {
+            observerRef.current?.disconnect()
+            observerRef.current = null
+            if (!node) {
+                sentinelIntersectingRef.current = false
+                return
+            }
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    const intersecting = entries[0]?.isIntersecting ?? false
+                    sentinelIntersectingRef.current = intersecting
+                    if (intersecting && hasMoreTurnsRef.current && !turnsLoadingRef.current) {
+                        loadMoreTurns()
+                    }
+                },
+                // Generous prefetch margin so the next turns land before the user reaches them.
+                { rootMargin: '1000px' }
+            )
+            observer.observe(node)
+            observerRef.current = observer
+        },
+        [loadMoreTurns]
+    )
+
+    // A single IntersectionObserver callback only fires on an intersection *change*.
+    // When a batch settles while the sentinel is still in view — short content that
+    // doesn't fill the viewport, or the initial prefetch — nothing re-triggers it. Top
+    // up here after each batch until the sentinel scrolls out of the margin or there's
+    // nothing left. `loadMoreTurns` self-gates on `turnsLoading`, and each call grows the
+    // prefix, so this converges (it can't loop without loading).
+    useEffect(() => {
+        if (!playing && hasMoreTurns && !turnsLoading && sentinelIntersectingRef.current) {
+            loadMoreTurns()
+        }
+    }, [playing, hasMoreTurns, turnsLoading, loadMoreTurns])
+
+    // During playback the scroll sentinel is off, so drive prefetch off the playhead:
+    // once revealed turns come within PLAYBACK_PREFETCH_AHEAD of the loaded edge,
+    // pull the next batch in ahead of time. `loadMoreTurns` self-gates on `turnsLoading`,
+    // so this fires at most one batch until it settles. `revealedTurnCount` only changes
+    // at turn boundaries, so this doesn't run on every playback tick.
+    useEffect(() => {
+        if (playing && hasMoreTurns && revealedTurnCount >= autoLoadLimit - PLAYBACK_PREFETCH_AHEAD) {
+            loadMoreTurns()
+        }
+    }, [playing, revealedTurnCount, autoLoadLimit, hasMoreTurns, loadMoreTurns])
 
     const showSessionSummarization = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
@@ -243,18 +325,31 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
             </header>
 
             <div className="flex flex-col flex-1">
-                {(isScrubbing ? sessionTurns.slice(0, revealedTurnCount) : sessionTurns).map((turn, i, shown) => (
+                {sessionTurns.slice(0, shownTurnCount).map((turn, i, shown) => (
                     <SessionTurnView
                         key={turn.trace.id}
                         // Anchor for the player's auto-scroll: the last revealed turn.
                         rootRef={i === shown.length - 1 ? latestTurnRef : undefined}
                         turn={turn}
-                        phase={isScrubbing ? phaseOf(i) : 'complete'}
+                        phase={playing ? phaseOf(i) : 'complete'}
                         showSentiment
                         showSessionSummarization={!!showSessionSummarization}
                         traceSearchParams={traceSearchParams}
                     />
                 ))}
+                {!playing && hasMoreTurns && (
+                    <>
+                        {/* Sentinel is skipped only during active playback, whose auto-scroll would
+                            otherwise keep pulling it into view; a paused/seeked view still auto-loads. */}
+                        <div ref={setLoadMoreSentinel} className="h-1" aria-hidden />
+                        {turnsLoading && (
+                            <div className="flex items-center gap-2 text-muted text-sm py-2">
+                                <Spinner className="text-lg" />
+                                <span>Loading conversation…</span>
+                            </div>
+                        )}
+                    </>
+                )}
                 {hasMoreData && (
                     <div className="flex justify-center pt-4">
                         <LemonButton
