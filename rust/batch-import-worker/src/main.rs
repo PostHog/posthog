@@ -93,7 +93,8 @@ pub async fn main() -> Result<(), Error> {
     {
         let context = context.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let start = tokio::time::Instant::now() + Duration::from_secs(60);
+            let mut interval = tokio::time::interval_at(start, Duration::from_secs(60));
             loop {
                 interval.tick().await;
                 match JobModel::count_active_jobs(&context.db).await {
