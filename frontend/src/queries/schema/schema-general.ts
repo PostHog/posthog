@@ -16,7 +16,10 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
     DataWarehouseViewLink,
+    ElementPropertyFilter,
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
@@ -32,6 +35,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntegrationType,
@@ -4237,6 +4241,23 @@ export interface ExperimentRunningTimeCalculation {
     exposure_estimate_config?: ExperimentExposureEstimateConfig | null
 }
 
+/** Property filters supported on experiment exposure configs. Mirrors the taxonomy the
+ *  exposure-criteria UI offers (event, person, cohort, element, session, HogQL, and
+ *  data-warehouse properties) — a curated subset of AnyPropertyFilter. The full
+ *  AnyPropertyFilter union is intentionally avoided here: inlining every subtype explodes
+ *  the generated OpenAPI/MCP write schema, and most members (logs, spans, revenue, …) are
+ *  meaningless for exposure. Keep this in sync with `commonActionFilterProps` in the
+ *  experiment metric selectors, which drives the exposure UI's property filter. */
+export type ExperimentApiPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | ElementPropertyFilter
+    | SessionPropertyFilter
+    | HogQLPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
+
 /** Slim exposure config for experiment API payloads. Discriminated by `kind`:
  *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
  *  'ActionsNode' tracks exposure via an action. */
@@ -4247,8 +4268,9 @@ export interface ExperimentApiExposureConfig {
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: integer
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilter[]
+    /** Property filters to refine exposure — event, person, cohort, element, session, HogQL,
+     *  and data-warehouse filters are supported. Pass an empty array if no filters needed. */
+    properties: ExperimentApiPropertyFilter[]
 }
 
 /** Exposure criteria for experiment API payloads. */

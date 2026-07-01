@@ -7585,3 +7585,30 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+    def test_api_exposure_config_accepts_non_event_property_filters(self) -> None:
+        """Guards the exposure filter taxonomy: the slim write-type must accept the same property
+        filters the exposure UI offers (person, cohort, HogQL, …), not just event properties.
+
+        The runtime ``ExperimentEventExposureConfig`` already accepts the full AnyPropertyFilter
+        union, so narrowing the slim ``ExperimentApiExposureConfig`` to event-only silently strips
+        person/cohort/HogQL filters from generated MCP + frontend writes before they reach the API.
+        """
+        from posthog.schema import ExperimentApiExposureConfig
+
+        cases = {
+            "person": {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"},
+            "cohort": {"key": "id", "type": "cohort", "operator": "in", "value": 42},
+            "hogql": {"key": "properties.$browser = 'Chrome'", "type": "hogql"},
+        }
+        for label, prop in cases.items():
+            with self.subTest(filter=label):
+                config = ExperimentApiExposureConfig.model_validate(
+                    {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [prop],
+                    }
+                )
+                parsed_type = config.properties[0].type
+                self.assertEqual(getattr(parsed_type, "value", parsed_type), prop["type"])
