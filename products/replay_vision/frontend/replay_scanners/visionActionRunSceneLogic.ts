@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -101,7 +102,9 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
             try {
                 const run = await visionActionsRunsRetrieve(String(teamId), values.actionId, values.runId)
                 actions.loadRunSuccess(run)
-            } catch {
+            } catch (error: any) {
+                // Surface the failure so a transient error isn't silently rendered as "Run not found".
+                lemonToast.error(`Failed to load run${error?.detail ? `: ${error.detail}` : ''}`)
                 actions.loadRunFailure()
             }
         },

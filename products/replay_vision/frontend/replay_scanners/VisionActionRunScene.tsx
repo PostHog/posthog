@@ -37,7 +37,11 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
             title: 'Recording',
             key: 'recording',
             render: (_, obs) => (
-                <Link className="font-semibold" to={urls.replayVisionObservation(obs.id)}>
+                <Link
+                    className="font-semibold truncate max-w-xs inline-block align-bottom"
+                    to={urls.replayVisionObservation(obs.id)}
+                    title={obs.recording_subject_email || obs.session_id}
+                >
                     {obs.recording_subject_email || obs.session_id}
                 </Link>
             ),
@@ -45,7 +49,14 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
         {
             title: 'What was observed',
             key: 'title',
-            render: (_, obs) => <span className="text-sm">{obs.title || <span className="text-muted">—</span>}</span>,
+            render: (_, obs) =>
+                obs.title ? (
+                    <span className="text-sm truncate max-w-md inline-block align-bottom" title={obs.title}>
+                        {obs.title}
+                    </span>
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'When',
@@ -115,8 +126,7 @@ function VisionActionRunScene(): JSX.Element {
             ) : (
                 run.synthesized_markdown && (
                     <div className="text-muted text-sm">
-                        The list of recordings wasn't recorded for this run (runs summarized before this feature shipped
-                        don't have it).
+                        No recordings to show — they may predate this feature, or have since been deleted.
                     </div>
                 )
             )}
