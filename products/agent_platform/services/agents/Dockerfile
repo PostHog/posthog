@@ -63,7 +63,7 @@ RUN corepack enable
 
 # Manifests + lockfile first so the install layer caches across unrelated
 # source edits. `patches/` is referenced from pnpm-lock.yaml.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
 COPY patches/ patches/
 
 # pnpm reads every referenced workspace package.json BEFORE install to
