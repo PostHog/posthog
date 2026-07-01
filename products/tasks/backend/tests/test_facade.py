@@ -342,3 +342,33 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
         self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    def test_bootstrap_run_waits_for_start_then_clears_marker(self, mock_trigger):
+        task = self._make_task()
+
+        result = facade.bootstrap_task_run(
+            task.id,
+            self.team.id,
+            self.user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+        assert result is not None
+        assert result.run is not None
+        run = TaskRun.objects.get(id=result.run.id)
+        self.assertEqual(run.state["await_start"], True)
+
+        outcome, started_task_id = facade.start_task_run(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+            validated_data={"pending_user_message": "please start"},
+        )
+
+        self.assertEqual(outcome, "started")
+        self.assertEqual(started_task_id, task.id)
+        mock_trigger.assert_called_once()
+        run.refresh_from_db()
+        self.assertNotIn("await_start", run.state)
+        self.assertEqual(run.state["pending_user_message"], "please start")

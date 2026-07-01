@@ -193,7 +193,11 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         )
 
     def _orphaned_run(
-        self, pending_dispatch: dict | None = None, run_source: str | None = None, prewarmed: bool = False
+        self,
+        pending_dispatch: dict | None = None,
+        run_source: str | None = None,
+        prewarmed: bool = False,
+        awaiting_start: bool = False,
     ) -> TaskRun:
         state: dict = {}
         if pending_dispatch is not None:
@@ -202,6 +206,8 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             state["run_source"] = run_source
         if prewarmed:
             state["prewarmed"] = True
+        if awaiting_start:
+            state["await_start"] = True
         return TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state)
 
     def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
@@ -291,6 +297,17 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         outcome = self._run_reconcile(run, start_workflow)
 
         self.assertEqual(outcome, "skipped_prewarmed")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    def test_skips_bootstrap_run_awaiting_start(self) -> None:
+        run = self._orphaned_run(awaiting_start=True)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "awaiting_start")
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)

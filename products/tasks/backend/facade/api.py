@@ -2159,9 +2159,9 @@ def bootstrap_task_run(
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
-    extra_state: dict | None = None
+    extra_state: dict | None = {"await_start": True}
     if initial_permission_mode is not None:
-        extra_state = {"initial_permission_mode": initial_permission_mode}
+        extra_state["initial_permission_mode"] = initial_permission_mode
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     for key, value in {
@@ -2320,6 +2320,7 @@ def start_task_run(
             return "missing_artifacts:" + ",".join(missing_artifact_ids), None
 
     state_updates: dict = {}
+    state_remove_keys = ["await_start"]
     if pending_user_message is not None:
         state_updates["pending_user_message"] = pending_user_message
     if pending_user_artifact_ids:
@@ -2327,17 +2328,18 @@ def start_task_run(
 
     previous_state = dict(run.state or {})
     try:
-        if state_updates:
-            TaskRun.update_state_atomic(run.id, updates=state_updates)
+        if state_updates or state_remove_keys:
+            TaskRun.update_state_atomic(run.id, updates=state_updates, remove_keys=state_remove_keys)
             run.refresh_from_db()
         logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
         _trigger_task_processing_workflow(task, run, user_id, raise_on_error=True)
     except Exception:
-        if state_updates:
+        touched_keys = set(state_updates.keys()) | set(state_remove_keys)
+        if touched_keys:
             rollback_updates = {
-                key: previous_state[key] for key in state_updates.keys() if key in previous_state
+                key: previous_state[key] for key in touched_keys if key in previous_state
             } or None
-            rollback_remove_keys = [key for key in state_updates.keys() if key not in previous_state] or None
+            rollback_remove_keys = [key for key in touched_keys if key not in previous_state] or None
             TaskRun.update_state_atomic(run.id, updates=rollback_updates, remove_keys=rollback_remove_keys)
         raise
 
