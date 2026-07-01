@@ -283,7 +283,11 @@ export const clonePayloadPreservingFiles = (value: unknown): unknown => {
         return value.map((item) => clonePayloadPreservingFiles(item))
     }
 
-    if (value && typeof value === 'object') {
+
+    if (value instanceof Date) {
+        return new Date(value.getTime())
+    }
+    if (value && typeof value === 'object' && value.constructor === Object) {
         return Object.fromEntries(
             Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
                 key,
@@ -291,6 +295,7 @@ export const clonePayloadPreservingFiles = (value: unknown): unknown => {
             ])
         )
     }
+
 
     return value
 }
