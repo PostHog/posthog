@@ -30,6 +30,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
+# Temporal patch ID — an arbitrary string recorded in workflow history.
+_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
+
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
 class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
@@ -126,9 +129,20 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # forward. The webhook handler punted on this so its 3-second ack
             # budget stays unencumbered; here we run it under Temporal's retry
             # policy. Drop on chitchat or any failure (default-deny).
+            # File-only replies skip the classifier: there is no text to
+            # classify, and default-deny would silently drop the attachment.
+            # Replies with text still face it even when files are attached, so
+            # chitchat with a screenshot doesn't wake the agent.
+            # workflow.patched() returns False for executions started before
+            # this deploy so replay still schedules the classifier for
+            # file-only replies. Delete the gate once history retention
+            # exceeds our longest possible run.
             event_files = event.get("files")
             event_has_files = isinstance(event_files, list) and len(event_files) > 0
-            if inputs.untagged_followup and not event_has_files:
+            file_only_followup = event_has_files and not (event.get("text") or "").strip()
+            if inputs.untagged_followup and not (
+                file_only_followup and workflow.patched(_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS)
+            ):
                 should_forward = await _execute_posthog_code_activity(
                     classify_untagged_followup_activity,
                     inputs,
