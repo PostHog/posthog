@@ -1114,7 +1114,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             preflightLogic,
-            ['preflight', 'isDev'],
+            ['isDev'],
             userLogic,
             ['user'],
         ],
@@ -1682,14 +1682,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         /**
          * Gates routing the live stream through the standalone agent-proxy (the durable-streaming
-         * rollout). Local dev disables the analytics SDK, so DEBUG instances opt in unconditionally —
-         * the server still owns the final proxy-vs-Django decision via `stream_token` (no base URL
-         * ⇒ Django), so opting in here is safe even where the proxy isn't deployed.
+         * rollout). Purely flag-driven: off ⇒ stream directly from Django and never mint a
+         * `stream_token`; on ⇒ resolve a proxy target. The server still owns the final
+         * proxy-vs-Django decision via `stream_token` (no base URL ⇒ Django), so a flag-on client
+         * where the proxy isn't deployed falls back safely. Frontend flags evaluate in local dev, so
+         * a dev exercises the proxy by enabling `tasks-stream-via-proxy` for their user.
          */
         streamViaProxyEnabled: [
-            (s) => [s.featureFlags, s.preflight],
-            (featureFlags, preflight): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY] || !!preflight?.is_debug,
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
         ],
         /**
          * The live connection banner view-model (footer `RunAlertActivity`), or null when the connection is

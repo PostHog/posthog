@@ -3141,6 +3141,17 @@ describe('runStreamLogic', () => {
             })
         })
 
+        it('never mints a token or sets a proxy target when the rollout is off', async () => {
+            // The flag is off by default here. Opening the stream must take the same-origin Django
+            // path (no token mint, no proxy target) — guards against re-adding a debug/non-flag force
+            // that would break flag-off streaming (the reported local bug).
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(tasksRunsStreamTokenRetrieve).not.toHaveBeenCalled()
+            expect(MockStream.latest().options.proxyTarget).toBeUndefined()
+        })
+
         it('re-mints the read token and retries once on a 401 from the proxy leg', async () => {
             enableProxy()
             ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockResolvedValue({
