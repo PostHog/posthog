@@ -17,7 +17,14 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     # Reuse the physical-table annotation's provenance enum so the two annotation models never drift.
     DescriptionSource = WarehouseColumnAnnotation.DescriptionSource
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # db_constraint=False on the FKs to hot tables (posthog_team, posthog_user): creating a real FK
+    # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team
+    # scoping is enforced at the app level by TeamScopedRootMixin. The saved_query FK targets a non-hot
+    # table, so it keeps its constraint.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE, related_name="column_annotations"
     )
