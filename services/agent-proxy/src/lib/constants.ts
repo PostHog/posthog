@@ -78,7 +78,7 @@ export const MAX_EVENTS_PER_REQUEST = 1_000
 // CORS headers (must match the Python ASGI middleware values exactly)
 export const CORS_ALLOW_METHODS = 'GET, POST, OPTIONS'
 export const CORS_ALLOW_HEADERS =
-    'authorization, last-event-id, content-type, accept, x-csrftoken, x-posthog-session-id'
+    'authorization, last-event-id, content-type, accept, x-csrftoken, x-posthog-distinct-id, x-posthog-session-id'
 export const CORS_MAX_AGE = '600'
 
 // JWT audience strings (must match Python validate_* helpers)

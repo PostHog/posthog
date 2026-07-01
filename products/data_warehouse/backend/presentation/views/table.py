@@ -374,8 +374,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table.save()
 
         # Have to update the `valid` value separately to the `columns` value as the columns are required in the `ast.S3Table` class when querying ClickHouse
+        user = cast(User, request.user)
         for key in updates.keys():
-            columns[key]["valid"] = table.validate_column_type(key)
+            columns[key]["valid"] = table.validate_column_type(key, user=user)
 
         table.columns = columns
         table.save()

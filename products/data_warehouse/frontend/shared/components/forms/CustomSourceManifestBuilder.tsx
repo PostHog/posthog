@@ -4,6 +4,7 @@ import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -11,7 +12,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import {
     API_KEY_LOCATIONS,
     type ApiKeyLocation,
-    AUTH_TYPES,
     type AuthType,
     CURSOR_TYPES,
     type CursorType,
@@ -20,6 +20,10 @@ import {
     type HeaderEntry,
     isCustomSourceAiBuilderEnabled,
     type ManifestState,
+    OAUTH2_CLIENT_AUTH_METHODS,
+    type OAuth2ClientAuthMethod,
+    OAUTH2_GRANT_TYPES,
+    type OAuth2GrantType,
     type Paginator,
     PAGINATOR_DEFAULTS,
     PAGINATOR_TYPES,
@@ -27,6 +31,7 @@ import {
     SORT_MODES,
     type SortMode,
     type TableForm,
+    visibleAuthTypes,
 } from './customSourceManifest'
 import {
     customSourceManifestBuilderLogic,
@@ -51,8 +56,23 @@ const AUTH_LABELS: Record<AuthType, string> = {
     bearer: 'Bearer token',
     api_key: 'API key',
     http_basic: 'HTTP basic auth',
+    oauth2: 'OAuth2',
 }
-const AUTH_OPTIONS = AUTH_TYPES.map((value) => ({ value, label: AUTH_LABELS[value] }))
+
+const OAUTH2_GRANT_LABELS: Record<OAuth2GrantType, string> = {
+    client_credentials: 'Client credentials',
+    refresh_token: 'Refresh token',
+}
+const OAUTH2_GRANT_OPTIONS = OAUTH2_GRANT_TYPES.map((value) => ({ value, label: OAUTH2_GRANT_LABELS[value] }))
+
+const OAUTH2_CLIENT_AUTH_METHOD_LABELS: Record<OAuth2ClientAuthMethod, string> = {
+    body: 'In request body',
+    basic: 'HTTP basic header',
+}
+const OAUTH2_CLIENT_AUTH_METHOD_OPTIONS = OAUTH2_CLIENT_AUTH_METHODS.map((value) => ({
+    value,
+    label: OAUTH2_CLIENT_AUTH_METHOD_LABELS[value],
+}))
 
 const API_KEY_LOCATION_LABELS: Record<ApiKeyLocation, string> = {
     header: 'Header',
@@ -93,6 +113,7 @@ export function CustomSourceManifestBuilder({
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiBuilderEnabled = isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization)
+    const oauth2Enabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2]
     const {
         updateState,
         updateTable,
@@ -187,7 +208,14 @@ export function CustomSourceManifestBuilder({
                 />
             </LemonField.Pure>
 
-            <AuthSection state={manifestState} update={updateState} />
+            <AuthSection
+                state={manifestState}
+                update={updateState}
+                authOptions={visibleAuthTypes(oauth2Enabled, manifestState.auth_type).map((value) => ({
+                    value,
+                    label: AUTH_LABELS[value],
+                }))}
+            />
 
             <HeadersSection
                 headers={manifestState.headers}
@@ -245,9 +273,11 @@ export function CustomSourceManifestBuilder({
 function AuthSection({
     state,
     update,
+    authOptions,
 }: {
     state: ManifestState
     update: (patch: Partial<ManifestState>) => void
+    authOptions: { value: AuthType; label: string }[]
 }): JSX.Element {
     return (
         <div className="space-y-2">
@@ -255,7 +285,7 @@ function AuthSection({
                 <LemonSelect
                     value={state.auth_type}
                     onChange={(value) => update({ auth_type: value as AuthType })}
-                    options={AUTH_OPTIONS}
+                    options={authOptions}
                 />
             </LemonField.Pure>
             {state.auth_type === 'bearer' && (
@@ -317,6 +347,124 @@ function AuthSection({
                     </LemonField.Pure>
                 </div>
             )}
+            {state.auth_type === 'oauth2' && <OAuth2AuthFields state={state} update={update} />}
+        </div>
+    )
+}
+
+function OAuth2AuthFields({
+    state,
+    update,
+}: {
+    state: ManifestState
+    update: (patch: Partial<ManifestState>) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <p className="m-0 text-xs text-secondary">
+                Bring your own OAuth2 client. PostHog mints a short-lived access token from your token endpoint at sync
+                time and refreshes it automatically — no browser sign-in.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+                <LemonField.Pure label="Grant type">
+                    <LemonSelect
+                        value={state.oauth2_grant_type}
+                        onChange={(value) => update({ oauth2_grant_type: value as OAuth2GrantType })}
+                        options={OAUTH2_GRANT_OPTIONS}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Token URL">
+                    <LemonInput
+                        placeholder="https://auth.example.com/oauth2/token"
+                        value={state.oauth2_token_url}
+                        onChange={(value) => update({ oauth2_token_url: value })}
+                    />
+                </LemonField.Pure>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <LemonField.Pure label="Client ID">
+                    <LemonInput
+                        autoComplete="off"
+                        value={state.oauth2_client_id}
+                        onChange={(value) => update({ oauth2_client_id: value })}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Client secret">
+                    <LemonInput
+                        type="password"
+                        autoComplete="off"
+                        value={state.oauth2_client_secret}
+                        onChange={(value) => update({ oauth2_client_secret: value })}
+                    />
+                </LemonField.Pure>
+            </div>
+            {state.oauth2_grant_type === 'refresh_token' && (
+                <LemonField.Pure label="Refresh token">
+                    <LemonInput
+                        type="password"
+                        autoComplete="off"
+                        value={state.oauth2_refresh_token}
+                        onChange={(value) => update({ oauth2_refresh_token: value })}
+                    />
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        A long-lived refresh token you obtained out-of-band, used to mint access tokens. Providers that
+                        rotate (single-use) refresh tokens aren't supported yet — the sync would fail after the first
+                        run.
+                    </p>
+                </LemonField.Pure>
+            )}
+            <LemonField.Pure label="Scopes">
+                <LemonInput
+                    placeholder="read:users read:orders"
+                    value={state.oauth2_scopes}
+                    onChange={(value) => update({ oauth2_scopes: value })}
+                />
+                <p className="m-0 mt-1 text-xs text-secondary">Space-separated, optional.</p>
+            </LemonField.Pure>
+            <details className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-xs text-secondary">Advanced</summary>
+                <div className="mt-2 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Send client credentials">
+                            <LemonSelect
+                                value={state.oauth2_client_auth_method}
+                                onChange={(value) =>
+                                    update({ oauth2_client_auth_method: value as OAuth2ClientAuthMethod })
+                                }
+                                options={OAUTH2_CLIENT_AUTH_METHOD_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Access token field">
+                            <LemonInput
+                                placeholder="access_token"
+                                value={state.oauth2_access_token_name}
+                                onChange={(value) => update({ oauth2_access_token_name: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Expiry field">
+                            <LemonInput
+                                placeholder="expires_in"
+                                value={state.oauth2_expires_in_name}
+                                onChange={(value) => update({ oauth2_expires_in_name: value })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Expiry datetime format">
+                            <LemonInput
+                                placeholder="%Y-%m-%dT%H:%M:%SZ"
+                                value={state.oauth2_expiry_date_format}
+                                onChange={(value) => update({ oauth2_expiry_date_format: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <p className="m-0 text-xs text-secondary">
+                        Override the response field names only when the provider deviates from the OAuth2 defaults. Set
+                        the expiry field and datetime format together when the token response carries an absolute expiry
+                        timestamp (e.g. <code>expires_at</code>) instead of <code>expires_in</code> seconds.
+                    </p>
+                </div>
+            </details>
         </div>
     )
 }

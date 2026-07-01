@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -294,6 +295,8 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
+    autoConfigureTables?: boolean
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -1339,6 +1342,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
 
+                tryShowMCPHint('data_warehouse_sources.create', {
+                    derivedPrompt: `Connect a ${values.selectedConnector.name} source`,
+                })
+
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
                     props.onComplete()
@@ -1469,6 +1476,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         } else {
                             schema.sync_type = 'full_refresh'
                         }
+                    }
+
+                    // Onboarding one-click setup: opt every syncable table in (permission errors
+                    // already continued above), so the user can sync the whole source in one click.
+                    if (props.autoConfigureTables) {
+                        schema.should_sync = true
                     }
                 }
 

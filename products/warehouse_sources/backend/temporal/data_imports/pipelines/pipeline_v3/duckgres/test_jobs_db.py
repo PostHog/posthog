@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
     BatchQueue,
@@ -101,11 +102,24 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         FROM {DUCKGRES_STATUS_TABLE}
         ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
+    # Needed so the Delta queue's claim CTE (referenced by the contract test below) can plan.
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
 
 
 def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(
-        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE"
+        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE} RESTART IDENTITY CASCADE"
     )
 
 
@@ -367,6 +381,13 @@ class TestDuckgresTeamFilterAndBacklog:
         assert (count, blocked) == (0, 1)
         assert oldest_age is None and blocked_age is not None
 
+        # The v3 allow-list scopes the gauges too: a non-eligible schema drops
+        # out of both the eligible and blocked counts.
+        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            conn, eligible_schema_ids=["other-schema"]
+        )
+        assert (count, blocked) == (0, 0)
+
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
         count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
         assert (count, blocked) == (0, 0)
@@ -433,7 +454,7 @@ class TestBackfillQueueContracts:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
+        assert await BatchQueue.get_unprocessed_and_lock(conn, owner_token="test-owner") == []
 
         duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
         assert [str(b.id) for b in duck] == [batch_id]
@@ -532,3 +553,37 @@ class TestBackfillQueueContracts:
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
         assert [str(b.id) for b in batches] == [head]
+
+    @pytest.mark.asyncio
+    async def test_eligible_schema_ids_restricts_claim_to_v3_schemas(self, conn):
+        # The v3 allow-list must exclude a claimable (delta-succeeded, unblocked)
+        # batch when its schema is not v3-enabled — the default batch is
+        # full_refresh, which otherwise bypasses the unprimed block. Guards the
+        # leak where non-v3 (e.g. Postgres) batches were applied via the
+        # team-scoped claim. None = no filter (dev/tests); [] = nothing eligible.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        async def claim(eligible: list[str] | None) -> list[Any]:
+            return await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, eligible_schema_ids=eligible)
+
+        assert len(await claim(None)) == 1
+        assert len(await claim(["schema-1"])) == 1
+        assert await claim(["other-schema"]) == []
+        assert await claim([]) == []
+
+    @pytest.mark.asyncio
+    async def test_eligible_gate_excludes_replace_head_that_bypasses_block(self, conn):
+        # A full_refresh replace-head bypasses the unprimed block, but the v3
+        # allow-list must still exclude it when the schema is not v3-enabled — the
+        # eligibility gate overrides the replace-head carve-out.
+        head = await _insert_batch(conn, run_uuid="run-refresh", sync_type="full_refresh", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=head, job_state="succeeded", attempt=1)
+
+        bypasses = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        assert [str(b.id) for b in bypasses] == [head]
+
+        gated = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, blocked_schema_ids=["schema-1"], eligible_schema_ids=["other-schema"]
+        )
+        assert gated == []
