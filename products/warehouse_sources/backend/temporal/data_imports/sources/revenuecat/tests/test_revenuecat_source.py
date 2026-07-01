@@ -29,7 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
     RevenueCatResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.schema_repair import (
-    maybe_repair_revenuecat_event_double_columns,
+    MAX_REVENUECAT_EVENT_SCHEMA_REWRITE_BYTES,
+    repair_revenuecat_event_double_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
@@ -40,7 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
     RevenueCatSource,
     _webhook_table_transformer,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "sk_test", project_id: str = "proj_test") -> RevenueCatSourceConfig:
@@ -50,7 +50,18 @@ def _config(api_key: str = "sk_test", project_id: str = "proj_test") -> RevenueC
 def _mock_delta_table(schema: pa.Schema) -> MagicMock:
     delta_table = MagicMock()
     delta_table.schema.return_value = deltalake.Schema.from_arrow(schema)
+    delta_table.get_add_actions.return_value = _mock_add_actions(size_bytes=1024)
     return delta_table
+
+
+def _mock_add_actions(*, size_bytes: int) -> MagicMock:
+    size_column = MagicMock()
+    size_column.to_pylist.return_value = [size_bytes]
+
+    add_actions = MagicMock()
+    add_actions.column_names = ["size_bytes"]
+    add_actions.column.return_value = size_column
+    return add_actions
 
 
 class TestRevenueCatSourceConfigFields:
@@ -537,8 +548,7 @@ class TestRevenueCatWebhookTableTransformer:
         with pytest.raises(pa.ArrowInvalid, match="truncated converting to int64"):
             evolve_pyarrow_schema(incoming, legacy_delta_table.schema())
 
-        result_delta_table = await maybe_repair_revenuecat_event_double_columns(
-            source_type=ExternalDataSourceType.REVENUECAT,
+        result_delta_table = await repair_revenuecat_event_double_columns(
             schema_name=EVENT_RESOURCE_NAME,
             incoming_table=incoming,
             delta_table=legacy_delta_table,
@@ -554,6 +564,44 @@ class TestRevenueCatWebhookTableTransformer:
         assert evolved.field("price_in_purchased_currency").type == pa.float64()
         assert evolved.column("price").to_pylist() == [19.99]
         assert evolved.column("price_in_purchased_currency").to_pylist() == [19.99]
+
+    @pytest.mark.asyncio
+    async def test_resets_large_existing_delta_table_instead_of_rewriting_it(self):
+        incoming = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-2",
+                            "type": "RENEWAL",
+                            "price": 19.99,
+                        },
+                    }
+                ]
+            )
+        )
+        legacy_delta_table = _mock_delta_table(pa.schema([pa.field("id", pa.string()), pa.field("price", pa.int64())]))
+        legacy_delta_table.get_add_actions.return_value = _mock_add_actions(
+            size_bytes=MAX_REVENUECAT_EVENT_SCHEMA_REWRITE_BYTES + 1
+        )
+        delta_table_helper = MagicMock()
+        delta_table_helper.rewrite_columns = AsyncMock()
+        delta_table_helper.reset_table = AsyncMock()
+        logger = MagicMock()
+        logger.awarning = AsyncMock()
+
+        result_delta_table = await repair_revenuecat_event_double_columns(
+            schema_name=EVENT_RESOURCE_NAME,
+            incoming_table=incoming,
+            delta_table=legacy_delta_table,
+            delta_table_helper=delta_table_helper,
+            logger=logger,
+        )
+
+        assert result_delta_table is None
+        delta_table_helper.reset_table.assert_awaited_once()
+        delta_table_helper.rewrite_columns.assert_not_awaited()
 
     def test_handles_event_as_json_string(self):
         # Defensive: if upstream serializes `event` as a JSON string, we still

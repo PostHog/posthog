@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson
 import pyarrow as pa
+import deltalake
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
@@ -44,6 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat import (
     RevenueCatResumeConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.schema_repair import (
+    repair_revenuecat_event_double_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
     REVENUECAT_API_SCHEMA_NAMES,
@@ -54,12 +58,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+        DeltaTableHelper,
+    )
+
 
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
 
 
 def _webhook_double_schema_for_rows(rows: list[dict[str, Any]]) -> pa.Schema | None:
-    present_double_fields = [field for field in REVENUECAT_WEBHOOK_DOUBLE_FIELDS if any(field in row for row in rows)]
+    present_keys: set[str] = set()
+    for row in rows:
+        present_keys.update(row.keys())
+
+    present_double_fields = [field for field in REVENUECAT_WEBHOOK_DOUBLE_FIELDS if field in present_keys]
     if not present_double_fields:
         return None
 
@@ -212,6 +224,23 @@ class RevenueCatSource(
         )
 
         return CANONICAL_DESCRIPTIONS
+
+    async def repair_delta_table_schema(
+        self,
+        *,
+        schema_name: str,
+        incoming_table: pa.Table,
+        delta_table: deltalake.DeltaTable | None,
+        delta_table_helper: "DeltaTableHelper",
+        logger: object,
+    ) -> deltalake.DeltaTable | None:
+        return await repair_revenuecat_event_double_columns(
+            schema_name=schema_name,
+            incoming_table=incoming_table,
+            delta_table=delta_table,
+            delta_table_helper=delta_table_helper,
+            logger=logger,
+        )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

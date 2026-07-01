@@ -8,9 +8,15 @@ import structlog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
+    import pyarrow as pa
+    import deltalake
+
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+        DeltaTableHelper,
+    )
 
 from posthog.schema import (
     SourceConfig,
@@ -143,6 +149,24 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    async def repair_delta_table_schema(
+        self,
+        *,
+        schema_name: str,
+        incoming_table: "pa.Table",
+        delta_table: "deltalake.DeltaTable | None",
+        delta_table_helper: "DeltaTableHelper",
+        logger: object,
+    ) -> "deltalake.DeltaTable | None":
+        """Optional per-source schema repair before the shared pipeline evolves a batch.
+
+        Sources with historical type-inference mistakes can override this hook while the
+        shared pipeline stays source-neutral. Return the current or repaired Delta table;
+        return ``None`` if the repair intentionally reset the target table.
+        """
+
+        return delta_table
 
     def get_schemas(
         self,

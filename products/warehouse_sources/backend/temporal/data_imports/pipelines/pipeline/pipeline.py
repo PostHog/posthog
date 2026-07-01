@@ -62,11 +62,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     update_last_synced_at,
     validate_schema_and_update_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.schema_repair import (
-    maybe_repair_revenuecat_event_double_columns,
-)
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 T = TypeVar("T")
 
@@ -134,6 +134,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _resource_name: str
     _job: ExternalDataJob
     _source: ExternalDataSource
+    _source_handler: AnySource
     _schema: ExternalDataSchema
     _table: DataWarehouseTable | None
     _logger: FilteringBoundLogger
@@ -173,6 +174,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._schema = schema
         self._source = source
+        self._source_handler = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         self._table = table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
@@ -312,8 +314,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        delta_table = await maybe_repair_revenuecat_event_double_columns(
-            source_type=self._source.source_type,
+        delta_table = await self._source_handler.repair_delta_table_schema(
             schema_name=self._schema.name,
             incoming_table=pa_table,
             delta_table=delta_table,

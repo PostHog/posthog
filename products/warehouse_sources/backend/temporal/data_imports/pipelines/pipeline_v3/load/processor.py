@@ -54,10 +54,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     release_v3_pipeline_lock,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
-from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.schema_repair import (
-    maybe_repair_revenuecat_event_double_columns,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -451,8 +450,8 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         # Capture file URIs before write for partial data loading
         previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
 
-        existing_delta_table = async_to_sync(maybe_repair_revenuecat_event_double_columns)(
-            source_type=schema.source.source_type,
+        source_handler = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        existing_delta_table = async_to_sync(source_handler.repair_delta_table_schema)(
             schema_name=schema.name,
             incoming_table=pa_table,
             delta_table=existing_delta_table,
