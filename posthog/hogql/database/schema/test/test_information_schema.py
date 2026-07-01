@@ -160,6 +160,27 @@ class TestWarehouseMetadata(APIBaseTest):
         )
         assert row_counts["shared"] == 7
 
+    def test_metadata_does_not_leak_other_teams_view_descriptions(self):
+        # View annotations are team-scoped via TeamScopedManager; lock that in so a future switch to
+        # `.unscoped()` (or an explicit cross-team fetch) can't leak another team's view descriptions
+        # into this team's catalog, which the AI reads.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_view = DataWarehouseSavedQuery.objects.create(
+            team=other_team, name="orders_view", query={"query": "SELECT 1"}, columns={}
+        )
+        with team_scope(other_team.id, canonical=True):
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=other_team,
+                saved_query=other_view,
+                column_name="",
+                description="Other team's private view.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+        _descriptions, _row_counts, _view_row_counts, _column_stats, view_descriptions = _warehouse_metadata(
+            self.team.id
+        )
+        assert view_descriptions == {}
+
     def test_descriptions_are_keyed_by_table_id_not_name(self):
         # A synced table's catalog name (source-prefixed) differs from its model name, so descriptions
         # must key by table UUID — keying by name silently dropped every annotation in production.
@@ -443,8 +464,8 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     def test_saved_query_view_columns_appear_with_types(self):
         # The view's columns (built from the model's `columns` JSONField via `hogql_definition`) must be
-        # enumerated with their HogQL types — that's the surface a later phase attaches column descriptions
-        # to. Guards both the field enumeration and the JSONField→HogQL type mapping for views.
+        # enumerated with their HogQL types. Guards both the field enumeration and the JSONField→HogQL
+        # type mapping for views.
         self._create_saved_query_view(name="revenue_view")
         response = execute_hogql_query(
             """
@@ -459,10 +480,9 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     def test_saved_query_view_descriptions_are_merged_from_annotations(self):
         # View- and column-level descriptions stored as DataWarehouseSavedQueryColumnAnnotation must
-        # surface in the catalog so PostHog AI can read them — the whole point of the semantic layer.
-        # Guards the Phase 1.2 wiring end-to-end: the metadata loader plus the `table_type == "view"`
-        # resolution branch. A regression (loader dropped, wrong key, or branch gated on the wrong
-        # table_type) makes descriptions silently vanish from information_schema.
+        # surface in the catalog so PostHog AI can read them. Guards the metadata loader plus the
+        # `table_type == "view"` resolution branch: a regression (loader dropped, wrong key, or branch
+        # gated on the wrong table_type) makes descriptions silently vanish from information_schema.
         view = self._create_saved_query_view(name="revenue_view")
         with team_scope(self.team.id, canonical=True):
             DataWarehouseSavedQueryColumnAnnotation.objects.create(
@@ -487,6 +507,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         )
+        assert len(table_rows) == 1
         assert table_rows[0][0] == "Revenue per order, one row per completed order."
 
         column_rows = (
