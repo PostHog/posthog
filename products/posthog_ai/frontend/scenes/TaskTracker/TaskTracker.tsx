@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -10,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TaskComposer } from './components/TaskComposer'
+import { TaskCreateThread } from './components/TaskCreateThread'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TasksListColumn } from './components/TasksListColumn'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -29,10 +32,18 @@ export const scene: SceneExport<TaskTrackerProps> = {
 export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('lg')
+    const { activeCreation } = useValues(taskTrackerSceneLogic)
 
     const selectedTaskId = taskId && taskId !== 'new' ? taskId : null
 
-    const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} isMobile={false} /> : <TaskComposer />
+    // While an optimistic create is in flight (and no task is selected), the thread opens immediately in place
+    // of the composer — see `taskTrackerSceneLogic.submit`.
+    const composerPane = activeCreation ? (
+        <TaskCreateThread streamKey={activeCreation.streamKey} isMobile={isMobile} />
+    ) : (
+        <TaskComposer />
+    )
+    const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} isMobile={false} /> : composerPane
 
     if (isMobile) {
         // Single column: detail, composer, or the list (with a "Create a new task" row).
@@ -47,6 +58,19 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
             )
         }
         if (taskId === 'new') {
+            // Optimistic create renders the same scene shell as the detail page (which carries its own
+            // SceneContent + back button), so wrap it like the detail branch — not the composer's
+            // SceneContent — to keep the create → detail handoff seamless and avoid nesting SceneContent.
+            if (activeCreation) {
+                return (
+                    <div className="flex flex-col h-full min-h-0">
+                        <AllowTrainingCallout featureName="Tasks" />
+                        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                            <TaskCreateThread streamKey={activeCreation.streamKey} isMobile />
+                        </div>
+                    </div>
+                )
+            }
             return (
                 <SceneContent className="h-full">
                     <SceneBreadcrumbBackButton

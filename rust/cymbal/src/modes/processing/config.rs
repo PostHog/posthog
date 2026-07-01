@@ -110,6 +110,13 @@ pub struct ProcessingConfig {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_suppression_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub bypass_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_bypass_rule_cache_size: u64,
+
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
