@@ -3,6 +3,10 @@ use std::path::Path;
 use anyhow::{Context, Error};
 use tracing::{debug, info, warn};
 
+pub mod backend;
+
+pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {
     tokio::fs::create_dir_all(path)
