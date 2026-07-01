@@ -386,13 +386,9 @@ class Reviewer:
                 lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
 
-        pr_reactions = ""
-        if pr.pr_reactions:
-            lines = []
-            for r in pr.pr_reactions:
-                bot = " [bot]" if r.get("user_is_bot") else ""
-                lines.append(f"  - {r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}{bot}")
-            pr_reactions = "\n".join(lines)
+        pr_reactions = "\n".join(
+            f"  - {r['emoji']} @{_sanitize_untrusted(r['user'], max_len=50)}" for r in pr.pr_reactions
+        )
 
         ownership = self._format_ownership(cl)
 

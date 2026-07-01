@@ -147,6 +147,12 @@ _REVIEW_THREADS_QUERY = """
 query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $pr) {
+      reactions(first: 20) {
+        nodes {
+          content
+          user { login }
+        }
+      }
       reviewThreads(first: 100, after: $threadCursor) {
         pageInfo { hasNextPage endCursor }
         nodes {
@@ -197,20 +203,35 @@ def _gh_graphql(query: str, variables: dict | None = None) -> dict:
     return data
 
 
-def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
-    """Fetch review threads with resolution status via GraphQL.
+def _fetch_threads_and_reactions(repo: str, pr_number: int) -> tuple[list[dict], list[dict]]:
+    """Fetch review-thread comments and PR-body reactions in one GraphQL call.
 
-    Returns a flat list of comment dicts enriched with is_resolved and
-    is_outdated from their parent thread. Paginates through all threads
-    and raises if any comment page is truncated.
+    Inline comments (each with their own reactions) and the reactions left on
+    the PR body come back from the same query, so no extra REST round trip is
+    needed. Returns (comments, pr_reactions); raises if any comment page is
+    truncated.
     """
     owner, name = repo.split("/", 1)
     variables: dict = {"owner": owner, "name": name, "pr": pr_number, "threadCursor": None}
 
     comments: list[dict] = []
+    pr_reactions: list[dict] = []
+    first_page = True
     while True:
         data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
-        review_threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+        pull_request = data["data"]["repository"]["pullRequest"]
+        if first_page:
+            # PR-body reactions live on the pullRequest node and repeat on every
+            # page — read them once.
+            for rn in (pull_request.get("reactions") or {}).get("nodes") or []:
+                pr_reactions.append(
+                    {
+                        "user": (rn.get("user") or {}).get("login", "ghost"),
+                        "emoji": _reaction_emoji(rn.get("content", "")),
+                    }
+                )
+            first_page = False
+        review_threads = pull_request["reviewThreads"]
         threads = review_threads["nodes"]
 
         for thread in threads:
@@ -251,29 +272,7 @@ def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
             break
         variables["threadCursor"] = page_info["endCursor"]
 
-    return comments
-
-
-def _fetch_pr_reactions(repo: str, pr_number: int) -> list[dict]:
-    """Fetch reactions left on the PR body (issue-level reactions).
-
-    Agent reviewers and teammates often signal "no concerns" with a 👍 on the PR
-    rather than a formal review, so surface these to the reviewer as weak
-    context. Only actual reaction events count here — a review's own body is
-    already captured separately.
-    """
-    raw = _gh_api(f"repos/{repo}/issues/{pr_number}/reactions", paginate=True)
-    reactions = []
-    for r in raw:
-        user = r.get("user") or {}
-        reactions.append(
-            {
-                "user": user.get("login", "ghost"),
-                "emoji": _reaction_emoji(r.get("content", "")),
-                "user_is_bot": user.get("type") == "Bot",
-            }
-        )
-    return reactions
+    return comments, pr_reactions
 
 
 def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
@@ -344,14 +343,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     ensure_commits(pr_number, head_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
 
-    review_comments = _fetch_review_threads(repo, pr_number)
-
-    # Reactions are supplementary context — a hiccup here must not fail the
-    # whole review, so degrade to no reactions rather than raising.
-    try:
-        pr_reactions = _fetch_pr_reactions(repo, pr_number)
-    except RuntimeError:
-        pr_reactions = []
+    review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number)
 
     return PRData(
         number=pr_number,
