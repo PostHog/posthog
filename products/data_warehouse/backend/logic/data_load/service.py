@@ -23,7 +23,8 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -42,7 +43,7 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
-from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.temporal.utils import ExternalDataWorkflowInputs, RemaskColumnsInputs
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -199,6 +200,31 @@ def trigger_external_data_source_workflow(external_data_source: ExternalDataSour
 def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+
+
+@async_to_sync
+async def _start_remask_workflow(
+    client: TemporalClient, external_data_schema: ExternalDataSchema, columns: list[str]
+) -> None:
+    try:
+        await client.start_workflow(
+            "remask-warehouse-columns",
+            RemaskColumnsInputs(
+                team_id=external_data_schema.team_id, schema_id=external_data_schema.id, columns=columns
+            ),
+            # One re-mask per schema — a stable id lets Temporal reject a concurrent run (two overwrites
+            # racing on the same Delta table would corrupt it) while allowing a fresh run once it finishes.
+            id=f"remask-{external_data_schema.id}",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+
+
+def trigger_remask_workflow(external_data_schema: ExternalDataSchema, columns: list[str]) -> None:
+    """Re-mask already-synced data in place for newly-masked columns (no source re-fetch)."""
+    _start_remask_workflow(sync_connect(), external_data_schema, columns)
 
 
 async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):

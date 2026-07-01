@@ -41,6 +41,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
+    trigger_remask_workflow,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -902,13 +903,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
-        # Masking rewrites a column's values as string digests, so its stored type flips to string.
-        # If the Delta table already holds that column as a non-string type, the next incremental write
-        # collides with the existing schema (and already-synced rows keep their plaintext). Any change to
-        # the mask set therefore needs a full rebuild — reset_pipeline for non-CDC, a CDC re-snapshot below.
-        masked_columns_changed = "masked_columns" in validated_data and (
-            validated_data["masked_columns"] != instance.masked_columns
-        )
+        # Masking rewrites a column's values as string digests, so its stored type flips to string, and
+        # already-synced rows still hold plaintext. Newly-*added* masked columns can be fixed in place by
+        # the re-mask job (re-hash the existing Delta data, no source re-fetch). *Removing* a column
+        # (unmask) needs the original values back from the source, i.e. a full re-sync. Names are folded so
+        # a re-cased entry isn't mistaken for a change.
+        old_masked = {fold_column_name(c) for c in (instance.masked_columns or [])}
+        new_masked = {fold_column_name(c) for c in (validated_data.get("masked_columns") or [])}
+        masked_columns_added = new_masked - old_masked
+        masked_columns_removed = old_masked - new_masked
+        masked_columns_changed = bool(masked_columns_added or masked_columns_removed)
+        # Unmasking (or any removal) forces the full-resync path; a pure add is handled in place.
+        masked_columns_need_full_resync = bool(masked_columns_removed)
 
         if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
@@ -958,9 +964,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
-        # CDC re-snapshots through its own path below (it also has to reset cdc_mode); every other sync
-        # type rebuilds via reset_pipeline.
-        if masked_columns_changed and not is_cdc:
+        # CDC re-snapshots through its own path below (it also has to reset cdc_mode, and in-place
+        # re-masking would race its stream); every other sync type rebuilds via reset_pipeline, but only
+        # when a column was unmasked — a pure add is re-masked in place after the save.
+        if masked_columns_need_full_resync and not is_cdc:
             trigger_refresh = True
 
         if trigger_refresh:
@@ -1002,6 +1009,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         if trigger_refresh:
             self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
+
+        # Pure mask-add on a non-CDC schema: re-mask the existing Delta data in place instead of a full
+        # source re-sync. (Removals took the reset_pipeline path above; CDC re-snapshots below.)
+        if masked_columns_added and not masked_columns_need_full_resync and not is_cdc:
+            added = sorted(masked_columns_added)
+            self._run_temporal_side_effect(lambda: trigger_remask_workflow(updated_instance, added))
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)

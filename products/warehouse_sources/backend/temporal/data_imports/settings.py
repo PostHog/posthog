@@ -22,6 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.remask_columns_job import (
+    RemaskColumnsWorkflow,
+    remask_columns_activity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
@@ -39,6 +43,7 @@ WORKFLOWS = [
     CDCExtractionWorkflow,
     CDCSlotCleanupWorkflow,
     DiscoverSchemasWorkflow,
+    RemaskColumnsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -57,4 +62,5 @@ ACTIVITIES = [
     check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
+    remask_columns_activity,
 ]

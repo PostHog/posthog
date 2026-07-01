@@ -3406,17 +3406,31 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
             data={"masked_columns": masked_columns},
         )
 
-    def test_valid_masked_columns_persist(self):
+    def test_masked_columns_add_remasks_in_place(self):
         schema = self._create()
         with mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
-        ) as mock_trigger:
+            "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_remask_workflow"
+        ) as mock_remask:
             response = self._patch(schema, ["password"])
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
         assert schema.masked_columns == ["password"]
-        # A mask change flips the column's stored type to string, so the pipeline must rebuild from
-        # scratch — otherwise the next incremental write conflicts and old plaintext is never rewritten.
+        # A pure add re-masks existing data in place — no full re-sync.
+        assert schema.sync_type_config.get("reset_pipeline") is None
+        mock_remask.assert_called_once()
+
+    def test_masked_columns_unmask_triggers_resync(self):
+        schema = self._create()
+        schema.masked_columns = ["password"]
+        schema.save(update_fields=["masked_columns"])
+        with mock.patch(
+            "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        ) as mock_trigger:
+            response = self._patch(schema, [])
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.masked_columns == []
+        # Unmasking needs the original values back from the source, so it forces a full re-sync.
         assert schema.sync_type_config.get("reset_pipeline") is True
         mock_trigger.assert_called_once()
 

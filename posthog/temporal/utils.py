@@ -37,3 +37,18 @@ class CDPProducerWorkflowInputs:
             "schema_id": self.schema_id,
             "job_id": self.job_id,
         }
+
+
+# Lives here (not in the warehouse_sources product) so the data_warehouse API can construct it to start
+# the re-mask workflow without importing across the product boundary — same reason as the inputs above.
+@dataclasses.dataclass
+class RemaskColumnsInputs:
+    team_id: int
+    schema_id: uuid.UUID
+    # Source column names newly added to the mask set. PK / incremental columns are filtered out again
+    # inside `mask_table_columns`, so passing extras is harmless.
+    columns: list[str]
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {"team_id": self.team_id, "schema_id": str(self.schema_id), "columns": self.columns}
