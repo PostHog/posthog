@@ -36,7 +36,8 @@ const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // 2026-07-01: 2.73 MiB eager output (21 chunks)
+        // 2026-07-01: 2.73 MiB eager output (21 chunks). ~20% headroom so routine churn
+        // doesn't trip the warn; ratchet down when a bundle-split win lands.
         budgetBytes: 3_400_000,
         forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
     },
@@ -94,7 +95,7 @@ function assertReport(reportFilePath) {
             violations++
         }
         if (topLevelErrors.length === 0 && !r.overBudget && r.forbiddenHits.length === 0) {
-            console.info(`✅ ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
+            console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
     return violations
@@ -218,12 +219,25 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
-    const forbiddenHits = []
+
+    // A forbidden module is a hit when it ships in the eager OUTPUT. The import chain we show
+    // is a best-effort trace through the INPUT graph — module-level `import` edges are what a
+    // human reads — computed once per root, only when there is a hit. The two graphs can
+    // diverge (a module can ship eagerly via a bundler-injected or re-export edge with no
+    // source-level import path), so the chain is a pointer, not the byte source, and may be
+    // short when the output edge has no input-graph counterpart.
+    const hitFiles = new Map()
     for (const forbiddenSubstr of forbidden) {
         const hit = [...eagerBytesByFile.keys()].find((f) => f.includes(forbiddenSubstr))
         if (hit) {
-            const { parentOf } = eagerClosure(inputs, root)
-            forbiddenHits.push({ module: forbiddenSubstr, chain: chainTo(parentOf, hit) })
+            hitFiles.set(forbiddenSubstr, hit)
+        }
+    }
+    const forbiddenHits = []
+    if (hitFiles.size > 0) {
+        const { parentOf } = eagerClosure(inputs, root)
+        for (const [module, hit] of hitFiles) {
+            forbiddenHits.push({ module, chain: chainTo(parentOf, hit) })
         }
     }
 

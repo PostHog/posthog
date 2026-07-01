@@ -194,7 +194,7 @@ for (const r of report.roots) {
             lines.push(hit.chain.join('\n  -> '))
             lines.push('```')
         } else {
-            lines.push(`✅ \`${forbiddenModule}\` stays out of \`${r.root}\``)
+            lines.push(`🟢 \`${forbiddenModule}\` stays out of \`${r.root}\``)
         }
     }
 }
