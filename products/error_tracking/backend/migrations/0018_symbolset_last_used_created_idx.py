@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         # throughout, then drop the now-redundant single-column index.
         SafeAddIndexConcurrently(
             model_name="errortrackingsymbolset",
-            index=models.Index(fields=["last_used", "created_at"], name="posthog_et_symbolset_used_created_idx"),
+            index=models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
         ),
         SafeRemoveIndexConcurrently(
             model_name="errortrackingsymbolset",

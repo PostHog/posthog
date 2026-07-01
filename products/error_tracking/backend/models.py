@@ -242,7 +242,7 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
             # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
             # then created_at range), so batch cleanup avoids a full PK-ordered scan.
-            models.Index(fields=["last_used", "created_at"], name="posthog_et_symbolset_used_created_idx"),
+            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
         ]
 
         constraints = [
