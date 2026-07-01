@@ -42,6 +42,7 @@ function FilterBar(): JSX.Element {
                 dateFrom={dateFilter.dateFrom}
                 dateTo={dateFilter.dateTo}
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                dataAttr="mcp-tool-quality-date-filter"
             />
             {hasScope && sharePct !== null ? (
                 <Tooltip

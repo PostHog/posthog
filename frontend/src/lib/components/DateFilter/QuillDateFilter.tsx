@@ -2,13 +2,16 @@ import { useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import {
+    Button,
     CUSTOM_RANGE,
     DateTimePicker,
     type DateTimeRangeName,
     type DateTimeValue,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
     quickRanges,
-} from '@posthog/quill-components'
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
+} from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -64,7 +67,10 @@ function formatTriggerLabel(value: DateTimeValue): string {
 export interface QuillDateFilterProps {
     dateFrom: string | null
     dateTo: string | null
-    onChange: (dateFrom: string | null, dateTo: string | null) => void
+    // Matches the LemonUI `DateFilter` contract, including the third `explicitDate`
+    // arg, so the shared `DateFilter` entrypoint can forward `onChange` unchanged.
+    // Quill can't express `explicitDate`, so it's always omitted from here.
+    onChange?: (dateFrom: string | null, dateTo: string | null, explicitDate?: boolean) => void
     dataAttr?: string
 }
 
@@ -92,9 +98,9 @@ export function QuillDateFilter({
     const handleApply = (next: DateTimeValue): void => {
         const relative = next.range.id !== CUSTOM_RANGE.id ? RANGE_TO_RELATIVE[next.range.name] : undefined
         if (relative) {
-            onChange(relative, null)
+            onChange?.(relative, null)
         } else {
-            onChange(next.start.toISOString(), next.end.toISOString())
+            onChange?.(next.start.toISOString(), next.end.toISOString())
         }
         setOpen(false)
     }

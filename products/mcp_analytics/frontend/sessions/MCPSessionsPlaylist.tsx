@@ -171,6 +171,7 @@ function SessionsListPanel(): JSX.Element {
                             dateFrom={dateFilter.dateFrom}
                             dateTo={dateFilter.dateTo}
                             onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            dataAttr="mcp-sessions-date-filter"
                         />
                         <Select
                             value={sortingToValue(sorting)}

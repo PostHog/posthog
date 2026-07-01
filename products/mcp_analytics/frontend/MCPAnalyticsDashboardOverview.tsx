@@ -58,6 +58,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         dateFrom={dateFilter.dateFrom}
                         dateTo={dateFilter.dateTo}
                         onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                        dataAttr="mcp-dashboard-date-filter"
                     />
                     <div data-attr="mcp-dashboard-property-filter">
                         <PropertyFilters

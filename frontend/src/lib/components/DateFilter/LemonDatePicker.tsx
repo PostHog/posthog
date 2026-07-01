@@ -79,6 +79,8 @@ interface RawLemonDatePickerProps extends LemonDatePickerProps {
     use24HourFormat?: boolean
     explicitDate?: boolean
     showExplicitDateToggle?: boolean
+    /** `data-attr` for the trigger button. Defaults to `date-filter`. */
+    dataAttr?: string
 }
 
 export const LemonDatePicker = forwardRef<HTMLButtonElement, RawLemonDatePickerProps>(function LemonDatePicker(
@@ -111,6 +113,7 @@ export const LemonDatePicker = forwardRef<HTMLButtonElement, RawLemonDatePickerP
         showJumpToTimestamp = false,
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
+        dataAttr = 'date-filter',
     },
     ref
 ) {
@@ -399,7 +402,7 @@ export const LemonDatePicker = forwardRef<HTMLButtonElement, RawLemonDatePickerP
                 size={size ?? 'small'}
                 type={type ?? 'secondary'}
                 disabledReason={disabledReason}
-                data-attr="date-filter"
+                data-attr={dataAttr}
                 icon={<IconCalendar />}
                 onClick={isVisible ? close : open}
                 fullWidth={fullWidth}
