@@ -132,13 +132,19 @@ class ReplayScanner(UUIDModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
+            track_enabled = "enabled" in update_fields
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
-        if self.pk and relevant:
+            track_enabled = True
+        if self.pk and (relevant or track_enabled):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
-                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
+                    type(self)
+                    .objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .only("scanner_version", "enabled", *relevant)
+                    .first()
                 )
                 if old is not None:
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
@@ -149,6 +155,11 @@ class ReplayScanner(UUIDModel):
                     if changed & self._ESTIMATE_FIELDS:
                         self.estimated_at = None
                         extra_fields.append("estimated_at")
+                    if track_enabled and not old.enabled and self.enabled:
+                        # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
+                        self.last_swept_at = initial_watermark()
+                        self.last_seen_session_id = ""
+                        extra_fields.extend(["last_swept_at", "last_seen_session_id"])
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)

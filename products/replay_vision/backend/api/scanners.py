@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import Any, NoReturn, cast
 
 from django.conf import settings
@@ -59,6 +58,7 @@ from products.replay_vision.backend.queries import (
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
     build_apply_scanner_workflow_id,
@@ -711,7 +711,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
                 id=workflow_id,
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                execution_timeout=dt.timedelta(hours=1),
+                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
                 # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[

@@ -26,6 +26,7 @@ class FailureKind(StrEnum):
     RASTERIZATION_FAILED = "rasterization_failed"  # Rasterizer couldn't render this recording — known issue
     VALIDATION_FAILED = "validation_failed"  # LLM output didn't match the scanner schema after internal retries
     INTERNAL_ERROR = "internal_error"  # Unclassified / bug paths — user can't fix
+    ORPHANED = "orphaned"  # Workflow died without reaching a terminal state (timeout, terminate); set by the reaper
 
     @property
     def is_retryable(self) -> bool:

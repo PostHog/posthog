@@ -37,6 +37,7 @@ export type FailureKind =
     | 'rasterization_failed'
     | 'validation_failed'
     | 'internal_error'
+    | 'orphaned'
 
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
@@ -61,6 +62,11 @@ const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }>
     internal_error: {
         label: 'Internal error',
         description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+    orphaned: {
+        label: 'Interrupted',
+        description:
+            'The analysis was interrupted before finishing and has been cleaned up. Run the scanner on this recording again if needed.',
     },
 }
 

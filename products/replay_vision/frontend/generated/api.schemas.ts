@@ -487,7 +487,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string

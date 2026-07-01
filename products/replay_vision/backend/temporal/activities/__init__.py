@@ -24,6 +24,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
+    reap_orphaned_observations_activity,
+)
 from products.replay_vision.backend.temporal.activities.reconciler_activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
@@ -57,6 +60,7 @@ __all__ = [
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
+    "reap_orphaned_observations_activity",
     "refresh_scanner_estimate_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

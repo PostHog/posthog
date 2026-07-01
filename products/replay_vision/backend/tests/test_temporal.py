@@ -213,6 +213,36 @@ class TestCreateObservationActivity:
         existing.refresh_from_db()
         assert existing.workflow_id != "wf-second"
 
+    @pytest.mark.parametrize(
+        "status, completed_at, expect_reclaimed",
+        [
+            pytest.param(ObservationStatus.PENDING, None, True, id="own_pending_insert_is_reclaimed"),
+            pytest.param(ObservationStatus.FAILED, timezone.now(), False, id="own_terminal_row_is_not_reclaimed"),
+        ],
+    )
+    def test_unique_conflict_with_own_workflow_id(
+        self, status: str, completed_at: dt.datetime | None, expect_reclaimed: bool
+    ) -> None:
+        # A lost-result retry hits the UNIQUE constraint on its own insert; disowning it strands the row in `pending`.
+        scanner = _make_scanner()
+        existing = _make_observation(
+            scanner, session_id="sess-retry", workflow_id="wf-retry", status=status, completed_at=completed_at
+        )
+
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+
+        assert result.observation_id == existing.id
+        assert result.was_created is expect_reclaimed
+
     def test_propagates_non_unique_integrity_errors(self) -> None:
         # FK/CHECK violations must surface as activity failures, not silently fall into the dedup path.
         scanner = _make_scanner()
@@ -1385,12 +1415,13 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
     # fetch + ensure_asset run in parallel — order between them is non-deterministic.
     assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # Success is persisted before any downstream emission so a late transient failure can't discard the result.
     assert activity_order[4:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
-        embed_observation_activity,
-        emit_observation_event_activity,
         mark_observation_succeeded_activity,
+        emit_observation_event_activity,
+        embed_observation_activity,
         cleanup_gemini_file_activity,
     ]
     assert len(mocks.child_calls) == 1
@@ -1488,6 +1519,58 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
     assert mark_observation_succeeded_activity in called
     assert emit_observation_event_activity in called
     assert cleanup_gemini_file_activity in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_stays_succeeded_when_post_success_emissions_fail() -> None:
+    # Once the result is persisted, event/embedding outages must not demote the observation to FAILED.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+            ),
+        },
+        activity_errors={
+            emit_observation_event_activity: RuntimeError("kafka down"),
+            embed_observation_activity: RuntimeError("embedding service down"),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-flaky"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_succeeded_activity in called
+    assert emit_observation_event_activity in called
+    assert embed_observation_activity in called
+    assert mark_observation_failed_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_marks_failed_when_mark_running_fails() -> None:
+    # An exhausted mark_running must land the row in FAILED, not strand it in PENDING.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+        },
+        activity_errors={mark_observation_running_activity: ApplicationError("db down", non_retryable=True)},
+    )
+
+    with pytest.raises(ApplicationError, match="db down"):
+        await _run_workflow(_build_inputs(session_id="sess-db-down"), mocks)
+
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.observation_id == new_observation_id
 
 
 @pytest.mark.asyncio
@@ -1818,9 +1901,9 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facet
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_observation_activity
+    assert activity_order[call_idx + 1] == mark_observation_succeeded_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
-    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 3] == embed_observation_activity
     assert emit_classifier_tags_activity not in activity_order
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
@@ -1872,13 +1955,13 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
 
     await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
 
-    # Classifiers embed their reasoning AND fan out tags; embedding runs first.
+    # Classifiers embed their reasoning AND fan out tags; both run after success is persisted, embedding first.
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_observation_activity
-    assert activity_order[call_idx + 2] == emit_classifier_tags_activity
-    assert activity_order[call_idx + 3] == emit_observation_event_activity
-    assert activity_order[call_idx + 4] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 1] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 2] == emit_observation_event_activity
+    assert activity_order[call_idx + 3] == embed_observation_activity
+    assert activity_order[call_idx + 4] == emit_classifier_tags_activity
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
     assert embed_input.model_output == model_output
@@ -1912,36 +1995,6 @@ async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifie
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
     assert embed_input.model_output == model_output
-
-
-@pytest.mark.asyncio
-async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> None:
-    new_observation_id = uuid.uuid4()
-    side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
-    mocks = _WorkflowMocks(
-        activity_results={
-            create_observation_activity: CreateObservationOutput(
-                observation_id=new_observation_id,
-                was_created=True,
-                scanner_type=ScannerType.SUMMARIZER,
-            ),
-            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
-            upload_video_to_gemini_activity: UploadedVideo(
-                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
-            ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_with_facets()),
-        },
-        activity_errors={embed_observation_activity: side_effect_error},
-    )
-
-    with pytest.raises(ApplicationError, match="embedding kafka down"):
-        await _run_workflow(_build_inputs(session_id="sess-sum-fail"), mocks)
-
-    called = [fn for fn, _ in mocks.activity_calls]
-    assert emit_observation_event_activity not in called
-    assert mark_observation_succeeded_activity not in called
-    assert mark_observation_failed_activity in called
-    assert cleanup_gemini_file_activity in called
 
 
 def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:

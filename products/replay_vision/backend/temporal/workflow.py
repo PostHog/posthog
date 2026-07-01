@@ -156,7 +156,7 @@ def _rasterizer_workflow_id(inputs: ApplyScannerInputs) -> str:
 
 @wf.defn(name=APPLY_SCANNER_WORKFLOW_NAME)
 class ApplyScannerWorkflow(PostHogWorkflow):
-    """Apply one scanner to one session: create row → fetch+rasterize → upload → call provider → emit event → mark succeeded."""
+    """Apply one scanner to one session: create row → fetch+rasterize → upload → call provider → mark succeeded → emit event."""
 
     inputs_cls = ApplyScannerInputs
 
@@ -201,16 +201,17 @@ class ApplyScannerWorkflow(PostHogWorkflow):
 
         observation_id = create_result.observation_id
         scanner_type = create_result.scanner_type
-        await wf.execute_activity(
-            mark_observation_running_activity,
-            MarkObservationRunningInputs(observation_id=observation_id),
-            start_to_close_timeout=dt.timedelta(seconds=30),
-            retry_policy=_STATE_ACTIVITY_RETRY,
-        )
-        self._advance_phase("fetching")
 
         uploaded: UploadedVideo | None = None
         try:
+            # Inside the try so an exhausted retry still lands the row in FAILED instead of stranding it PENDING.
+            await wf.execute_activity(
+                mark_observation_running_activity,
+                MarkObservationRunningInputs(observation_id=observation_id),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_STATE_ACTIVITY_RETRY,
+            )
+            self._advance_phase("fetching")
             asset_result = await self._fetch_and_ensure_asset(inputs, observation_id)
             self._advance_phase("rendering", rasterizer_workflow_id=_rasterizer_workflow_id(inputs))
             await self._run_rasterize_child(inputs, asset_result.asset_id)
@@ -235,7 +236,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
             self._advance_phase("finalizing")
-            await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
             signals_count = 0
             if call_output.signals:
                 # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
@@ -255,12 +255,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
-            await wf.execute_activity(
-                emit_observation_event_activity,
-                EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=_STATE_ACTIVITY_RETRY,
-            )
+            # Persist the billed result before any downstream emission — a transient outage past this
+            # point must not demote a completed, paid-for analysis to FAILED.
             await wf.execute_activity(
                 mark_observation_succeeded_activity,
                 MarkObservationSucceededInputs(
@@ -271,6 +267,16 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,
             )
+            try:
+                await wf.execute_activity(
+                    emit_observation_event_activity,
+                    EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=_STATE_ACTIVITY_RETRY,
+                )
+            except Exception:
+                wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
+            await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
             if ineligible_kind is not None:
@@ -365,7 +371,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         observation_id: UUID,
         model_output: object,
     ) -> None:
-        """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow.
+        """Dispatch scanner-type-specific side-effects after the observation is marked succeeded.
+
+        Each side-effect fails soft (logged, swallowed): the result is already persisted and billed, so a
+        transient embedding/Kafka outage must not demote the observation or abort the remaining effects.
 
         DEPLOY NOTE (accepted in-flight breakage): this dispatch was changed — the summarizer embed activity was
         renamed and an embed step was added for every scanner type. We deliberately do NOT gate it behind
@@ -377,28 +386,34 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         """
         # Embed the observation's explanation text (reasoning, or summarizer facets) for natural-language search.
         if _has_embeddable_text(model_output):
-            await wf.execute_activity(
-                embed_observation_activity,
-                EmbedObservationInputs(
-                    team_id=inputs.team_id,
-                    session_id=inputs.session_id,
-                    observation_id=observation_id,
-                    scanner_id=inputs.scanner_id,
-                    model_output=model_output,
-                ),
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=_SIDE_EFFECT_RETRY,
-            )
+            try:
+                await wf.execute_activity(
+                    embed_observation_activity,
+                    EmbedObservationInputs(
+                        team_id=inputs.team_id,
+                        session_id=inputs.session_id,
+                        observation_id=observation_id,
+                        scanner_id=inputs.scanner_id,
+                        model_output=model_output,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=_SIDE_EFFECT_RETRY,
+                )
+            except Exception:
+                wf.logger.exception("Embedding emission failed for succeeded observation %s", observation_id)
         # Classifiers additionally fan their tags out onto the recording.
         if isinstance(model_output, ClassifierOutput):
-            await wf.execute_activity(
-                emit_classifier_tags_activity,
-                EmitClassifierTagsInputs(
-                    team_id=inputs.team_id,
-                    session_id=inputs.session_id,
-                    observation_id=observation_id,
-                    classifier_output=model_output,
-                ),
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=_SIDE_EFFECT_RETRY,
-            )
+            try:
+                await wf.execute_activity(
+                    emit_classifier_tags_activity,
+                    EmitClassifierTagsInputs(
+                        team_id=inputs.team_id,
+                        session_id=inputs.session_id,
+                        observation_id=observation_id,
+                        classifier_output=model_output,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=_SIDE_EFFECT_RETRY,
+                )
+            except Exception:
+                wf.logger.exception("Classifier tag emission failed for succeeded observation %s", observation_id)
