@@ -141,31 +141,33 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not thread_messages:
                 return
 
+            # workflow.patched() returns False for executions started before this
+            # deploy so replay still schedules the old cascade-first command sequence.
+            # Delete this branch once history retention exceeds our longest possible run.
+            if not workflow.patched(_PATCH_ID_CONNECTOR_ROUTING_ACTIVITY):
+                await self._run_legacy_repository_selection_path(
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    user_id,
+                    event,
+                    thread_messages,
+                )
+                return
+
+            routing = await _execute_posthog_code_activity(
+                classify_posthog_code_task_routing_activity,
+                event.get("text", ""),
+                thread_messages,
+            )
+            task_kind = routing.task_kind
+            needs_repository_connector = "github_repository" in routing.required_connectors
+
             repository: str | None
             # Set only on the ambiguous path that runs the discovery sandbox
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
-
-            # workflow.patched() returns False for executions started before this
-            # deploy so replay still schedules the old activity; new starts get
-            # the routing activity (task kind + required connectors). Delete the else branch
-            # once history retention exceeds our longest possible run (nothing left to replay).
-            if workflow.patched(_PATCH_ID_CONNECTOR_ROUTING_ACTIVITY):
-                routing = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_routing_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                )
-                task_kind = routing.task_kind
-                needs_repository_connector = "github_repository" in routing.required_connectors
-            else:
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                )
-                task_kind = "coding" if needs_repo else "general"
-                needs_repository_connector = needs_repo
 
             if not needs_repository_connector:
                 repository = None
@@ -299,6 +301,124 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 channel,
                 thread_ts,
             )
+
+    async def _run_legacy_repository_selection_path(
+        self,
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+        user_id: int,
+        event: dict[str, Any],
+        thread_messages: list[dict[str, str]],
+    ) -> None:
+        repository: str | None
+        # Set only on the ambiguous path that runs the discovery sandbox
+        repo_research_task_id: str | None = None
+        repo_research_run_id: str | None = None
+
+        cascade = await _execute_posthog_code_activity(
+            cascade_posthog_code_repository_activity,
+            inputs,
+            event.get("text", ""),
+            user_id,
+        )
+
+        if cascade.mode == "auto":
+            repository = cascade.repository
+        elif cascade.mode == "no_repo":
+            # Preserve the old post-cascade classifier placement for histories
+            # that started before connector routing existed.
+            repository = None
+            needs_repo = await _execute_posthog_code_activity(
+                classify_posthog_code_task_needs_repo_activity,
+                event.get("text", ""),
+                thread_messages,
+            )
+            if needs_repo:
+                blocked = await _execute_posthog_code_activity(
+                    block_posthog_code_task_if_no_personal_github_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    user_id,
+                )
+                if blocked:
+                    return
+        elif cascade.mode == "needs_user_github":
+            await _execute_posthog_code_activity(
+                block_posthog_code_task_if_no_personal_github_activity,
+                inputs,
+                channel,
+                thread_ts,
+                user_id,
+            )
+            return
+        else:
+            needs_repo = await _execute_posthog_code_activity(
+                classify_posthog_code_task_needs_repo_activity,
+                event.get("text", ""),
+                thread_messages,
+            )
+            if not needs_repo:
+                repository = None
+            else:
+                outcome = await _execute_posthog_code_agent_activity(
+                    discover_posthog_code_repository_via_agent_activity,
+                    inputs,
+                    channel,
+                    event,
+                    thread_messages,
+                    user_id,
+                )
+                repo_research_task_id = outcome.repo_research_task_id
+                repo_research_run_id = outcome.repo_research_run_id
+
+                if outcome.status == "found":
+                    repository = outcome.repository
+                elif outcome.status == "no_match":
+                    repository = None
+                else:
+                    picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_repo_picker_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event,
+                        workflow.info().workflow_id,
+                        picker_guidance,
+                        True,
+                        user_id,
+                    )
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                        )
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
+                    repository = self._selected_repo
+
+        if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+            return
+        await _execute_posthog_code_activity(
+            create_posthog_code_task_for_repo_activity,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            user_id,
+            event,
+            thread_messages,
+            repository,
+            repo_research_task_id,
+            repo_research_run_id,
+        )
 
 
 async def _gate_on_personal_github(

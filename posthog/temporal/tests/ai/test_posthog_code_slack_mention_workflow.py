@@ -98,3 +98,47 @@ async def test_coding_task_routing_runs_repository_connector_cascade() -> None:
     create_call = next(args for name, args in calls if name == "create_posthog_code_task_for_repo_activity")
     assert create_call[7] == "posthog/posthog"
     assert create_call[10] == "coding"
+
+
+@pytest.mark.asyncio
+async def test_legacy_replay_path_preserves_cascade_first_order() -> None:
+    workflow = posthog_code_slack_mention.PostHogCodeSlackMentionWorkflow()
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    async def fake_execute_activity(activity_fn, *args):
+        calls.append((activity_fn.__name__, args))
+        if activity_fn is posthog_code_slack_mention.enforce_posthog_code_billing_quota_activity:
+            return False
+        if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
+            return False
+        if activity_fn is posthog_code_slack_mention.collect_posthog_code_thread_messages_activity:
+            return [{"user": "Alice", "text": "summarize this Slack thread", "ts": "1234.5678"}]
+        if activity_fn is posthog_code_slack_mention.cascade_posthog_code_repository_activity:
+            return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_install")
+        if activity_fn is posthog_code_slack_mention.classify_posthog_code_task_needs_repo_activity:
+            return False
+        if activity_fn is posthog_code_slack_mention.create_posthog_code_task_for_repo_activity:
+            return None
+
+        raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
+
+    with (
+        patch.object(posthog_code_slack_mention.workflow, "patched", return_value=False),
+        patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
+    ):
+        await workflow.run(_make_inputs())
+
+    activity_names = [name for name, _args in calls]
+    assert activity_names == [
+        "enforce_posthog_code_billing_quota_activity",
+        "forward_posthog_code_followup_activity",
+        "collect_posthog_code_thread_messages_activity",
+        "cascade_posthog_code_repository_activity",
+        "classify_posthog_code_task_needs_repo_activity",
+        "create_posthog_code_task_for_repo_activity",
+    ]
+    assert "classify_posthog_code_task_routing_activity" not in activity_names
+
+    create_call = next(args for name, args in calls if name == "create_posthog_code_task_for_repo_activity")
+    assert create_call[7] is None
+    assert len(create_call) == 10
