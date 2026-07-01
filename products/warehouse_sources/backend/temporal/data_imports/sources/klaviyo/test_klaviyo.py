@@ -211,7 +211,7 @@ class TestFetchPageRetries:
         session = MagicMock()
         session.get.side_effect = [transient_error, good]
 
-        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
             result = klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
 
         assert result == {"data": []}
