@@ -897,7 +897,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response({"run_id": str(run.id)})
 
-    @extend_schema(responses={(200, "text/event-stream"): OpenApiTypes.STR})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                description="Identifier of the run to stream results for.",
+            )
+        ],
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+    )
     @action(
         methods=["GET"],
         url_path="data_v2/runs/(?P<run_id>[^/.]+)/stream",

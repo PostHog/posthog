@@ -29721,6 +29721,18 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookDataV2RunRequest {
+      /** ProseMirror node id of the DataV2 node being run. */
+      node_id: string;
+      /** The HogQL the node contains. Ignored in the current slice — the sandbox fabricates the result. */
+      code: string;
+    }
+
+    export interface NotebookDataV2RunResponse {
+      /** Identifier of the created run. Used for the result callback and the SSE result stream. */
+      run_id: string;
+    }
+
     export interface NotebookMarkdownSave {
       /** Unique identifier for the client session, used to skip self-echo on the update stream. */
       client_id: string;

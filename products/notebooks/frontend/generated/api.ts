@@ -12,6 +12,8 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookDataV2RunRequestApi,
+    NotebookDataV2RunResponseApi,
     NotebookMarkdownSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
@@ -253,6 +255,46 @@ export const notebooksCollabStreamRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksCollabStreamRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksDataV2RunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/data_v2/run/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksDataV2RunCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookDataV2RunRequestApi: NotebookDataV2RunRequestApi,
+    options?: RequestInit
+): Promise<NotebookDataV2RunResponseApi> => {
+    return apiMutator<NotebookDataV2RunResponseApi>(getNotebooksDataV2RunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookDataV2RunRequestApi),
+    })
+}
+
+export const getNotebooksDataV2RunsStreamRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/data_v2/runs/${runId}/stream/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksDataV2RunsStreamRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getNotebooksDataV2RunsStreamRetrieveUrl(projectId, shortId, runId), {
         ...options,
         method: 'GET',
     })

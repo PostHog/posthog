@@ -272,6 +272,18 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookDataV2RunRequestApi {
+    /** ProseMirror node id of the DataV2 node being run. */
+    node_id: string
+    /** The HogQL the node contains. Ignored in the current slice — the sandbox fabricates the result. */
+    code: string
+}
+
+export interface NotebookDataV2RunResponseApi {
+    /** Identifier of the created run. Used for the result callback and the SSE result stream. */
+    run_id: string
+}
+
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.

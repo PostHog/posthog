@@ -208,6 +208,16 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const NotebooksDataV2RunCreateBody = /* @__PURE__ */ zod.object({
+    node_id: zod.string().describe('ProseMirror node id of the DataV2 node being run.'),
+    code: zod
+        .string()
+        .describe('The HogQL the node contains. Ignored in the current slice — the sandbox fabricates the result.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksHogqlExecuteCreateBodyTitleMax = 256
 
 export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648
