@@ -147,9 +147,20 @@ const tallerCurrentSvg = `
 </svg>
 `
 
+// Diff image sized to the shared canvas (1400×1120), so the diff overlay
+// exercises the full-canvas (`h-full`) path — the added bottom section is the
+// primary change region.
+const tallerDiffSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120" viewBox="0 0 1400 1120">
+  <rect width="1400" height="1120" fill="transparent"/>
+  <rect x="110" y="780" width="1180" height="230" rx="12" fill="#ff4d9a" fill-opacity="0.5"/>
+</svg>
+`
+
 const baselineImage = toSvgDataUri(baselineSvg)
 const currentImage = toSvgDataUri(currentSvg)
 const tallerCurrentImage = toSvgDataUri(tallerCurrentSvg)
+const tallerDiffImage = toSvgDataUri(tallerDiffSvg)
 const diffImage = toSvgDataUri(diffSvg)
 const newSnapshotImage = toSvgDataUri(newSnapshotSvg)
 const smallBaselineImage = toSvgDataUri(smallBaselineSvg)
@@ -197,7 +208,7 @@ export const SizeMismatch: Story = {
     args: {
         baselineUrl: baselineImage,
         currentUrl: tallerCurrentImage,
-        diffUrl: null,
+        diffUrl: tallerDiffImage,
         diffPercentage: 18.2,
         result: 'changed',
         baselineWidth: 1400,
