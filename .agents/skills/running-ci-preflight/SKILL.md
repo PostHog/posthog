@@ -33,6 +33,7 @@ hogli ci:preflight --fix
 - **Staleness.** Flags a branch far behind master (commits ≈ PRs merged) or unsynced for too long; merge master in early so generated-file drift and workflow changes don't break your PR at merge time. Advisory only — never auto-merged.
 - **`· skipped (needs stack/node)`** is expected on a bare checkout or sandbox. Start the stack with `hogli start` to run those (OpenAPI, migrations, lockfile), or let CI cover them.
 - **Flags.** `--against <ref>` diffs against an explicit base; `--json` emits a machine-readable summary.
+- **Kill switch.** `HOGLI_PREFLIGHT_DISABLED=1` makes the command a no-op (exit 0). It is a rollout/emergency lever — respect it; never unset it to force a run.
 
 ## Why it matters
 

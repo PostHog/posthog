@@ -12,6 +12,10 @@ is advisory by default so it never blocks a push.
     hogli ci:preflight --strict   # exit non-zero on any finding (for hooks/CI)
     hogli ci:preflight --against origin/master   # diff against an explicit base
 
+``HOGLI_PREFLIGHT_DISABLED=1`` makes the command a no-op — the rollout/emergency
+kill switch for the definition-of-done requirement (still emits a run event so
+opt-out prevalence is measurable).
+
 Checks declare what they need (``node`` modules, the dev ``stack``) and skip with
 a note when it's absent, so the no-dependency checks always run — even on a bare
 checkout or inside an agent sandbox. The agent loop is expected to run this with
@@ -292,6 +296,15 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
+    if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
+        disabled_summary: dict[str, Any] = {"mode": "disabled", "results": []}
+        if as_json:
+            click.echo(json.dumps(disabled_summary))
+        else:
+            click.secho("  ci:preflight disabled (HOGLI_PREFLIGHT_DISABLED) — CI remains the gate.", fg="yellow")
+        _emit_telemetry(disabled_summary)
+        return
+
     files = changed_files(against or "master")
     base = against or "branch base"
 
