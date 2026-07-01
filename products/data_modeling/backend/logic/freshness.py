@@ -26,10 +26,9 @@ from products.data_modeling.backend.logic.graph_traversal import reachable
 # carry their real sync interval.
 STREAMING = timedelta(0)
 
-# The only intervals build_schedule_spec can realize exactly: minute buckets must divide 60
-# and hour buckets 24, then weekly/monthly. Anything else silently degrades there (45min
-# becomes hourly, 48h becomes weekly) or crashes (sub-minute), so targets are gated to this
-# set — it mirrors sync_frequency_to_sync_frequency_interval's label set.
+# Intervals build_schedule_spec can realize exactly (minute buckets must divide 60, hour
+# buckets 24, then weekly/monthly); anything else silently degrades or crashes there.
+# Mirrors sync_frequency_to_sync_frequency_interval's label set.
 SUPPORTED_TARGETS: frozenset[timedelta] = frozenset(
     {
         timedelta(minutes=1),
@@ -77,30 +76,28 @@ def compute_effective_cadences(
     ride-downstream opt-out). Source nodes are not expected in `nodes`.
     """
     children, parents = _adjacency(edges)
-    # Iterative reverse-topological (Kahn) pass: leaves first, then everything whose
-    # in-`nodes` children are all resolved. Recursion would overflow on deep chains.
+    # reverse-topological pass, iterative because recursion overflows on deep chains
     out_degree = {node: sum(1 for child in children.get(node, []) if child in nodes) for node in nodes}
     queue = deque(node for node in nodes if out_degree[node] == 0)
-    memo: dict[str, timedelta | None] = {}
+    resolved: dict[str, timedelta | None] = {}
     while queue:
         node = queue.popleft()
         candidates: list[timedelta] = []
         if node in targets:
             candidates.append(targets[node])
         for child in children.get(node, []):
-            if child in nodes and (child_effective := memo[child]) is not None:
+            if child in nodes and (child_effective := resolved[child]) is not None:
                 candidates.append(child_effective)
-        memo[node] = min(candidates) if candidates else None
+        resolved[node] = min(candidates) if candidates else None
         for parent in parents.get(node, []):
             if parent in nodes:
                 out_degree[parent] -= 1
                 if out_degree[parent] == 0:
                     queue.append(parent)
 
-    if len(memo) != len(nodes):
-        unresolved = sorted(nodes - memo.keys())
-        raise ValueError(f"cycle detected in DAG; unresolved nodes: {unresolved}")
-    return memo
+    if len(resolved) != len(nodes):
+        raise ValueError(f"cycle detected in DAG; unresolved nodes: {sorted(nodes - resolved.keys())}")
+    return resolved
 
 
 def frequency_target_bounds(
@@ -171,11 +168,9 @@ def find_invalid_targets(
 ) -> list[InvalidTarget]:
     """Re-validate every declared target against its current bounds.
 
-    A target valid when written can drift invalid later: a descendant declaring a tighter
-    target lowers this node's ceiling, and graph edits move its floor. The scheduler still
-    honors the tightest demand at runtime, so a stale declared target doesn't break
-    freshness — it breaks the declared == effective honesty invariant. Callers run this on
-    any graph mutation (target write, node/edge change) and surface what it returns.
+    Targets drift: a descendant declaring a tighter target lowers ancestors' ceilings, and
+    graph edits move floors. Runtime freshness stays correct (tightest demand wins) — what
+    breaks is declared == effective, so run this on any graph mutation and surface the result.
     """
     invalid: list[InvalidTarget] = []
     for node_id, target in targets.items():

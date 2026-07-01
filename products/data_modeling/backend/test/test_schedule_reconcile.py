@@ -159,8 +159,8 @@ class TestReconcileDagSchedules(BaseTest):
         self.assertNotEqual(created_ids[0], legacy_id)
 
     def test_refuses_non_bucket_tier_before_touching_temporal(self):
-        # a non-bucket target would crash or silently distort build_schedule_spec mid-apply,
-        # leaving the DAG partially reconciled — the guard must fire before any Temporal call
+        # the guard must fire before any Temporal call — a non-bucket tier would crash
+        # build_schedule_spec mid-apply and leave the DAG partially reconciled
         dag = DAG.get_or_create_default(self.team)
         source = _table_node(self.team, dag, "events", {"origin": "posthog"})
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)

@@ -171,11 +171,9 @@ async def _apply_reconciliation(
         ]
     )
 
-    # Create/update every desired tier before deleting any stale schedule, so nodes are never left
-    # uncovered. On failure, delete the tiers we created; creates run before updates, so a failure
-    # on the first update leaves the pre-existing schedules untouched and the DAG at its prior
-    # state. Updates already applied are not reverted — a re-run converges the rest. Best-effort
-    # rollback: a failed delete must not mask the original error.
+    # Create/update every desired tier before deleting stale schedules so nodes are never left
+    # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
+    # stay — a re-run converges) without letting a failed delete mask the original error.
     created: list[str] = []
     try:
         for schedule_id, (interval, node_ids) in plan.to_create.items():

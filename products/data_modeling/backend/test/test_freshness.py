@@ -185,9 +185,7 @@ class TestValidateFrequencyTarget(TestCase):
 class TestFindInvalidTargets(TestCase):
     @parameterized.expand(
         [
-            # a descendant declaring 15min lowers the ancestor's ceiling below its declared 6h:
-            # the write that caused it validated fine on the descendant, so only a whole-graph
-            # re-validation catches the ancestor's drift
+            # descendant's 15min target lowers the ancestor's ceiling below its declared 6h
             (
                 "ancestor_invalidated_by_descendant_target",
                 [("src", "a"), ("a", "ep")],
