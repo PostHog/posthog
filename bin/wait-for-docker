@@ -128,11 +128,9 @@ print_service_diagnostics() {
 SECONDS=0
 last_progress_log=-5
 pending=("${SERVICES[@]}")
-# Diagnostics for services that time out, captured in lock-step at the
-# moment of timeout (this iteration's status is the last one observed).
+# Services that time out, captured at the moment of timeout as
+# "svc|status|container_id" (this iteration's status is the last observed).
 timed_out=()
-timed_out_status=()
-timed_out_id=()
 
 while [ ${#pending[@]} -gt 0 ]; do
     # Parse this poll's `compose ps` into parallel arrays keyed by ps_keys.
@@ -178,9 +176,7 @@ while [ ${#pending[@]} -gt 0 ]; do
         fi
 
         if [ "$elapsed" -ge "$TIMEOUT" ]; then
-            timed_out+=("$svc")
-            timed_out_status+=("$status")
-            timed_out_id+=("$container_id")
+            timed_out+=("$svc|$status|$container_id")
             continue
         fi
 
@@ -206,11 +202,9 @@ while [ ${#pending[@]} -gt 0 ]; do
 done
 
 if [ ${#timed_out[@]} -gt 0 ]; then
-    fail_count=${#timed_out[@]}
-    i=0
-    while [ "$i" -lt "$fail_count" ]; do
-        print_service_diagnostics "${timed_out[$i]}" "$SECONDS" "${timed_out_status[$i]}" "${timed_out_id[$i]}"
-        i=$((i + 1))
+    for entry in "${timed_out[@]}"; do
+        IFS='|' read -r svc status container_id <<< "$entry"
+        print_service_diagnostics "$svc" "$SECONDS" "$status" "$container_id"
     done
     exit 1
 fi
