@@ -910,16 +910,6 @@ export const QueryDatabase = ({
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Copy column name when clicking on a column
-                if (item && item.record?.type === 'column') {
-                    const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
-                        .then(setQueryInput)
-                        .catch(() => {
-                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
-                        })
-                }
-
                 if (item && item.record?.type === 'unsaved-query') {
                     openUnsavedQuery(item.record)
                 }
@@ -946,6 +936,21 @@ export const QueryDatabase = ({
                     <span
                         className="truncate"
                         onDoubleClick={(e) => {
+                            // Columns insert into the query on double-click (single click just selects).
+                            if (item.record?.type === 'column') {
+                                e.stopPropagation()
+                                const currentQueryInput = builtTabLogic.values.queryInput
+                                void buildQueryForColumnClick(
+                                    currentQueryInput,
+                                    item.record.table,
+                                    item.record.columnName
+                                )
+                                    .then(setQueryInput)
+                                    .catch(() => {
+                                        // Parsing can fail (e.g. parser init errors) — keep the editor untouched.
+                                    })
+                                return
+                            }
                             if (!isPreviewableViewItem(item)) {
                                 return
                             }
@@ -1000,7 +1005,7 @@ export const QueryDatabase = ({
             }}
             itemSideAction={(item) => renderItemMenu(item, 'dropdown')}
             itemContextMenu={(item) => renderItemMenu(item, 'context')}
-            isItemCaretExpandOnly={isDataNode}
+            isItemSelectOnly={(item) => isDataNode(item) || item.record?.type === 'column'}
             itemSideActionButton={(item) => {
                 if (item.record?.type === 'sources') {
                     return (

@@ -131,7 +131,10 @@ export const TreeNodeDisplayIcon = ({
                     className={cn(
                         ICON_CLASSES,
                         'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150',
-                        onCaretClick && 'pointer-events-auto cursor-pointer'
+                        // Give the interactive caret the same button affordance as the side-action (ellipsis):
+                        // a rounded hover background + primary-on-hover, so it reads as a distinct click target.
+                        onCaretClick &&
+                            'pointer-events-auto cursor-pointer rounded hover:bg-fill-button-tertiary-hover hover:text-primary'
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />

@@ -257,7 +257,7 @@ describe('LemonTree', () => {
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
     }, 10000)
 
-    describe('caret expand-only rows', () => {
+    describe('select-only rows', () => {
         const data: TreeDataItem[] = [{ id: 'parent', name: 'parent', children: [{ id: 'child', name: 'child' }] }]
 
         // Regression guard for every other LemonTree consumer (ProjectTree, FileSystem trees): without the
@@ -281,7 +281,7 @@ describe('LemonTree', () => {
                     expandedItemIds={[]}
                     onFolderClick={onFolderClick}
                     onSetExpandedItemIds={onSetExpandedItemIds}
-                    isItemCaretExpandOnly={(item) => item.id === 'parent'}
+                    isItemSelectOnly={(item) => item.id === 'parent'}
                 />
             )
 
@@ -306,7 +306,7 @@ describe('LemonTree', () => {
                     data={data}
                     expandedItemIds={[]}
                     onSetExpandedItemIds={onSetExpandedItemIds}
-                    isItemCaretExpandOnly={(item) => item.id === 'parent'}
+                    isItemSelectOnly={(item) => item.id === 'parent'}
                     renderItemIcon={(item, options) => (
                         <button type="button" aria-label={`caret-${item.id}`} onClick={options?.onCaretClick} />
                     )}
@@ -315,6 +315,24 @@ describe('LemonTree', () => {
 
             fireEvent.click(within(container).getByLabelText('caret-parent'))
             expect(onSetExpandedItemIds).toHaveBeenCalledWith(['parent'])
+        })
+
+        // A select-only leaf (e.g. a SQL editor column) selects on single click and must NOT fire its
+        // default action (onItemClick) — that action moves to double-click.
+        it('selects a leaf on row click without firing onItemClick', () => {
+            const onItemClick = jest.fn()
+            const { container } = render(
+                <LemonTree
+                    data={[{ id: 'col', name: 'col' }]}
+                    expandedItemIds={[]}
+                    onItemClick={onItemClick}
+                    isItemSelectOnly={() => true}
+                />
+            )
+
+            fireEvent.click(within(container).getByLabelText('tree item: col'))
+            expect(onItemClick).not.toHaveBeenCalled()
+            expect(within(container).getByLabelText('tree item: col')).toHaveAttribute('aria-selected', 'true')
         })
     })
 })
