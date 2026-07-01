@@ -143,7 +143,7 @@ function ContextWarehouseStepInner(): JSX.Element {
                     ))}
                 </div>
             ) : (
-                <p className="text-sm text-muted m-0">No sources match "{search}".</p>
+                searchTerm && <p className="text-sm text-muted m-0">No sources match "{search}".</p>
             )}
 
             {!searchTerm && !showAll && hiddenConnectors.length > 0 && (

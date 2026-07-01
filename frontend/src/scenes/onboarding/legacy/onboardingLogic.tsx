@@ -594,8 +594,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (team?.surveys_opt_in) {
                 products.push(ProductKey.SURVEYS)
             }
-            eventUsageLogic.actions.reportOnboardingCompleted(products[0])
             for (const productKey of products) {
+                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
