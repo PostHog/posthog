@@ -64,7 +64,14 @@ impl ServerHandle {
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, rayon_dispatcher, handles, flags_with_cohorts_s3).await;
+            serve(
+                config,
+                listener,
+                rayon_dispatcher,
+                handles,
+                flags_with_cohorts_s3,
+            )
+            .await;
             // Drain the lifecycle monitor after serve returns so the supervisor
             // thread exits cleanly. Any error is logged — a failing shutdown
             // shouldn't fail the test unless the test explicitly asserts on it.

@@ -359,22 +359,24 @@ pub async fn serve(
             s3,
             flags_with_cohorts_config,
         )),
-        None => match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
-            .await
-        {
-            Ok(reader) => {
-                tracing::info!("Created HyperCacheReader for flags with cohorts");
-                Arc::new(reader)
+        None => {
+            match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
+                .await
+            {
+                Ok(reader) => {
+                    tracing::info!("Created HyperCacheReader for flags with cohorts");
+                    Arc::new(reader)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags with cohorts HyperCacheReader: {:?}",
+                        e
+                    );
+                    handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
+                    return;
+                }
             }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create flags with cohorts HyperCacheReader: {:?}",
-                    e
-                );
-                handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
-                return;
-            }
-        },
+        }
     };
 
     // Create HyperCacheReader for remote config (array/config.json)

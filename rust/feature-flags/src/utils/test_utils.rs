@@ -227,11 +227,20 @@ pub struct AlwaysMissS3Client;
 
 #[async_trait]
 impl common_hypercache::S3Client for AlwaysMissS3Client {
-    async fn get_string(&self, _bucket: &str, key: &str) -> Result<String, common_hypercache::S3Error> {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
         Err(common_hypercache::S3Error::NotFound(key.to_string()))
     }
 
-    async fn put_string(&self, _bucket: &str, _key: &str, _value: &str) -> Result<(), common_hypercache::S3Error> {
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
         Ok(())
     }
 

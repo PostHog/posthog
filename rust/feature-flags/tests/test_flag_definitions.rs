@@ -2677,7 +2677,8 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
         .unwrap();
     // Don't populate the cache, and inject a NotFound S3 so the read is a genuine
     // cache_miss (the flags test job has no object store, so real S3 would error).
-    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
     let response = reqwest::Client::new()
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -2716,7 +2717,8 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
 
     // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
     // happens is the flag being off, not the miss classifying as s3_error.
-    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
     let response = reqwest::Client::new()
         .get(format!(
             "http://{}/flags/definitions?token={}",
