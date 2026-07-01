@@ -1489,6 +1489,21 @@ def append_task_run_log(
     return _task_run_detail_to_dto(run)
 
 
+def truncate_task_run_log(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    checkpoint_id: str,
+    prompt_id: int | None = None,
+) -> dict | None:
+    """Truncate a run's S3 log at a checkpoint boundary. ``None`` if the run isn't found."""
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return run.truncate_log(checkpoint_id, prompt_id=prompt_id)
+
+
 def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
     """Whether a run is mapped to a Slack thread. ``None`` if the run isn't found."""
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path

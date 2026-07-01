@@ -1603,6 +1603,26 @@ class CodeInviteRedeemRequestSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=50)
 
 
+class TaskRunTruncateLogRequestSerializer(serializers.Serializer):
+    checkpoint_id = serializers.CharField(help_text="Checkpoint ID to truncate the log at")
+
+    prompt_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional JSON-RPC prompt ID for the turn (fallback when checkpoint not in S3)",
+    )
+
+
+class TaskRunTruncateLogResponseSerializer(serializers.Serializer):
+    truncated = serializers.BooleanField(help_text="Whether the log was truncated")
+    original_line_count = serializers.IntegerField(help_text="Number of lines before truncation")
+    truncated_line_count = serializers.IntegerField(help_text="Number of lines after truncation")
+    orphaned_checkpoint_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Checkpoint IDs that were in the discarded lines",
+    )
+
+
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     """Query parameters for filtering task run log events"""
 

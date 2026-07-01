@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -1585,3 +1585,154 @@ class TestCodeInvite(TestCase):
         with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
             with self.assertRaises(IntegrityError):
                 CodeInvite.objects.create()
+
+
+class TestTaskRunTruncateLog(SimpleTestCase):
+    """Unit coverage for TaskRun.truncate_log (checkpoint-restore S3 log truncation).
+
+    truncate_log is pure log-manipulation: it only reads the *_id fields (via log_url)
+    and object_storage (mocked here), never the DB — so these run without Postgres or
+    ClickHouse on unsaved instances.
+    """
+
+    def _run(self) -> TaskRun:
+        # Unsaved instance: log_url derives solely from id/team_id/task_id.
+        return TaskRun(id=uuid.uuid4(), team_id=1, task_id=1, status=TaskRun.Status.COMPLETED)
+
+    # --- log line builders -------------------------------------------------
+    @staticmethod
+    def _prompt_claude(prompt_id: int) -> str:
+        # Claude adapter logs outgoing prompts as type="request".
+        return json.dumps({"type": "request", "request": {"method": "session/prompt", "id": prompt_id}})
+
+    @staticmethod
+    def _prompt_codex(prompt_id: int) -> str:
+        # Codex adapter logs everything (incl. prompts) as type="notification".
+        return json.dumps({"type": "notification", "notification": {"method": "session/prompt", "id": prompt_id}})
+
+    @staticmethod
+    def _agent_chunk() -> str:
+        return json.dumps(
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                },
+            }
+        )
+
+    @staticmethod
+    def _checkpoint(checkpoint_id: str) -> str:
+        return json.dumps(
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/git_checkpoint", "params": {"checkpointId": checkpoint_id}},
+            }
+        )
+
+    def _three_turn_log(self, codex: bool = False) -> list[str]:
+        """3 turns, each: prompt -> agent chunk -> checkpoint (cp1/cp2/cp3). 9 lines."""
+        prompt = self._prompt_codex if codex else self._prompt_claude
+        return [
+            prompt(1),
+            self._agent_chunk(),
+            self._checkpoint("cp1"),
+            prompt(2),
+            self._agent_chunk(),
+            self._checkpoint("cp2"),
+            prompt(3),
+            self._agent_chunk(),
+            self._checkpoint("cp3"),
+        ]
+
+    # --- tests -------------------------------------------------------------
+    @patch("products.tasks.backend.models.object_storage")
+    def test_truncates_at_checkpoint_midlog(self, mock_storage):
+        lines = self._three_turn_log()
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp1")
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["original_line_count"], 9)
+        self.assertEqual(result["truncated_line_count"], 3)
+        self.assertEqual(result["orphaned_checkpoint_ids"], ["cp2", "cp3"])
+        mock_storage.write.assert_called_once_with(run.log_url, "\n".join(lines[:3]))
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_truncates_codex_style_log(self, mock_storage):
+        lines = self._three_turn_log(codex=True)
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp2")
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["truncated_line_count"], 6)
+        self.assertEqual(result["orphaned_checkpoint_ids"], ["cp3"])
+        mock_storage.write.assert_called_once_with(run.log_url, "\n".join(lines[:6]))
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_prompt_id_fallback_when_checkpoint_missing(self, mock_storage):
+        lines = self._three_turn_log()
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp-does-not-exist", prompt_id=2)
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["truncated_line_count"], 6)
+        self.assertEqual(result["orphaned_checkpoint_ids"], ["cp3"])
+        mock_storage.write.assert_called_once_with(run.log_url, "\n".join(lines[:6]))
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_tail_checkpoint_falls_back_to_prompt_id(self, mock_storage):
+        # cp3 is on the final turn (no next turn to cut at); prompt_id points earlier,
+        # so the fallback kicks in and truncates before turn 3.
+        lines = self._three_turn_log()
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp3", prompt_id=2)
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["truncated_line_count"], 6)
+        mock_storage.write.assert_called_once_with(run.log_url, "\n".join(lines[:6]))
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_restore_to_latest_checkpoint_keeps_all(self, mock_storage):
+        # Restoring to the most recent checkpoint has no following turn to drop.
+        lines = self._three_turn_log()
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp3")
+
+        self.assertEqual(result["truncated_line_count"], result["original_line_count"])
+        self.assertEqual(result["orphaned_checkpoint_ids"], [])
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_no_truncation_when_checkpoint_and_prompt_missing(self, mock_storage):
+        lines = self._three_turn_log()
+        mock_storage.read.return_value = "\n".join(lines)
+        run = self._run()
+
+        result = run.truncate_log("cp-does-not-exist")
+
+        self.assertFalse(result["truncated"])
+        self.assertEqual(result["original_line_count"], 9)
+        self.assertEqual(result["truncated_line_count"], 9)
+        mock_storage.write.assert_not_called()
+
+    @patch("products.tasks.backend.models.object_storage")
+    def test_empty_log_is_noop(self, mock_storage):
+        mock_storage.read.return_value = ""
+        run = self._run()
+
+        result = run.truncate_log("cp1")
+
+        self.assertFalse(result["truncated"])
+        self.assertEqual(result["original_line_count"], 0)
+        mock_storage.write.assert_not_called()

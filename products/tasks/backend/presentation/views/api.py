@@ -93,6 +93,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
     TaskRunStartRequestSerializer,
+    TaskRunTruncateLogRequestSerializer,
+    TaskRunTruncateLogResponseSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
     TaskStagedArtifactsFinalizeUploadRequestSerializer,
@@ -1039,6 +1041,38 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if relay_status == "accepted":
             return Response({"status": "accepted", "relay_id": relay_id})
         return Response({"status": "skipped"})
+
+    @validated_request(
+        request_serializer=TaskRunTruncateLogRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunTruncateLogResponseSerializer,
+                description="Truncation result",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Truncate task run log at a checkpoint",
+        description="Truncates the S3 log at the turn containing the given checkpoint ID, discarding all subsequent turns. Used by checkpoint restore.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="truncate_log",
+        required_scopes=["task:write"],
+    )
+    def truncate_log(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        result = tasks_facade.truncate_task_run_log(
+            pk,
+            task_id,
+            self.team_id,
+            checkpoint_id=str(request.validated_data["checkpoint_id"]),
+            prompt_id=request.validated_data.get("prompt_id"),
+        )
+        if result is None:
+            raise NotFound()
+        return Response(result)
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,

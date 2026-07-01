@@ -1158,6 +1158,188 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
+    def truncate_log(self, checkpoint_id: str, prompt_id: int | None = None) -> dict:
+        """Truncate the S3 log at the turn containing the given checkpoint.
+
+        Keeps all lines up to (but not including) the start of the next turn after the
+        checkpoint. If the checkpoint notification is not found in the log (e.g. it was
+        appended out-of-band after the turn completed), falls back to locating the turn
+        by prompt_id: finds the session/prompt request with that id, then uses the next
+        session/prompt as the cutoff.
+
+        Returns metadata including orphaned checkpoint IDs from discarded lines.
+        """
+        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        if not content.strip():
+            logger.info(
+                "task_run.truncate_log.empty_log",
+                task_run_id=str(self.id),
+                checkpoint_id=checkpoint_id,
+            )
+            return {
+                "truncated": False,
+                "original_line_count": 0,
+                "truncated_line_count": 0,
+                "orphaned_checkpoint_ids": [],
+            }
+
+        lines = [line for line in content.split("\n") if line.strip()]
+        original_count = len(lines)
+
+        def _is_session_prompt_request(entry: dict) -> bool:
+            # Claude adapter: outgoing prompts logged as type="request"
+            if entry.get("type") == "request":
+                req = entry.get("request", {})
+                return isinstance(req, dict) and req.get("method") == "session/prompt"
+            # Codex adapter: all events logged as type="notification", including outgoing prompts
+            if entry.get("type") == "notification":
+                notif = entry.get("notification", {})
+                return isinstance(notif, dict) and notif.get("method") == "session/prompt"
+            return False
+
+        def _next_turn_cutoff(search_from: int) -> int:
+            """Return the index of the next session/prompt after search_from, or len(lines)."""
+            in_user_message = False
+            passed_non_user = False
+            for i in range(search_from, len(lines)):
+                try:
+                    entry = json.loads(lines[i])
+                    if _is_session_prompt_request(entry):
+                        return i
+                    notification = entry.get("notification", {})
+                    if isinstance(notification, dict) and notification.get("method") == "session/update":
+                        params = notification.get("params", {})
+                        update = params.get("update", {}) if isinstance(params, dict) else {}
+                        is_user_chunk = isinstance(update, dict) and update.get("sessionUpdate") in (
+                            "user_message",
+                            "user_message_chunk",
+                        )
+                        if is_user_chunk:
+                            if passed_non_user:
+                                return i
+                            in_user_message = True
+                        else:
+                            if in_user_message:
+                                passed_non_user = True
+                            in_user_message = False
+                    else:
+                        if in_user_message:
+                            passed_non_user = True
+                        in_user_message = False
+                except json.JSONDecodeError:
+                    continue
+            return len(lines)
+
+        def _find_cutoff_by_prompt_id() -> int:
+            """Locate the session/prompt with id==prompt_id, return index of the next one."""
+            for j, line in enumerate(lines):
+                try:
+                    entry = json.loads(line)
+                    # Claude adapter: type="request"
+                    if entry.get("type") == "request":
+                        req = entry.get("request", {})
+                        if (
+                            isinstance(req, dict)
+                            and req.get("method") == "session/prompt"
+                            and req.get("id") == prompt_id
+                        ):
+                            return _next_turn_cutoff(j + 1)
+                    # Codex adapter: type="notification" with method="session/prompt"
+                    elif entry.get("type") == "notification":
+                        notif = entry.get("notification", {})
+                        if (
+                            isinstance(notif, dict)
+                            and notif.get("method") == "session/prompt"
+                            and notif.get("id") == prompt_id
+                        ):
+                            return _next_turn_cutoff(j + 1)
+                except json.JSONDecodeError:
+                    continue
+            return len(lines)
+
+        # Try to find the checkpoint notification in the log first.
+        checkpoint_line_idx = -1
+        for i, line in enumerate(lines):
+            try:
+                entry = json.loads(line)
+                notification = entry.get("notification", {})
+                if isinstance(notification, dict) and notification.get("method") == "_posthog/git_checkpoint":
+                    if notification.get("params", {}).get("checkpointId") == checkpoint_id:
+                        checkpoint_line_idx = i
+                        break
+            except json.JSONDecodeError:
+                continue
+
+        if checkpoint_line_idx != -1:
+            cutoff = _next_turn_cutoff(checkpoint_line_idx + 1)
+            # If no next turn found (checkpoint is at the tail), fall back to prompt_id search.
+            if cutoff == len(lines) and prompt_id is not None:
+                fallback_cutoff = _find_cutoff_by_prompt_id()
+                if fallback_cutoff < len(lines):
+                    cutoff = fallback_cutoff
+        elif prompt_id is not None:
+            cutoff = _find_cutoff_by_prompt_id()
+            if cutoff == len(lines):
+                logger.info(
+                    "task_run.truncate_log.checkpoint_not_found",
+                    task_run_id=str(self.id),
+                    checkpoint_id=checkpoint_id,
+                    prompt_id=prompt_id,
+                )
+                return {
+                    "truncated": False,
+                    "original_line_count": original_count,
+                    "truncated_line_count": original_count,
+                    "orphaned_checkpoint_ids": [],
+                }
+        else:
+            logger.info(
+                "task_run.truncate_log.checkpoint_not_found",
+                task_run_id=str(self.id),
+                checkpoint_id=checkpoint_id,
+            )
+            return {
+                "truncated": False,
+                "original_line_count": original_count,
+                "truncated_line_count": original_count,
+                "orphaned_checkpoint_ids": [],
+            }
+
+        # Collect orphaned checkpoint IDs from discarded lines
+        orphaned_checkpoint_ids: list[str] = []
+        for i in range(cutoff, len(lines)):
+            try:
+                entry = json.loads(lines[i])
+                notification = entry.get("notification", {})
+                if isinstance(notification, dict) and notification.get("method") == "_posthog/git_checkpoint":
+                    cp_id = notification.get("params", {}).get("checkpointId")
+                    if cp_id:
+                        orphaned_checkpoint_ids.append(cp_id)
+            except json.JSONDecodeError:
+                continue
+
+        truncated_lines = lines[:cutoff]
+        truncated_content = "\n".join(truncated_lines)
+        object_storage.write(self.log_url, truncated_content)
+
+        logger.info(
+            "task_run.truncate_log.done",
+            task_run_id=str(self.id),
+            checkpoint_id=checkpoint_id,
+            prompt_id=prompt_id,
+            original_line_count=original_count,
+            truncated_line_count=len(truncated_lines),
+            cutoff_line=cutoff,
+            orphaned_checkpoint_count=len(orphaned_checkpoint_ids),
+        )
+
+        return {
+            "truncated": True,
+            "original_line_count": original_count,
+            "truncated_line_count": len(truncated_lines),
+            "orphaned_checkpoint_ids": orphaned_checkpoint_ids,
+        }
+
     def mark_completed(self):
         """Mark the progress as completed."""
         self.status = self.Status.COMPLETED
