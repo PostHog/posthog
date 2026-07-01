@@ -7,6 +7,7 @@ import { visionActionsRetrieve, visionActionsRunsList } from '../generated/api'
 import type { VisionActionApi, VisionActionRunListApi } from '../generated/api.schemas'
 import type { visionActionRunsLogicType } from './visionActionRunsLogicType'
 import { visionActionSceneLogic } from './visionActionSceneLogic'
+import { visionActionsLogic } from './visionActionsLogic'
 
 export interface VisionActionRunsLogicProps {
     actionId: string
@@ -94,6 +95,13 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
             } catch {
                 actions.loadActionFailure()
             }
+        },
+
+        // When the action is edited from its own page (the shared form lives in visionActionsLogic),
+        // refetch so the title, schedule, and guidance shown here reflect the save immediately.
+        [visionActionsLogic.actionTypes.submitVisionActionFormSuccess]: () => {
+            actions.loadAction()
+            actions.loadRuns()
         },
     })),
 
