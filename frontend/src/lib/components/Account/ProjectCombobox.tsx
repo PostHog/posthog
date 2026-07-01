@@ -137,9 +137,7 @@ export function ProjectCombobox(): JSX.Element | null {
                                                 ),
                                             }}
                                             tooltip={
-                                                isSwitching
-                                                    ? 'Switching project…'
-                                                    : `Switch to project: ${team.name}`
+                                                isSwitching ? 'Switching project…' : `Switch to project: ${team.name}`
                                             }
                                             tooltipPlacement="right"
                                             to={relativeOtherProjectPath}
