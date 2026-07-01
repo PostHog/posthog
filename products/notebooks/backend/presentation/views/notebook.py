@@ -46,6 +46,7 @@ from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.markdown_migration import convert_notebook_content_for_markdown
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -227,6 +228,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
                     validated_data["version"] = locked_instance.version + 1
                     content = validated_data.get("content")
+                    if (
+                        content is not None
+                        and markdown_collab.get_markdown_notebook_markdown(locked_instance.content) is not None
+                        and markdown_collab.get_markdown_notebook_markdown(content) is None
+                    ):
+                        converted_content, markdown = convert_notebook_content_for_markdown(locked_instance, content)
+                        validated_data["content"] = converted_content
+                        validated_data["text_content"] = markdown
+                        content = converted_content
+
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
                     update_diff = markdown_collab.build_markdown_update_diff(
@@ -419,6 +430,37 @@ class NotebookCollabPresenceSerializer(serializers.Serializer):
 
 def _collab_user_name(user: User) -> str:
     return user.get_full_name() or "Wandering Hog"
+
+
+def _convert_activity_log_content_value_for_markdown(notebook: Notebook, content: Any) -> Any:
+    if content is None or markdown_collab.get_markdown_notebook_markdown(content) is not None:
+        return content
+    if not isinstance(content, (dict, list, str)):
+        return content
+    converted_content, _markdown = convert_notebook_content_for_markdown(notebook, content)
+    return converted_content
+
+
+def _convert_activity_log_history_content_for_markdown(notebook: Notebook, activity_data: Any) -> None:
+    if not isinstance(activity_data, dict):
+        return
+
+    results = activity_data.get("results")
+    if not isinstance(results, list):
+        return
+
+    for item in results:
+        detail = item.get("detail") if isinstance(item, dict) else None
+        changes = detail.get("changes") if isinstance(detail, dict) else None
+        if not isinstance(changes, list):
+            continue
+
+        for change in changes:
+            if not isinstance(change, dict) or change.get("field") != "content":
+                continue
+            for key in ("before", "after"):
+                if key in change:
+                    change[key] = _convert_activity_log_content_value_for_markdown(notebook, change[key])
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -1162,4 +1204,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             limit=limit,
             page=page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        response = activity_page_response(activity_page, limit, page, request)
+        if markdown_collab.get_markdown_notebook_markdown(notebook.content) is not None:
+            _convert_activity_log_history_content_for_markdown(notebook, response.data)
+        return response

@@ -149,6 +149,27 @@ describe('Notebook history revert flow', () => {
         expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
+    it('does not persist editor updates emitted while previewing a historical revision', async () => {
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setEditor(stubEditor())
+
+        logic.actions.setPreviewContent(HISTORICAL_DOC)
+        logic.actions.onEditorUpdate()
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
+        expect(logic.values.localContent).toBeNull()
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+        expect(apiCreateSpy).not.toHaveBeenCalledWith(
+            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
+            expect.anything()
+        )
+    })
+
     it('saves through the pending content debounce after autosave resumes', async () => {
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
@@ -243,6 +264,32 @@ converted`)
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
         expect(logic.values.collabEnabled).toBe(false)
+    })
+
+    it('clears stale legacy local content when loading a markdown v2 notebook', async () => {
+        const markdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent('# Markdown v2'),
+            text_content: '# Markdown v2',
+        }
+        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(markdownNotebook as NotebookType)
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setLocalContent(HISTORICAL_DOC)
+        expect(logic.values.localContent).toEqual(HISTORICAL_DOC)
+
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess', 'clearLocalContent']).toFinishAllListeners()
+
+        expect(logic.values.notebook?.content).toEqual(markdownNotebook.content)
+        expect(logic.values.localContent).toBeNull()
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
     it('refreshes markdown v2 notebooks from the update stream', async () => {
@@ -446,6 +493,8 @@ Base paragraph with local edit`
             if (collab) {
                 notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
                     state: { selection: { head: 0 } },
+                    on: jest.fn(),
+                    off: jest.fn(),
                 } as any)
             }
             logic.actions.loadNotebook()

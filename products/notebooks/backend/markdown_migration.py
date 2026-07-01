@@ -18,6 +18,7 @@ from products.notebooks.backend.facade.contracts import (
     MarkdownNotebookMigrationStats,
 )
 from products.notebooks.backend.markdown_conversion import (
+    MARKDOWN_NOTEBOOK_NODE_ID,
     NotebookMarkdownConversionOptions,
     build_markdown_notebook_content,
     convert_notebook_content_to_markdown,
@@ -110,6 +111,17 @@ def migrate_notebooks_to_markdown(
     )
 
 
+def convert_notebook_content_for_markdown(notebook: Notebook, content: Any) -> tuple[dict[str, Any], str]:
+    markdown = convert_notebook_content_to_markdown(
+        content,
+        NotebookMarkdownConversionOptions(
+            comment_replies_by_mark_id=_build_comment_replies_by_mark_id(notebook, content),
+            get_mention_label=_build_mention_label_getter(notebook, content),
+        ),
+    )
+    return build_markdown_notebook_content(markdown, node_id=_markdown_notebook_node_id(notebook.content)), markdown
+
+
 def _validate_team_id(team_id: int | None) -> None:
     if team_id is not None and not Team.objects.filter(id=team_id).exists():
         raise ValueError(f"Team {team_id} does not exist")
@@ -179,8 +191,20 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
     return True
 
 
-def _build_comment_replies_by_mark_id(notebook: Notebook) -> dict[str, list[Any]]:
-    if not notebook_content_has_comment_marks(notebook.content):
+def _markdown_notebook_node_id(content: Any) -> str:
+    if not is_markdown_notebook_content(content):
+        return MARKDOWN_NOTEBOOK_NODE_ID
+
+    nodes = content.get("content") if isinstance(content, dict) else None
+    node = nodes[0] if isinstance(nodes, list) and nodes else None
+    attrs = node.get("attrs") if isinstance(node, dict) else None
+    node_id = attrs.get("nodeId") if isinstance(attrs, dict) else None
+    return node_id if isinstance(node_id, str) and node_id else MARKDOWN_NOTEBOOK_NODE_ID
+
+
+def _build_comment_replies_by_mark_id(notebook: Notebook, content: Any | None = None) -> dict[str, list[Any]]:
+    content = notebook.content if content is None else content
+    if not notebook_content_has_comment_marks(content):
         return {}
 
     root_comments = list(
@@ -228,8 +252,9 @@ def _comment_to_reply(comment: Comment) -> dict[str, Any]:
     }
 
 
-def _build_mention_label_getter(notebook: Notebook) -> Callable[[int], str | None]:
-    user_ids = _collect_mention_user_ids(notebook.content)
+def _build_mention_label_getter(notebook: Notebook, content: Any | None = None) -> Callable[[int], str | None]:
+    content = notebook.content if content is None else content
+    user_ids = _collect_mention_user_ids(content)
     if not user_ids:
         return lambda user_id: None
 

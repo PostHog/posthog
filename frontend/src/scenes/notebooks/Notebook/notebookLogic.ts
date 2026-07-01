@@ -1787,6 +1787,9 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.editor) {
                 return
             }
+            if (values.previewContent) {
+                return
+            }
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
@@ -1841,7 +1844,15 @@ export const notebookLogic = kea<notebookLogicType>([
         saveNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
         },
-        loadNotebookSuccess: () => {
+        loadNotebookSuccess: ({ notebook }) => {
+            if (
+                notebook &&
+                isMarkdownNotebookContent(notebook.content) &&
+                values.localContent &&
+                !isMarkdownNotebookContent(values.localContent)
+            ) {
+                actions.clearLocalContent()
+            }
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()

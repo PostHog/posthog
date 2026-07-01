@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog import redis as redis_module
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -678,6 +679,88 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         data = response.json()
         assert data["version"] == version + 1
         assert apply_utf16_text_changes("base text", data["updates"][0]["diff"]) == "base text via patch"
+
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
+        side_effect=lambda callback: callback(),
+    )
+    def test_patch_converts_legacy_content_for_markdown_notebook(self, _mock_on_commit):
+        notebook = self._create_markdown_notebook("current markdown")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"content": SAMPLE_DOC, "version": notebook["version"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["content"] == _markdown_doc("# Test")
+        assert data["text_content"] == "# Test"
+        assert data["version"] == notebook["version"] + 1
+
+        saved_notebook = Notebook.objects.get(short_id=notebook["short_id"])
+        assert saved_notebook.content == _markdown_doc("# Test")
+        assert saved_notebook.text_content == "# Test"
+
+    def test_activity_history_converts_legacy_content_for_markdown_notebook(self):
+        notebook = self._create_markdown_notebook("current markdown")
+        legacy_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "marked text",
+                            "marks": [{"type": "comment", "attrs": {"id": "mark-1"}}],
+                        }
+                    ],
+                }
+            ],
+        }
+        Comment.objects.create(
+            team=self.team,
+            scope="Notebook",
+            item_id=notebook["short_id"],
+            content="keep this comment",
+            item_context={"type": "mark", "id": "mark-1"},
+            created_by=self.user,
+        )
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+            scope="Notebook",
+            item_id=notebook["short_id"],
+            activity="updated",
+            detail={
+                "changes": [
+                    {
+                        "type": "Notebook",
+                        "field": "content",
+                        "action": "changed",
+                        "before": _markdown_doc("newer markdown"),
+                        "after": legacy_content,
+                    }
+                ],
+                "short_id": notebook["short_id"],
+                "name": "Test",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/activity/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        change = data["results"][0]["detail"]["changes"][0]
+        assert change["before"] == _markdown_doc("newer markdown")
+        markdown = change["after"]["content"][0]["attrs"]["markdown"]
+        assert '<Comment ref="mark-1"' in markdown
+        assert '<ref id="mark-1">marked text</ref>' in markdown
+        assert "keep this comment" in markdown
 
     def test_markdown_save_with_unreplayable_gap_returns_410(self):
         notebook = self._create_markdown_notebook("base text")
