@@ -43,7 +43,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
                 // Appends the next page for infinite scroll. The cursor is the absolute `next`
                 // URL from the previous response, so it carries the active filters forward.
-                loadMoreTasks: async (_, breakpoint) => {
+                loadMoreTasks: async (_: void, breakpoint) => {
                     const next = values.tasksNext
                     if (!next) {
                         return values.tasks
