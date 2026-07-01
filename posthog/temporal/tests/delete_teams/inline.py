@@ -17,7 +17,7 @@ an uncommitted transaction.
 
 import uuid
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from unittest.mock import patch
@@ -28,6 +28,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.temporal.delete_teams import ACTIVITIES as REAL_ACTIVITIES
+from posthog.temporal.delete_teams.activities import (
+    queue_recording_deletions_activity as real_queue_recording_deletions_activity,
+)
 from posthog.temporal.delete_teams.types import (
     DeleteOrganizationWorkflowInputs,
     DeleteProjectDataWorkflowInputs,
@@ -41,17 +44,9 @@ from posthog.temporal.delete_teams.workflows import (
 
 WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
 
-_STUBBED_ACTIVITY_NAMES = {"queue_recording_deletions_activity"}
-
-
-def _temporal_activity_name(fn: Callable[..., object]) -> str | None:
-    """Resolve the name Temporal registers ``fn`` under, matching the Worker's own resolution.
-
-    Filtering on this (rather than ``fn.__name__``) keeps the stub swap correct even if a future
-    SDK version stops preserving ``__name__`` through ``@activity.defn``.
-    """
-    defn = activity._Definition.from_callable(fn)
-    return defn.name if defn else None
+# Activities swapped for no-op stubs in the inline worker, matched by object identity so the swap
+# stays correct regardless of how the Temporal SDK derives the registered activity name.
+_STUBBED_ACTIVITIES = {real_queue_recording_deletions_activity}
 
 
 def _inline_activities() -> list:
@@ -59,7 +54,7 @@ def _inline_activities() -> list:
     async def queue_recording_deletions_activity(inputs: TeamDataActivityInputs) -> None:
         pass
 
-    real = [fn for fn in REAL_ACTIVITIES if _temporal_activity_name(fn) not in _STUBBED_ACTIVITY_NAMES]
+    real = [fn for fn in REAL_ACTIVITIES if fn not in _STUBBED_ACTIVITIES]
     return [*real, queue_recording_deletions_activity]
 
 
