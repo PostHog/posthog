@@ -2074,7 +2074,13 @@ def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, l
         return False
 
 
-def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_rows_to_sync(
+    cursor: psycopg.Cursor,
+    count_query: sql.Composed,
+    logger: FilteringBoundLogger,
+    *,
+    should_use_incremental_field: bool = False,
+) -> int:
     try:
         _explain_query(cursor, count_query, logger)
         logger.debug(f"Running query: {count_query.as_string()}")
@@ -2091,8 +2097,20 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
-    except psycopg.errors.QueryCanceled:
-        raise
+    except psycopg.errors.QueryCanceled as e:
+        # QueryCanceled means the COUNT was cancelled — usually the statement_timeout, but possibly a
+        # lock_timeout or an admin cancel (we don't inspect which). On incremental syncs re-raise:
+        # this COUNT shares its WHERE with the real chunked read, so a cancellation here predicts the
+        # extraction will hit the same wall — the caller maps it to the actionable "add an index on
+        # your incremental field" message. On full-table syncs the COUNT is a full scan while
+        # extraction streams sequentially via a server cursor, so a cancelled count says nothing
+        # about whether extraction will succeed. Fall back to an unknown total (0) like the sibling
+        # `_get_table_chunk_size` probe rather than failing the whole sync at setup on a best-effort
+        # estimate.
+        if should_use_incremental_field:
+            raise
+        logger.debug(f"_get_rows_to_sync: COUNT cancelled on a full-table sync ({e}). Using 0 as rows to sync")
+        return 0
     except Exception as e:
         # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
         # It shares its FROM/WHERE with the real extraction query, so any genuine problem
@@ -2804,7 +2822,12 @@ def postgres_source(
                                 except Exception as e:
                                     logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                             if rows_to_sync is None:
-                                rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                                rows_to_sync = _get_rows_to_sync(
+                                    cursor,
+                                    count_query,
+                                    logger,
+                                    should_use_incremental_field=should_use_incremental_field,
+                                )
 
                             if _role_subject_to_rls(cursor, schema, table_name, logger):
                                 logger.warning(
