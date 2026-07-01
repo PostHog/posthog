@@ -343,7 +343,7 @@ export type ApprovalType = z.infer<typeof ApprovalTypeSchema>
  * before the principal/agent split keep parsing. `team_admins` was the owner
  * authority → `agent`; `session_principal` → `principal`.
  */
-function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
+export function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
     if (!Array.isArray(approvers)) {
         return undefined
     }
