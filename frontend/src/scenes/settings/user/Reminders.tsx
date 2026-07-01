@@ -113,6 +113,7 @@ function ReminderModal(): JSX.Element {
                                 onChange={(date) => onChange(date ? date.toISOString() : null)}
                                 granularity="minute"
                                 placeholder="Select date and time"
+                                maxDate={dayjs().add(10, 'year')}
                                 disabledReason={!isScheduleEditable ? 'This reminder has already fired' : undefined}
                             />
                         )}
@@ -153,6 +154,7 @@ function ReminderModal(): JSX.Element {
                                 granularity="minute"
                                 placeholder="No end date"
                                 clearable
+                                maxDate={dayjs().add(10, 'year')}
                                 disabledReason={!isScheduleEditable ? 'This reminder has already fired' : undefined}
                             />
                         )}
