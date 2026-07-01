@@ -1,5 +1,6 @@
 import time
 from decimal import Decimal
+from typing import cast
 from uuid import UUID
 
 from django.conf import settings
@@ -53,18 +54,42 @@ class ErrorTrackingIssue(UUIDTModel):
     class Meta:
         db_table = "posthog_errortrackingissue"
 
-    def merge(self, issue_ids: list[str]) -> None:
-        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+    def merge(self, issue_ids: list[str | UUID]) -> bool:
+        team_id = self.team_id
+        target_issue_id = self.id
+        source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
+        if not source_issue_ids:
+            return False
 
         with transaction.atomic():
-            overrides = update_error_tracking_issue_fingerprints(
-                team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
+            existing_source_issue_ids = _lock_merge_issues(
+                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
+            if not existing_source_issue_ids:
+                return False
+
+            locked_source_fingerprints = list(
+                ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+                .filter(team_id=team_id, issue_id__in=existing_source_issue_ids)
+                .order_by("fingerprint", "id")
+            )
+
+            overrides = update_error_tracking_issue_fingerprints(
+                team_id=team_id,
+                issue_id=target_issue_id,
+                fingerprints=[fingerprint.fingerprint for fingerprint in locked_source_fingerprints],
+            )
+
             # Reassign spike events from merged issues before deleting them
-            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
-            ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
-            sync_issues_to_clickhouse(issue_ids=[self.id], team_id=self.team_id)
+            ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
+                issue_id=target_issue_id
+            )
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            _sync_error_tracking_issue_changes_on_commit(
+                team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
+            )
+            return True
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         own_fingerprints = set(
@@ -92,10 +117,12 @@ class ErrorTrackingIssue(UUIDTModel):
                         team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
             # Spike events are no longer meaningful after splitting since the issue composition changed
             ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
-            sync_issues_to_clickhouse(issue_ids=[self.id] + [issue.id for issue in new_issues], team_id=self.team_id)
+            issue_ids_to_sync = [self.id] + [issue.id for issue in new_issues]
+            _sync_error_tracking_issue_changes_on_commit(
+                team_id=self.team_id, issue_ids=issue_ids_to_sync, overrides=overrides
+            )
         return new_issues
 
 
@@ -167,6 +194,40 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
         db_table = "posthog_errortrackingissuefingerprintv2"
+
+
+def _normalize_source_issue_ids(*, issue_ids: list[str | UUID], target_issue_id: UUID) -> list[UUID]:
+    source_issue_ids: set[UUID] = set()
+    for issue_id in issue_ids:
+        normalized_issue_id = cast(UUID, UUID(str(issue_id)))
+        if normalized_issue_id != target_issue_id:
+            source_issue_ids.add(normalized_issue_id)
+    return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
+
+
+def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> list[UUID]:
+    locked_issue_ids = {
+        issue.id
+        for issue in ErrorTrackingIssue.objects.select_for_update()
+        .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
+        .order_by("id")
+    }
+    if target_issue_id not in locked_issue_ids:
+        return []
+    return [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+
+
+def _sync_error_tracking_issue_changes_on_commit(
+    *, team_id: int, issue_ids: list[UUID], overrides: list[ErrorTrackingIssueFingerprintV2]
+) -> None:
+    transaction.on_commit(
+        lambda team_id=team_id, overrides=overrides: update_error_tracking_issue_fingerprint_overrides(
+            team_id=team_id, overrides=overrides
+        )
+    )
+    transaction.on_commit(
+        lambda team_id=team_id, issue_ids=issue_ids: sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
+    )
 
 
 class ErrorTrackingRelease(UUIDTModel):
@@ -459,7 +520,7 @@ def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[
 
 
 def update_error_tracking_issue_fingerprints(
-    team_id: int, issue_id: str, fingerprints: list[str]
+    team_id: int, issue_id: str | UUID, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
     return list(
         # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)

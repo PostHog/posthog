@@ -2,7 +2,6 @@ import time
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
@@ -284,30 +283,30 @@ def _merge_fingerprint_into_closest_issue(
     if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
         return 0
 
-    with transaction.atomic():
-        # Lock both fingerprints together so reciprocal auto-merge attempts re-check the post-merge state.
-        locked_fingerprints = {
-            row.fingerprint: row
-            for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
-            .filter(team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint])
-            .select_related("issue")
-            .order_by("fingerprint", "id")
-        }
-        source_fingerprint = locked_fingerprints.get(fingerprint)
-        if source_fingerprint is None:
-            raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
+    fingerprints_by_value = {
+        row.fingerprint: row
+        for row in ErrorTrackingIssueFingerprintV2.objects.filter(
+            team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint]
+        )
+        .select_related("issue")
+        .order_by("fingerprint", "id")
+    }
+    source_fingerprint = fingerprints_by_value.get(fingerprint)
+    if source_fingerprint is None:
+        raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
 
-        target_fingerprint = locked_fingerprints.get(closest_fingerprint.fingerprint)
-        if target_fingerprint is None:
-            raise FingerprintIssueNotFoundError(
-                f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
-            )
-        if source_fingerprint.issue_id == target_fingerprint.issue_id:
-            return 0
+    target_fingerprint = fingerprints_by_value.get(closest_fingerprint.fingerprint)
+    if target_fingerprint is None:
+        raise FingerprintIssueNotFoundError(
+            f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
+        )
+    if source_fingerprint.issue_id == target_fingerprint.issue_id:
+        return 0
 
-        source_issue_id = source_fingerprint.issue_id
-        target_issue_id = target_fingerprint.issue_id
-        target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)])
+    source_issue_id = source_fingerprint.issue_id
+    target_issue_id = target_fingerprint.issue_id
+    if not target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)]):
+        return 0
 
     with ph_scoped_capture() as capture:
         capture(

@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
 from django.db.utils import IntegrityError
 
 from products.error_tracking.backend.models import (
@@ -79,10 +80,36 @@ class TestErrorTracking(BaseTest):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
 
-        with patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse:
-            issue_two.merge(issue_ids=[issue_one.id])
+        with (
+            patch("products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides"),
+            patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            assert issue_two.merge(issue_ids=[issue_one.id]) is True
 
         sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
+
+    def test_merge_skips_clickhouse_side_effects_after_rollback(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+
+        with (
+            patch(
+                "products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides"
+            ) as update_overrides,
+            patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
+            self.captureOnCommitCallbacks(execute=True) as callbacks,
+            pytest.raises(RuntimeError),
+        ):
+            with transaction.atomic():
+                issue_two.merge(issue_ids=[issue_one.id])
+                raise RuntimeError("roll back merge")
+
+        assert callbacks == []
+        update_overrides.assert_not_called()
+        sync_issues_to_clickhouse.assert_not_called()
+        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
 
     def test_splitting_fingerprints(self):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
@@ -120,7 +147,11 @@ class TestErrorTracking(BaseTest):
     def test_split_syncs_original_and_new_issues_to_clickhouse(self):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
 
-        with patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse:
+        with (
+            patch("products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides"),
+            patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             new_issues = issue.split(fingerprints=[{"fingerprint": "fingerprint_one"}])
 
         sync_issues_to_clickhouse.assert_called_once_with(
