@@ -11,6 +11,7 @@ import { webAnalyticsAchievementsRecordVisit } from 'products/web_analytics/fron
 
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import type { webAnalyticsLoadTimeLogicType } from './webAnalyticsLoadTimeLogicType'
 
@@ -28,6 +29,8 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentProjectId'],
+            webAnalyticsAchievementsPreferencesLogic,
+            ['achievementsOptOut'],
         ],
     })),
     actions({
@@ -63,7 +66,10 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
         collectionNodeLoadDataSuccess: sharedListeners.maybeCaptureLoaded,
         collectionNodeLoadDataFailure: sharedListeners.maybeCaptureLoaded,
         recordVisit: async () => {
-            if (cache.recordedVisitThisSession || !isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+            if (
+                cache.recordedVisitThisSession ||
+                !isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)
+            ) {
                 return
             }
             const projectId = values.currentProjectId

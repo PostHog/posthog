@@ -38,10 +38,10 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     }),
             },
         ],
-        // A single workflow run drills into its jobs — the same breakdown the PR view shows on expand.
-        // null while not loaded (kea reducers can't hold undefined), [] when the source isn't synced.
-        // Scoped to the run's actual attempt (loaded first): a rerun's jobs source can lag, and the
-        // backend's omitted-attempt fallback would otherwise show an older attempt's jobs/costs here.
+        // A single run's jobs — the breakdown the PR view shows on expand. null while not loaded (kea
+        // reducers can't hold undefined), [] when the source isn't synced. Scoped to the run's actual
+        // attempt (loaded first): a rerun's jobs source can lag, and the backend's omitted-attempt fallback
+        // would otherwise show an older attempt's jobs/costs.
         jobs: [
             null as WorkflowJobApi[] | null,
             {
@@ -82,7 +82,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             (repoOwner, repoName, runId): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

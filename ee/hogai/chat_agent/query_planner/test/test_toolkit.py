@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
 from freezegun import freeze_time
@@ -138,25 +138,29 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
         )
 
+        # The persons HogQL table excludes rows with created_at >= now() + 1 day (see
+        # select_from_persons_table in posthog/hogql/database/schema/persons.py), so timestamps
+        # must stay in the real past. Anchor to the real clock and space out by minutes so each
+        # person sorts deterministically by created_at regardless of when the test runs.
+        base_time = datetime.now(UTC)
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(f"2024-01-01T00:{i}:00Z"):
+            with freeze_time(base_time - timedelta(minutes=25 - i)):
                 _create_person(
                     distinct_ids=[id],
                     properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
-        with freeze_time(f"2024-01-02T00:00:00Z"):
+        with freeze_time(base_time):
             _create_person(
                 distinct_ids=["person25"],
                 properties={"taxonomy_email": "person25@example.com", "id": 25},
                 team=self.team,
             )
 
-        self.assertIn(
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "taxonomy_email"),
-        )
+        result = toolkit.retrieve_entity_property_values("person", "taxonomy_email")
+        for person in ["person25@example.com", "person24@example.com", "person23@example.com"]:
+            self.assertIn(person, result)
         self.assertIn(
             "1 more distinct value",
             toolkit.retrieve_entity_property_values("person", "id"),

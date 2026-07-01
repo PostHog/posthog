@@ -45,6 +45,7 @@ from .activities.provision_sandbox import (
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
@@ -170,6 +171,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
         self._pr_fingerprint: Optional[str] = None
+        # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
+        # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
+        self._pr_progress_emitted: bool = False
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -253,6 +257,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(CI_FOLLOW_UP_DELAY.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
+    def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
+        """Human-readable summary of what the loop is blocked on, for the Temporal UI.
+
+        The loop blocks on bare `workflow.sleep` timers (CI follow-up, inactivity), which render
+        as unlabeled Timer events — indistinguishable from a hang at a glance. This names the wait.
+        """
+        if warm_idle:
+            return "⏳ Warm sandbox idle — waiting for the first user message."
+
+        timeout_min = max(1, round(inactivity_timeout.total_seconds() / 60))
+        if not ci_follow_up_scheduled:
+            return f"⏳ Waiting for the agent to finish or send an update (inactivity timeout {timeout_min}m)."
+
+        next_check = CI_FOLLOW_UP_DELAY
+        if self._last_active_time:
+            remaining = CI_FOLLOW_UP_DELAY - (workflow.now() - self._last_active_time)
+            if remaining > timedelta(0):
+                next_check = remaining
+        next_min = max(1, round(next_check.total_seconds() / 60))
+        return (
+            f"⏳ Waiting for the agent, or to re-check the PR's CI in ~{next_min}m "
+            f"(CI follow-up {self._ci_repetitions + 1}/{MAX_CI_REPETITIONS}; inactivity timeout {timeout_min}m)."
+        )
+
     async def _wait_for_event(self) -> TaskEvent:
         warm_idle = self._prewarmed and not self._first_user_message_received
 
@@ -278,6 +306,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             inactivity_timeout = max(base_timeout, ci_follow_up_floor)
         else:
             inactivity_timeout = base_timeout
+
+        workflow.set_current_details(
+            self._describe_wait(
+                warm_idle=warm_idle,
+                ci_follow_up_scheduled=ci_follow_up_scheduled,
+                inactivity_timeout=inactivity_timeout,
+            )
+        )
+
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
@@ -347,6 +384,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return CIFollowUpDecision.NO_PR
+        # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
+        # past "Started agent". The url rides the "pr" step's detail; the frontend turns it into the CTA.
+        if pr_context.pr_url and not self._pr_progress_emitted:
+            self._pr_progress_emitted = True
+            await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_context.pr_url)
+            await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
@@ -429,6 +472,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if not workflow.patched(_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING):
                 await self._post_slack_update()
 
+            # Run the PostHog setup wizard before the agent, when this is a cloud wizard run.
+            # The wizard integrates PostHog and dirties the working tree; the agent then commits
+            # those changes, opens the PR, and keeps it green (it never implements PostHog itself).
+            await self._run_wizard_if_configured(sandbox_output)
+
             # Start agent-server for direct connection from PostHog Code
             if sandbox_output.agent_server_launched:
                 agent_server_output = await self._await_agent_server_ready(sandbox_output)
@@ -481,6 +529,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         follow_up_result = await self._should_run_ci_follow_up()
                         match follow_up_result:
                             case CIFollowUpDecision.FIRE:
+                                workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR:
                                 # No PR will ever appear — stop the CI loop entirely.
@@ -551,6 +600,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
             elif timed_out:
                 await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+
+            # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
+            if self._pr_progress_emitted:
+                await self._emit_progress("ci", "completed", "Keeping CI green", "setup")
 
             await self._post_slack_update()
 
@@ -639,10 +692,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # When `use_modal_resume_snapshots` is off, resume relies on the
-                # agent server's git-checkpoint mechanism instead. Read from
-                # context (captured at workflow start) so replay is deterministic
-                # against env-var flips.
                 if self._context and self._context.mode == "interactive" and self._context.use_modal_resume_snapshots:
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
@@ -677,7 +726,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
-        if prepared.used_snapshot:
+        used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
+        if used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -691,7 +741,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
         # them before any sandbox command (diagnostics, fetch, checkout) runs.
-        if prepared.snapshot_external_id:
+        if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
                 inject_fresh_tokens_on_resume,
                 InjectFreshTokensOnResumeInput(
@@ -706,7 +756,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
@@ -745,7 +795,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
-                    used_snapshot=prepared.used_snapshot,
+                    used_snapshot=used_snapshot,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -759,8 +809,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
-            used_snapshot=prepared.used_snapshot,
-            should_create_snapshot=prepared.should_create_snapshot,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
             agent_server_launched=overlap,
         )
 
@@ -790,6 +840,32 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
         except Exception as e:
             workflow.logger.warning(f"Failed to read sandbox logs: {e}")
+
+    async def _run_wizard_if_configured(self, sandbox_output: GetSandboxForRepositoryOutput) -> None:
+        """Run the setup wizard in the sandbox before the agent, for cloud wizard runs only.
+
+        Fails the run on a non-zero wizard exit (maximum_attempts=1, and the wizard is non-idempotent
+        once it has modified files), rather than handing a half-integrated tree to the agent.
+        """
+        repository = self.context.repository
+        # `is not None` (not truthiness): an empty config dict still means "this is a wizard run".
+        if self.context.wizard_config is None or not repository:
+            return
+
+        await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
+        await workflow.execute_activity(
+            run_wizard,
+            RunWizardInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                repository=repository,
+            ),
+            # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds the run;
+            # the headroom covers the sandbox lookup and writing the output log.
+            start_to_close_timeout=timedelta(minutes=50),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
 
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
@@ -996,11 +1072,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             pass
 
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
-        """Create a filesystem snapshot for interactive sandbox resume."""
+        """Create a snapshot for interactive sandbox resume."""
         try:
             result = await workflow.execute_activity(
                 create_resume_snapshot,
-                CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                CreateResumeSnapshotInput(
+                    sandbox_id=sandbox_id,
+                    run_id=self.context.run_id,
+                    use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+                ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

@@ -137,6 +137,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'person:write',
     'plugin:read',
     'plugin:write',
+    'product_enablement:read',
+    'product_enablement:write',
     'product_tour:read',
     'product_tour:write',
     'project:read',

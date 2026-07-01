@@ -307,6 +307,21 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             columns={column: {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
+    def _create_saved_query_view(
+        self, name: str = "revenue_view", *, table: DataWarehouseTable | None = None, is_materialized: bool = False
+    ) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"query": "SELECT order_id, amount FROM events"},
+            columns={
+                "order_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+            },
+            table=table,
+            is_materialized=is_materialized,
+        )
+
     def test_warehouse_tables_appear_with_row_count(self):
         self._create_warehouse_table()
         response = execute_hogql_query(
@@ -400,6 +415,52 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert by_column["id"] == [0.25, "ch_001", "ch_999"]
         # Profiled stats absent for this column → all NULL.
         assert by_column["amount"] == [None, None, None]
+
+    def test_saved_query_view_appears_in_tables(self):
+        # A saved-query view must surface in the catalog as a discoverable table so PostHog AI can find
+        # it. Regression guard for the whole semantic-layer effort: if views stop being enumerated (or are
+        # misclassified as posthog/data_warehouse), descriptions wired onto them later never reach the AI.
+        self._create_saved_query_view(name="revenue_view")
+        response = execute_hogql_query(
+            "SELECT table_type, table_schema FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][0] == "view"
+        assert results[0][1] == "views"
+
+    def test_saved_query_view_columns_appear_with_types(self):
+        # The view's columns (built from the model's `columns` JSONField via `hogql_definition`) must be
+        # enumerated with their HogQL types — that's the surface a later phase attaches column descriptions
+        # to. Guards both the field enumeration and the JSONField→HogQL type mapping for views.
+        self._create_saved_query_view(name="revenue_view")
+        response = execute_hogql_query(
+            """
+            SELECT column_name, data_type FROM system.information_schema.columns
+            WHERE table_name = 'revenue_view'
+            """,
+            team=self.team,
+        )
+        columns = {row[0]: row[1] for row in response.results or []}
+        assert columns["order_id"] == "String"
+        assert columns["amount"] == "Integer"
+
+    def test_materialized_saved_query_view_reports_backing_table_row_count(self):
+        # A materialized view stays classified as a view but carries the row count of its backing table.
+        # Exercises the `table_type == "view"` branch of row-count resolution end-to-end (the unit test on
+        # `_warehouse_metadata` stops at the metadata dict; this proves it reaches the catalog row).
+        backing = self._create_warehouse_table(name="revenue_view_backing")
+        self._create_saved_query_view(name="revenue_view_materialized", table=backing, is_materialized=True)
+        response = execute_hogql_query(
+            "SELECT table_type, row_count FROM system.information_schema.tables "
+            "WHERE table_name = 'revenue_view_materialized'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][0] == "view"
+        assert results[0][1] == 42
 
     def test_ordinal_positions_are_unique_within_a_table(self):
         # `events` exposes nested virtual-table columns (e.g. `group_0.*`); their ordinals must
