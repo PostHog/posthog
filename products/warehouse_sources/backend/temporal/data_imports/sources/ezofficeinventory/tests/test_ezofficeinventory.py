@@ -101,7 +101,7 @@ class TestGetRows:
             )
         return batches, requested_urls
 
-    def test_sync_session_disables_redirects(self) -> None:
+    def test_sync_session_disables_redirects_and_urllib3_retries(self) -> None:
         manager = _manager()
         session = MagicMock()
         session.get.return_value = _http_response({"assets": []})
@@ -116,6 +116,8 @@ class TestGetRows:
                 )
             )
             assert mocked.call_args.kwargs["allow_redirects"] is False
+            # urllib3 retries off so tenacity is the only retry layer (no compounded backoff).
+            assert mocked.call_args.kwargs["retry"].total == 0
 
     def test_paginates_until_total_pages(self) -> None:
         manager = _manager()
@@ -191,12 +193,14 @@ class TestValidateCredentials:
             assert error is not None
             assert "rate limit" in error.lower()
 
-    def test_validation_session_disables_redirects(self) -> None:
+    def test_validation_session_disables_redirects_and_urllib3_retries(self) -> None:
         session = MagicMock()
         session.get.return_value = _http_response({}, status_code=200)
         with patch(f"{_MODULE}.make_tracked_session", return_value=session) as mocked:
             validate_credentials("tok", "acme")
             assert mocked.call_args.kwargs["allow_redirects"] is False
+            # Single-shot validation handles status codes itself; urllib3 retries stay off.
+            assert mocked.call_args.kwargs["retry"].total == 0
 
     def test_network_error_is_false(self) -> None:
         session = MagicMock()

@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -98,7 +99,11 @@ def get_rows(
     # One session reused across pages so urllib3 keeps the connection alive.
     # Redirects are pinned off so the user-supplied token can't be replayed to a
     # cross-host redirect target (SSRF / credential-exfiltration defense-in-depth).
-    session = make_tracked_session(headers=headers, redact_values=(api_key,), allow_redirects=False)
+    # urllib3 retries are disabled so tenacity (on `_fetch_page`) is the single retry
+    # layer — otherwise 429/5xx would be retried by both, compounding the backoff.
+    session = make_tracked_session(
+        headers=headers, redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)
+    )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
@@ -154,7 +159,9 @@ def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None
     if not SUBDOMAIN_REGEX.match(subdomain):
         return False, None
     try:
-        response = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False).get(
+        response = make_tracked_session(
+            headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)
+        ).get(
             f"{base_url(subdomain)}/assets.api?page=1",
             timeout=10,
         )
