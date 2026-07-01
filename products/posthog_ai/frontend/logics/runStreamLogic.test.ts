@@ -16,6 +16,7 @@ import {
     extractRunArtifacts,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
+    MAX_HISTORY_FETCH_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
     mergeResourceProducts,
     mergeRunArtifacts,
@@ -185,6 +186,9 @@ describe('runStreamLogic', () => {
     let logic: ReturnType<typeof runStreamLogic.build>
 
     beforeEach(() => {
+        // featureFlagLogic persists flags to localStorage; clear before init so a flag set by one
+        // test (e.g. `enableProxy()`) can't leak into a later test's flag-off assertions.
+        window.localStorage.clear()
         initKeaTests()
         // The logic mirrors the live resume cursor to sessionStorage — clear it so a cursor written
         // by one test can't seed another test's reconnect.
@@ -1897,18 +1901,25 @@ describe('runStreamLogic', () => {
             viewer.unmount()
         })
 
-        it('surfaces an error item when the snapshot fetch fails and opens no SSE', async () => {
+        it('retries the snapshot then surfaces the connection-failed banner (not an inline error), no SSE', async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
+            jest.useFakeTimers()
             const viewer = mountViewer('run-ro-error')
             viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-4' })
+            // Advance past the inter-attempt backoff so every retry runs and the terminal state lands.
+            await jest.advanceTimersByTimeAsync(10_000)
             await flushPromises()
 
-            expect(viewer.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
+            expect(getLogEntriesSpy).toHaveBeenCalledTimes(MAX_HISTORY_FETCH_ATTEMPTS)
+            // The failure drives the footer banner via `runConnectionState`, not a spammy inline error item.
+            expect(viewer.values.runConnectionState?.kind).toEqual('connection_failed')
+            expect(viewer.values.threadItems.some((item) => item.type === 'error')).toEqual(false)
             expect(MockStream.connections.length).toEqual(0)
             expect(viewer.values.bootstrapLoading).toEqual(false)
 
+            jest.useRealTimers()
             viewer.unmount()
         })
 
@@ -2600,7 +2611,7 @@ describe('runStreamLogic', () => {
     })
 
     describe('stream-disconnect telemetry', () => {
-        it('captures sandbox_stream_disconnected with attempt counters and pushes a visible error item', async () => {
+        it('captures sandbox_stream_disconnected and surfaces the banner without spamming error items', async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
 
@@ -2627,21 +2638,40 @@ describe('runStreamLogic', () => {
                     execution_type: 'sandbox',
                 })
             )
-            expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
+            // The failure surfaces via the single footer banner, NOT an appended inline error item (the
+            // old behavior stacked a fresh red bubble on every drop — the spam this change removes).
+            expect(logic.values.runConnectionState?.kind).toEqual('connection_failed')
+            expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(false)
         })
 
-        it('reports was_bootstrapping=true when the snapshot fails before the agent starts', async () => {
+        it('projects the reconnect attempt counter into runConnectionState for the footer banner', () => {
+            logic.actions.sseReconnecting(3)
+            expect(logic.values.runConnectionState).toEqual({
+                kind: 'reconnecting',
+                attempt: 3,
+                maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
+            })
+        })
+
+        it('retries the snapshot before teardown and reports was_bootstrapping=true on exhaustion', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
+            jest.useFakeTimers()
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            // The snapshot is retried before the live stream is torn down; advance past the backoff.
+            await jest.advanceTimersByTimeAsync(10_000)
             await flushPromises()
 
+            // A transient history blip must not tear down on the first failure — only exhausting the retries does.
+            expect(getLogEntriesSpy).toHaveBeenCalledTimes(MAX_HISTORY_FETCH_ATTEMPTS)
             // The history fetch failed during bootstrap and no `_posthog/run_started` ever arrived, so
             // the provisioning flag is still set even though the SSE briefly opened (connect-first).
             const disconnect = captureSpy.mock.calls.find((c) => c[0] === 'sandbox_stream_disconnected')
             expect(disconnect?.[1]).toEqual(expect.objectContaining({ was_bootstrapping: true }))
+
+            jest.useRealTimers()
         })
     })
 
@@ -3112,6 +3142,17 @@ describe('runStreamLogic', () => {
                 baseUrl: 'https://proxy.example',
                 token: 'tok-1',
             })
+        })
+
+        it('never mints a token or sets a proxy target when the rollout is off', async () => {
+            // The flag is off by default here. Opening the stream must take the same-origin Django
+            // path (no token mint, no proxy target) — guards against re-adding a debug/non-flag force
+            // that would break flag-off streaming (the reported local bug).
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(tasksRunsStreamTokenRetrieve).not.toHaveBeenCalled()
+            expect(MockStream.latest().options.proxyTarget).toBeUndefined()
         })
 
         it('re-mints the read token and retries once on a 401 from the proxy leg', async () => {

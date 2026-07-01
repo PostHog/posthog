@@ -26,7 +26,7 @@ ENV="${VERIFY_LIVE_ENV:-local}"
 WARN="${VERIFY_LIVE_WARN:-0}"
 DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_DIR); run dump-live.sh first}}"
 
-ROLES=(ops logs)
+ROLES=(ops logs ai_events)
 
 # Object-name globs the gate ignores, parsed from exclude.hcl (the quoted glob
 # strings) — the same list dump-live.sh feeds hclexp -exclude, applied here to
@@ -86,5 +86,5 @@ if [ "$rc" -ne 0 ] && [ "$WARN" = "1" ]; then
   echo "check-live: drift detected (warn mode — not failing). Reconcile before enforcing."
   exit 0
 fi
-[ "$rc" -eq 0 ] && echo "check-live: OPS/LOGS live schema matches the HCL golden"
+[ "$rc" -eq 0 ] && echo "check-live: live schema matches the HCL golden for all managed roles"
 exit $rc
