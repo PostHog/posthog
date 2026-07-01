@@ -303,8 +303,13 @@ fn build_number_row(
 
     // Identity is assigned once, here. Computed before the synthetic $originalTimestamp
     // is added so an overridden timestamp never splits a series.
-    let series_fingerprint =
-        compute_series_fingerprint(metric_name, service_name, resource_attributes, &attributes);
+    let series_fingerprint = compute_series_fingerprint(
+        metric_name,
+        metric_type,
+        service_name,
+        resource_attributes,
+        &attributes,
+    );
 
     if let Some(original) = original_timestamp {
         attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
@@ -346,14 +351,20 @@ fn build_number_row(
 /// ClickHouse hash; any deterministic algorithm works. SipHash-1-3 with a fixed key is
 /// stable across builds. Returned as i64 (the u64 bit pattern) to fit Avro's `long`;
 /// ClickHouse reinterprets it back to UInt64.
+///
+/// `metric_type` is part of the identity: a gauge and a sum sharing a name and labels
+/// are different series, and `metric_series` stores `metric_type` per fingerprint — so
+/// omitting it would let one type's row silently overwrite the other's on dedup.
 fn compute_series_fingerprint(
     metric_name: &str,
+    metric_type: &str,
     service_name: &str,
     resource_attributes: &HashMap<String, String>,
     attributes: &HashMap<String, String>,
 ) -> i64 {
     let mut hasher = SipHasher13::new();
     hash_str(&mut hasher, metric_name);
+    hash_str(&mut hasher, metric_type);
     hash_str(&mut hasher, service_name);
     hash_sorted_map(&mut hasher, resource_attributes);
     hash_sorted_map(&mut hasher, attributes);
@@ -749,32 +760,33 @@ mod tests {
         let a1 = attrs(&[("topic", "\"t\""), ("partition", "\"9\"")]);
         let a2 = attrs(&[("partition", "\"9\""), ("topic", "\"t\"")]);
         assert_eq!(
-            compute_series_fingerprint("m", "svc", &resource, &a1),
-            compute_series_fingerprint("m", "svc", &resource, &a2),
+            compute_series_fingerprint("m", "gauge", "svc", &resource, &a1),
+            compute_series_fingerprint("m", "gauge", "svc", &resource, &a2),
         );
     }
 
     #[test]
     fn test_series_fingerprint_distinguishes_label_changes() {
         let r = attrs(&[("k8s.pod", "\"p\"")]);
-        let base = compute_series_fingerprint("m", "svc", &r, &attrs(&[("partition", "\"9\"")]));
+        let base =
+            compute_series_fingerprint("m", "gauge", "svc", &r, &attrs(&[("partition", "\"9\"")]));
         // a different value, a different key, a different metric, and a different service
         // each yield a different series
         assert_ne!(
             base,
-            compute_series_fingerprint("m", "svc", &r, &attrs(&[("partition", "\"10\"")]))
+            compute_series_fingerprint("m", "gauge", "svc", &r, &attrs(&[("partition", "\"10\"")]))
         );
         assert_ne!(
             base,
-            compute_series_fingerprint("m", "svc", &r, &attrs(&[("part", "\"9\"")]))
+            compute_series_fingerprint("m", "gauge", "svc", &r, &attrs(&[("part", "\"9\"")]))
         );
         assert_ne!(
             base,
-            compute_series_fingerprint("m2", "svc", &r, &attrs(&[("partition", "\"9\"")]))
+            compute_series_fingerprint("m2", "gauge", "svc", &r, &attrs(&[("partition", "\"9\"")]))
         );
         assert_ne!(
             base,
-            compute_series_fingerprint("m", "svc2", &r, &attrs(&[("partition", "\"9\"")]))
+            compute_series_fingerprint("m", "gauge", "svc2", &r, &attrs(&[("partition", "\"9\"")]))
         );
     }
 
@@ -783,8 +795,21 @@ mod tests {
         // Length-prefixing must stop {"ab":"c"} from colliding with {"a":"bc"}.
         let r = HashMap::new();
         assert_ne!(
-            compute_series_fingerprint("m", "", &r, &attrs(&[("ab", "c")])),
-            compute_series_fingerprint("m", "", &r, &attrs(&[("a", "bc")])),
+            compute_series_fingerprint("m", "gauge", "", &r, &attrs(&[("ab", "c")])),
+            compute_series_fingerprint("m", "gauge", "", &r, &attrs(&[("a", "bc")])),
+        );
+    }
+
+    #[test]
+    fn test_series_fingerprint_distinguishes_metric_type() {
+        // A gauge and a sum with the same name and labels are semantically distinct
+        // series; metric_series stores metric_type per fingerprint, so they must not
+        // collapse onto one deduped row. Regression guard for the type dimension.
+        let r = attrs(&[("k8s.pod", "\"p\"")]);
+        let a = attrs(&[("partition", "\"9\"")]);
+        assert_ne!(
+            compute_series_fingerprint("m", "gauge", "svc", &r, &a),
+            compute_series_fingerprint("m", "sum", "svc", &r, &a),
         );
     }
 
@@ -795,12 +820,12 @@ mod tests {
         let r = attrs(&[("k8s.pod", "\"p\"")]);
         let a = attrs(&[("topic", "\"t\""), ("partition", "\"9\"")]);
         assert_eq!(
-            compute_series_fingerprint("m", "svc", &r, &a),
+            compute_series_fingerprint("m", "gauge", "svc", &r, &a),
             GOLDEN_FINGERPRINT
         );
     }
 
-    const GOLDEN_FINGERPRINT: i64 = -8471192696909837629;
+    const GOLDEN_FINGERPRINT: i64 = 4834068360040973060;
 
     #[test]
     fn test_build_row_sets_fingerprint() {
@@ -809,5 +834,48 @@ mod tests {
             row.series_fingerprint, 0,
             "every row must carry a series identity"
         );
+    }
+
+    fn build_row_at(time_unix_nano: u64) -> (KafkaMetricRow, bool) {
+        build_number_row(
+            "test.metric",
+            "gauge",
+            "",
+            &HashMap::new(),
+            "test-service",
+            "test-scope@1.0",
+            time_unix_nano,
+            0,
+            &[],
+            1.0,
+            None,
+            None,
+            &[],
+            0,
+        )
+        .expect("build_number_row should succeed")
+    }
+
+    #[test]
+    fn test_series_fingerprint_ignores_timestamp_override() {
+        // $originalTimestamp is a synthetic attribute added only when a point's timestamp
+        // falls outside the ±24h window, and it is inserted AFTER the fingerprint is
+        // computed. A stale point and a fresh one for the same series must therefore share
+        // a fingerprint. Guards the compute-before-insert ordering in build_number_row.
+        let fresh_nanos = Utc::now().timestamp_nanos_opt().unwrap() as u64;
+        let stale_nanos = (Utc::now() - TimeDelta::hours(48))
+            .timestamp_nanos_opt()
+            .unwrap() as u64;
+
+        let (fresh, fresh_overridden) = build_row_at(fresh_nanos);
+        let (stale, stale_overridden) = build_row_at(stale_nanos);
+
+        // The override must actually fire for the stale point, else the test is vacuous.
+        assert!(!fresh_overridden);
+        assert!(stale_overridden);
+        assert!(!fresh.attributes.contains_key("$originalTimestamp"));
+        assert!(stale.attributes.contains_key("$originalTimestamp"));
+        // Despite that attribute difference, both map to one series.
+        assert_eq!(fresh.series_fingerprint, stale.series_fingerprint);
     }
 }
