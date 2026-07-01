@@ -101,6 +101,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
     const { deleteSecretTokenBackup, rotateSecretToken } = useActions(teamLogic)
 
     const projectSecretApiKeysEnabled = !!featureFlags[FEATURE_FLAGS.PROJECT_SECRET_API_KEYS]
+    const hasLegacyKey = !!(currentTeam?.secret_api_token || currentTeam?.secret_api_token_backup)
 
     const openResetDialog = (): void => {
         const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
@@ -142,6 +143,20 @@ export function FlagsSecureApiKeys(): JSX.Element {
         })
     }
 
+    // Teams without a legacy key shouldn't be offered to create a deprecated credential
+    if (projectSecretApiKeysEnabled && !hasLegacyKey) {
+        return (
+            <LemonBanner type="warning">
+                <p className="mb-1">
+                    The feature flags secure API key is deprecated. Create a <strong>project secret API key</strong>{' '}
+                    with the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset)
+                    instead. It's hashed at rest, scoped, and rotatable.
+                </p>
+                <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
+            </LemonBanner>
+        )
+    }
+
     return (
         <div className="space-y-2">
             {projectSecretApiKeysEnabled && (
@@ -152,9 +167,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         "Local feature flag evaluation" preset) instead. It's hashed at rest, scoped, and rotatable
                         without affecting your primary key.
                     </p>
-                    <Link to={urls.settings('environment-secret-api-keys', 'environment-secret-api-keys')}>
-                        Create a project secret API key
-                    </Link>
+                    <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
                 </LemonBanner>
             )}
             <h3
