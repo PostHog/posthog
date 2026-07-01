@@ -22,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
@@ -83,6 +83,10 @@ export function EditAlertModal({
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isFunnelInsight = funnelSource !== null
+    // Trends funnels alert on the overall conversion rate over time, so they skip the step picker and
+    // the preview reads the latest period instead of a step snapshot. The backend dispatches on the
+    // same viz type — see funnel_strategies.py.
+    const isTrendsFunnel = funnelSource?.funnelsFilter?.funnelVizType === FunnelVizType.Trends
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
@@ -99,6 +103,7 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
+        insightIsTrendsFunnel: isTrendsFunnel,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -154,7 +159,7 @@ export function EditAlertModal({
     }, [insightLogicProps, insightId])
 
     const creatingNewAlert = alertForm.id === undefined
-    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
+    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
@@ -192,9 +197,9 @@ export function EditAlertModal({
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
         if (
-            can_check_ongoing_interval &&
             supportsOngoingInterval(alertForm.config) &&
-            alertForm.config.check_ongoing_interval
+            alertForm.config.check_ongoing_interval &&
+            can_check_ongoing_interval
         ) {
             n += 1
         }
@@ -271,7 +276,11 @@ export function EditAlertModal({
                                         thresholdBoundsFormError={thresholdBoundsFormError}
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         trends={{ alertSeries, formulaNodes, isBreakdownValid }}
-                                        funnel={{ stepLabels: funnelStepLabels, preview: funnelAlertPreview }}
+                                        funnel={{
+                                            stepLabels: funnelStepLabels,
+                                            preview: funnelAlertPreview,
+                                            isTrendsFunnel,
+                                        }}
                                         hogql={{
                                             preview: hogqlAlertPreview,
                                             columns: hogqlResultColumns,

@@ -124,7 +124,9 @@ pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 /// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
 /// logged, not labelled, to keep cardinality bounded.
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
+/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
+/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
+/// `vm_error_reason`) (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
 /// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
@@ -158,7 +160,7 @@ pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
-/// (`person_memo_hit`) (counter).
+/// (`person_memo_hit`|`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
 /// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
 pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";

@@ -247,7 +247,7 @@ describe('Worker', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'faux/test',
-                mcps: [{ id: 'echo', url: 'https://example.com/echo' }],
+                mcps: [{ kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/echo' }],
             }),
         })
         await bundle.write(rev.id, 'agent.md', 'you are a bot')
