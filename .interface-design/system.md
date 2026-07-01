@@ -98,7 +98,7 @@ Use `bg-fill-highlight-{50,100,150,200}` for subtle black overlays (light mode) 
 | ------------- | ------------------------------------------------- |
 | Base size     | 14px                                              |
 | Line height   | 1.5715                                            |
-| Font sans     | -apple-system, BlinkMacSystemFont, Inter, ...     |
+| Font sans     | RoundHog, -apple-system, Inter, ...               |
 | Font title    | RoundHog, -apple-system, Inter, ...               |
 | Font mono     | ui-monospace, SFMono-Regular, SF Mono, Menlo, ... |
 | Font medium   | 500                                               |
