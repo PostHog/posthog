@@ -33,9 +33,8 @@ impl ValueOperator for FingerprintGenerator {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules).
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
-        let mut conn = ctx.connection.acquire().await?;
         let fingerprint: Fingerprint =
-            match evaluate_grouping_rules(&mut conn, input.team_id, &ctx.team_manager, || {
+            match evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
                 Ok(serde_json::to_value(&input)?)
             })
             .await?

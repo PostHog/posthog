@@ -3,7 +3,7 @@ use common_types::TeamId;
 use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgConnection;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
@@ -126,7 +126,7 @@ impl GroupingRule {
 }
 
 pub async fn evaluate_grouping_rules<F>(
-    con: &mut PgConnection,
+    pool: &PgPool,
     team_id: TeamId,
     team_manager: &TeamManager,
     props: F,
@@ -136,7 +136,10 @@ where
 {
     let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
 
-    let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
+    // Pass the pool (not a checked-out connection): `get_grouping_rules` is cache-backed
+    // and only touches the DB on a miss, so nothing holds a connection across the cache
+    // lookup, `props()` serialization, or HogVM rule evaluation below.
+    let mut rules = team_manager.get_grouping_rules(pool, team_id).await?;
 
     metrics::counter!(GROUPING_RULES_FOUND).increment(rules.len() as u64);
 
@@ -171,10 +174,7 @@ where
                 );
                 continue;
             }
-            Err(err) => {
-                rule.disable(&mut *con, err.to_string(), props.clone())
-                    .await?
-            }
+            Err(err) => rule.disable(pool, err.to_string(), props.clone()).await?,
         }
     }
 
@@ -235,7 +235,6 @@ mod test {
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_grouping_rules(db: PgPool) {
         let ctx = create_test_context(db).await;
-        let mut conn = ctx.posthog_pool.acquire().await.unwrap();
 
         let test_team_id = 1;
         let props = test_props(JsonValue::from("test_value"));
@@ -247,11 +246,12 @@ mod test {
             .grouping_rules
             .insert(test_team_id, vec![rule]);
 
-        let matched = evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, || {
-            Ok(props.clone())
-        })
-        .await
-        .unwrap();
+        let matched =
+            evaluate_grouping_rules(&ctx.posthog_pool, test_team_id, &ctx.team_manager, || {
+                Ok(props.clone())
+            })
+            .await
+            .unwrap();
         let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
 
         assert_eq!(fingerprint.value, expected_fingerprint);
@@ -261,9 +261,11 @@ mod test {
         let props = test_props(JsonValue::from("no_match"));
 
         let matched =
-            evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, || Ok(props))
-                .await
-                .unwrap();
+            evaluate_grouping_rules(&ctx.posthog_pool, test_team_id, &ctx.team_manager, || {
+                Ok(props)
+            })
+            .await
+            .unwrap();
 
         assert!(matched.is_none());
     }
