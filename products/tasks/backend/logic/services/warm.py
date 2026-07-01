@@ -132,7 +132,7 @@ class SandboxWarmer:
 
         - Idempotent: if the Task already has a non-terminal Run, return it without provisioning.
         - Fresh: a Task with no Runs gets a new warm Run; a Task whose latest Run is terminal gets a
-          successor that resumes from it (filesystem reuse via ``snapshot_external_id``).
+          successor that resumes from it (snapshot reuse via ``snapshot_external_id``).
         - ``extra_state`` carries product-specific Run state the generic warmer can't know (e.g. PostHog
           AI's ``systemPrompt``, or a target ``branch``); it is merged into the warm Run's initial state.
         - ``create_pr`` is forwarded to the processing workflow; it defaults to ``False`` (PostHog AI warm
@@ -167,6 +167,12 @@ class SandboxWarmer:
                 snapshot_external_id = (existing.state or {}).get("snapshot_external_id")
                 if snapshot_external_id:
                     run_state["snapshot_external_id"] = snapshot_external_id
+                    snapshot_kind = (existing.state or {}).get("snapshot_kind")
+                    if snapshot_kind:
+                        run_state["snapshot_kind"] = snapshot_kind
+                    snapshot_mount_path = (existing.state or {}).get("snapshot_mount_path")
+                    if snapshot_mount_path:
+                        run_state["snapshot_mount_path"] = snapshot_mount_path
 
             new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 
