@@ -409,13 +409,13 @@ def _is_numeric_metric_property(property: Property) -> bool:
     return False
 
 
-def _coerce_to_number(value: ValueT, property: Property) -> ValueT:
+def _coerce_to_number(value: str | int | float, property: Property) -> int | float:
     """Coerce a single filter value to int/float, or raise a clean QueryError.
 
-    Booleans and ``None`` pass through untouched; already-numeric values are returned
-    as-is. A non-numeric value (e.g. an element label mistakenly paired with a numeric
-    metric key) raises a user-facing error instead of falling through to ClickHouse."""
-    if value is None or isinstance(value, bool | int | float):
+    Already-numeric values are returned as-is. A non-numeric value (e.g. an element
+    label mistakenly paired with a numeric metric key) raises a user-facing error
+    instead of falling through to ClickHouse."""
+    if isinstance(value, int | float):
         return value
     try:
         return int(value)
@@ -427,7 +427,7 @@ def _coerce_to_number(value: ValueT, property: Property) -> ValueT:
         raise QueryError(f"Cannot filter numeric property '{property.key}' by non-numeric value '{value}'")
 
 
-def _handle_numeric_values(value: ValueT, property: Property) -> ValueT:
+def _handle_numeric_values(value: ValueT, property: Property) -> ValueT | int | float | list[int | float]:
     """Coerce filter values for numeric session/recording metric columns (see
     ``_is_numeric_metric_property``). No-op for every other property type."""
     if not _is_numeric_metric_property(property):
@@ -561,7 +561,10 @@ def _expr_to_compare_op(
         )
 
     if operator in _NUMERIC_COMPARISON_OPERATORS:
-        value = _handle_numeric_values(value, property)
+        # A coerced number can be a float — wider than the legacy `ValueT` alias — but it only
+        # flows into `ast.Constant(value: Any)` and the downstream bool/between helpers accept it,
+        # so keep `value` typed as `ValueT` for them rather than widening the shared alias.
+        value = cast(ValueT, _handle_numeric_values(value, property))
 
     if operator == PropertyOperator.ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
