@@ -61,9 +61,14 @@ for spec in "${ROLES[@]}"; do
 
   out="$OUTDIR/$ENV-$role.hcl"
   echo "== dump $ENV/$role from $host:$port/$db -> $out ==" >&2
+  # Write via stdout (`-out -`) and redirect on the host, NOT `-out <file>`: the
+  # hclexp container runs as a nonroot uid that differs from the runner's, so it
+  # can't create files in the runner-owned dump dir (permission denied). Letting
+  # the host shell write the file sidesteps the uid mismatch. pipefail makes a
+  # failed introspect fail the redirect too.
   if ! run_hclexp introspect -host "$host" -port "$port" -database "$db" \
         -user "$CH_USER" -password "$CH_PASSWORD" \
-        -node "$role" -exclude "$EXCLUDE" -out "$out"; then
+        -node "$role" -exclude "$EXCLUDE" -out - > "$out"; then
     echo "FAIL: introspect $ENV/$role ($host:$port/$db)" >&2
     rc=1
   fi
