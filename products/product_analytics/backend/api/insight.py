@@ -1291,12 +1291,18 @@ class InsightBulkDeleteErrorSerializer(serializers.Serializer):
 
 
 class InsightBulkDeleteResponseSerializer(serializers.Serializer):
+    """
+    Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Do not instantiate it for validation: the declared ``errors`` field shadows DRF's inherited
+    ``Serializer.errors`` property, so ``.is_valid()`` / ``.errors`` would not behave as expected.
+    """
+
     deleted = serializers.ListField(
         child=serializers.IntegerField(),
         help_text="IDs of the insights that were successfully soft-deleted.",
     )
-    errors = InsightBulkDeleteErrorSerializer(
-        many=True,
+    errors: serializers.ListSerializer = serializers.ListSerializer(
+        child=InsightBulkDeleteErrorSerializer(),
         help_text="Insights that were skipped, each with the reason it could not be deleted.",
     )
 
@@ -2253,7 +2259,7 @@ When set, the specified dashboard's filters and date range override will be appl
         editable_insights = []
         for insight in insights:
             access_level = self.user_access_control.get_user_access_level(insight)
-            if access_level and access_level_satisfied_for_resource(self.scope_object, access_level, "editor"):
+            if access_level and access_level_satisfied_for_resource("insight", access_level, "editor"):
                 editable_insights.append(insight)
             else:
                 errors.append({"id": insight.id, "reason": "Permission denied"})
@@ -2264,7 +2270,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if editable_ids:
             with transaction.atomic():
-                Insight.objects.filter(id__in=editable_ids).update(
+                Insight.objects.filter(id__in=editable_ids, team__project_id=self.team.project_id).update(
                     deleted=True, last_modified_at=now(), last_modified_by=user
                 )
                 DashboardTile.objects_including_soft_deleted.filter(insight_id__in=editable_ids).update(deleted=True)
@@ -2278,7 +2284,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     insight=insight,
                     insight_id=insight.id,
                     insight_short_id=insight.short_id,
-                    organization_id=user.current_organization_id,
+                    organization_id=cast(UUIDT, user.current_organization_id),
                     team_id=self.team_id,
                     user=user,
                     was_impersonated=was_impersonated,
