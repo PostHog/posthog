@@ -54,12 +54,7 @@ export const superpowersLogic = kea<superpowersLogicType>([
         superpowersEnabled: [
             (s) => [s.user, s.preflight],
             (user, preflight) => {
-                return (
-                    user?.is_staff ||
-                    user?.is_impersonated ||
-                    preflight?.is_debug ||
-                    preflight?.instance_preferences?.debug_queries
-                )
+                return user?.is_staff || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
             },
         ],
         mcpHintsDismissed: [

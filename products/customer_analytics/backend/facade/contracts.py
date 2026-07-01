@@ -239,13 +239,25 @@ class CustomerProfileConfigView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyReference:
+    """A place that uses a custom property definition. ``type`` discriminates the kind of
+    referrer (``workflow`` for now); ``id``/``name``/``status`` identify the referring entity."""
+
+    id: str
+    name: str
+    status: str
+    type: str = "workflow"
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
-    the old model serializer's ``PrimaryKeyRelatedField`` output.
+    the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
+    property is used (workflows), resolved by definition id.
     """
 
     id: UUID | None = None
@@ -256,6 +268,7 @@ class CustomPropertyDefinitionView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    references: list[CustomPropertyReference] = field(default_factory=list)
 
 
 @stdlib_dataclass(frozen=True)

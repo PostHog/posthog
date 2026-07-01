@@ -125,12 +125,13 @@ So you have two routes to a reviewer. If you already hold a PostHog user UUID, p
    login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log`
    gives a name + email — both must be resolved to an **individual** GitHub login before you write
    the reviewer (a team slug or an email won't match any user).
-4. **`org-members-list` + `org-member-get-github-login`** — only where the run has organization scope
-   (`organization_member:read`), which **headless scout runs scoped to a single team often don't
-   have**, so these tools are typically **absent from a scout's toolset**; don't build a scout's
-   reviewer recipe around them. Where they _are_ available: `org-members-list` gives a member's
-   `user_uuid` (pass that straight through as `user_uuid` — simplest), and `org-member-get-github-login`
-   resolves a `user_uuid` to its GitHub login if you'd rather hand a `github_login`.
+4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the
+   cheaper paths above don't resolve an owner. It returns this project's members, each with `user_uuid`,
+   `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to
+   their `github_login`, or hand the `user_uuid` straight through and let the server resolve it. The
+   org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout
+   run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer
+   recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report
 still surfaces for a human to grab. **Never guess a handle**: a wrong login mis-assigns the report

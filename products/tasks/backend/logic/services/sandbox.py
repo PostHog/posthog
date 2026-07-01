@@ -27,6 +27,7 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -88,6 +89,10 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
+    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    snapshot_mount_path: str | None = None
+    snapshot_source: str = "none"
+    snapshot_restored: bool = False
     ttl_seconds: int = SANDBOX_TTL_SECONDS
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
@@ -109,7 +114,7 @@ class SandboxConfig(BaseModel):
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
 
-WORKING_DIR = "/tmp/workspace"
+WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
 
 REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
@@ -278,6 +283,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def create_snapshot(self) -> str: ...
+
+    @abstractmethod
+    def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
     def destroy(self) -> None: ...
