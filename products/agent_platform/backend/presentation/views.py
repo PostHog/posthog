@@ -72,7 +72,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
-from ..logic.generated import APPROVAL_REQUEST_STATES
+from ..logic.generated import APPROVAL_REQUEST_STATES, ASSISTANT_STOP_REASONS
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
@@ -446,7 +446,8 @@ _AGENT_ASSISTANT_MESSAGE = inline_serializer(
         "model": drf_serializers.CharField(required=False),
         "usage": drf_serializers.DictField(child=drf_serializers.JSONField(), required=False),
         "stopReason": drf_serializers.ChoiceField(
-            choices=["stop", "length", "toolUse", "error", "aborted"],
+            # Imported from the generated artifact (source: spec.ts) so it can't drift from what the runner writes.
+            choices=ASSISTANT_STOP_REASONS,
             required=False,
         ),
         "errorMessage": drf_serializers.CharField(required=False),

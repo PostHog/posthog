@@ -22,3 +22,6 @@ TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = _load("trigger_requi
 # States the runner writes to `agent_tool_approval_request.state` (source: approval-store.ts).
 # Consumed by the DRF serializer choices and the model's DB CheckConstraint.
 APPROVAL_REQUEST_STATES: list[str] = _load("approval_request_states.generated.json")
+
+# Assistant turn stop reasons (source: spec.ts). Consumed by the assistant-message serializer's `stopReason` choices.
+ASSISTANT_STOP_REASONS: list[str] = _load("assistant_stop_reasons.generated.json")

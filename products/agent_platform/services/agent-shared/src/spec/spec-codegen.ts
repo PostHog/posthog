@@ -2,6 +2,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { APPROVAL_REQUEST_STATES } from '../persistence/approval-store'
+import { ASSISTANT_STOP_REASONS } from './spec'
 import { TRIGGER_REQUIRED_SECRETS } from './trigger-secrets'
 
 /**
@@ -37,5 +38,9 @@ export const GENERATED_ARTIFACTS: GeneratedArtifact[] = [
     {
         path: backendLogic('approval_request_states.generated.json'),
         content: () => asJson(APPROVAL_REQUEST_STATES),
+    },
+    {
+        path: backendLogic('assistant_stop_reasons.generated.json'),
+        content: () => asJson(ASSISTANT_STOP_REASONS),
     },
 ]

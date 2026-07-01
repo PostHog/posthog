@@ -1478,10 +1478,18 @@ export interface AssistantMessageRecord {
         totalTokens?: number
         cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
     }
-    stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
+    stopReason?: AssistantStopReason
     errorMessage?: string
     timestamp: number
 }
+
+/**
+ * Why the model stopped a turn (mirrors pi-ai). Source of truth for the
+ * vocabulary — Django's serializer `choices` derives from the emitted JSON (see
+ * `spec-codegen.ts`), not a hand-copy.
+ */
+export const ASSISTANT_STOP_REASONS = ['stop', 'length', 'toolUse', 'error', 'aborted'] as const
+export type AssistantStopReason = (typeof ASSISTANT_STOP_REASONS)[number]
 
 export interface ToolResultMessage {
     role: 'toolResult'
