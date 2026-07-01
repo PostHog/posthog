@@ -99,11 +99,12 @@ class SupabaseSource(PostgresSource):
     def validate_credentials(
         self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        project_host = _SUPABASE_PROJECT_HOST_RE.match(_strip_host_scheme(config.host or ""))
+        bare_host = _strip_host_scheme(config.host or "")
+        project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
         if project_host:
             ref = project_host.group("ref")
             return False, (
-                f"'{_strip_host_scheme(config.host or '')}' looks like your Supabase project URL, not a database "
+                f"'{bare_host}' looks like your Supabase project URL, not a database "
                 "host. For standard syncs use the Session pooler host (aws-0-<region>.pooler.supabase.com) with "
                 f"username postgres.{ref}; for change data capture use the direct host db.{ref}.supabase.co and "
                 "enable Supabase's IPv4 add-on."
