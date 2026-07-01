@@ -6050,7 +6050,7 @@
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Call `notebooks-retrieve` first to inspect the notebook structure.\n\nFor markdown notebooks, call `notebooks-markdown-retrieve` to read the current markdown, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -6098,20 +6098,6 @@
         "feature": "notebooks",
         "summary": "List notebooks",
         "title": "List notebooks",
-        "required_scopes": ["notebook:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "notebooks-markdown-retrieve": {
-        "description": "Get the markdown source for a markdown notebook by short_id. Returns `{markdown: null}` for legacy rich-text notebooks. Use this before `notebook-edit` markdown mode instead of relying on raw markdown in the normal notebook retrieve response.",
-        "category": "Notebooks",
-        "feature": "notebooks",
-        "summary": "Get notebook markdown",
-        "title": "Get notebook markdown",
         "required_scopes": ["notebook:read"],
         "annotations": {
             "destructiveHint": false,

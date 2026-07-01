@@ -44,6 +44,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -816,6 +817,40 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_markdown_column_extracts_only_markdown_notebook_source(self):
+        markdown_source = "# Title\n\nSome notebook markdown."
+        Notebook.objects.create(
+            team=self.team,
+            short_id="mdnote",
+            content=build_markdown_notebook_content(markdown_source),
+            text_content=markdown_source,
+        )
+        Notebook.objects.create(
+            team=self.team,
+            short_id="legacy",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Legacy content"}]},
+                ],
+            },
+            text_content="Legacy content",
+        )
+        Notebook.objects.create(team=self.team, short_id="empty", content=None, text_content=None)
+
+        response = execute_hogql_query(
+            "SELECT short_id, markdown FROM system.notebooks WHERE short_id IN ('mdnote', 'legacy', 'empty')",
+            team=self.team,
+            user=self.user,
+        )
+        rows = {row[0]: row[1] for row in response.results}
+
+        assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
