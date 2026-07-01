@@ -582,6 +582,7 @@ mod tests {
     use crate::extractor::StreamingReader;
     use chrono::{TimeZone, Utc};
     use httpmock::MockServer;
+    use std::path::Path;
     use tempfile::TempDir;
 
     /// Test extractor that streams the downloaded body back verbatim (no
@@ -610,6 +611,27 @@ mod tests {
             out.extend_from_slice(&bytes);
         }
         out
+    }
+
+    /// Count `.raw` staging files anywhere under `dir`. Peak/residual `.raw` count
+    /// is how we assert staging disk is freed (see the free-on-EOF tests below).
+    fn count_raw_files(dir: &Path) -> usize {
+        let mut count = 0;
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+                    count += 1;
+                }
+            }
+        }
+        count
     }
 
     const TEST_DATA: &str = r#"{"event": "test1", "timestamp": "2023-01-01T00:00:00Z"}
@@ -1029,27 +1051,98 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_reading_entire_file_cleans_up_key() {
+    async fn test_reading_entire_file_frees_raw_and_keeps_size() {
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
             then.status(200).body(TEST_DATA);
         });
 
-        let _staging = TempDir::new().unwrap();
-        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
+        let staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
         let key = &keys[0];
 
         source.prepare_key(key).await.unwrap();
+        assert_eq!(
+            count_raw_files(staging.path()),
+            1,
+            "prepared key stages one .raw"
+        );
 
-        // Reading the key to completion reconstructs the body and tears it down.
+        // Reading the key to completion reconstructs the body, and the source frees
+        // the compressed `.raw` on the EOF read — no `cleanup_after_job` needed.
         let data = read_key_to_end(&source, key, 8).await;
         assert_eq!(data, TEST_DATA.as_bytes());
+        assert_eq!(
+            count_raw_files(staging.path()),
+            0,
+            "the .raw must be deleted once the key is fully read"
+        );
 
-        assert!(source.size(key).await.unwrap().is_none());
+        // The bookkeeping entry is retained so the now-known size is still reportable.
+        assert_eq!(
+            source.size(key).await.unwrap(),
+            Some(TEST_DATA.len() as u64)
+        );
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    /// Robustness proof for the hex-security finding / the A1 class of regression:
+    /// staging cleanup happens on the EOF read itself, so a caller that consumes
+    /// the final chunk and immediately treats the part as done (issuing no further
+    /// read) still frees the `.raw`. A single read larger than the body reaches EOF
+    /// in one shot; we assert the file is gone without any terminal `offset>=total`
+    /// read, and that the retained entry keeps `prepare_key` from re-downloading it.
+    #[tokio::test]
+    async fn test_raw_freed_on_single_eof_read_without_terminal_read() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(200).body(TEST_DATA);
+        });
+
+        let staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, staging.path().to_path_buf());
+        source.prepare_for_job().await.unwrap();
+
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        source.prepare_key(key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+        assert_eq!(count_raw_files(staging.path()), 1);
+
+        // One read past the end returns the whole body and reaches EOF.
+        let bytes = source
+            .get_chunk(key, 0, TEST_DATA.len() as u64 + 4096)
+            .await
+            .unwrap();
+        assert_eq!(bytes, TEST_DATA.as_bytes());
+
+        // Cleanup fired on that read alone — no second (terminal) get_chunk issued.
+        assert_eq!(
+            count_raw_files(staging.path()),
+            0,
+            "the .raw must be freed on the EOF read, without a terminal read"
+        );
+        assert_eq!(
+            source.size(key).await.unwrap(),
+            Some(TEST_DATA.len() as u64)
+        );
+
+        // The retained entry keeps prepare_key a no-op, so the freed file is not
+        // re-downloaded (which would re-stage the .raw we just reclaimed).
+        source.prepare_key(key).await.unwrap();
+        assert_eq!(
+            mock.hits(),
+            1,
+            "prepare_key must not re-download a freed key"
+        );
+        assert_eq!(count_raw_files(staging.path()), 0);
 
         source.cleanup_after_job().await.unwrap();
     }

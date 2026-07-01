@@ -116,9 +116,10 @@ async fn reset_backoff_after_success(
 /// DB-free core of [`Job::get_next_chunk`]: pick the next unfinished part, lazily
 /// discover its (decompressed) size, fetch+parse one chunk, and advance the
 /// in-memory part offset. A newly discovered `total_size` is mirrored into the
-/// model in memory only — no DB write happens here, which keeps the
-/// fetch/select/cleanup loop (and the per-part staging cleanup it drives via the
-/// terminal `offset >= total` read) testable without a database.
+/// model in memory only — no DB write happens here, which keeps the fetch/select
+/// loop testable without a database. Per-part staging cleanup is not driven from
+/// here: the source frees each `.raw` on its own EOF read (see
+/// [`crate::source::read_prepared_chunk`]).
 ///
 /// Returns the fetched `(key, parsed, reset_backoff)`. `reset_backoff` is `false`
 /// only on the empty-key short-circuit (so the caller skips the success backoff
@@ -1182,11 +1183,11 @@ mod tests {
 
     /// Drives the real DB-free read loop (`select_and_fetch_next_chunk`) against
     /// the real `DateRangeExportSource` + `PlainGzipExtractor` over `httpmock`, to
-    /// lock the per-part staging-cleanup invariant: the compressed `.raw` for a
-    /// part is deleted as soon as that part is fully read — by the job loop itself,
-    /// without `cleanup_after_job`. This is the invariant the A1 change broke (it
-    /// marked a part done on the EOF read, skipping the terminal `offset >= total`
-    /// read that triggers `remove_prepared_key`), so these fail if A1 returns.
+    /// lock the end-to-end staging-cleanup invariant: across a whole run the loop
+    /// alone (without `cleanup_after_job`) leaves no `.raw` behind and never keeps
+    /// more than one part's `.raw` on disk at a time. The source frees each `.raw`
+    /// on its own EOF read (see [`crate::source::read_prepared_chunk`]); the
+    /// decisive read-level proof of that lives in `date_range_export`'s tests.
     mod staging_cleanup_invariant_tests {
         use super::*;
         use crate::extractor::ExtractorType;
@@ -1225,9 +1226,9 @@ mod tests {
         }
 
         /// A transform that consumes the whole chunk and emits no events. The
-        /// cleanup invariant is about offsets reaching `total` and the terminal
-        /// read firing — parsing semantics are irrelevant here, so this keeps the
-        /// loop advancing deterministically by exactly the bytes read.
+        /// cleanup invariant is about offsets reaching `total` and each `.raw`
+        /// being freed on its EOF read — parsing semantics are irrelevant here, so
+        /// this keeps the loop advancing deterministically by exactly the bytes read.
         fn consume_all_transform() -> Arc<ParserFn> {
             Arc::new(Box::new(|bytes: Vec<u8>| {
                 Ok(Parsed {
@@ -1344,8 +1345,8 @@ mod tests {
                 }
             }
 
-            // The loop alone (no cleanup_after_job) must have deleted the .raw via
-            // the terminal post-EOF read. With A1 this stays 1 (leaked).
+            // The loop alone (no cleanup_after_job) must have deleted the .raw:
+            // the source frees it on the EOF read.
             assert_eq!(
                 count_raw_files(staging.path()),
                 0,
@@ -1381,15 +1382,10 @@ mod tests {
             let transform = consume_all_transform();
 
             // Two invariants across the whole run:
-            //  - peak coexisting .raw files stays at 1 (per-part terminal cleanup
-            //    deletes part 1's .raw before part 2 is read), and
-            //  - after the loop, zero .raw remain — cleaned by the loop alone.
-            // The final-count check is the decisive A1 catch: with A1, the *last*
-            // part is marked done on its EOF read, its terminal cleanup read never
-            // fires, and (with no later part to trigger the prepare-time sweep) its
-            // .raw leaks until end-of-job. The earlier parts happen to be swept by
-            // the next part's prepare, so the final count, not the peak, is what
-            // exposes the regression here.
+            //  - peak coexisting .raw files stays at 1 (each part's .raw is freed
+            //    on its EOF read, before the next part is read), and
+            //  - after the loop, zero .raw remain — cleaned by the loop alone,
+            //    including the last part (which has no later prepare-time sweep).
             let mut peak_raw = 0;
             loop {
                 let next = select_and_fetch_next_chunk(
