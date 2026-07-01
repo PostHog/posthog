@@ -370,33 +370,6 @@ export const BEHAVIOR_CAPABILITIES: Capability[] = [
         ],
     },
     {
-        key: 'understand',
-        label: 'Understand',
-        iconType: 'survey',
-        suggestions: [
-            {
-                title: 'Ask users a question',
-                description: 'Launch an NPS, CSAT, or custom survey',
-                content: 'Create a survey to collect NPS responses from users',
-            },
-            {
-                title: 'Measure product-market fit',
-                description: 'Ask how users would feel without your product',
-                content: 'Create a survey to measure product market fit',
-            },
-            {
-                title: 'Summarize feedback',
-                description: 'Common themes across recent responses',
-                content: 'Analyze survey responses to prioritize key features our users are interested in',
-            },
-            {
-                title: 'Learn from interviews',
-                description: 'Key themes across user interviews',
-                content: 'Analyze my user interviews and summarize the key themes',
-            },
-        ],
-    },
-    {
         key: 'ship',
         label: 'Ship',
         iconType: 'feature_flag',
@@ -425,6 +398,33 @@ export const BEHAVIOR_CAPABILITIES: Capability[] = [
                 title: 'Plan a release',
                 description: 'Draft a safe gradual rollout',
                 content: 'Help me plan a safe gradual rollout for a new feature',
+            },
+        ],
+    },
+    {
+        key: 'understand',
+        label: 'Understand',
+        iconType: 'survey',
+        suggestions: [
+            {
+                title: 'Ask users a question',
+                description: 'Launch an NPS, CSAT, or custom survey',
+                content: 'Create a survey to collect NPS responses from users',
+            },
+            {
+                title: 'Measure product-market fit',
+                description: 'Ask how users would feel without your product',
+                content: 'Create a survey to measure product market fit',
+            },
+            {
+                title: 'Summarize feedback',
+                description: 'Common themes across recent responses',
+                content: 'Analyze survey responses to prioritize key features our users are interested in',
+            },
+            {
+                title: 'Learn from interviews',
+                description: 'Key themes across user interviews',
+                content: 'Analyze my user interviews and summarize the key themes',
             },
         ],
     },
