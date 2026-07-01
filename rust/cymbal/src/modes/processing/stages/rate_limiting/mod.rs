@@ -310,64 +310,29 @@ impl RateLimitingStage {
             }
         }
 
-        let mut bypassed: HashSet<usize> = HashSet::new();
-        let mut outcomes: HashMap<OutcomeKey, u32> = HashMap::new();
         if rules_by_team.is_empty() {
-            return (bypassed, outcomes);
+            return (HashSet::new(), HashMap::new());
         }
 
-        // Rules disabled mid-batch (broken bytecode) are skipped for the rest of the batch: the
-        // per-team `rules_by_team` snapshot isn't refreshed after disable(), so without this a
-        // broken rule would be re-disabled (and the cache re-invalidated) once per matching event.
-        let mut disabled_rules: HashSet<Uuid> = HashSet::new();
+        let (bypassed, outcomes, to_disable) =
+            evaluate_bypass_rules(items, &rules_by_team, settings, |rule, props_json| {
+                rule.try_match(props_json)
+            });
 
-        for (idx, item) in items.iter().enumerate() {
-            let Ok(props) = item else { continue };
-            let Some(rules) = rules_by_team.get(&props.team_id) else {
-                continue;
-            };
-            let props_json = match serde_json::to_value(props) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            for rule in rules {
-                if disabled_rules.contains(&rule.id) {
-                    continue;
-                }
-                match rule.try_match(&props_json) {
-                    Ok(false) => continue,
-                    Ok(true) => {
-                        bypassed.insert(idx);
-                        tally_bypassed(&mut outcomes, props, settings);
-                        break;
-                    }
-                    // Step-budget exhaustion: skip this rule for this event, don't disable it.
-                    Err(VmError::OutOfResource(resource)) if resource == "steps" => {
-                        warn!(
-                            rule_id = %rule.id,
-                            team_id = %rule.team_id,
-                            "bypass rule exceeded HogVM step budget for this event, skipping"
-                        );
-                        continue;
-                    }
-                    // Any other error means the rule is broken: disable it so it stops erroring
-                    // on every event, and treat this event as not bypassed (normal rate limiting).
-                    Err(err) => {
-                        disabled_rules.insert(rule.id);
-                        if let Err(e) = rule
-                            .disable(&self.ctx.posthog_pool, err.to_string(), props_json.clone())
-                            .await
-                        {
-                            warn!("failed to disable bypass rule {}: {e}", rule.id);
-                        }
-                        self.ctx
-                            .team_manager
-                            .bypass_rules
-                            .invalidate(&props.team_id);
-                        continue;
-                    }
-                }
+        // Persist the disables the evaluation flagged. They're already deduped to one entry per
+        // broken rule, so this is at most one DB write + cache drop per rule for the whole batch.
+        for entry in to_disable {
+            if let Err(e) = entry
+                .rule
+                .disable(&self.ctx.posthog_pool, entry.error, entry.props_json)
+                .await
+            {
+                warn!("failed to disable bypass rule {}: {e}", entry.rule.id);
             }
+            self.ctx
+                .team_manager
+                .bypass_rules
+                .invalidate(&entry.team_id);
         }
 
         (bypassed, outcomes)
@@ -537,6 +502,81 @@ fn add_outcome(
             .entry((team_id, kind, issue_id, Outcome::RateLimited))
             .or_insert(0) += limited;
     }
+}
+
+/// A broken bypass rule to disable after evaluation, captured once (on first failure) with the
+/// error and the props of the event that broke it.
+struct RuleToDisable<'a> {
+    rule: &'a BypassRule,
+    team_id: i32,
+    error: String,
+    props_json: serde_json::Value,
+}
+
+/// Pure per-batch evaluation of already-loaded bypass rules, split out from I/O (rule loading and
+/// disabling) so it can be unit-tested without a database or the HogVM. Returns the bypassed event
+/// indices, the "bypassed" tallies, and the broken rules to disable — deduped to one entry per
+/// rule: a rule that errors is tried once per batch and skipped for every later event, so it isn't
+/// re-disabled (and its cache re-invalidated) on each match. `match_fn` is [`BypassRule::try_match`]
+/// in production and a fake in tests.
+fn evaluate_bypass_rules<'a>(
+    items: &[ExceptionEventPipelineItem],
+    rules_by_team: &'a HashMap<i32, Vec<BypassRule>>,
+    settings: &HashMap<i32, RateLimitSettings>,
+    match_fn: impl Fn(&BypassRule, &serde_json::Value) -> Result<bool, VmError>,
+) -> (HashSet<usize>, HashMap<OutcomeKey, u32>, Vec<RuleToDisable<'a>>) {
+    let mut bypassed: HashSet<usize> = HashSet::new();
+    let mut outcomes: HashMap<OutcomeKey, u32> = HashMap::new();
+    let mut to_disable: Vec<RuleToDisable<'a>> = Vec::new();
+    let mut disabled_rules: HashSet<Uuid> = HashSet::new();
+
+    for (idx, item) in items.iter().enumerate() {
+        let Ok(props) = item else { continue };
+        let Some(rules) = rules_by_team.get(&props.team_id) else {
+            continue;
+        };
+        let props_json = match serde_json::to_value(props) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        for rule in rules {
+            if disabled_rules.contains(&rule.id) {
+                continue;
+            }
+            match match_fn(rule, &props_json) {
+                Ok(false) => continue,
+                Ok(true) => {
+                    bypassed.insert(idx);
+                    tally_bypassed(&mut outcomes, props, settings);
+                    break;
+                }
+                // Step-budget exhaustion: skip this rule for this event, but keep trying it on
+                // later events — it isn't broken, just too expensive for this one.
+                Err(VmError::OutOfResource(resource)) if resource == "steps" => {
+                    warn!(
+                        rule_id = %rule.id,
+                        team_id = %rule.team_id,
+                        "bypass rule exceeded HogVM step budget for this event, skipping"
+                    );
+                    continue;
+                }
+                // Any other error means the rule is broken: flag it for disabling and skip it for
+                // the rest of the batch so it stops erroring on every later event.
+                Err(err) => {
+                    disabled_rules.insert(rule.id);
+                    to_disable.push(RuleToDisable {
+                        rule,
+                        team_id: props.team_id,
+                        error: err.to_string(),
+                        props_json: props_json.clone(),
+                    });
+                    continue;
+                }
+            }
+        }
+    }
+
+    (bypassed, outcomes, to_disable)
 }
 
 #[cfg(test)]
@@ -864,5 +904,84 @@ mod tests {
             Some(&1)
         );
         assert_eq!(outcomes.len(), 1);
+    }
+
+    fn bypass_rule(id: Uuid, team_id: i32, order_key: i32) -> BypassRule {
+        // Bytecode is irrelevant here — the tests drive matching through the fake `match_fn`.
+        BypassRule {
+            id,
+            team_id,
+            order_key,
+            bytecode: serde_json::Value::Array(vec![]),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn evaluate_bypass_marks_matching_event_and_tallies() {
+        let issue = Uuid::now_v7();
+        let items = vec![event(7, Some(issue))];
+        let rules_by_team = HashMap::from([(7, vec![bypass_rule(Uuid::now_v7(), 7, 0)])]);
+        let cfg = HashMap::from([(7, settings(Some(100), Some(100)))]);
+
+        let (bypassed, outcomes, to_disable) =
+            evaluate_bypass_rules(&items, &rules_by_team, &cfg, |_rule, _props| Ok(true));
+
+        assert!(bypassed.contains(&0));
+        assert!(to_disable.is_empty());
+        // A bypassed event is tallied under each configured limit so it lines up in the charts.
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::PerIssue, Some(issue), Outcome::Bypassed)),
+            Some(&1)
+        );
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::Project, None, Outcome::Bypassed)),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn evaluate_bypass_disables_broken_rule_once_per_batch() {
+        let rule_id = Uuid::now_v7();
+        let items: Vec<_> = (0..3).map(|_| event(7, Some(Uuid::now_v7()))).collect();
+        let rules_by_team = HashMap::from([(7, vec![bypass_rule(rule_id, 7, 0)])]);
+        let cfg = HashMap::from([(7, settings(Some(100), Some(100)))]);
+        let calls = AtomicUsize::new(0);
+
+        let (bypassed, _outcomes, to_disable) =
+            evaluate_bypass_rules(&items, &rules_by_team, &cfg, |_rule, _props| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Err(VmError::Other("boom".to_string()))
+            });
+
+        // The broken rule is flagged for disabling exactly once even though three events hit its
+        // team, and it is never re-run after the first failure — this is the per-batch dedup.
+        assert_eq!(to_disable.len(), 1);
+        assert_eq!(to_disable[0].rule.id, rule_id);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        // A broken rule bypasses nothing; its events fall through to normal rate limiting.
+        assert!(bypassed.is_empty());
+    }
+
+    #[test]
+    fn evaluate_bypass_step_budget_skips_without_disabling() {
+        let items: Vec<_> = (0..3).map(|_| event(7, Some(Uuid::now_v7()))).collect();
+        let rules_by_team = HashMap::from([(7, vec![bypass_rule(Uuid::now_v7(), 7, 0)])]);
+        let cfg = HashMap::from([(7, settings(Some(100), Some(100)))]);
+        let calls = AtomicUsize::new(0);
+
+        let (bypassed, outcomes, to_disable) =
+            evaluate_bypass_rules(&items, &rules_by_team, &cfg, |_rule, _props| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Err(VmError::OutOfResource("steps".to_string()))
+            });
+
+        // Step-budget exhaustion is per-event: unlike a broken rule, the rule is not disabled and
+        // is retried on every event.
+        assert!(to_disable.is_empty());
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+        assert!(bypassed.is_empty());
+        assert!(outcomes.is_empty());
     }
 }
