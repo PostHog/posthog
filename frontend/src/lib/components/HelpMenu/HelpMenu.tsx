@@ -23,7 +23,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -401,16 +400,20 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
 
                                 {billing?.account_owner?.email && billing?.account_owner?.name && (
                                     <>
-                                        <Label intent="menu" className="px-2 mt-2">
+                                        <Label intent="menu" className="px-2 mt-4">
                                             YOUR POSTHOG HUMAN
                                         </Label>
-                                        <DropdownMenuSeparator />
                                         <Menu.Item
                                             onClick={() => {
-                                                void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                                // It's dumb rechecking this, but TS needs it because of closures
+                                                if (!billing?.account_owner?.email || !billing?.account_owner?.name) {
+                                                    return
+                                                }
+
+                                                void copyToClipboard(billing.account_owner.email, 'email')
                                                 reportAccountOwnerClicked({
-                                                    name: billing?.account_owner?.name || '',
-                                                    email: billing?.account_owner?.email || '',
+                                                    name: billing.account_owner.name,
+                                                    email: billing.account_owner.email,
                                                 })
                                             }}
                                             render={
@@ -422,13 +425,13 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 >
                                                     <ProfilePicture
                                                         user={{
-                                                            first_name: billing?.account_owner?.name || '',
-                                                            email: billing?.account_owner?.email || '',
+                                                            first_name: billing.account_owner.name,
+                                                            email: billing.account_owner.email,
                                                         }}
                                                         size="xs"
                                                     />
                                                     <span className="truncate font-semibold">
-                                                        {billing?.account_owner?.name || ''}
+                                                        {billing.account_owner.name}
                                                     </span>
                                                     <div className="ml-auto">
                                                         <IconCopy />
