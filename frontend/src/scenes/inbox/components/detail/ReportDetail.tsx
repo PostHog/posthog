@@ -273,8 +273,7 @@ export function InboxDetailFrame({
 
     const overviewBody = (
         <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            {/* Left: the description (Summary), with the Activity timeline directly beneath it. */}
-            <div className="min-w-0 flex flex-col gap-5">
+            <div className="min-w-0">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
@@ -289,11 +288,10 @@ export function InboxDetailFrame({
                         </p>
                     )}
                 </DetailSection>
-                <ReportActivitySection report={report} />
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
-                {/* Pull request (when present) first, then reviewers, evidence, and runs. */}
+                {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
                 {children}
                 <SuggestedReviewersSection report={report} />
                 {hasEvidence && (
@@ -318,6 +316,7 @@ export function InboxDetailFrame({
                     </DetailSection>
                 )}
                 <ReportTasksSection report={report} />
+                <ReportActivitySection report={report} />
             </div>
         </div>
     )
