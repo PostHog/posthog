@@ -599,7 +599,7 @@ class CastorEDCSourceConfig(config.Config):
 
 @config.config
 class ChameleonSourceConfig(config.Config):
-    pass
+    account_secret: str
 
 
 @config.config
