@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -199,7 +199,7 @@ function RunInProgressEmptyState({
                     )}
                 </LemonBanner>
             ) : null}
-            <DetectiveHog className="w-32 h-32" />
+            <HedgehogMagnifyingGlass className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
                 {copy}

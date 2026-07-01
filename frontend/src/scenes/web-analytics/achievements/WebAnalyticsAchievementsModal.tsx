@@ -2,18 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode, useEffect } from 'react'
 
+import { HedgehogChartHog, HedgehogCoffeeRun, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
-import {
-    DetectiveHog,
-    ExplorerHog,
-    GraphsHog,
-    HeartHog,
-    RunningHog,
-    StarHog,
-    WavingHog,
-} from 'lib/components/hedgehogs'
+import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -50,7 +43,7 @@ interface TrackMeta {
 
 const TRACK_META: Record<string, TrackMeta> = {
     streak: {
-        hog: RunningHog,
+        hog: HedgehogCoffeeRun,
         objective: 'Open the Web analytics dashboard on consecutive days to build your streak.',
         unit: 'days',
         effortPhrase: (n, next) =>
@@ -71,7 +64,7 @@ const TRACK_META: Record<string, TrackMeta> = {
             `Explore ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'time', 'times', false)} to reach "${next}"`,
     },
     detective: {
-        hog: DetectiveHog,
+        hog: HedgehogMagnifyingGlass,
         objective: 'Open a session recording from the Web analytics dashboard.',
         unit: 'recordings',
         effortPhrase: (n, next) =>
@@ -84,7 +77,7 @@ const TRACK_META: Record<string, TrackMeta> = {
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
     },
     traffic: {
-        hog: GraphsHog,
+        hog: HedgehogChartHog,
         objective: 'Grow your pageviews. This climbs automatically as your site gets more traffic.',
         unit: 'pageviews',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more pageviews until "${next}"`,
