@@ -735,12 +735,6 @@ class ExperimentQueryRunner(QueryRunner):
                 f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
             )
 
-        if funnel_step == 0:
-            raise ValidationError(
-                "Funnel steps are 1-indexed. Step 0 does not exist. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
-            )
-
         if funnel_step < -1:
             max_drop_off = -(num_metric_steps + 1)
             if funnel_step < max_drop_off:
@@ -840,6 +834,11 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
         )
+
+        # Step 0 is the exposure step: return everyone exposed to the variant,
+        # without funnel evaluation.
+        if funnel_step == 0:
+            return builder.build_exposure_actors_query()
 
         return builder.build_actors_query()
 
