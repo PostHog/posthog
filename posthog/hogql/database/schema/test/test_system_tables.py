@@ -44,7 +44,6 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
-from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -827,7 +826,15 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         Notebook.objects.create(
             team=self.team,
             short_id="mdnote",
-            content=build_markdown_notebook_content(markdown_source),
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {"nodeId": "markdown-notebook-v2", "markdown": markdown_source},
+                    }
+                ],
+            },
             text_content=markdown_source,
         )
         Notebook.objects.create(
