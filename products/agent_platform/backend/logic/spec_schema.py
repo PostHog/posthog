@@ -15,46 +15,31 @@ Django concern (the promote gate reads `encrypted_env`) and has no schema.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 # ── Per-trigger-type required secrets ──────────────────────────────────────
 #
-# Mirrors `services/agent-shared/src/spec/trigger-secrets.ts` for the
-# Django-side validation path. Keep the two in lockstep — the slack trigger
-# handler in agent-ingress reads `SLACK_SIGNING_SECRET_KEY` and the freeze /
-# promote gate here rejects revisions whose agent's `encrypted_env` is missing
-# the same key.
+# NOT authored here. `TRIGGER_REQUIRED_SECRETS` is owned by the TS registry
+# (`services/agent-shared/src/spec/trigger-secrets.ts`), which is total by
+# construction (`Record<TriggerType, …>`). That registry emits the checked-in
+# JSON we load below; there is no Python copy to keep in lockstep. This is the
+# same move Django already made for the agent-spec schema — a hand-maintained
+# Python mirror was a recurring drift hazard. Regenerate the JSON after editing
+# the TS registry (a freshness test guards it):
+#
+#   UPDATE_GENERATED=1 npx vitest run src/spec/trigger-secrets-codegen.test.ts
+#
+# The slack trigger handler in agent-ingress reads these same keys via the TS
+# constants; the freeze / promote gate here rejects revisions whose agent's
+# `encrypted_env` is missing a `required` key.
 
 SLACK_SIGNING_SECRET_KEY = "SLACK_SIGNING_SECRET"
 SLACK_BOT_TOKEN_KEY = "SLACK_BOT_TOKEN"
 
-TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
-    "chat": [],
-    "webhook": [],
-    "cron": [],
-    "mcp": [],
-    "slack": [
-        {
-            "key": SLACK_SIGNING_SECRET_KEY,
-            "label": "Slack signing secret",
-            "description": (
-                "Your Slack app's signing secret. Find it under Settings → Basic Information → "
-                "Signing Secret. Required to verify inbound Slack event signatures."
-            ),
-            "required": True,
-        },
-        {
-            "key": SLACK_BOT_TOKEN_KEY,
-            "label": "Slack bot user OAuth token",
-            "description": (
-                "Your Slack app's bot token (starts with `xoxb-`). Find it under Settings → "
-                "Install App → Bot User OAuth Token after installing the app to your workspace. "
-                "Used by native slack tools to call the Slack API."
-            ),
-            "required": True,
-        },
-    ],
-}
+_GENERATED_REGISTRY = Path(__file__).parent / "trigger_required_secrets.generated.json"
+TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = json.loads(_GENERATED_REGISTRY.read_text())
 
 
 def _auth_mode_secret_requirement(mode: dict[str, Any]) -> dict[str, Any] | None:
