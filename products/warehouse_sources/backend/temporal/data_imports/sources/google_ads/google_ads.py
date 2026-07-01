@@ -75,6 +75,11 @@ def _ensure_grpc_receive_limit() -> None:
     options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
 
 
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
 # endpoint over the network. Two failure shapes on that hop are transient and usually clear on a
 # short backoff: a connection-level hiccup (e.g. a proxy timeout) surfaces as
@@ -126,26 +131,35 @@ def _load_client_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
 def _get_integration(integration_id: int, team_id: int) -> Integration:
-    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker that never goes through Django's request
-    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
-    ``close_old_connections()`` evicts connections already known to be stale, but one can still
-    die in the window before the query runs and surface as a transient ``OperationalError``
-    ("server closed the connection unexpectedly"). The failed query marks the connection
-    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
-    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle, or the
+    connection pooler can reject the query with a wait timeout when the pool is saturated. Both
+    surface as a transient ``OperationalError`` and both clear once a healthy connection is used.
+    ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
+    query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
+    backoff also gives a saturated pool time to drain rather than retrying straight back into the
+    same wait timeout. This read is idempotent, so it is safe to repeat. Mirrors the backoff shape
+    of the client-init and search retries. ``Integration.DoesNotExist`` is left to propagate.
     """
-    close_old_connections()
-    try:
-        return Integration.objects.get(id=integration_id, team_id=team_id)
-    except OperationalError:
+    attempt = 0
+    while True:
         close_old_connections()
-        return Integration.objects.get(id=integration_id, team_id=team_id)
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -519,32 +533,52 @@ def google_ads_source(
     )
 
 
-# Google flags both ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request
-# never reached a healthy backend) and ``INTERNAL`` ("Internal error encountered." from the
-# backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
+# Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never
+# reached a healthy backend), ``INTERNAL`` ("Internal error encountered." from the backend), and
+# ``RESOURCE_EXHAUSTED`` ("Resource has been exhausted (e.g. check quota)." — a quota/rate-limit
+# rejection) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
 # succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
 # would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
 # checkpoint — and avoids the captured error-tracking noise.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
-_TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
+_TRANSIENT_GRPC_STATUS_CODES = frozenset(
+    {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL, grpc.StatusCode.RESOURCE_EXHAUSTED}
+)
+
+# A client-side "Received message larger than max" abort also carries ``RESOURCE_EXHAUSTED`` (see the
+# receive-limit note at the top of this module), but it is deterministic — a retry re-requests the
+# same oversized page and fails identically — so it is excluded from the transient set. Raising the
+# receive limit, not retrying, is what addresses it.
+_RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
 
     The gapic transport usually surfaces these as ``google.api_core.exceptions.ServiceUnavailable``
-    / ``InternalServerError``, but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns
-    the ``StatusCode``) can also propagate. The Google Ads SDK additionally re-wraps the transport
-    error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata
-    (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the gRPC status then lives
-    on the wrapped ``error``, so we unwrap and inspect it too.
+    / ``InternalServerError`` / ``ResourceExhausted``, but the raw ``grpc`` ``_InactiveRpcError``
+    (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
+    re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
+    the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
+    # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
+    if isinstance(candidate, google_api_exceptions.ResourceExhausted):
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     code = getattr(candidate, "code", None)
-    return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
+    if not callable(code):
+        return False
+    status = code()
+    if status not in _TRANSIENT_GRPC_STATUS_CODES:
+        return False
+    if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
+    return True
 
 
 _T = typing.TypeVar("_T")
@@ -568,7 +602,7 @@ def _call_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_grpc_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
 
 
 def _search_with_transient_retry(

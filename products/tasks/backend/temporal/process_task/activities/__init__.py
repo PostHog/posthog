@@ -31,6 +31,7 @@ from .refresh_sandbox_credentials import (
     refresh_sandbox_credentials,
 )
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .start_agent_server import (
     MarkRepoReadyInput,
@@ -62,6 +63,7 @@ __all__ = [
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
+    "RunWizardInput",
     "RefreshSandboxCredentialsInput",
     "RefreshSandboxCredentialsOutput",
     "MarkRepoReadyInput",
@@ -87,6 +89,7 @@ __all__ = [
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "refresh_sandbox_credentials",
+    "run_wizard",
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",

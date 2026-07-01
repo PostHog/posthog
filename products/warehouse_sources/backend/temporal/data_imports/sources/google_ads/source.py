@@ -296,8 +296,9 @@ class GoogleAdsSource(
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
-            google_ads_client,  # noqa: PLC0415
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
+            _is_transient_grpc_error,
+            google_ads_client,
         )
 
         try:
@@ -339,5 +340,14 @@ class GoogleAdsSource(
                     False,
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
+                )
+            # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
+            # protobuf failure dump the user can't act on. The sync rides these out in-process; here on
+            # the interactive create path we surface a clean retry prompt instead of leaking the dump.
+            if _is_transient_grpc_error(e):
+                return (
+                    False,
+                    "Google Ads returned a temporary error while validating your credentials. This is "
+                    "usually a transient issue on Google's side — please try again in a moment.",
                 )
             return False, f"Error validating credentials: {error_message}"

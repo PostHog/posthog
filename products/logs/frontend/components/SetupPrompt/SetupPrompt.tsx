@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import { HedgehogGreek } from '@posthog/brand/hoggies'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useInterval } from 'lib/hooks/useInterval'
@@ -96,7 +96,7 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
             isEmpty={true}
             productKey={ProductKey.LOGS}
             className={className}
-            customHog={ListHog}
+            customHog={HedgehogGreek}
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
                     <p className="text-sm text-secondary m-0">

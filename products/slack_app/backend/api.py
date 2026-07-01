@@ -63,12 +63,25 @@ from products.slack_app.backend.services.integration_resolver import (
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
+    ACTION_EDIT_PERSONAL,
+    ACTION_EDIT_WORKSPACE,
+    ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_TASKS_FILTER_REPO,
+    ACTION_TASKS_FILTER_STATUS,
+    ACTION_TASKS_PAGE_NEXT,
+    ACTION_TASKS_PAGE_PREV,
+    ACTION_TASKS_REFRESH,
     ACTION_UNLINK_ACCOUNT,
+    EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
+    MODAL_ACTION_MODEL,
+    MODAL_ACTION_RUNTIME_ADAPTER,
+    handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
     handle_app_home_opened as _handle_app_home_opened,
-    handle_home_block_action as _handle_home_block_action,
+    handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
@@ -1195,7 +1208,7 @@ def _notify_missing_slack_scopes(
     if not channel or not thread_ts or not slack_user_id:
         return
 
-    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    settings_url = f"{settings.SITE_URL}/integrations/slack"
     text = (
         ":warning: PostHog can't reply because the Slack integration is missing required "
         f"permissions: `{', '.join(sorted(missing))}`.\n"
@@ -2564,27 +2577,41 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
-_HOME_TAB_ACTION_IDS = frozenset(
+_AI_PREFERENCES_ACTION_IDS = frozenset(
     {
+        ACTION_EDIT_PERSONAL,
+        ACTION_EDIT_WORKSPACE,
+        ACTION_RESET_PERSONAL,
         ACTION_RESET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_REFRESH,
         ACTION_UNLINK_ACCOUNT,
+        MODAL_ACTION_RUNTIME_ADAPTER,
+        MODAL_ACTION_MODEL,
     }
 )
+_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
 
 
-def _is_home_tab_interactivity(payload: dict, payload_type: str) -> bool:
-    """Return True if this payload is a Home tab block_actions interaction.
+def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
+    """Return True if this payload is a Slack App Home AI-settings interaction.
 
-    Home-tab buttons carry no per-row hint — they're workspace-scoped, not
-    tied to a specific task or repo. The cross-region router uses this to
-    claim locality based on the workspace integration alone rather than
-    dropping the click.
+    AI-settings buttons (Edit/Reset on the Home tab, runtime/model dispatch
+    re-renders inside the modal) and modal submissions carry no per-row hint —
+    the picker is workspace-scoped, not tied to a specific task or repo. The
+    cross-region router uses this to claim locality based on the workspace
+    integration alone rather than dropping the click.
     """
+    if payload_type == "view_submission":
+        return payload.get("view", {}).get("callback_id", "") in _AI_PREFERENCES_CALLBACK_IDS
     if payload_type == "block_actions":
         for action in payload.get("actions", []) or ():
-            if action.get("action_id", "") in _HOME_TAB_ACTION_IDS:
+            if action.get("action_id", "") in _AI_PREFERENCES_ACTION_IDS:
                 return True
     return False
 
@@ -3283,11 +3310,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and _is_home_tab_interactivity(payload, payload_type):
-        # App Home routing/account actions carry no per-row hint — the button
-        # is tied to the workspace, not a specific picker context. Claim
-        # locality based on the workspace integration alone; if we own *any*
-        # Integration for this Slack team, the click is ours to handle.
+    elif slack_team_id and _is_ai_preferences_interactivity(payload, payload_type):
+        # App Home AI-settings actions (Edit/Reset/Save) and the modal
+        # re-render dispatched_actions carry no per-row hint — the button is
+        # tied to the workspace, not a specific picker context. Claim locality
+        # based on the workspace integration alone; if we own *any* Integration
+        # for this Slack team, the click is ours to handle.
         local = Integration.objects.filter(
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
@@ -3364,6 +3392,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_suggestion":
         return _handle_repo_picker_options(payload)
 
+    if payload_type == "view_submission":
+        return _handle_app_home_view_submission(payload)
+
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
@@ -3388,7 +3419,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return inbox_interactivity.handle_inbox_sources(payload)
             if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
-            if action_id in _HOME_TAB_ACTION_IDS:
-                return _handle_home_block_action(payload, action)
+            if action_id in _AI_PREFERENCES_ACTION_IDS:
+                return _handle_ai_preferences_block_action(payload, action)
 
     return HttpResponse(status=200)

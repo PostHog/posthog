@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.e
     XminUnsupportedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
+    WINDOW_MAX_CONNECTION_DROP_RETRIES,
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
     ChildPartition,
@@ -879,8 +880,22 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
             db_incremental_field_last_value=None,
         )
 
-    def test_sustained_recovery_conflict_during_setup_aborts_non_retryably(self):
-        err = psycopg.errors.SerializationFailure("terminating connection due to conflict with recovery")
+    @pytest.mark.parametrize(
+        "err",
+        [
+            # A hot-standby recovery conflict surfaces as either SerializationFailure (the
+            # transaction was aborted) or QueryCanceled (the statement was canceled, e.g. a replica
+            # reconnect) — the same transient condition. Both must be retried in-process during setup
+            # and end in the non-retryable abort once sustained; before the QueryCanceled fix that
+            # flavor escaped on the first probe and failed the whole activity.
+            psycopg.errors.SerializationFailure("terminating connection due to conflict with recovery"),
+            psycopg.errors.QueryCanceled(
+                "canceling statement due to conflict with recovery\n"
+                "DETAIL:  User query might have conflicted with replica reconnect."
+            ),
+        ],
+    )
+    def test_sustained_recovery_conflict_during_setup_aborts_non_retryably(self, err):
         connection = self._make_failing_connection(err)
 
         with patch(
@@ -898,17 +913,24 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         # Each retry reconnects, so connect is called once per attempt.
         assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
 
-    def test_non_recovery_serialization_failure_during_setup_is_not_retried(self):
-        # A serialization failure unrelated to standby recovery must propagate immediately —
-        # the retry is scoped strictly to "conflict with recovery".
-        err = psycopg.errors.SerializationFailure("could not serialize access due to concurrent update")
+    @pytest.mark.parametrize(
+        "err",
+        [
+            # The in-process retry is scoped strictly to "conflict with recovery": a serialization
+            # failure from a concurrent update, and a QueryCanceled from a statement_timeout, are
+            # both unrelated to standby recovery and must propagate on the first probe.
+            psycopg.errors.SerializationFailure("could not serialize access due to concurrent update"),
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_recovery_conflict_during_setup_is_not_retried(self, err):
         connection = self._make_failing_connection(err)
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
-            with pytest.raises(psycopg.errors.SerializationFailure):
+            with pytest.raises(type(err)):
                 self._call_postgres_source()
 
         assert connect_mock.call_count == 1
@@ -1040,6 +1062,11 @@ class TestIsConnectionDroppedError:
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :etimedout}"),
+            # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
+            # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
+            psycopg.errors.ConnectionFailure(
+                "Failed to connect to database: authentication did not complete within 15000ms"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -5245,6 +5272,9 @@ class _FakeCursor:
     Each invocation of iterate_date_windows opens a fresh cursor; `script` is a
     list of per-cursor behaviors. A behavior is one of:
       - list[tuple]  → rows returned from fetchmany, then []
+      - list whose last element is an Exception → those rows are returned from
+        fetchmany, then the exception is raised on the next fetch (models a drop
+        mid-stream, after some chunks have already been yielded)
       - Exception instance → raised from execute()
     """
 
@@ -5255,19 +5285,25 @@ class _FakeCursor:
         self.description[0].name = "id"
         self.description[1].name = "val"
         self._rows_remaining: list = []
+        self._fetch_error: Exception | None = None
         self._executed = False
 
     def execute(self, query):
         self.owner.executed_queries.append(query)
         if isinstance(self.behaviour, Exception):
             raise self.behaviour
-        self._rows_remaining = list(self.behaviour)
+        rows = list(self.behaviour)
+        if rows and isinstance(rows[-1], Exception):
+            self._fetch_error = rows.pop()
+        self._rows_remaining = rows
         self._executed = True
 
     def fetchmany(self, n: int):
         if not self._executed:
             return []
         batch, self._rows_remaining = self._rows_remaining[:n], self._rows_remaining[n:]
+        if not batch and self._fetch_error is not None:
+            raise self._fetch_error
         return batch
 
     def __enter__(self):
@@ -5495,6 +5531,57 @@ class TestIterateDateWindowsFake:
                     sleeper=lambda _s: None,
                     using_read_replica=True,
                 )
+            )
+
+    def test_reconnects_and_retries_window_on_connection_drop_before_rows(self):
+        # A mid-stream drop on the windowed read path used to escape uncaught and fail the whole
+        # activity (ProtocolViolation "server conn crashed?"). When it fires before any chunk of the
+        # window is yielded, replaying the window is safe, so the walker reconnects and resumes.
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        script = [psycopg.errors.ProtocolViolation("server conn crashed?"), [(1, 10)], [], []]
+        tables, factory = _run_windows(
+            script=script,
+            child_partitions=[child],
+            is_connection_dropped=_is_connection_dropped_error,
+        )
+        assert factory.connections_opened >= 2
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_reraises_connection_drop_after_rows_yielded(self):
+        # Once a chunk of the window is out, replaying it would duplicate rows — so a drop mid-window
+        # must propagate rather than retry.
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        script = [[(1, 10), psycopg.errors.ProtocolViolation("server conn crashed?")]]
+        with pytest.raises(psycopg.errors.ProtocolViolation):
+            _run_windows(
+                script=script,
+                child_partitions=[child],
+                is_connection_dropped=_is_connection_dropped_error,
+            )
+
+    def test_raises_after_max_connection_drop_retries(self):
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        script = [psycopg.errors.ProtocolViolation("server conn crashed?")] * (WINDOW_MAX_CONNECTION_DROP_RETRIES + 2)
+        with pytest.raises(psycopg.errors.ProtocolViolation):
+            _run_windows(
+                script=script,
+                child_partitions=[child],
+                is_connection_dropped=_is_connection_dropped_error,
             )
 
     def test_does_not_set_per_window_statement_timeout(self):

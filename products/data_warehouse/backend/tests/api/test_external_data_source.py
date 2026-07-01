@@ -1657,6 +1657,18 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
         )
+        snowflake_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="Analytics Snowflake",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"account_id": "acct", "database": "TPCH_SF1"},
+            connection_metadata={"engine": "snowflake", "database": "TPCH_SF1"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -1665,6 +1677,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             payload,
             [
+                {
+                    "id": str(snowflake_source.pk),
+                    "prefix": "Analytics Snowflake",
+                    "engine": "snowflake",
+                },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
@@ -2983,7 +3000,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertIn("not supported for direct-query sources", str(response.json()))
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3758,7 +3775,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3774,7 +3791,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -6642,6 +6659,50 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    @parameterized.expand(
+        [
+            # name, query string, expected source-type keys (None = unfiltered, expect full catalog)
+            ("unfiltered", "", None),
+            ("single_type", "?source_type=Stripe", {"Stripe"}),
+            ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+        ]
+    )
+    def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 200
+        if expected_keys is None:
+            assert len(response.json()) > 2  # sanity: unfiltered returns the full catalog
+        else:
+            assert set(response.json().keys()) == expected_keys
+
+    def test_get_wizard_sources_unknown_source_type_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
+        )
+        assert response.status_code == 400
+        assert "NotARealSource" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            # name, endpoint suffix, body
+            ("create", "", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            (
+                "database_schema",
+                "database_schema/",
+                {"source_type": "Postgres", "password": {"secretRef": "ref-123"}, "host": "db.example.com"},
+            ),
+        ]
+    )
+    def test_unresolved_secret_ref_rejected(self, _name, suffix, body):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{suffix}",
+            data=body,
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "secretRef" in response.json()["message"]
 
     @parameterized.expand(
         [

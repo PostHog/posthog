@@ -3,12 +3,13 @@ import * as PMCollab from '@tiptap/pm/collab'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, ActivityScope } from '~/types'
 
 import { NotebookEditor, NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
@@ -68,6 +69,9 @@ describe('Notebook history revert flow', () => {
     let editorContent: JSONContent | null
     let apiCreateSpy: jest.SpyInstance
     let apiUpdateSpy: jest.SpyInstance
+    let apiMarkdownSaveSpy: jest.SpyInstance
+    let apiActivityListLegacySpy: jest.SpyInstance
+    let historyLogic: ReturnType<typeof activityLogLogic.build> | null
 
     // The stub tracks its own content so getJSON() reflects the result of setContent
     // calls. Otherwise the collab path's wire payload (which is editor.getJSON()) would
@@ -90,10 +94,12 @@ describe('Notebook history revert flow', () => {
         }) as unknown as NotebookEditor
 
     beforeEach(() => {
+        historyLogic = null
         editorContent = null
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
+                [`/api/projects/:project_id/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
                 [`/api/projects/:project_id/notebooks/${SHORT_ID}/kernel/status/`]: () => [200, { backend: null }],
             },
         })
@@ -104,6 +110,10 @@ describe('Notebook history revert flow', () => {
         apiUpdateSpy = jest
             .spyOn(api.notebooks, 'update')
             .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
+        apiMarkdownSaveSpy = jest
+            .spyOn(api.notebooks, 'markdownSave')
+            .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
+        apiActivityListLegacySpy = jest.spyOn(api.activity, 'listLegacy').mockResolvedValue({ results: [], count: 0 })
         // collabStream opens an SSE connection that never resolves in production —
         // resolve immediately in tests so the listener doesn't dangle.
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
@@ -111,6 +121,7 @@ describe('Notebook history revert flow', () => {
 
     afterEach(() => {
         logic?.unmount()
+        historyLogic?.unmount()
         jest.restoreAllMocks()
         ;(PMCollab.sendableSteps as jest.Mock).mockReset()
     })
@@ -158,6 +169,61 @@ describe('Notebook history revert flow', () => {
             SHORT_ID,
             expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
         )
+    })
+
+    it('saves legacy to markdown conversion through the versioned notebook update path', async () => {
+        const convertedContent = buildMarkdownNotebookContent(`# Test
+
+converted`)
+        apiUpdateSpy.mockResolvedValueOnce({
+            ...cachedNotebook,
+            version: 2,
+            content: convertedContent,
+            text_content: '# Test\n\nconverted',
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setLocalContent(convertedContent)
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiUpdateSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({
+                content: convertedContent,
+                text_content: '# Test\n\nconverted',
+                version: 1,
+            })
+        )
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
+    })
+
+    it('refreshes notebook activity after a save when history is open', async () => {
+        historyLogic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: SHORT_ID })
+        historyLogic.mount()
+        await expectLogic(historyLogic).toDispatchActions(['fetchActivitySuccess']).toFinishAllListeners()
+        apiActivityListLegacySpy.mockClear()
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setShowHistory(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveNotebook({ content: HISTORICAL_DOC, title: 'Test' })
+        })
+            .toDispatchActions(['saveNotebookSuccess'])
+            .toFinishAllListeners()
+        await expectLogic(historyLogic).toFinishAllListeners()
+
+        expect(apiActivityListLegacySpy).toHaveBeenCalledWith({ scope: [ActivityScope.NOTEBOOK], id: SHORT_ID }, 1)
     })
 
     it('does not enable ProseMirror collaboration for markdown v2 notebooks', async () => {

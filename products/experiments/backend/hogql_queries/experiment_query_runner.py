@@ -313,6 +313,23 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         )
 
+    def _precompute_skip_reason(self) -> Optional[str]:
+        """Why precompute was not used, for the query-performance UI. None when it was attempted."""
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return None
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return "override_direct"
+        if not self._team_experiments_config.experiment_precomputation_enabled:
+            return "team_disabled"
+        if not experiment_has_min_runtime_for_precomputation(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        ):
+            return "min_runtime"
+        if self.is_data_warehouse_query:
+            return "data_warehouse"
+        return None  # precompute was attempted; a direct path means the build failed / wasn't ready
+
     def _metric_events_precompute_applicable(self) -> bool:
         """Metric-events precompute only supports ordered funnels without breakdowns, CUPED, or data warehouse."""
         return (
@@ -464,6 +481,9 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
+            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_scan_date_from=self.date_range.date_from,
+            experiment_scan_date_to=self.date_range.date_to,
         )
         experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
         self.hogql = experiment_query_debug[0]

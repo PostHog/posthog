@@ -10,6 +10,7 @@ Product = Literal[
     "llm_gateway",
     "posthog_code",
     "background_agents",
+    "slack_app",
     "slack_app_routing",
     "wizard",
     "django",

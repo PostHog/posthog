@@ -723,7 +723,12 @@ def run_lazy_computation_insert(
     )
 
     set_ch_query_started(job.id)
-    with tags_context(client_query_id=str(job.id), team_id=team.id):
+    with tags_context(
+        client_query_id=str(job.id),
+        team_id=team.id,
+        precompute_window_start=str(job.time_range_start),
+        precompute_window_end=str(job.time_range_end),
+    ):
         sync_execute(
             insert_sql,
             values,

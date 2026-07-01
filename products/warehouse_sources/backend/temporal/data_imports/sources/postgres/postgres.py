@@ -130,7 +130,9 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
         return False
 
     if source_config is not None:
-        ssh_tunnel = source_config.ssh_tunnel
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
         if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
             return False
 
@@ -190,6 +192,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
     # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
     "{:error, :etimedout}",
+    # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
+    # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
+    # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
+    # transient (a suspended compute reactivates in seconds), so a fresh connect after a short
+    # backoff succeeds — recover by reconnecting rather than failing the whole activity. Match the
+    # timeout phrasing, which is distinct from the permanent credential-rejection wordings
+    # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
+    # millisecond value.
+    "authentication did not complete within",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -2617,11 +2628,11 @@ def postgres_source(
             conn.autocommit = True
             return conn
 
-        # A hot-standby recovery conflict ("terminating connection due to conflict with recovery")
-        # terminates the whole connection mid-probe, so autocommit alone can't isolate it — every
-        # subsequent probe on the dead connection fails too. Reconnect and retry the metadata
-        # probes a bounded number of times with backoff, mirroring how the read loop recovers from
-        # the same conflict. Only once the conflicts are sustained do we raise the non-retryable
+        # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe
+        # mid-flight, so autocommit alone can't isolate it — the connection is left unusable and
+        # every subsequent probe on it fails too. Reconnect and retry the metadata probes a bounded
+        # number of times with backoff, mirroring how the read loop recovers from the same conflict.
+        # Only once the conflicts are sustained do we raise the non-retryable
         # "successive SerializationFailure errors" abort the read path already uses, rather than
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
@@ -2864,7 +2875,14 @@ def postgres_source(
                     # retryable dropped-connection error instead.
                     _raise_if_setup_connection_broken(connection)
                 break
-            except psycopg.errors.SerializationFailure as e:
+            except (psycopg.errors.SerializationFailure, psycopg.errors.QueryCanceled) as e:
+                # A hot-standby recovery conflict surfaces as either SerializationFailure (the
+                # transaction was aborted — "terminating connection due to conflict with recovery")
+                # or QueryCanceled (the statement was canceled — "canceling statement due to conflict
+                # with recovery", e.g. a replica reconnect) depending on the conflict and the server.
+                # Both are the same transient condition and recover on reconnect. Any other
+                # QueryCanceled here is a statement_timeout and must re-raise. QueryCanceled subclasses
+                # OperationalError, so this clause must precede the connection-dropped handler below.
                 if "conflict with recovery" not in "".join(e.args):
                     raise
                 # Connection is dead; close defensively before reconnecting.
@@ -2873,7 +2891,7 @@ def postgres_source(
                 if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
                     raise _recovery_conflict_abort_error(setup_recovery_conflicts) from e
                 logger.debug(
-                    f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
+                    f"Recovery conflict during table setup ({e}). Reconnecting and retrying "
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
                 )
                 time.sleep(min(2 * setup_recovery_conflicts, 30))
@@ -3201,6 +3219,7 @@ def postgres_source(
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
+                    is_connection_dropped=_is_connection_dropped_error,
                 )
                 return
 
