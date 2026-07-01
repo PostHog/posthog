@@ -106,6 +106,7 @@ from products.warehouse_sources.backend.facade.api import (
     validate_source_prefix,
 )
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -949,12 +950,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # An integration-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
         # tokens live in the CustomOAuth2Integration row and are injected at sync time, keyed by the
         # non-secret `auth_oauth2_integration_id`. So `has_preserved_credentials` never sees a preserved
-        # secret for it, yet a host change would still redirect that injected token to the new host. Treat a
-        # preserved integration pointer (kept unchanged or omitted, not switched/cleared) like a preserved
-        # secret so the gate fires.
+        # secret for it, yet a host change would still redirect that injected token to the new host. A source
+        # that still has a bound integration row is preserving that credential — and clearing the job_inputs
+        # pointer does NOT unbind the row, so keying off the pointer alone let an editor clear it, move the
+        # host, then re-add the pointer to redirect the still-bound token. Gate on the actual row binding too.
+        source_has_bound_integration = source_type_model == ExternalDataSourceType.CUSTOM and (
+            CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).exists()
+        )
         existing_integration_id = existing_job_inputs.get("auth_oauth2_integration_id")
-        preserved_oauth2_integration = bool(existing_integration_id) and (
-            incoming_job_inputs.get("auth_oauth2_integration_id", existing_integration_id) == existing_integration_id
+        preserved_oauth2_integration = source_has_bound_integration or (
+            bool(existing_integration_id)
+            and incoming_job_inputs.get("auth_oauth2_integration_id", existing_integration_id)
+            == existing_integration_id
         )
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:

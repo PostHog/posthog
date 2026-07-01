@@ -44,6 +44,7 @@ from products.data_warehouse.backend.presentation.views.external_data_source imp
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -5278,6 +5279,39 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
         assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_source_cannot_clear_pointer_to_move_host_while_bound(self, mock_validate_credentials):
+        # Bypass guard: clearing auth_oauth2_integration_id does not unbind the CustomOAuth2Integration row,
+        # so an editor must not be able to clear the pointer, move the manifest host, then re-add the pointer
+        # to redirect the still-bound token. A row bound to the source makes the host-change gate fire even
+        # when job_inputs currently omits the pointer.
+        source = self._custom_oauth2_integration_source()
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token"},
+            sensitive_config={"client_secret": "s"},
+        )
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), "auth_oauth2_integration_id": ""}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
