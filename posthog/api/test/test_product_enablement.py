@@ -15,7 +15,7 @@ class TestProductEnablementAPI(APIBaseTest):
         self.organization_membership.save()
 
     def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/product_enablement/"
+        return f"/api/projects/{self.team.id}/product_enablement/"
 
     def _enable(self, products: list[str], **kwargs):
         return self.client.post(self._url(), {"products": products}, format="json", **kwargs)

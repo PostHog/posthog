@@ -98,6 +98,9 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         request=ProductEnablementSerializer,
         responses={200: ProductEnablementResultSerializer},
+        # Route the generated client to frontend/src/generated/core/ — this is a core
+        # endpoint, not part of any product folder.
+        extensions={"x-product": "core"},
     )
     def create(self, request, *args, **kwargs):
         serializer = ProductEnablementSerializer(data=request.data)

@@ -37,37 +37,6 @@ export interface PauseResponseApi {
 }
 
 /**
- * * `conversations` - conversations
- * * `error_tracking` - error_tracking
- * * `session_replay` - session_replay
- */
-export type ProductsEnumApi = (typeof ProductsEnumApi)[keyof typeof ProductsEnumApi]
-
-export const ProductsEnumApi = {
-    Conversations: 'conversations',
-    ErrorTracking: 'error_tracking',
-    SessionReplay: 'session_replay',
-} as const
-
-export interface ProductEnablementApi {
-    /**
-     * Products to turn on for this project, each enabled with server-owned conservative defaults.
-     * @minItems 1
-     */
-    products: ProductsEnumApi[]
-}
-
-/**
- * Per requested product: "enabled" (just turned on) or "already_enabled".
- */
-export type ProductEnablementResultApiResults = { [key: string]: string }
-
-export interface ProductEnablementResultApi {
-    /** Per requested product: "enabled" (just turned on) or "already_enabled". */
-    results: ProductEnablementResultApiResults
-}
-
-/**
  * * `potential` - Potential
  * * `candidate` - Candidate
  * * `in_progress` - In Progress

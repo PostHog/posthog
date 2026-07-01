@@ -1,7 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
-from products.signals.backend.product_enablement import ProductEnablementViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
     SignalScoutConfigViewSet,
@@ -25,14 +24,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"signals/source_configs", signals.SignalSourceConfigViewSet, "environment_signal_source_configs", ["team_id"]
-    )
-    # Self-driving turns these products ON before enabling their sources. Lives under
-    # signals (its only caller); gated by the narrow `product_enablement` scope, not `project:write`.
-    routers.projects.register(
-        r"signals/product_enablement",
-        ProductEnablementViewSet,
-        "environment_signals_product_enablement",
-        ["team_id"],
     )
     routers.projects.register(
         r"signals/config", signals.SignalTeamConfigViewSet, "environment_signal_config", ["team_id"]

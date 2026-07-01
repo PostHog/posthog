@@ -340,7 +340,7 @@ tools:
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
     products-enable:
-        operation: signals_product_enablement_create
+        operation: product_enablement_create
         enabled: true
         scopes:
             - product_enablement:write
