@@ -53326,11 +53326,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion: string | null;
-      /**
-         * When the run started, or null for a queued/barely-started run.
-         * @nullable
-         */
-      run_started_at: string | null;
+      /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+      run_started_at: string;
       /**
          * Wall-clock duration in seconds; null until the run completes.
          * @nullable
