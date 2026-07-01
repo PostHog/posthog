@@ -220,7 +220,7 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
  */
 export const visionObservationsLabelCreateBodyFeedbackDefault = ``
 export const visionObservationsLabelCreateBodyFeedbackMax = 5000
@@ -234,7 +234,7 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
             .default(visionObservationsLabelCreateBodyFeedbackDefault)
             .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
     })
-    .describe("A user's judgement on whether the scanner scored this session correctly.")
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
  * CRUD for Replay Vision scanners.
@@ -399,7 +399,7 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
 
 /**
- * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
  */
 export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
 export const visionScannersObservationsLabelCreateBodyFeedbackMax = 5000
@@ -413,7 +413,7 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
             .default(visionScannersObservationsLabelCreateBodyFeedbackDefault)
             .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
     })
-    .describe("A user's judgement on whether the scanner scored this session correctly.")
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.

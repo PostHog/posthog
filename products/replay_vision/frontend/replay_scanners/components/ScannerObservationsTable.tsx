@@ -161,6 +161,29 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
         {
+            title: 'Feedback',
+            key: 'feedback',
+            render: (_, obs) => {
+                const label = obs.label
+                if (!label) {
+                    return <span className="text-muted">—</span>
+                }
+                if (label.is_correct) {
+                    return <LemonTag type="success">Correct</LemonTag>
+                }
+                return (
+                    <div className="flex items-center gap-1 max-w-[20rem]">
+                        <LemonTag type="danger">Incorrect</LemonTag>
+                        {label.feedback ? (
+                            <Tooltip title={label.feedback}>
+                                <span className="text-xs text-muted truncate">{label.feedback}</span>
+                            </Tooltip>
+                        ) : null}
+                    </div>
+                )
+            },
+        },
+        {
             title: 'Version',
             key: 'version',
             render: (_, obs) => {

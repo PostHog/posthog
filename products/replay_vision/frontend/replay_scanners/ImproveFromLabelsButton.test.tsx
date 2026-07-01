@@ -80,7 +80,7 @@ describe('ImproveFromLabelsButton', () => {
             ;(visionScannersObservationsList as jest.Mock).mockResolvedValue({
                 results: [
                     {
-                        my_label: { is_correct: false, feedback: 'should be yes' },
+                        label: { is_correct: false, feedback: 'should be yes' },
                         scanner_result: { model_output: { verdict: 'no', reasoning: 'closed the tab' } },
                     },
                 ],
@@ -101,10 +101,10 @@ describe('ImproveFromLabelsButton', () => {
             ;(visionScannersObservationsList as jest.Mock).mockResolvedValue({
                 results: [
                     {
-                        my_label: { is_correct: false, feedback: 'should be yes' },
+                        label: { is_correct: false, feedback: 'should be yes' },
                         scanner_result: { model_output: { verdict: 'no', reasoning: 'closed the tab' } },
                     },
-                    { my_label: null, scanner_result: { model_output: { verdict: 'yes' } } },
+                    { label: null, scanner_result: { model_output: { verdict: 'yes' } } },
                 ],
             })
 

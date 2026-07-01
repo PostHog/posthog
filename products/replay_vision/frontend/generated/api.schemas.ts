@@ -449,7 +449,7 @@ export const ObservationTriggerEnumApi = {
 } as const
 
 /**
- * A user's judgement on whether the scanner scored this session correctly.
+ * The team's shared judgement on whether the scanner scored this session correctly.
  */
 export interface ReplayObservationLabelApi {
     /** True if the scanner scored this session correctly, false if not. */
@@ -510,8 +510,8 @@ export interface ReplayObservationApi {
      * @nullable
      */
     readonly next_observation_id: string | null
-    /** The requesting user's label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-    readonly my_label: ReplayObservationLabelApi | null
+    /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+    readonly label: ReplayObservationLabelApi | null
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -1033,9 +1033,9 @@ export type VisionScannersListParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: boolean
+    labeled?: boolean
     /**
      * Number of results to return per page.
      */
@@ -1076,9 +1076,9 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations the requesting user has labeled (correct or incorrect).
+     * When true, return only observations that have a shared label (correct or incorrect).
      */
-    labeled_by_me?: string
+    labeled?: string
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */

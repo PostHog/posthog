@@ -287,7 +287,7 @@ export const getVisionObservationsLabelCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
  */
 export const visionObservationsLabelCreate = async (
     projectId: string,
@@ -308,7 +308,7 @@ export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: stri
 }
 
 /**
- * Remove the requesting user's label.
+ * Remove the observation's shared label. Requires session recording edit access.
  */
 export const visionObservationsLabelDestroy = async (
     projectId: string,
@@ -540,7 +540,7 @@ export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, s
 }
 
 /**
- * Upsert the requesting user's label on this observation: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. These labels feed prompt improvement.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
  */
 export const visionScannersObservationsLabelCreate = async (
     projectId: string,
@@ -565,7 +565,7 @@ export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, 
 }
 
 /**
- * Remove the requesting user's label.
+ * Remove the observation's shared label. Requires session recording edit access.
  */
 export const visionScannersObservationsLabelDestroy = async (
     projectId: string,

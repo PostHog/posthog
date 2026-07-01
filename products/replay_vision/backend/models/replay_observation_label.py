@@ -4,9 +4,15 @@ from posthog.models.utils import UUIDModel
 
 
 class ReplayObservationLabel(UUIDModel):
-    """One user's judgement on whether a scanner scored a session correctly, with optional feedback."""
+    """The team's shared judgement on whether a scanner scored a session correctly, with optional feedback.
 
-    observation = models.ForeignKey("replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="labels")
+    One label per observation: any editor can set or change it and everyone sees the same value. These labels
+    feed scanner prompt improvement.
+    """
+
+    observation = models.OneToOneField(
+        "replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="label"
+    )
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     is_correct = models.BooleanField(help_text="True if the scanner scored this session correctly, false if not.")
     feedback = models.TextField(
@@ -14,19 +20,10 @@ class ReplayObservationLabel(UUIDModel):
         default="",
         help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
     )
-    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    # Last user to set or edit the shared label; nulled out rather than cascade-deleted if that user is removed.
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["observation", "created_by"], name="replay_observation_label_unique_observation_user"
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["observation"], name="rlol_observation_idx"),
-        ]
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: label.team_id must match observation.team_id.
