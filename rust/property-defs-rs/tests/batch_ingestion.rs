@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -484,10 +484,13 @@ async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
     let cache = setup_cache(&config);
 
+    // last_seen_at is regenerated server-side to one per-attempt timestamp for every row, so the
+    // value passed here doesn't affect which key-duplicate survives; this asserts the dedup itself
+    // (no SQLSTATE 21000) and that the unrelated new def survives.
     let now = Utc::now();
     let batch = vec![
         evt("$pageview", now),
-        evt("$pageview", now + Duration::seconds(3600)),
+        evt("$pageview", now),
         evt("$autocapture", now),
     ];
     process_batch(&config, cache, &db, batch).await;
