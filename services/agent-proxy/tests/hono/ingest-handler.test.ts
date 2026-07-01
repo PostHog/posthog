@@ -892,7 +892,21 @@ describe('ingest-handler', () => {
     // before the drop must stay in Redis for the client's seq-based resume.
     // -----------------------------------------------------------------------
 
-    it('treats a mid-body connection reset as a client disconnect, not a server error', async () => {
+    it.each([
+        {
+            variant: 'ECONNRESET code',
+            makeError: (): Error => Object.assign(new Error('read failed'), { code: 'ECONNRESET' }),
+        },
+        { variant: 'aborted message', makeError: (): Error => new Error('aborted') },
+        {
+            variant: 'AbortError name',
+            makeError: (): Error => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }),
+        },
+        {
+            variant: 'premature close code',
+            makeError: (): Error => Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }),
+        },
+    ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
         const infoSpy = vi.spyOn(logger, 'info')
         const config = makeConfig()
         const enc = new TextEncoder()
@@ -905,9 +919,7 @@ describe('ingest-handler', () => {
                     controller.enqueue(line)
                     return
                 }
-                const abortError = new Error('aborted') as NodeJS.ErrnoException
-                abortError.code = 'ECONNRESET'
-                controller.error(abortError)
+                controller.error(makeError())
             },
         })
 

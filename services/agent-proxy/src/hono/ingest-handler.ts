@@ -115,25 +115,24 @@ export async function handleIngest(
         bytes: 0,
     }
 
-    // Caller-owned so the disconnect branch below can report partial progress.
-    const result: EventIngestResult = { accepted: 0, duplicate: 0, last_accepted_seq: 0 }
+    let result: EventIngestResult
     try {
-        await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming, result)
+        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
     } catch (err: unknown) {
         if (err instanceof ClientDisconnected) {
-            // Sandbox teardown or connection reset mid-body — a normal client
+            // Sandbox teardown or connection reset mid-body is a normal client
             // event, not a server error (mirrors event_ingest.py). Events
             // accepted before the drop are already in Redis; the client
             // resumes from last_accepted_seq with seq-based dedup.
             logger.info('ingest:client_disconnect', {
                 run: claims.runId,
-                accepted: result.accepted,
-                duplicate: result.duplicate,
-                lastSeq: result.last_accepted_seq,
+                accepted: err.accepted,
+                duplicate: err.duplicate,
+                lastSeq: err.lastAcceptedSeq,
                 chunks: bodyTiming.chunks,
                 bodyBytes: bodyTiming.bytes,
             })
-            return c.json({ error: 'Client disconnected', last_accepted_seq: result.last_accepted_seq }, 408)
+            return c.json({ error: 'Client disconnected', last_accepted_seq: err.lastAcceptedSeq }, 408)
         }
         if (err instanceof EventIngestBadRequest) {
             return c.json({ error: err.message }, 400)
@@ -193,10 +192,13 @@ async function ingestEventLines(
     originalToken: string,
     config: Config,
     rawRequest: Request,
-    bodyTiming: IngestBodyTiming,
-    result: EventIngestResult
-): Promise<void> {
-    result.last_accepted_seq = await redisStream.getLastSequence()
+    bodyTiming: IngestBodyTiming
+): Promise<EventIngestResult> {
+    const result: EventIngestResult = {
+        accepted: 0,
+        duplicate: 0,
+        last_accepted_seq: await redisStream.getLastSequence(),
+    }
 
     let eventCount = 0
     let completionLineFinalSeq: number | null = null
@@ -247,6 +249,13 @@ async function ingestEventLines(
             )
         }
     } catch (err: unknown) {
+        // The disconnect is raised by the body reader, which can't see ingest
+        // progress; attach it here so the handler can log and respond with it.
+        if (err instanceof ClientDisconnected) {
+            err.accepted = result.accepted
+            err.duplicate = result.duplicate
+            err.lastAcceptedSeq = result.last_accepted_seq
+        }
         // Re-throw EventIngestPayloadTooLarge with the current last_accepted_seq
         // if the error didn't carry one (mirrors Python's except re-raise).
         if (err instanceof EventIngestPayloadTooLarge && result.last_accepted_seq > 0 && err.lastAcceptedSeq === 0) {
@@ -258,6 +267,8 @@ async function ingestEventLines(
     if (completionLineFinalSeq !== null) {
         await redisStream.markCompleteAfterSequence(completionLineFinalSeq)
     }
+
+    return result
 }
 
 // ---------------------------------------------------------------------------
