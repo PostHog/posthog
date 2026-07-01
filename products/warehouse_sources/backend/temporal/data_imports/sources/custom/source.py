@@ -1519,14 +1519,17 @@ def _inject_oauth2_integration_secrets(
     forbid_bound: bool = False,
     owner_user_id: Optional[int] = None,
 ) -> None:
-    """Inject a model-backed OAuth2 source's live credentials + minted token into ``client.auth``.
+    """Inject a model-backed OAuth2 source's minted access token into ``client.auth`` as a static bearer.
 
     Mutates ``manifest`` in place. Runs at sync, create-time validation, and preview — all DB-capable
     seams where ``team_id`` is known — never on the schema-listing manifest assembly. ``get_access_token()``
-    mints + persists up front, so this is the seam where a rotating provider's new single-use refresh token
-    gets written back before the next sync would reuse the consumed one. The minted token + its expiry are
-    seeded too, so the REST engine reuses them instead of re-minting on the first request (a re-mint would
-    burn — and fail to persist — another rotation).
+    mints + persists up front (under a row lock), so this is the seam where a rotating provider's new
+    single-use refresh token gets written back before the next sync would reuse the consumed one.
+
+    Only the minted access token is seeded — never the refresh_token/client_secret — and ``refresh_disabled``
+    tells the REST engine to send it without ever minting. A mid-sync re-mint would consume a single-use
+    refresh token whose rotation the engine can't persist; instead an expired token surfaces as a retryable
+    401 and the retry re-mints up front through the row.
 
     ``source_id`` / ``forbid_bound`` bind the integration to the source using it; see
     ``_authorize_integration_for_source``.
@@ -1542,11 +1545,13 @@ def _inject_oauth2_integration_secrets(
         integration, team_id, source_id=source_id, forbid_bound=forbid_bound, owner_user_id=owner_user_id
     )
     integration.get_access_token()
-    secrets = integration.sensitive_config
-    auth["client_secret"] = secrets.get("client_secret")
-    auth["refresh_token"] = secrets.get("refresh_token")
-    auth["access_token"] = secrets.get("access_token")
-    auth["access_token_expiry"] = secrets.get("token_expiry")
+    auth["access_token"] = integration.sensitive_config.get("access_token")
+    auth["refresh_disabled"] = True
+    # Strip any minting material so the engine structurally cannot re-mint mid-sync (belt-and-suspenders
+    # to refresh_disabled): the row is the only place a single-use refresh token may be rotated + persisted.
+    auth.pop("client_secret", None)
+    auth.pop("refresh_token", None)
+    auth.pop("access_token_expiry", None)
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:

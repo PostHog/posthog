@@ -137,6 +137,9 @@ class OAuth2AuthConfig(AuthTypeConfig, total=False):
     extra_token_request_params: Optional[dict[str, str]]
     token_request_headers: Optional[dict[str, str]]
     client_auth_method: Optional[OAuth2ClientAuthMethod]
+    refresh_disabled: Optional[
+        bool
+    ]  # set by integration injection: token is minted+persisted up front, so the engine must never mint
 
 
 AuthConfig = (
