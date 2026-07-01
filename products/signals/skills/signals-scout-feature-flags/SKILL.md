@@ -311,8 +311,9 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
 - key `addressed:feature-flags:debt-bundle` — _"Flag-debt bundle already filed (9 stale +
   2 dead-check flags). Don't re-file unless the set grows materially (>5 new)."_
 - key `report:feature-flags:checkout-v2` — _"Report `019f0a96-…` covers the `checkout-v2`
-  evaluation cliff. Edit it (append_note) if the cliff persists or the flag recovers then
-  re-cliffs, rather than filing a new one."_
+  evaluation cliff. Edit it (append_note the fresh numbers) while the cliff persists and the
+  report is still live; if it was resolved and the flag later re-cliffs, that's a fresh
+  report."_
 - key `reviewer:feature-flags:checkout-v2` — _"`checkout-v2` owned by `alice` (GitHub
   login) — route its reports there."_
 
