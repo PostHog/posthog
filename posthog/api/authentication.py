@@ -34,7 +34,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
-from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -143,7 +143,9 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     try:
         return auth(request, backend)
-    except (AuthFailed, AuthMissingParameter) as e:
+    except (AuthFailed, AuthMissingParameter, AuthConnectionError) as e:
+        # AuthConnectionError covers an unreachable IdP or a TLS cert that fails during OIDC discovery -
+        # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
         return redirect("/login?error_code=improperly_configured_sso")
 
