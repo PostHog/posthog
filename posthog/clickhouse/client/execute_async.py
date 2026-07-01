@@ -250,7 +250,10 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        # Expected user-query errors (bad HogQL/ClickHouse queries) are not bugs — don't fill error
+        # tracking with noise. Everything else still gets captured.
+        if not isinstance(err, ExposedHogQLError | ExposedCHQueryError):
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

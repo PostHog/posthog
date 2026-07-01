@@ -2030,5 +2030,9 @@ class TestResolver(BaseTest):
     )
     def test_alias_shadowing_table_field_property_access(self, _name, query):
         expr = self._select(query)
-        with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
+        with self.assertRaises(QueryError) as ctx:
             resolve_types(expr, self.context, dialect="clickhouse")
+        # The internal NotImplementedError must stay suppressed (raised `from None`) so error
+        # tracking titles this by the user-facing QueryError, not the phantom internal crash.
+        self.assertIsNone(ctx.exception.__cause__)
+        self.assertTrue(ctx.exception.__suppress_context__)
