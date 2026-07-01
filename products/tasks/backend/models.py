@@ -74,6 +74,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
+        # HogDesk — the internal support desk client. Tasks it creates from a
+        # ticket's Code chat carry this origin (previously "support_queue", which
+        # collided with the conversations support pipeline).
+        HOGDESK = "hogdesk", "HogDesk"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

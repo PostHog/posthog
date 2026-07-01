@@ -98,27 +98,46 @@ the standalone skills repo) automatically.
 
 ## Testing
 
-You can't trigger a synchronous run as a user — scouts fire on their schedule. The standard
-loop is **emit + inspect**: ship the scout live (`emit=true` is the default), let it emit,
-and calibrate against what actually lands.
+**Dogfood the scout yourself first — before spending any real run.** The authoring agent has
+the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the
+per-product list tools, `signals-scout-project-profile-get`), so the cheapest iteration is to
+walk the scout's own logic against the live project by hand: confirm the watched entity
+exists and has the assumed shape, run the **discriminator** to check it separates signal from
+noise on this project's data, and run each **explore pattern**'s queries. Free and instant —
+refine the body, re-run the queries, repeat, until the logic holds on real data.
 
-1. Ship with the default `emit=true` and a short `run_interval_minutes` (e.g. 30) so it
-   fires soon — set both at creation via `posthog:signals-scout-config-create`.
-2. After a tick, inspect:
+Only once you're happy do you spend a real run. `posthog:signals-scout-run-now {"id":
+<config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the
+`id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the
+harness. The run is **asynchronous** — the call returns a workflow id right away; poll
+`-runs-list` / `-runs-retrieve` for the result. A disabled scout can still be run this way
+(test before enabling), and a manual run doesn't touch the schedule or `last_run_at`. It
+inherits the scheduled path's guards (403 not enabled, 429 over quota / daily run budget, 409
+a run already in progress) and draws from the **same daily run budget** as scheduled runs — a
+dry-run (`emit=false`) counts too. There's no free test run, and it's slow (async, one run per
+call): firing the same scout repeatedly in a short window burns the project's daily allowance
+(and can starve its scheduled scouts). **Don't iterate via `-run-now`** — dogfood the queries
+by hand to get the body right, and reserve `-run-now` for the initial real run and the odd
+re-check after a genuinely meaningful change. The loop is **dogfood → run once ready →
+inspect**:
+
+1. Dogfood the discriminator + explore patterns yourself against the live project (above),
+   refining the body until the logic holds — the cheap, iterable part.
+2. Author the scout and register its config (`-config-create`, default `emit=true`), leaving
+   `run_interval_minutes` at a sustainable value — no short-interval trick needed. Then spend
+   one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
    - `posthog:inbox-reports-list` — the findings it actually emitted.
    - `posthog:signals-scout-runs-list` — run summaries.
    - `posthog:signals-scout-runs-retrieve` — the full reasoning for one run.
    - `posthog:signals-scout-scratchpad-search` — the durable memory it wrote.
-3. Refine the body for whatever it false-positived or missed — tighten the discriminator,
-   add disqualifiers, fix emit calibration. Re-edit via `skill-update`.
-4. Once it's landing the right findings, `config-update` to restore a sustainable interval
-   (the 3h default or slower).
+3. If it needs work, go back to dogfooding the queries by hand for the iteration, re-edit via
+   `skill-update`, and spend another `-run-now` only once you've batched a meaningful change.
 
 **Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive,
 or high-stakes, set `emit=false` so it runs and logs what it _would_ have emitted (visible in
-`-runs-list` / `-runs-retrieve`) without writing to the inbox. Inspect, refine, then
-`config-update` to `emit=true`. For most scouts, emitting straight away and watching the
-inbox is the faster calibration.
+`-runs-list` / `-runs-retrieve`) without writing to the inbox. Trigger it with `-run-now`,
+inspect, refine, then `config-update` to `emit=true`. For most scouts, emitting straight away
+and watching the inbox is the faster calibration.
 
 Repo contributors additionally get `hogli sync:skill` to run the scout against the local
 harness for a tighter loop before merging.

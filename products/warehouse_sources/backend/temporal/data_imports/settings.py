@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    maybe_repartition_table_activity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
@@ -63,4 +66,5 @@ ACTIVITIES = [
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
     remask_columns_activity,
+    maybe_repartition_table_activity,
 ]

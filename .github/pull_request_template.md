@@ -54,7 +54,9 @@
   ✅ feat(insights): add retention graph export
   ❌ feat: Added retention export.   (capitalized, period, no scope)
 - Description: high-level rationale, not a step-by-step replay.
+- Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
+- Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
 - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
