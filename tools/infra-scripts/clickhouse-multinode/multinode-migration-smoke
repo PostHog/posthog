@@ -194,12 +194,18 @@ echo "==> Verifying per-node table layout..."
 python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
 
 # Convergence gate: the migrations just applied must reproduce the declarative
-# HCL golden for the managed OPS/LOGS roles. Introspect those nodes and diff
-# against posthog/clickhouse/hcl/golden/. Defaults to warn-only (VERIFY_LIVE_WARN=1)
-# during the pilot; set VERIFY_LIVE_WARN=0 to make drift fail the smoke.
-SMOKE_STAGE="verify_live_hcl"
-echo "==> Verifying live OPS/LOGS schema matches the HCL golden..."
-VERIFY_LIVE_WARN="${VERIFY_LIVE_WARN:-1}" bash posthog/clickhouse/hcl/verify-live.sh
+# HCL golden for the managed OPS/LOGS roles. Two steps — (1) introspect those
+# nodes into HCL dumps, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
+# Defaults to warn-only (VERIFY_LIVE_WARN=1) during the pilot; set
+# VERIFY_LIVE_WARN=0 to make drift fail the smoke.
+SMOKE_STAGE="dump_live_hcl"
+echo "==> Dumping live OPS/LOGS schema..."
+LIVE_DUMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")"
+bash posthog/clickhouse/hcl/dump-live.sh "$LIVE_DUMP_DIR" >/dev/null
+
+SMOKE_STAGE="check_live_hcl"
+echo "==> Comparing dumped schema against the HCL golden..."
+VERIFY_LIVE_WARN="${VERIFY_LIVE_WARN:-1}" bash posthog/clickhouse/hcl/check-live.sh "$LIVE_DUMP_DIR"
 
 SMOKE_PASSED=1
 SMOKE_STAGE="teardown"
