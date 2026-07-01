@@ -8,6 +8,7 @@ import functools
 import contextlib
 import dataclasses
 import collections.abc
+import multiprocessing as mp
 import concurrent.futures
 
 from django.conf import settings
@@ -75,6 +76,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     SerializedStreamTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
+from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     raise_on_task_failure,
@@ -1716,7 +1718,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                             bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
                         ):
                             pool = concurrent.futures.ProcessPoolExecutor(
-                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS
+                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
+                                mp_context=mp.get_context("forkserver"),
+                                initializer=init_worker,
                             )
                             try:
                                 serialized = SerializedStreamTransformer(pool)
@@ -1813,7 +1817,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                             bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
                         ):
                             pool = concurrent.futures.ProcessPoolExecutor(
-                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS
+                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
+                                mp_context=mp.get_context("forkserver"),
+                                initializer=init_worker,
                             )
                             try:
                                 result = await run_storage_stream_consumers(
