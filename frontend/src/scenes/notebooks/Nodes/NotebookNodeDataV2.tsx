@@ -1,8 +1,12 @@
+import { useActions, useMountedLogic, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeDataV2Logic } from './notebookNodeDataV2Logic'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 export type NotebookNodeDataV2Result = {
     columns: string[]
@@ -12,7 +16,6 @@ export type NotebookNodeDataV2Result = {
 
 export type NotebookNodeDataV2Attributes = {
     code: string
-    // Populated by the run flow, wired in a later step.
     runId?: string | null
     result?: NotebookNodeDataV2Result | null
 }
@@ -26,6 +29,14 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDataV2Attributes>): JSX.Element | null => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const nodeId = nodeLogic.props.nodeId
+    const notebookShortId = nodeLogic.props.notebookLogic.props.shortId
+
+    const dataLogic = notebookNodeDataV2Logic({ nodeId, notebookShortId, updateAttributes })
+    const { isRunning, isStarting, runError } = useValues(dataLogic)
+    const { runQuery, startInstance } = useActions(dataLogic)
+
     const result = attributes.result ?? null
 
     return (
@@ -40,12 +51,29 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
             />
             <div className="flex items-center gap-2">
-                <LemonButton type="primary" size="small" disabledReason="Run is wired in a later step">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={isRunning}
+                    disabledReason={isRunning ? 'Running…' : undefined}
+                    onClick={() => runQuery(attributes.code ?? '')}
+                >
                     Run
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={isStarting}
+                    disabledReason={isStarting ? 'Starting…' : undefined}
+                    onClick={() => startInstance()}
+                >
+                    Start instance
                 </LemonButton>
                 <span className="text-[10px] uppercase tracking-wide text-muted">revamped-py-notebooks</span>
             </div>
-            {result ? (
+            {runError ? (
+                <div className="rounded border border-danger p-2 text-sm text-danger">{runError}</div>
+            ) : result ? (
                 <div className="rounded border border-border p-2 text-sm font-mono">{renderResult(result)}</div>
             ) : (
                 <div className="text-xs text-muted">Run the query to see results.</div>

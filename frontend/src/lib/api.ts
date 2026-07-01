@@ -4919,6 +4919,31 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async dataV2Run(
+            notebookId: NotebookType['short_id'],
+            data: { node_id: string; code: string }
+        ): Promise<{ run_id: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('data_v2/run').create({ data })
+        },
+        async dataV2RunStream(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`data_v2/runs/${runId}/stream`)
+                .assembleFullUrl(true)
+            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+        },
         async markdownSave(
             notebookId: NotebookType['short_id'],
             data: {
