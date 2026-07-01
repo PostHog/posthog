@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -428,17 +429,21 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                 actions.updateConnection()
                 actions.updateGeoConnection()
-                const [
-                    usersPageviewsResponse,
-                    deviceResponse,
-                    browserResponse,
-                    pathsResponse,
-                    referrerResponse,
-                    geoResponse,
-                    recentUsersResponse,
-                    botResponse,
-                    cityResponse,
-                ] = await loadQueryData({
+                const {
+                    responses: {
+                        usersPageviewsResponse,
+                        deviceResponse,
+                        browserResponse,
+                        pathsResponse,
+                        referrerResponse,
+                        geoResponse,
+                        recentUsersResponse,
+                        botResponse,
+                        cityResponse,
+                    },
+                    attempted,
+                    failed,
+                } = await loadQueryData({
                     dateFrom,
                     dateTo: handoff,
                     filters: values.liveFilters,
@@ -448,21 +453,53 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
-                addUserDataToBuckets(usersPageviewsResponse, bucketMap)
-                addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
-                addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
-                addPathDataToBuckets(pathsResponse, bucketMap)
-                addReferrerDataToBuckets(referrerResponse, bucketMap)
-                addGeoDataToBuckets(geoResponse, bucketMap)
+                // Each response can be null when its query failed; render whatever did load.
+                if (usersPageviewsResponse) {
+                    addUserDataToBuckets(usersPageviewsResponse, bucketMap)
+                }
+                if (deviceResponse) {
+                    addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
+                }
+                if (browserResponse) {
+                    addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
+                }
+                if (pathsResponse) {
+                    addPathDataToBuckets(pathsResponse, bucketMap)
+                }
+                if (referrerResponse) {
+                    addReferrerDataToBuckets(referrerResponse, bucketMap)
+                }
+                if (geoResponse) {
+                    addGeoDataToBuckets(geoResponse, bucketMap)
+                }
                 addCityDataToBuckets(cityResponse, bucketMap)
-                addBotDataToBuckets(botResponse, bucketMap)
+                if (botResponse) {
+                    addBotDataToBuckets(botResponse, bucketMap)
+                }
 
                 actions.setInitialData(
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
                     recentUsersResponse ? getRecentUsersByLastSeenEntries(recentUsersResponse) : []
                 )
+
+                // A project with no events resolves every query successfully with empty
+                // results, so nothing to report — it just renders the empty dashboard. Only
+                // surface a failure when a query actually rejected, and only block with an
+                // error toast when every query failed (a genuine fetch/query outage), so
+                // partial gaps stay silent rather than reading as a broken page.
+                if (failed > 0) {
+                    posthog.capture('web_analytics_live_initial_load_failed', {
+                        failed_query_count: failed,
+                        attempted_query_count: attempted,
+                        total_failure: failed >= attempted,
+                    })
+                    if (failed >= attempted) {
+                        lemonToast.error('Failed to load live data')
+                    }
+                }
             } catch (error) {
                 console.error('Failed to load initial live pageview data:', error)
+                posthog.capture('web_analytics_live_initial_load_failed', { unexpected: true })
                 lemonToast.error('Failed to load initial data')
             } finally {
                 actions.setIsLoading(false)
@@ -663,7 +700,39 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     }, FLUSH_INTERVAL_MS)
 }
 
-const loadQueryData = async ({
+interface InitialLoadResult {
+    responses: {
+        usersPageviewsResponse: HogQLQueryResponse | null
+        deviceResponse: HogQLQueryResponse | null
+        browserResponse: HogQLQueryResponse | null
+        pathsResponse: TrendsQueryResponse | null
+        referrerResponse: HogQLQueryResponse | null
+        geoResponse: HogQLQueryResponse | null
+        recentUsersResponse: HogQLQueryResponse | null
+        botResponse: HogQLQueryResponse | null
+        cityResponse: HogQLQueryResponse | null
+    }
+    // Number of queries actually issued (excludes conditionally-skipped ones)
+    attempted: number
+    // How many of those rejected
+    failed: number
+}
+
+// Runs a single query, logging and swallowing rejections so one failing query
+// can't take down the whole initial load. Returns null on failure and bumps the
+// shared failure counter so the caller can tell empty-project (all succeed, no rows)
+// from a genuine fetch error (some or all reject).
+const settleQuery = async <T,>(label: string, promise: Promise<T>, failures: { count: number }): Promise<T | null> => {
+    try {
+        return await promise
+    } catch (error) {
+        failures.count += 1
+        console.error(`Live web analytics initial query failed (${label}):`, error)
+        return null
+    }
+}
+
+export const loadQueryData = async ({
     dateFrom,
     dateTo,
     filters,
@@ -675,19 +744,7 @@ const loadQueryData = async ({
     filters: WebAnalyticsPropertyFilter[]
     includeCity: boolean
     filtersEnabled: boolean
-}): Promise<
-    [
-        HogQLQueryResponse,
-        HogQLQueryResponse,
-        HogQLQueryResponse,
-        TrendsQueryResponse,
-        HogQLQueryResponse,
-        HogQLQueryResponse,
-        HogQLQueryResponse | null,
-        HogQLQueryResponse,
-        HogQLQueryResponse | null,
-    ]
-> => {
+}): Promise<InitialLoadResult> => {
     const whereClause = filtersEnabled
         ? '{filters}'
         : 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
@@ -907,17 +964,52 @@ const loadQueryData = async ({
               }
             : null
 
-    return await Promise.all([
-        performQuery(usersPageviewsQuery),
-        performQuery(deviceQuery),
-        performQuery(browserQuery),
-        performQuery(pathsQuery),
-        performQuery(referrerQuery),
-        performQuery(geoQuery),
-        recentUsersQuery ? performQuery(recentUsersQuery) : Promise.resolve(null),
-        performQuery(botQuery),
-        cityQuery ? performQuery(cityQuery) : Promise.resolve(null),
+    // Fire every query concurrently, but wrap each so a single rejection (a slow query
+    // timing out, a transient backend error) can't reject the whole batch — we render
+    // whatever succeeded and hand the caller the failure count instead.
+    const failures = { count: 0 }
+    const recentUsersPromise = recentUsersQuery ? performQuery(recentUsersQuery) : null
+    const cityPromise = cityQuery ? performQuery(cityQuery) : null
+
+    const [
+        usersPageviewsResponse,
+        deviceResponse,
+        browserResponse,
+        pathsResponse,
+        referrerResponse,
+        geoResponse,
+        botResponse,
+        recentUsersResponse,
+        cityResponse,
+    ] = await Promise.all([
+        settleQuery('users_pageviews', performQuery(usersPageviewsQuery), failures),
+        settleQuery('device', performQuery(deviceQuery), failures),
+        settleQuery('browser', performQuery(browserQuery), failures),
+        settleQuery('paths', performQuery(pathsQuery), failures),
+        settleQuery('referrer', performQuery(referrerQuery), failures),
+        settleQuery('geo', performQuery(geoQuery), failures),
+        settleQuery('bot', performQuery(botQuery), failures),
+        recentUsersPromise ? settleQuery('recent_users', recentUsersPromise, failures) : Promise.resolve(null),
+        cityPromise ? settleQuery('city', cityPromise, failures) : Promise.resolve(null),
     ])
+
+    const attempted = 7 + (recentUsersPromise ? 1 : 0) + (cityPromise ? 1 : 0)
+
+    return {
+        responses: {
+            usersPageviewsResponse,
+            deviceResponse,
+            browserResponse,
+            pathsResponse,
+            referrerResponse,
+            geoResponse,
+            recentUsersResponse,
+            botResponse,
+            cityResponse,
+        },
+        attempted,
+        failed: failures.count,
+    }
 }
 
 const getRecentUsersByLastSeenEntries = (response: HogQLQueryResponse): [string, number][] => {
